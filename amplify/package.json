@@ -2,7 +2,7 @@
   "type": "module",
   "dependencies": {
     "@aws-amplify/backend": "^1.18.0",
-    "@aws-sdk/client-bedrock-runtime": "^3.934.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.936.0",
     "patreon": "^0.4.1"
   },
   "devDependencies": {
