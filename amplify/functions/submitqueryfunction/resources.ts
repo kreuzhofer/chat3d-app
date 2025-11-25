@@ -15,5 +15,7 @@ export const submitQueryFunction = defineFunction({
     OPENAI_PROJECT_ID: secret("OPENAI_PROJECT_ID"),
     OPENAI_ORGANIZATION_ID: secret("OPENAI_ORGANIZATION_ID"),
     XAI_API_KEY: secret("XAI_API_KEY"),
+    BUILD123D_URL: process.env.BUILD123D_URL || '',
+    BUILD123D_TOKEN: process.env.BUILD123D_TOKEN || '',
   },
 });

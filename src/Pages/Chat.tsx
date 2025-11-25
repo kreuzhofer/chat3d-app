@@ -50,10 +50,10 @@ function Chat()
         image: { avatar: false, src: "" },
     } as IModelOption));
 
-    var defaultLLMOption = "3dModelLLM_Claude4.0";
+    var defaultLLMOption = "3dModelLLM_Ollama_Build123d";
     if(isDev)
     {
-        defaultLLMOption = "3dModelLLM_Claude3.7_Build123d";
+        defaultLLMOption = "3dModelLLM_Ollama_Build123d";
     }
     const [selectedLlmConfiguration, setSelectedLlmConfiguration] = useState<IModelOption>(modelOptions.find((o)=>o.key === defaultLLMOption) || modelOptions[1]);
 

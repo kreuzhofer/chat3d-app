@@ -18,10 +18,10 @@ export class OllamaAdapter implements ILLMAdapter {
         // Implement the submitQuery method
 
         const ollamaMessages = [
-            { role: "user", content: this.modelDefinition.systemPrompt(context) },
+            { role: "system", content: this.modelDefinition.systemPrompt(context) },
             ...messages.map((message) => ({
                 role: message.role,
-                content: message.content.map((content) => ({ type: content.type, text: content.text }))
+                content: message.content.filter((content) => content.type === "text").map((content) => content.text).join(' ')
             }))
         ];
         console.log("Ollama Messages:"+JSON.stringify(ollamaMessages));

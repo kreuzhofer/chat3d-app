@@ -15,7 +15,7 @@ import { GetS3FileAsByteArrayAsync } from "./GetS3FileAsByteArrayAsync";
 import { Buffer } from 'buffer';
 
 import * as winston from "winston";
-import { LLMDefinitions } from "./LLMDefinitions";
+import { LLMDefinitions, RenderingProvider } from "./LLMDefinitions";
 const logger = winston.createLogger({
     transports: [new winston.transports.Console()],
   });
@@ -33,6 +33,7 @@ import { z } from "zod";
 import { StaticDocuments } from "./StaticDocuments";
 import { RenderingProviderFactory } from "./RenderingProviderFactory";
 import { retry } from './RetryUtils';
+import { Build123dExamples } from "./Build123dExamples";
 
 const { resourceConfig, libraryOptions } = await getAmplifyDataClientConfig(env);
 Amplify.configure(resourceConfig, libraryOptions);
@@ -259,8 +260,16 @@ export const handler: Schema["submitQuery"]["functionHandler"] = async (event) =
                 const llmAdapter = LLMAdapterFactory.initializeAdapter(modelDefinition3DGenerator);
                 const renderingProvider = RenderingProviderFactory.initializeProvider(modelDefinition3DGenerator.renderingProvider, openScadExecutorFunctionName);
 
-                var context = OpenScadExamples.map((item) => "<example>//User: "+item.prompt+"\nAssistant: "+item.code+"</example>").join("\n");
-                context += StaticDocuments.map((item) => "<example>//User: "+item.prompt+"\nAssistant: "+item.code+"</example>").join("\n");
+                var context = "";
+                if(modelDefinition3DGenerator.renderingProvider === RenderingProvider.OpenScad)
+                {
+                  context = OpenScadExamples.map((item) => "<example>//User: "+item.prompt+"\nAssistant: "+item.code+"</example>").join("\n");
+                  context += StaticDocuments.map((item) => "<example>//User: "+item.prompt+"\nAssistant: "+item.code+"</example>").join("\n");
+                }
+                else if(modelDefinition3DGenerator.renderingProvider === RenderingProvider.Build123d)
+                {
+                  context = Build123dExamples.map((item) => "<example>//User: "+item.prompt+"\nAssistant: "+item.code+"</example>").join("\n");
+                }
 
                 const CADDesignResponse = z.object({
                     plan: z.string(),

@@ -9,6 +9,7 @@ import { claimPatreonBenefitsFunction } from './functions/claimPatreonBenefitsFu
 import { patreonOauthRequestHandlerFunction } from './functions/handlePatreonOauthRequest/resources';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import { Duration } from 'aws-cdk-lib';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { checkPatreonStatusFunction } from './functions/checkPatreonStatusFunction/resources';
@@ -90,6 +91,10 @@ const role = new iam.Role(customResourceStack, 'LambdaPromptEvaluationRole', {
   }
 });
 
+const openscadExecutorLogGroup = new logs.LogGroup(customResourceStack, 'OpenscadExecutorFunctionWithImageLogGroup', {
+  retention: RetentionDays.ONE_WEEK
+});
+
 const openscadExecutorFunctionWithImage = new lambda.Function(customResourceStack, 'OpenscadExecutorFunctionWithImage', {
   code: lambda.Code.fromEcrImage(repository, {
     tagOrDigest: 'latest',
@@ -102,7 +107,7 @@ const openscadExecutorFunctionWithImage = new lambda.Function(customResourceStac
   timeout: Duration.seconds(240),
   role: role,
   memorySize: 2048,
-  logRetention: RetentionDays.ONE_WEEK
+  logGroup: openscadExecutorLogGroup
 });
 
 backend.addOutput({
