@@ -504,7 +504,7 @@ Revised build order:
 | Milestone | Status | Depends On | Evidence |
 |---|---|---|---|
 | M1 Foundation + Schema | Completed | - | `npm run m1:typecheck:workspaces`, `npm --workspace @chat3d/backend run build`, `docker-compose config -q`, `docker-compose up -d postgres redis backend frontend && docker-compose ps`, `npm run m1:backend:bootstrap`, Postgres validation queries for migrations/tables/admin/settings |
-| M2 Auth + Roles | Not Started | M1 | - |
+| M2 Auth + Roles | Completed | M1 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M3 SSE + Notification Spine | Not Started | M2 | - |
 | M4 Waitlist + Registration Tokens | Not Started | M2, M3 | - |
 | M5 Invitations + Policy Controls | Not Started | M4 | - |
@@ -533,14 +533,14 @@ Revised build order:
 
 - Objective: secure auth baseline with `admin` and `user` authorization.
 - Subtasks:
-- [ ] M2.1 Implement password hashing and JWT issuance/verification.
-- [ ] M2.2 Add auth middleware and role guard middleware.
-- [ ] M2.3 Implement `/api/auth/register`, `/api/auth/login`, `/api/auth/me`.
-- [ ] M2.4 Enforce `users.status` checks (`active` only for login/use).
-- [ ] M2.5 Frontend auth context and route guards.
+- [x] M2.1 Implement password hashing and JWT issuance/verification.
+- [x] M2.2 Add auth middleware and role guard middleware.
+- [x] M2.3 Implement `/api/auth/register`, `/api/auth/login`, `/api/auth/me`.
+- [x] M2.4 Enforce `users.status` checks (`active` only for login/use).
+- [x] M2.5 Frontend auth context and route guards.
 - Exit criteria:
-- [ ] M2.E1 Non-admins are blocked from admin routes.
-- [ ] M2.E2 Auth integration test suite passes.
+- [x] M2.E1 Non-admins are blocked from admin routes.
+- [x] M2.E2 Auth integration test suite passes.
 
 ### M3: SSE + Notification Spine
 

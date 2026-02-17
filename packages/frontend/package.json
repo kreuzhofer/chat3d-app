@@ -4,9 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.13.0"
   },
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "@types/react": "^19.2.14",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
   }
 }

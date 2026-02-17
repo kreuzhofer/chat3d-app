@@ -1,4 +1,4 @@
-import { Pool } from "pg";
+import { Pool, type QueryResult, type QueryResultRow } from "pg";
 import { config } from "../config.js";
 
 export const pool = new Pool({
@@ -10,6 +10,9 @@ export const pool = new Pool({
   ssl: config.db.ssl ? { rejectUnauthorized: false } : false,
 });
 
-export async function query(text: string, params?: unknown[]) {
-  return pool.query(text, params);
+export async function query<T extends QueryResultRow = QueryResultRow>(
+  text: string,
+  params?: unknown[],
+): Promise<QueryResult<T>> {
+  return pool.query<T>(text, params);
 }
