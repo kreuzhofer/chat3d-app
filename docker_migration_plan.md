@@ -518,7 +518,7 @@ Revised build order:
 | M2 Auth + Roles | Completed | M1 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M3 SSE + Notification Spine | Completed | M2 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M4 Waitlist + Registration Tokens | Completed | M2, M3 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
-| M5 Invitations + Policy Controls | Not Started | M4 | - |
+| M5 Invitations + Policy Controls | Completed | M4 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M6 Admin APIs + Admin Panel | Not Started | M5 | - |
 | M7 Profile + Account Lifecycle | Not Started | M6 | - |
 | M8 Chat CRUD + Files Migration | Not Started | M2, M3 | - |
@@ -584,14 +584,14 @@ Revised build order:
 
 - Objective: user invitations with admin-defined quota and waitlist behavior.
 - Subtasks:
-- [ ] M5.1 Implement `/api/invitations` CRUD for inviter users.
-- [ ] M5.2 Enforce `invitations_enabled` gate and per-user quota.
-- [ ] M5.3 Implement invite path switch: direct registration or waitlist (`invitation_waitlist_required`).
-- [ ] M5.4 Add invitation email templates and token issuance where applicable.
-- [ ] M5.5 Add SSE notifications for invitation lifecycle changes.
+- [x] M5.1 Implement `/api/invitations` CRUD for inviter users.
+- [x] M5.2 Enforce `invitations_enabled` gate and per-user quota.
+- [x] M5.3 Implement invite path switch: direct registration or waitlist (`invitation_waitlist_required`).
+- [x] M5.4 Add invitation email templates and token issuance where applicable.
+- [x] M5.5 Add SSE notifications for invitation lifecycle changes.
 - Exit criteria:
-- [ ] M5.E1 Quota and feature flag behavior verified by integration tests.
-- [ ] M5.E2 Invited user receives correct email flow in both policy modes.
+- [x] M5.E1 Quota and feature flag behavior verified by integration tests.
+- [x] M5.E2 Invited user receives correct email flow in both policy modes.
 
 ### M6: Admin APIs + Admin Panel
 

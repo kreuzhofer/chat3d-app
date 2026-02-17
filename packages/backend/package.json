@@ -11,7 +11,7 @@
     "db:seed": "tsx src/db/seed.ts",
     "db:bootstrap": "npm run db:migrate && npm run db:seed",
     "test": "npm run db:migrate && vitest run",
-    "test:integration": "npm run db:migrate && vitest run src/__tests__/auth.integration.test.ts src/__tests__/waitlist.integration.test.ts"
+    "test:integration": "npm run db:migrate && vitest run src/__tests__/auth.integration.test.ts src/__tests__/waitlist.integration.test.ts src/__tests__/invitations.integration.test.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

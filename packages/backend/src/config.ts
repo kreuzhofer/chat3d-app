@@ -47,4 +47,7 @@ export const config = {
     confirmationTokenTtlHours: readNumber("WAITLIST_CONFIRMATION_TOKEN_TTL_HOURS", "24"),
     registrationTokenTtlHours: readNumber("WAITLIST_REGISTRATION_TOKEN_TTL_HOURS", "168"),
   },
+  invitations: {
+    registrationTokenTtlHours: readNumber("INVITATION_REGISTRATION_TOKEN_TTL_HOURS", "168"),
+  },
 };

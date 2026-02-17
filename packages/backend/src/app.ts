@@ -3,6 +3,7 @@ import { query } from "./db/connection.js";
 import { adminRouter } from "./routes/admin.routes.js";
 import { authRouter } from "./routes/auth.routes.js";
 import { eventsRouter } from "./routes/events.routes.js";
+import { invitationsRouter } from "./routes/invitations.routes.js";
 import { waitlistRouter } from "./routes/waitlist.routes.js";
 
 export function createApp() {
@@ -26,6 +27,7 @@ export function createApp() {
   app.use("/api/auth", authRouter);
   app.use("/api/admin", adminRouter);
   app.use("/api/events", eventsRouter);
+  app.use("/api/invitations", invitationsRouter);
   app.use("/api/waitlist", waitlistRouter);
 
   app.use((req, res) => {
