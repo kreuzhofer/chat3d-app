@@ -517,7 +517,7 @@ Revised build order:
 | M1 Foundation + Schema | Completed | - | `npm run m1:typecheck:workspaces`, `npm --workspace @chat3d/backend run build`, `docker-compose config -q`, `docker-compose up -d postgres redis backend frontend && docker-compose ps`, `npm run m1:backend:bootstrap`, Postgres validation queries for migrations/tables/admin/settings |
 | M2 Auth + Roles | Completed | M1 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M3 SSE + Notification Spine | Completed | M2 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
-| M4 Waitlist + Registration Tokens | Not Started | M2, M3 | - |
+| M4 Waitlist + Registration Tokens | Completed | M2, M3 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M5 Invitations + Policy Controls | Not Started | M4 | - |
 | M6 Admin APIs + Admin Panel | Not Started | M5 | - |
 | M7 Profile + Account Lifecycle | Not Started | M6 | - |
@@ -570,15 +570,15 @@ Revised build order:
 
 - Objective: waitlist gate and approval flow with email confirmation.
 - Subtasks:
-- [ ] M4.1 Implement `/api/waitlist/join` with marketing consent capture.
-- [ ] M4.2 Implement waitlist email confirmation token flow.
-- [ ] M4.3 Implement admin approve/reject endpoints for waitlist entries.
-- [ ] M4.4 Generate single-use registration tokens tied to email.
-- [ ] M4.5 Enforce registration token validation in `/api/auth/register` when waitlist is enabled.
-- [ ] M4.6 Send approval email with registration link token.
+- [x] M4.1 Implement `/api/waitlist/join` with marketing consent capture.
+- [x] M4.2 Implement waitlist email confirmation token flow.
+- [x] M4.3 Implement admin approve/reject endpoints for waitlist entries.
+- [x] M4.4 Generate single-use registration tokens tied to email.
+- [x] M4.5 Enforce registration token validation in `/api/auth/register` when waitlist is enabled.
+- [x] M4.6 Send approval email with registration link token.
 - Exit criteria:
-- [ ] M4.E1 Waitlisted user cannot register before admin approval.
-- [ ] M4.E2 Approved user can register exactly once with token.
+- [x] M4.E1 Waitlisted user cannot register before admin approval.
+- [x] M4.E2 Approved user can register exactly once with token.
 
 ### M5: Invitations + Policy Controls
 

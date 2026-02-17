@@ -49,6 +49,15 @@ describe("Milestone 2/3 auth and events integration", () => {
   beforeAll(async () => {
     await query(
       `
+      UPDATE app_settings
+      SET waitlist_enabled = FALSE,
+          updated_at = NOW()
+      WHERE id = TRUE;
+      `,
+    );
+
+    await query(
+      `
       DELETE FROM users
       WHERE email = ANY($1::text[]);
       `,

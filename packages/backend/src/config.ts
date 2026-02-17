@@ -34,10 +34,17 @@ export const config = {
     host: readEnv("REDIS_HOST", "localhost"),
     port: readNumber("REDIS_PORT", "6379"),
   },
+  app: {
+    baseUrl: readEnv("APP_BASE_URL", "http://localhost"),
+  },
   auth: {
     jwtSecret: readEnv("JWT_SECRET", "change-this"),
     seedAdminEmail: readEnv("SEED_ADMIN_EMAIL", "admin@chat3d.local"),
     seedAdminPassword: readEnv("SEED_ADMIN_PASSWORD", "change-admin-password"),
     seedAdminDisplayName: process.env.SEED_ADMIN_DISPLAY_NAME ?? "Initial Admin",
+  },
+  waitlist: {
+    confirmationTokenTtlHours: readNumber("WAITLIST_CONFIRMATION_TOKEN_TTL_HOURS", "24"),
+    registrationTokenTtlHours: readNumber("WAITLIST_REGISTRATION_TOKEN_TTL_HOURS", "168"),
   },
 };

@@ -1,20 +1,34 @@
 import { Router } from "express";
+import type { QueryResultRow } from "pg";
+import { pool } from "../db/connection.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
   assertValidPassword,
-  createUser,
   findUserByEmail,
+  hashPassword,
   issueAuthToken,
   normalizeEmail,
   verifyPassword,
 } from "../services/auth.service.js";
+import { isWaitlistEnabled } from "../services/app-settings.service.js";
+import { consumeRegistrationToken, WaitlistError } from "../services/waitlist.service.js";
 
 export const authRouter = Router();
+
+interface RegisterUserRow extends QueryResultRow {
+  id: string;
+  email: string;
+  display_name: string | null;
+  role: "admin" | "user";
+  status: "active" | "deactivated" | "pending_registration";
+}
 
 authRouter.post("/register", async (req, res) => {
   const email = typeof req.body?.email === "string" ? req.body.email : "";
   const password = typeof req.body?.password === "string" ? req.body.password : "";
   const displayName = typeof req.body?.displayName === "string" ? req.body.displayName : undefined;
+  const registrationToken =
+    typeof req.body?.registrationToken === "string" ? req.body.registrationToken : "";
 
   if (!email || !password) {
     res.status(400).json({ error: "Email and password are required" });
@@ -27,24 +41,77 @@ authRouter.post("/register", async (req, res) => {
   }
 
   const normalizedEmail = normalizeEmail(email);
+  const waitlistEnabled = await isWaitlistEnabled();
+
+  if (waitlistEnabled && !registrationToken) {
+    res.status(403).json({ error: "A valid registration token is required while waitlist is enabled" });
+    return;
+  }
+
+  const client = await pool.connect();
 
   try {
-    const existing = await findUserByEmail(normalizedEmail);
-    if (existing) {
+    await client.query("BEGIN");
+
+    const existingResult = await client.query<{ id: string }>(
+      `
+      SELECT id
+      FROM users
+      WHERE email = $1
+      FOR UPDATE;
+      `,
+      [normalizedEmail],
+    );
+
+    if (existingResult.rows[0]) {
+      await client.query("ROLLBACK");
       res.status(409).json({ error: "Email is already registered" });
       return;
     }
 
-    const user = await createUser({
-      email: normalizedEmail,
-      password,
-      displayName,
-    });
+    if (waitlistEnabled) {
+      await consumeRegistrationToken({
+        rawToken: registrationToken,
+        email: normalizedEmail,
+        client,
+      });
+    }
+
+    const passwordHash = await hashPassword(password);
+    const normalizedDisplayName = displayName?.trim() || null;
+
+    const insertResult = await client.query<RegisterUserRow>(
+      `
+      INSERT INTO users (email, password_hash, display_name, role, status)
+      VALUES ($1, $2, $3, 'user', 'active')
+      RETURNING id, email, display_name, role, status;
+      `,
+      [normalizedEmail, passwordHash, normalizedDisplayName],
+    );
+
+    await client.query("COMMIT");
+
+    const inserted = insertResult.rows[0];
+    const user = {
+      id: inserted.id,
+      email: inserted.email,
+      displayName: inserted.display_name,
+      role: inserted.role,
+      status: inserted.status,
+    };
 
     const token = await issueAuthToken(user);
     res.status(201).json({ token, user });
   } catch (error) {
+    await client.query("ROLLBACK");
+    if (error instanceof WaitlistError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+
     res.status(500).json({ error: "Failed to register user", detail: String(error) });
+  } finally {
+    client.release();
   }
 });
 
