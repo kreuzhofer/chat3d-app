@@ -13,6 +13,17 @@ import { FileUploader } from "@aws-amplify/ui-react-storage";
 import { list, remove } from "aws-amplify/storage";
 import { LLMDefinitions } from "../../amplify/functions/submitqueryfunction/LLMDefinitions";
 
+type AmplifyOutputs = {
+    custom: {
+        openscadExecutorFunctionWithImageName: string;
+    };
+    storage: {
+        bucket_name: string;
+    };
+};
+
+const amplifyOutputs = outputs as unknown as AmplifyOutputs;
+
 const client = generateClient<Schema>();
 const isDev = import.meta.env.DEV;
 interface IModelOption {
@@ -183,8 +194,8 @@ function Chat()
                 query: query, 
                 newUserChatItemId: newUserChatItem.data?.id, 
                 newAssistantChatItemId: newAssistantChatItem.data?.id,
-                openScadExecutorFunctionName: outputs.custom.openscadExecutorFunctionWithImageName,
-                bucket: outputs.storage.bucket_name,
+                openScadExecutorFunctionName: amplifyOutputs.custom.openscadExecutorFunctionWithImageName,
+                bucket: amplifyOutputs.storage.bucket_name,
                 llmconfiguration: selectedLlmConfiguration.value
              });
              handleScrollToBottom();

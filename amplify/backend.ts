@@ -68,51 +68,51 @@ const endpoint = new apigw.LambdaRestApi(customResourceStack, `ApiGwEndpoint`, {
   restApiName: `PatreonOauthAPI`,
 });
 
-const repository = ecr.Repository.fromRepositoryName(customResourceStack, 'OpenscadExecutorRepository', 'chat3lambdadopenscad');
+//const repository = ecr.Repository.fromRepositoryName(customResourceStack, 'OpenscadExecutorRepository', 'chat3lambdadopenscad');
 
-const role = new iam.Role(customResourceStack, 'LambdaPromptEvaluationRole', {
-  assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
-  managedPolicies: [
-    iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
-  ],
-  inlinePolicies: {
-    "S3AccessPolicy": new iam.PolicyDocument({
-      statements: [
-        new iam.PolicyStatement({
-          effect: iam.Effect.ALLOW,
-          actions: [
-            "s3:GetObject",
-            "s3:PutObject",
-            ],
-          resources: ['*'],
-        }),
-      ]
-    })
-  }
-});
+// const role = new iam.Role(customResourceStack, 'LambdaPromptEvaluationRole', {
+//   assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+//   managedPolicies: [
+//     iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+//   ],
+//   inlinePolicies: {
+//     "S3AccessPolicy": new iam.PolicyDocument({
+//       statements: [
+//         new iam.PolicyStatement({
+//           effect: iam.Effect.ALLOW,
+//           actions: [
+//             "s3:GetObject",
+//             "s3:PutObject",
+//             ],
+//           resources: ['*'],
+//         }),
+//       ]
+//     })
+//   }
+// });
 
-const openscadExecutorLogGroup = new logs.LogGroup(customResourceStack, 'OpenscadExecutorFunctionWithImageLogGroup', {
-  retention: RetentionDays.ONE_WEEK
-});
+// const openscadExecutorLogGroup = new logs.LogGroup(customResourceStack, 'OpenscadExecutorFunctionWithImageLogGroup', {
+//   retention: RetentionDays.ONE_WEEK
+// });
 
-const openscadExecutorFunctionWithImage = new lambda.Function(customResourceStack, 'OpenscadExecutorFunctionWithImage', {
-  code: lambda.Code.fromEcrImage(repository, {
-    tagOrDigest: 'latest',
-  }),
-  handler: lambda.Handler.FROM_IMAGE,
-  runtime: lambda.Runtime.FROM_IMAGE,
-  environment: {
-    // Add any environment variables if needed
-  },
-  timeout: Duration.seconds(240),
-  role: role,
-  memorySize: 2048,
-  logGroup: openscadExecutorLogGroup
-});
+// const openscadExecutorFunctionWithImage = new lambda.Function(customResourceStack, 'OpenscadExecutorFunctionWithImage', {
+//   code: lambda.Code.fromEcrImage(repository, {
+//     tagOrDigest: 'latest',
+//   }),
+//   handler: lambda.Handler.FROM_IMAGE,
+//   runtime: lambda.Runtime.FROM_IMAGE,
+//   environment: {
+//     // Add any environment variables if needed
+//   },
+//   timeout: Duration.seconds(240),
+//   role: role,
+//   memorySize: 2048,
+//   logGroup: openscadExecutorLogGroup
+// });
 
-backend.addOutput({
-  custom : {
-    openscadExecutorFunctionWithImageName: openscadExecutorFunctionWithImage.functionName,
-  }  
-});
+// backend.addOutput({
+//   custom : {
+//     openscadExecutorFunctionWithImageName: openscadExecutorFunctionWithImage.functionName,
+//   }  
+// });
 

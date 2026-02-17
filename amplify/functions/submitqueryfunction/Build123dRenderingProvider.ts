@@ -1,6 +1,6 @@
 import { IRenderingProvider, RenderModelResult } from "./IRenderingProvider";
-import { S3 } from "aws-sdk";
-import { env } from '$amplify/env/submitQueryFunction';
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { env } from "$amplify/env/submitQueryFunction";
 
 const template = `
 from build123d import *
@@ -15,19 +15,19 @@ exporter.write("###FILENAME###.stl")
 `;
 
 export class Build123dRenderingProvider implements IRenderingProvider {
-    private s3 = new S3();
+    private s3 = new S3Client({});
 
     async generateSourceCodeFile(code: string, messageId: string, bucket: string): Promise<string> {
         console.log("Uploading code: ", code);
         const key = `modelcreator/${messageId}.b123d`;
-        await this.s3
-            .putObject({
+        await this.s3.send(
+            new PutObjectCommand({
                 Bucket: bucket,
                 Key: key,
                 Body: code,
                 ContentType: "text/plain",
-            })
-            .promise();
+            }),
+        );
         return key;
     }
 
@@ -39,18 +39,14 @@ export class Build123dRenderingProvider implements IRenderingProvider {
         const build123dToken = env.BUILD123D_TOKEN;
 
         //read code from bucket into code variable
-        const codeFileFromS3 = await this.s3
-            .getObject({
+        const codeFileFromS3 = await this.s3.send(
+            new GetObjectCommand({
                 Bucket: bucket,
                 Key: sourceFileName,
-            })
-            .promise();
+            }),
+        );
         console.log("CodeFileFromS3: ", codeFileFromS3);
-        // get the "Body" from the response
-        const codeBody = codeFileFromS3.Body;
-        console.log("CodeBody: ", codeBody);
-        // decode the body
-        const code = codeBody?.toString();
+        const code = await codeFileFromS3.Body?.transformToString();
         console.log("Code: ", code);
 
         if(!code) {
@@ -104,14 +100,14 @@ export class Build123dRenderingProvider implements IRenderingProvider {
                 {
                     const fileContent = Buffer.from(file.content, "base64");
                     const targetModelKey = `modelcreator/${file.filename}`;
-                    await this.s3
-                        .putObject({
+                    await this.s3.send(
+                        new PutObjectCommand({
                             Bucket: bucket,
                             Key: targetModelKey,
                             Body: fileContent,
                             ContentType: "application/octet-stream",
-                        })
-                        .promise();
+                        }),
+                    );
                 }
                 const targetModelKey = 'modelcreator/'+responseJson.files.filter((f: any)=>f.filename.endsWith(".3mf")).pop().filename;
                 return {
