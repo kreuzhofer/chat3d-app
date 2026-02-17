@@ -3,6 +3,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../app.js";
 import { pool, query } from "../db/connection.js";
+import { notificationService } from "../services/notification.service.js";
 
 interface LoginResponse {
   token: string;
@@ -21,6 +22,9 @@ const userEmail = `m2-user-${suffix}@example.test`;
 const adminEmail = `m2-admin-${suffix}@example.test`;
 const deactivatedEmail = `m2-deactivated-${suffix}@example.test`;
 const password = "S3curePass!123";
+let userId = "";
+let adminId = "";
+let deactivatedUserId = "";
 
 async function insertUser(
   email: string,
@@ -39,7 +43,7 @@ async function insertUser(
   return result.rows[0].id;
 }
 
-describe("Milestone 2 auth integration", () => {
+describe("Milestone 2/3 auth and events integration", () => {
   const app = createApp();
 
   beforeAll(async () => {
@@ -51,9 +55,13 @@ describe("Milestone 2 auth integration", () => {
       [[registeredEmail, userEmail, adminEmail, deactivatedEmail]],
     );
 
-    await insertUser(userEmail, "user", "active");
-    await insertUser(adminEmail, "admin", "active");
-    await insertUser(deactivatedEmail, "user", "deactivated");
+    userId = await insertUser(userEmail, "user", "active");
+    adminId = await insertUser(adminEmail, "admin", "active");
+    deactivatedUserId = await insertUser(deactivatedEmail, "user", "deactivated");
+
+    await query(`DELETE FROM notifications WHERE user_id = ANY($1::uuid[]);`, [
+      [userId, adminId, deactivatedUserId],
+    ]);
   });
 
   afterAll(async () => {
@@ -166,5 +174,37 @@ describe("Milestone 2 auth integration", () => {
     expect(meResponse.status).toBe(403);
 
     await query(`UPDATE users SET status = 'active' WHERE email = $1;`, [userEmail]);
+  });
+
+  it("rejects unauthorized SSE stream requests", async () => {
+    const response = await request(app).get("/api/events/stream");
+    expect(response.status).toBe(401);
+  });
+
+  it("returns persisted notifications via replay endpoint", async () => {
+    const loginResponse = await request(app).post("/api/auth/login").send({
+      email: userEmail,
+      password,
+    });
+    const token = (loginResponse.body as LoginResponse).token;
+
+    const first = await notificationService.publishToUser(userId, "notification.created", {
+      step: "first",
+    });
+    await notificationService.publishToUser(userId, "notification.created", {
+      step: "second",
+    });
+
+    const replayResponse = await request(app)
+      .get(`/api/events/replay?afterId=${first.id}`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(replayResponse.status).toBe(200);
+    expect(Array.isArray(replayResponse.body.notifications)).toBe(true);
+    expect(
+      replayResponse.body.notifications.some(
+        (notification: { payload: { step?: string } }) => notification.payload?.step === "second",
+      ),
+    ).toBe(true);
   });
 });

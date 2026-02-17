@@ -25,7 +25,7 @@ graph LR
     Backend --> PostgreSQL["PostgreSQL\n(DB)"]
     Backend --> Redis["Redis\n(pub/sub + queues)"]
     Backend --> Storage["Local Storage\n(files)"]
-    Backend --> Build123d["Build123d Service\n(external)"]
+    Backend --> Build123d["Build123d Service\n(internal docker :80, linux/amd64)"]
     Backend --> LLM["LLM Providers\n(Vercel AI SDK)"]
     Backend --> Email["SMTP/Email Provider\n(transactional emails)"]
 ```
@@ -137,6 +137,12 @@ chat3d/
 |           |- Admin.tsx
 |           |- WaitlistJoin.tsx
 |           \- CompleteRegistration.tsx
+|- services/
+|  \- build123d/
+|     |- Dockerfile
+|     |- requirements.txt
+|     \- app/
+|        \- main.py
 ```
 
 ---
@@ -387,7 +393,10 @@ Pipeline state transitions are published via SSE (`chat.query.state`) instead of
 
 ## Build123d Rendering
 
-Adapt from current Build123d rendering provider:
+Self-hosted in this repository under `services/build123d` and orchestrated by `docker-compose`.
+- `docker-compose` runs `build123d` as `platform: linux/amd64` (required because native arm runtime is not supported).
+- Backend calls local service URL (`http://build123d:80` in-container by default).
+- No external Build123d endpoint is required for local/prod Docker deployments.
 - POST `${BUILD123D_URL}/render/` with auth token.
 - Parse success/error payloads.
 - Store generated files on local mounted volume.
@@ -450,6 +459,7 @@ Token handling:
 ### `docker-compose.yml` services
 - `postgres` (PostgreSQL 16)
 - `redis` (pub/sub + queue)
+- `build123d` (FastAPI render service, forced `linux/amd64`)
 - `backend` (Express API)
 - `frontend` (nginx + built React)
 
@@ -457,7 +467,8 @@ Token handling:
 ```
 DB_PASSWORD=chat3d_dev
 JWT_SECRET=change-this
-BUILD123D_URL=https://your-build123d-service.com
+BUILD123D_PORT=30222
+BUILD123D_URL=http://build123d:80
 BUILD123D_TOKEN=
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
@@ -505,7 +516,7 @@ Revised build order:
 |---|---|---|---|
 | M1 Foundation + Schema | Completed | - | `npm run m1:typecheck:workspaces`, `npm --workspace @chat3d/backend run build`, `docker-compose config -q`, `docker-compose up -d postgres redis backend frontend && docker-compose ps`, `npm run m1:backend:bootstrap`, Postgres validation queries for migrations/tables/admin/settings |
 | M2 Auth + Roles | Completed | M1 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
-| M3 SSE + Notification Spine | Not Started | M2 | - |
+| M3 SSE + Notification Spine | Completed | M2 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M4 Waitlist + Registration Tokens | Not Started | M2, M3 | - |
 | M5 Invitations + Policy Controls | Not Started | M4 | - |
 | M6 Admin APIs + Admin Panel | Not Started | M5 | - |
@@ -546,14 +557,14 @@ Revised build order:
 
 - Objective: no-polling realtime transport available to all later features.
 - Subtasks:
-- [ ] M3.1 Implement `/api/events/stream` with JWT auth.
-- [ ] M3.2 Add heartbeat, reconnect support, and `Last-Event-ID`.
-- [ ] M3.3 Add `notifications` persistence and replay endpoint.
-- [ ] M3.4 Implement backend event publisher abstraction (`notification.service`, `sse.service`).
-- [ ] M3.5 Implement frontend `useSSE` + notification context.
+- [x] M3.1 Implement `/api/events/stream` with JWT auth.
+- [x] M3.2 Add heartbeat, reconnect support, and `Last-Event-ID`.
+- [x] M3.3 Add `notifications` persistence and replay endpoint.
+- [x] M3.4 Implement backend event publisher abstraction (`notification.service`, `sse.service`).
+- [x] M3.5 Implement frontend `useSSE` + notification context.
 - Exit criteria:
-- [ ] M3.E1 Realtime event delivery verified for authenticated user.
-- [ ] M3.E2 Reconnect/replay behavior verified.
+- [x] M3.E1 Realtime event delivery verified for authenticated user.
+- [x] M3.E2 Reconnect/replay behavior verified.
 
 ### M4: Waitlist + Registration Tokens
 

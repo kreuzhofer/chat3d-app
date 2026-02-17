@@ -1,16 +1,27 @@
 import type { NextFunction, Request, Response } from "express";
 import { findUserById, verifyAuthToken } from "../services/auth.service.js";
 
-export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+function extractBearerToken(req: Request): string | null {
   const rawHeader = req.header("authorization");
-  if (!rawHeader) {
-    res.status(401).json({ error: "Missing authorization header" });
-    return;
+  if (rawHeader) {
+    const [scheme, token] = rawHeader.split(" ");
+    if (scheme === "Bearer" && token) {
+      return token;
+    }
   }
 
-  const [scheme, token] = rawHeader.split(" ");
-  if (scheme !== "Bearer" || !token) {
-    res.status(401).json({ error: "Invalid authorization header format" });
+  const queryToken = req.query.token;
+  if (typeof queryToken === "string" && queryToken.length > 0) {
+    return queryToken;
+  }
+
+  return null;
+}
+
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const token = extractBearerToken(req);
+  if (!token) {
+    res.status(401).json({ error: "Missing authorization header" });
     return;
   }
 
