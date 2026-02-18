@@ -8,16 +8,16 @@
   ],
   "scripts": {
     "dev": "docker compose up --build",
-    "build": "npm --workspace @chat3d/backend run build && npm --workspace @chat3d/frontend run typecheck",
+    "build": "npm run guard:active-runtime && npm --workspace @chat3d/backend run build && npm --workspace @chat3d/frontend run typecheck",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "docker compose ps",
+    "guard:active-runtime": "node scripts/check-active-runtime-boundary.mjs",
     "m1:typecheck:workspaces": "tsc -b tsconfig.workspaces.json",
     "m1:backend:migrate": "npm --workspace @chat3d/backend run db:migrate",
     "m1:backend:seed": "npm --workspace @chat3d/backend run db:seed",
     "m1:backend:bootstrap": "npm --workspace @chat3d/backend run db:bootstrap"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.991.0",
     "@dotenvx/dotenvx": "^1.52.0",
     "@types/mixpanel": "^2.14.9",
     "mixpanel": "^0.20.0",

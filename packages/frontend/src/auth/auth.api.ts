@@ -9,6 +9,7 @@ interface CredentialsPayload {
 
 interface RegisterPayload extends CredentialsPayload {
   displayName?: string;
+  registrationToken?: string;
 }
 
 async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
@@ -41,6 +42,21 @@ export function register(payload: RegisterPayload): Promise<AuthResponse> {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function logout(token: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/logout`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok && response.status !== 401) {
+    const body = await response.json().catch(() => ({}));
+    const message = typeof body?.error === "string" ? body.error : "Logout request failed";
+    throw new Error(message);
+  }
 }
 
 export function me(token: string): Promise<AuthUser> {

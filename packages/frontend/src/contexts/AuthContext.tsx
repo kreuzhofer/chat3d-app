@@ -18,8 +18,8 @@ export interface AuthContextValue {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, displayName?: string) => Promise<void>;
-  logout: () => void;
+  register: (email: string, password: string, displayName?: string, registrationToken?: string) => Promise<void>;
+  logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
 
@@ -71,16 +71,23 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [applyAuthenticatedState]);
 
   const register = useCallback(
-    async (email: string, password: string, displayName?: string) => {
-      const response = await authApi.register({ email, password, displayName });
+    async (email: string, password: string, displayName?: string, registrationToken?: string) => {
+      const response = await authApi.register({ email, password, displayName, registrationToken });
       applyAuthenticatedState(response.token, response.user);
     },
     [applyAuthenticatedState],
   );
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    if (token) {
+      try {
+        await authApi.logout(token);
+      } catch {
+        // Ignore remote logout failures and clear local session regardless.
+      }
+    }
     resetAuth();
-  }, [resetAuth]);
+  }, [resetAuth, token]);
 
   useEffect(() => {
     let mounted = true;

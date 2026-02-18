@@ -1,4 +1,5 @@
 import { query } from "../db/connection.js";
+import { notificationBus } from "./notification-bus.service.js";
 import { sseService, type PersistedNotificationEvent } from "./sse.service.js";
 
 interface NotificationRow {
@@ -27,6 +28,12 @@ function mapNotificationRow(row: NotificationRow): PersistedNotificationEvent {
 }
 
 export class NotificationService {
+  constructor() {
+    notificationBus.registerHandler((event) => {
+      sseService.publishToUser(event);
+    });
+  }
+
   async createNotification(
     userId: string,
     eventType: string,
@@ -72,7 +79,10 @@ export class NotificationService {
     payload: Record<string, unknown>,
   ): Promise<PersistedNotificationEvent> {
     const notification = await this.createNotification(userId, eventType, payload);
-    sseService.publishToUser(notification);
+    const publishedViaBus = await notificationBus.publish(notification);
+    if (!publishedViaBus) {
+      sseService.publishToUser(notification);
+    }
     return notification;
   }
 }

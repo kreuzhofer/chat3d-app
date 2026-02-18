@@ -12,6 +12,7 @@ import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { InvitationManager } from "./InvitationManager";
 
 type MessageKind = "success" | "error";
 
@@ -281,6 +282,8 @@ export function ProfilePanel() {
           </div>
         </CardContent>
       </Card>
+
+      <InvitationManager />
     </section>
   );
 }

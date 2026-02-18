@@ -1,21 +1,25 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-This repo is a React + Vite + TypeScript frontend with an AWS Amplify backend.
+Active runtime is the Dockerized stack in `packages/*`:
+- `packages/backend`: Express + PostgreSQL API.
+- `packages/frontend`: React + Vite frontend.
 
-- `src/`: app code.
-- `src/Pages/`: route-level screens (`Chat.tsx`, `Profile.tsx`).
-- `src/Components/`: reusable UI and 3D/chat components.
+Legacy reference code remains in:
+- `src/` and `amplify/` (Amplify-era implementation, not active runtime).
+
+- `src/`: archived legacy frontend code.
 - `public/`: static assets (icons, images, mock HTML).
-- `amplify/`: backend definitions, auth triggers, and Lambda handlers (for chat submission, Patreon flows, etc.).
+- `amplify/`: archived legacy backend definitions, auth triggers, and Lambda handlers.
 - `dist/`: production build output (generated).
 
-Keep new UI logic in `src/`, and backend cloud logic in `amplify/functions/` or `amplify/auth/`.
+Keep new runtime changes in `packages/backend` and `packages/frontend`.
 
 ## Build, Test, and Development Commands
 - `npm install`: install frontend dependencies.
-- `npm run dev`: start local Vite dev server.
-- `npm run build`: type-check (`tsc`) and build production bundle.
+- `npm run dev`: start Docker runtime (`docker compose up --build`).
+- `npm run build`: active-runtime guard + backend/frontend build checks.
+- `npm run guard:active-runtime`: fail if active packages import Amplify/Mixpanel/Patreon/OpenSCAD.
 - `npm run preview`: serve the built bundle locally.
 - `npm run lint`: run ESLint for `.ts`/`.tsx`.
 - `npx dotenvx run npx ampx sandbox`: start/update Amplify sandbox using `.env`.

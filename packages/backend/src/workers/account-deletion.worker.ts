@@ -40,7 +40,10 @@ export async function runAccountDeletionSweep(limit = 100): Promise<{
 
 async function runAsScript() {
   try {
-    const result = await runAccountDeletionSweep();
+    const limitRaw = process.env.ACCOUNT_DELETION_SWEEP_LIMIT;
+    const parsedLimit = limitRaw ? Number(limitRaw) : undefined;
+    const limit = Number.isFinite(parsedLimit) ? Number(parsedLimit) : undefined;
+    const result = await runAccountDeletionSweep(limit);
     console.log(`[account-deletion-worker] deleted=${result.deletedCount}`);
   } catch (error) {
     console.error("[account-deletion-worker] failed", error);

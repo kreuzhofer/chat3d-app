@@ -1,8 +1,10 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AdminPanel } from "./components/AdminPanel";
 import { ChatWorkspace } from "./components/ChatWorkspace";
+import { NotificationCenter } from "./components/NotificationCenter";
 import { ProfilePanel } from "./components/ProfilePanel";
 import { QueryWorkbench } from "./components/QueryWorkbench";
+import { WaitlistPanel } from "./components/WaitlistPanel";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
@@ -10,18 +12,20 @@ import { Label } from "./components/ui/label";
 import { useNotifications } from "./contexts/NotificationsContext";
 import { useAuth } from "./hooks/useAuth";
 
-type ViewKey = "chat" | "query" | "profile" | "admin";
+type ViewKey = "chat" | "query" | "profile" | "notifications" | "admin";
 
 interface AuthFormState {
   email: string;
   password: string;
   displayName: string;
+  registrationToken: string;
 }
 
 const initialAuthFormState: AuthFormState = {
   email: "",
   password: "",
   displayName: "",
+  registrationToken: "",
 };
 
 export function App() {
@@ -34,16 +38,35 @@ export function App() {
   const [busyAction, setBusyAction] = useState<"login" | "register" | null>(null);
   const [authError, setAuthError] = useState("");
 
-  const availableViews = useMemo(() => {
-    if (user?.role === "admin") {
-      return (["chat", "query", "profile", "admin"] as const).map((key) => ({
-        key,
-        label: key === "query" ? "Query" : key === "profile" ? "Profile" : key === "admin" ? "Admin" : "Chat",
+  useEffect(() => {
+    const registerToken = new URLSearchParams(window.location.search).get("token");
+    if (window.location.pathname.startsWith("/register") && registerToken) {
+      setRegisterForm((state) => ({
+        ...state,
+        registrationToken: registerToken,
       }));
     }
-    return (["chat", "query", "profile"] as const).map((key) => ({
+  }, []);
+
+  const availableViews = useMemo(() => {
+    if (user?.role === "admin") {
+      return (["chat", "query", "profile", "notifications", "admin"] as const).map((key) => ({
+        key,
+        label:
+          key === "query"
+            ? "Query"
+            : key === "profile"
+              ? "Profile"
+              : key === "notifications"
+                ? "Notifications"
+                : key === "admin"
+                  ? "Admin"
+                  : "Chat",
+      }));
+    }
+    return (["chat", "query", "profile", "notifications"] as const).map((key) => ({
       key,
-      label: key === "query" ? "Query" : key === "profile" ? "Profile" : "Chat",
+      label: key === "query" ? "Query" : key === "profile" ? "Profile" : key === "notifications" ? "Notifications" : "Chat",
     }));
   }, [user?.role]);
 
@@ -66,7 +89,12 @@ export function App() {
     setBusyAction("register");
     setAuthError("");
     try {
-      await register(registerForm.email, registerForm.password, registerForm.displayName || undefined);
+      await register(
+        registerForm.email,
+        registerForm.password,
+        registerForm.displayName || undefined,
+        registerForm.registrationToken || undefined,
+      );
       setRegisterForm(initialAuthFormState);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : String(error));
@@ -82,7 +110,7 @@ export function App() {
   if (!isAuthenticated) {
     return (
       <main className="min-h-screen bg-[hsl(var(--background))] p-6 text-[hsl(var(--foreground))]">
-        <div className="mx-auto grid max-w-5xl gap-4 md:grid-cols-2">
+        <div className="mx-auto grid max-w-5xl gap-4 md:grid-cols-3">
           <Card>
             <CardHeader>
               <CardTitle>Sign in</CardTitle>
@@ -151,12 +179,25 @@ export function App() {
                     required
                   />
                 </div>
+                <div className="space-y-1">
+                  <Label htmlFor="register-token">Registration token</Label>
+                  <Input
+                    id="register-token"
+                    value={registerForm.registrationToken}
+                    onChange={(event) =>
+                      setRegisterForm((state) => ({ ...state, registrationToken: event.target.value }))
+                    }
+                    placeholder="Required when waitlist is enabled"
+                  />
+                </div>
                 <Button disabled={busyAction !== null} type="submit">
                   Create account
                 </Button>
               </form>
             </CardContent>
           </Card>
+
+          <WaitlistPanel compact />
         </div>
         {authError ? <p className="mx-auto mt-4 max-w-5xl text-sm text-[hsl(var(--destructive))]">{authError}</p> : null}
       </main>
@@ -194,7 +235,7 @@ export function App() {
               <Button variant="outline" onClick={() => markAllRead()}>
                 Mark All Read
               </Button>
-              <Button variant="destructive" onClick={() => logout()}>
+              <Button variant="destructive" onClick={() => void logout()}>
                 Logout
               </Button>
             </div>
@@ -204,6 +245,7 @@ export function App() {
         {activeView === "chat" ? <ChatWorkspace /> : null}
         {activeView === "query" ? <QueryWorkbench /> : null}
         {activeView === "profile" ? <ProfilePanel /> : null}
+        {activeView === "notifications" ? <NotificationCenter /> : null}
         {activeView === "admin" && user?.role === "admin" ? <AdminPanel /> : null}
       </div>
     </main>

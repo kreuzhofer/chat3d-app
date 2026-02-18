@@ -381,7 +381,7 @@ Provider mapping:
 - `anthropic` -> `@ai-sdk/anthropic`
 - `openai` -> `@ai-sdk/openai`
 - `xai` -> `@ai-sdk/xai`
-- `ollama` -> `ollama-ai-provider`
+- `ollama` -> `@ai-sdk/openai-compatible` (targeting Ollama OpenAI-compatible endpoint)
 
 Two-stage pipeline:
 1. Conversation model with tool use.
@@ -533,7 +533,7 @@ Revised build order:
 | M8 Chat CRUD + Files Migration | Completed | M2, M3 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M9 Query + LLM + Build123d Pipeline | Completed | M8 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M10 Hardening + Cutover + Decommission | Completed | M7, M9 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
-| M11 Gap Closure + Productionization | Planned | M10 | Gap closure PRs with API contract tests, SMTP integration tests, SSE multi-instance test, and deploy validation notes |
+| M11 Gap Closure + Productionization | Completed | M10 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces`, `npm run guard:active-runtime`, `docker compose build backend frontend account-deletion-worker`, `docker compose up -d backend frontend account-deletion-worker`, `curl http://localhost:3001/health`, `curl http://localhost:3001/ready` |
 | M12 Legacy Chat UX Port (Amplify -> Docker Frontend) | Planned | M11 | Chat route parity demo on `/packages/frontend`, component tests, and Docker smoke validation |
 | M13 Chat Feature Parity (3D Viewer, Files, Actions) | Planned | M12 | End-to-end query/render/download/rate/regenerate verification in Docker |
 | M14 Amplify Runtime Decommission + Dependency Purge | Planned | M13 | `aws-amplify`/`semantic-ui` runtime dependency removal PR, clean lockfile, and regression runbook |
@@ -696,18 +696,18 @@ Revised build order:
 - Objective: close residual implementation gaps found in the post-M10 audit and align contracts with the migration plan.
 - Subtasks:
 - [x] M11.1 Implement API parity: add `/api/auth/logout`, `/api/waitlist/confirm-email`, and `/api/waitlist/status` while preserving backward compatibility.
-- [ ] M11.2 Replace in-memory email sender with SMTP-backed transactional delivery and test-mode transport.
-- [ ] M11.3 Implement Redis pub/sub fanout for SSE notification delivery across backend instances.
-- [ ] M11.4 Expand Vercel AI SDK provider support to Anthropic, XAI, and Ollama with config-driven model selection.
-- [ ] M11.5 Enforce Build123d internal-only exposure policy (profile/env based) and add deployment checks for backend-only service access.
-- [ ] M11.6 Implement frontend waitlist flows, invitation manager UX, and notification center.
-- [ ] M11.7 Operationalize account deletion worker on a schedule and document ownership/monitoring.
-- [ ] M11.8 Finalize legacy boundary cleanup for Mixpanel/Patreon/OpenSCAD codepaths and dependencies.
+- [x] M11.2 Replace in-memory email sender with SMTP-backed transactional delivery and test-mode transport.
+- [x] M11.3 Implement Redis pub/sub fanout for SSE notification delivery across backend instances.
+- [x] M11.4 Expand Vercel AI SDK provider support to Anthropic, XAI, and Ollama with config-driven model selection.
+- [x] M11.5 Enforce Build123d internal-only exposure policy (profile/env based) and add deployment checks for backend-only service access.
+- [x] M11.6 Implement frontend waitlist flows, invitation manager UX, and notification center.
+- [x] M11.7 Operationalize account deletion worker on a schedule and document ownership/monitoring.
+- [x] M11.8 Finalize legacy boundary cleanup for Mixpanel/Patreon/OpenSCAD codepaths and dependencies.
 - Exit criteria:
-- [ ] M11.E1 API contract tests cover both canonical and compatibility routes.
-- [ ] M11.E2 Email, SSE multi-instance fanout, and Build123d internal-network isolation checks pass integration/deploy tests.
-- [ ] M11.E3 Frontend supports waitlist/invitation/notification flows end-to-end against Docker stack.
-- [ ] M11.E4 Deployment/runbook docs reflect scheduled worker execution and legacy boundary decisions.
+- [x] M11.E1 API contract tests cover both canonical and compatibility routes.
+- [x] M11.E2 Email, SSE multi-instance fanout, and Build123d internal-network isolation checks pass integration/deploy tests.
+- [x] M11.E3 Frontend supports waitlist/invitation/notification flows end-to-end against Docker stack.
+- [x] M11.E4 Deployment/runbook docs reflect scheduled worker execution and legacy boundary decisions.
 
 ### M12: Legacy Chat UX Port (Amplify -> Docker Frontend)
 
