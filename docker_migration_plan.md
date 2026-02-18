@@ -397,7 +397,7 @@ Self-hosted in this repository under `services/build123d` and orchestrated by `d
 - `docker-compose` runs `build123d` as `platform: linux/amd64` (required because native arm runtime is not supported).
 - Backend calls local service URL (`http://build123d:80` in-container by default).
 - No external Build123d endpoint is required for local/prod Docker deployments.
-- POST `${BUILD123D_URL}/render/` with auth token.
+- POST `${BUILD123D_URL}/render/` over the internal Docker network.
 - Parse success/error payloads.
 - Store generated files on local mounted volume.
 - Publish render progress and completion through SSE.
@@ -479,7 +479,6 @@ DB_PASSWORD=chat3d_dev
 JWT_SECRET=change-this
 BUILD123D_PORT=30222
 BUILD123D_URL=http://build123d:80
-BUILD123D_TOKEN=
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 XAI_API_KEY=
@@ -535,6 +534,9 @@ Revised build order:
 | M9 Query + LLM + Build123d Pipeline | Completed | M8 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M10 Hardening + Cutover + Decommission | Completed | M7, M9 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M11 Gap Closure + Productionization | Planned | M10 | Gap closure PRs with API contract tests, SMTP integration tests, SSE multi-instance test, and deploy validation notes |
+| M12 Legacy Chat UX Port (Amplify -> Docker Frontend) | Planned | M11 | Chat route parity demo on `/packages/frontend`, component tests, and Docker smoke validation |
+| M13 Chat Feature Parity (3D Viewer, Files, Actions) | Planned | M12 | End-to-end query/render/download/rate/regenerate verification in Docker |
+| M14 Amplify Runtime Decommission + Dependency Purge | Planned | M13 | `aws-amplify`/`semantic-ui` runtime dependency removal PR, clean lockfile, and regression runbook |
 
 ### M1: Foundation + Schema
 
@@ -684,7 +686,7 @@ Revised build order:
 | G2 | Transactional email provider integration (SMTP) | `email.service.ts` stores messages in-memory and logs to console | No real delivery pipeline, retry strategy, or provider health signal | Implement SMTP-backed sender (for example `nodemailer`) with retries, timeout handling, and test doubles |
 | G3 | Redis-backed fanout/queueing for realtime and multi-instance scaling | `sse.service.ts` uses in-process `Map<userId, clients>` only; Redis is not used by backend runtime | Realtime only works reliably within a single backend instance | Add Redis pub/sub adapter for notification fanout and SSE delivery across instances |
 | G4 | LLM provider matrix via Vercel AI SDK (`anthropic`, `openai`, `xai`, `ollama`) | `llm.service.ts` currently supports `mock` and `openai` only | Planned provider coverage is incomplete | Add provider adapters and env-driven model routing; extend `/api/llm/models` and tests for each provider mode |
-| G5 | Build123d call with auth token (`BUILD123D_TOKEN`) | `rendering.service.ts` does not send an auth token; `config.ts` does not read `BUILD123D_TOKEN` | Missing auth contract between backend and renderer service | Add `BUILD123D_TOKEN` config, forward auth header on render requests, and verify in integration tests |
+| G5 | Build123d internal-service isolation | Build123d is intended as internal-only service but can be exposed via host port mapping in compose variants | Internal boundary is policy-only without explicit deployment guardrails | Define env/profile-based port exposure policy, default to internal-only in prod, and verify backend-only reachability in deployment checks |
 | G6 | Frontend product-area completeness: waitlist flows, invitation management, notification center | Current frontend includes auth/chat/query/admin/profile panels; no dedicated waitlist screens, invitation manager UI, or notification feed UI | Several planned user-facing flows are backend-only today | Add waitlist join/confirm/status screens, invitation manager in profile, and notification center based on SSE replay/stream |
 | G7 | Automated account deletion lifecycle operations | `account-deletion.worker.ts` exists but runs manually only | No scheduled execution path in Docker operations | Add scheduled worker execution (containerized cron/supercronic or external scheduler contract) and runbook steps |
 | G8 | Decommission boundary for legacy integrations (Mixpanel/Patreon/OpenSCAD) | Runtime no longer depends on Amplify, but legacy root app still carries old dependencies/code paths | Risk of accidental drift and unclear source-of-truth for active runtime | Isolate legacy code paths under explicit archive boundary and prune default install/runtime dependency surface |
@@ -697,15 +699,64 @@ Revised build order:
 - [ ] M11.2 Replace in-memory email sender with SMTP-backed transactional delivery and test-mode transport.
 - [ ] M11.3 Implement Redis pub/sub fanout for SSE notification delivery across backend instances.
 - [ ] M11.4 Expand Vercel AI SDK provider support to Anthropic, XAI, and Ollama with config-driven model selection.
-- [ ] M11.5 Add `BUILD123D_TOKEN` config handling and authenticated renderer calls.
+- [ ] M11.5 Enforce Build123d internal-only exposure policy (profile/env based) and add deployment checks for backend-only service access.
 - [ ] M11.6 Implement frontend waitlist flows, invitation manager UX, and notification center.
 - [ ] M11.7 Operationalize account deletion worker on a schedule and document ownership/monitoring.
 - [ ] M11.8 Finalize legacy boundary cleanup for Mixpanel/Patreon/OpenSCAD codepaths and dependencies.
 - Exit criteria:
 - [ ] M11.E1 API contract tests cover both canonical and compatibility routes.
-- [ ] M11.E2 Email, SSE multi-instance fanout, and Build123d auth flows pass integration tests.
+- [ ] M11.E2 Email, SSE multi-instance fanout, and Build123d internal-network isolation checks pass integration/deploy tests.
 - [ ] M11.E3 Frontend supports waitlist/invitation/notification flows end-to-end against Docker stack.
 - [ ] M11.E4 Deployment/runbook docs reflect scheduled worker execution and legacy boundary decisions.
+
+### M12: Legacy Chat UX Port (Amplify -> Docker Frontend)
+
+- Objective: rebuild the old Amplify chat experience in the new `/packages/frontend` app framework using REST + SSE, without introducing Amplify runtime APIs.
+- Subtasks:
+- [ ] M12.1 Produce a feature parity matrix from legacy files (`src/Pages/Chat.tsx`, `src/Components/ChatMessage*.tsx`, `src/Components/ChatContextComponent.tsx`) and map each feature to target components in `packages/frontend/src`.
+- [ ] M12.2 Add dedicated chat routes/layout in `packages/frontend` (context list, active thread, message composer, model selection controls).
+- [ ] M12.3 Implement chat context lifecycle UX parity: create, rename, open, delete, and navigation state synchronization.
+- [ ] M12.4 Implement message timeline parity: user/assistant rendering, markdown, pending/error states, and auto-scroll behavior.
+- [ ] M12.5 Integrate SSE-driven state updates for chat/query lifecycle (`chat.item.updated`, `chat.query.state`) with resilient reconnect/replay handling in chat views.
+- [ ] M12.6 Add explicit adapters from backend message payloads to UI view-models to avoid direct legacy schema coupling.
+- [ ] M12.7 Add frontend tests for route-level chat flows (context switching, optimistic/pending states, SSE event application).
+- [ ] M12.8 Document migrated chat UX behavior and known intentional deviations from legacy Amplify UI.
+- Exit criteria:
+- [ ] M12.E1 Primary chat workflow (open context, send prompt, receive assistant updates) works in `/packages/frontend` without Amplify libraries.
+- [ ] M12.E2 No active chat route in `packages/frontend` imports `aws-amplify` or legacy root `src/*` modules.
+- [ ] M12.E3 Regression tests cover core chat interactions and SSE update handling.
+
+### M13: Chat Feature Parity (3D Viewer, Files, Actions)
+
+- Objective: close remaining chat capability gaps (3D preview, file handling, ratings, regenerate actions) in the new frontend/backend contracts.
+- Subtasks:
+- [ ] M13.1 Implement binary-safe file API client support in `packages/frontend` for model downloads/preview streams.
+- [ ] M13.2 Port/adapt model viewer UX from legacy (`ModelViewer.tsx`) to new frontend architecture and styling system.
+- [ ] M13.3 Add generated file action bar parity (download STEP/STL/3MF/B123D where available) with clear availability/error states.
+- [ ] M13.4 Implement assistant-item feedback/rating and regenerate/retry actions against Docker backend endpoints.
+- [ ] M13.5 Add explicit backend/frontend contract tests for message `itemType` variants (`message`, `errormessage`, model/file metadata entries).
+- [ ] M13.6 Add performance guardrails for large chat histories and model viewer mount/unmount lifecycle.
+- [ ] M13.7 Produce end-to-end test script: create prompt -> query -> render -> preview/download -> rate -> regenerate.
+- Exit criteria:
+- [ ] M13.E1 New chat UI supports model generation and file consumption flows with no Amplify storage components.
+- [ ] M13.E2 Ratings/regenerate flows are fully wired and verified.
+- [ ] M13.E3 Docker smoke tests demonstrate stable chat + render + file UX across page refresh and reconnect.
+
+### M14: Amplify Runtime Decommission + Dependency Purge
+
+- Objective: remove runtime ambiguity by decommissioning legacy Amplify app paths and eliminating unused Amplify-era dependencies from active development paths.
+- Subtasks:
+- [ ] M14.1 Define explicit ownership boundary: `/packages/*` is active runtime; legacy root app is archived reference only.
+- [ ] M14.2 Remove root runtime dependencies tied to legacy app (`aws-amplify`, `@aws-amplify/*`, `mixpanel*`, `semantic-ui*`) unless still required by active Docker runtime.
+- [ ] M14.3 Move or archive legacy root frontend code (`src/*`) behind a clear `legacy/` boundary or equivalent, with deprecation note.
+- [ ] M14.4 Remove legacy root scripts/build paths from default developer workflow so `npm install`/`npm run` align to Docker runtime targets.
+- [ ] M14.5 Add CI guard checks to fail on new imports of deprecated stacks in active packages (Amplify APIs, Semantic UI, Patreon/OpenSCAD legacy codepaths).
+- [ ] M14.6 Update README/operations docs with final cutover architecture and legacy archive policy.
+- [ ] M14.7 Run full regression on active stack (backend/frontend tests, typechecks, targeted Docker rebuild/deploy) and record evidence.
+- Exit criteria:
+- [ ] M14.E1 Active runtime has zero direct Amplify dependency in `packages/backend` and `packages/frontend`.
+- [ ] M14.E2 Legacy code is clearly isolated and cannot be confused with active app entrypoints.
+- [ ] M14.E3 Dependency tree and lockfile are free of deprecated runtime packages unless intentionally retained for archived code tooling.
 
 ---
 
