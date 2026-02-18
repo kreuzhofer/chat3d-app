@@ -66,3 +66,10 @@ Recent history uses short, imperative commit messages (for example: `upgrade pac
 9. **Don't Break Contracts**: Preserve existing public APIs, schemas, and behavioral contracts unless explicitly instructed otherwise. If breaking changes are required, provide migration steps and compatibility tests.
 
 10. **Risk-Scaled Rigor**: Scale rigor with impact: (1) Low risk — unit tests, lint/format. (2) Medium risk — integration tests, edge cases, rollback awareness. (3) High risk (security, auth, money, data loss, core flows) — explicit approval before destructive actions, targeted tests, minimal refactoring.
+
+11. **Milestone Completion Gate**: After implementing any milestone, always run build/tests and then deploy the updated stack before marking the milestone done. Minimum required commands:
+   - `npm --workspace @chat3d/backend run test && npm --workspace @chat3d/backend run build`
+   - `npm --workspace @chat3d/frontend run test && npm --workspace @chat3d/frontend run typecheck`
+   - `npm run m1:typecheck:workspaces`
+   - Prefer targeted container build/deploy for changed services (for example: `docker compose build backend frontend && docker compose up -d backend frontend && docker compose ps backend frontend`).
+   - Avoid full-stack rebuilds by default. Use `docker compose up --build -d && docker compose ps` only when cross-service changes require rebuilding the entire stack.
