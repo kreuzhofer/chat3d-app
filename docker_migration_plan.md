@@ -534,6 +534,7 @@ Revised build order:
 | M8 Chat CRUD + Files Migration | Completed | M2, M3 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M9 Query + LLM + Build123d Pipeline | Completed | M8 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M10 Hardening + Cutover + Decommission | Completed | M7, M9 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
+| M11 Gap Closure + Productionization | Planned | M10 | Gap closure PRs with API contract tests, SMTP integration tests, SSE multi-instance test, and deploy validation notes |
 
 ### M1: Foundation + Schema
 
@@ -674,6 +675,37 @@ Revised build order:
 - [x] M10.E1 Full regression checklist passes in Docker.
 - [x] M10.E2 Amplify is not required for runtime behavior.
 - [x] M10.E3 Frontend has no Semantic UI runtime dependency.
+
+### Post-M10 Gap Analysis (2026-02-18)
+
+| Gap ID | Plan Requirement | Current Implementation Snapshot | Gap | Next Step |
+|---|---|---|---|---|
+| G1 | API contract parity for auth/waitlist (`POST /api/auth/logout`, `GET /api/waitlist/confirm-email`, `GET /api/waitlist/status`) | `auth.routes.ts` exposes `register/login/me`; `waitlist.routes.ts` exposes `POST /join` and `POST /confirm` | Planned contract is only partially implemented, with route/method drift | Add missing endpoints; keep current routes as compatibility aliases until clients migrate |
+| G2 | Transactional email provider integration (SMTP) | `email.service.ts` stores messages in-memory and logs to console | No real delivery pipeline, retry strategy, or provider health signal | Implement SMTP-backed sender (for example `nodemailer`) with retries, timeout handling, and test doubles |
+| G3 | Redis-backed fanout/queueing for realtime and multi-instance scaling | `sse.service.ts` uses in-process `Map<userId, clients>` only; Redis is not used by backend runtime | Realtime only works reliably within a single backend instance | Add Redis pub/sub adapter for notification fanout and SSE delivery across instances |
+| G4 | LLM provider matrix via Vercel AI SDK (`anthropic`, `openai`, `xai`, `ollama`) | `llm.service.ts` currently supports `mock` and `openai` only | Planned provider coverage is incomplete | Add provider adapters and env-driven model routing; extend `/api/llm/models` and tests for each provider mode |
+| G5 | Build123d call with auth token (`BUILD123D_TOKEN`) | `rendering.service.ts` does not send an auth token; `config.ts` does not read `BUILD123D_TOKEN` | Missing auth contract between backend and renderer service | Add `BUILD123D_TOKEN` config, forward auth header on render requests, and verify in integration tests |
+| G6 | Frontend product-area completeness: waitlist flows, invitation management, notification center | Current frontend includes auth/chat/query/admin/profile panels; no dedicated waitlist screens, invitation manager UI, or notification feed UI | Several planned user-facing flows are backend-only today | Add waitlist join/confirm/status screens, invitation manager in profile, and notification center based on SSE replay/stream |
+| G7 | Automated account deletion lifecycle operations | `account-deletion.worker.ts` exists but runs manually only | No scheduled execution path in Docker operations | Add scheduled worker execution (containerized cron/supercronic or external scheduler contract) and runbook steps |
+| G8 | Decommission boundary for legacy integrations (Mixpanel/Patreon/OpenSCAD) | Runtime no longer depends on Amplify, but legacy root app still carries old dependencies/code paths | Risk of accidental drift and unclear source-of-truth for active runtime | Isolate legacy code paths under explicit archive boundary and prune default install/runtime dependency surface |
+
+### M11: Gap Closure + Productionization
+
+- Objective: close residual implementation gaps found in the post-M10 audit and align contracts with the migration plan.
+- Subtasks:
+- [ ] M11.1 Implement API parity: add `/api/auth/logout`, `/api/waitlist/confirm-email`, and `/api/waitlist/status` while preserving backward compatibility.
+- [ ] M11.2 Replace in-memory email sender with SMTP-backed transactional delivery and test-mode transport.
+- [ ] M11.3 Implement Redis pub/sub fanout for SSE notification delivery across backend instances.
+- [ ] M11.4 Expand Vercel AI SDK provider support to Anthropic, XAI, and Ollama with config-driven model selection.
+- [ ] M11.5 Add `BUILD123D_TOKEN` config handling and authenticated renderer calls.
+- [ ] M11.6 Implement frontend waitlist flows, invitation manager UX, and notification center.
+- [ ] M11.7 Operationalize account deletion worker on a schedule and document ownership/monitoring.
+- [ ] M11.8 Finalize legacy boundary cleanup for Mixpanel/Patreon/OpenSCAD codepaths and dependencies.
+- Exit criteria:
+- [ ] M11.E1 API contract tests cover both canonical and compatibility routes.
+- [ ] M11.E2 Email, SSE multi-instance fanout, and Build123d auth flows pass integration tests.
+- [ ] M11.E3 Frontend supports waitlist/invitation/notification flows end-to-end against Docker stack.
+- [ ] M11.E4 Deployment/runbook docs reflect scheduled worker execution and legacy boundary decisions.
 
 ---
 
