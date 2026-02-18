@@ -12,9 +12,11 @@
     "db:bootstrap": "npm run db:migrate && npm run db:seed",
     "worker:account-deletion": "tsx src/workers/account-deletion.worker.ts",
     "test": "npm run db:migrate && vitest run",
-    "test:integration": "npm run db:migrate && vitest run src/__tests__/auth.integration.test.ts src/__tests__/waitlist.integration.test.ts src/__tests__/invitations.integration.test.ts src/__tests__/admin.integration.test.ts src/__tests__/account-lifecycle.integration.test.ts src/__tests__/chat-files.integration.test.ts"
+    "test:integration": "npm run db:migrate && vitest run src/__tests__/auth.integration.test.ts src/__tests__/waitlist.integration.test.ts src/__tests__/invitations.integration.test.ts src/__tests__/admin.integration.test.ts src/__tests__/account-lifecycle.integration.test.ts src/__tests__/chat-files.integration.test.ts src/__tests__/query.integration.test.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^2.0.0",
+    "ai": "^5.0.0",
     "bcryptjs": "^3.0.2",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",

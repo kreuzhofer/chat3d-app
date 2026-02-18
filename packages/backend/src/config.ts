@@ -57,5 +57,6 @@ export const config = {
     build123dUrl: readEnv("BUILD123D_URL", "http://localhost:30222"),
     renderMode: readEnv("QUERY_RENDER_MODE", process.env.NODE_ENV === "test" ? "mock" : "live"),
     llmMode: readEnv("QUERY_LLM_MODE", process.env.NODE_ENV === "test" ? "mock" : "live"),
+    openAiApiKey: process.env.OPENAI_API_KEY ?? "",
   },
 };

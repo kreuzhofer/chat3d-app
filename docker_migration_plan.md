@@ -532,7 +532,7 @@ Revised build order:
 | M6 Admin APIs + Admin Panel | Completed | M5 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M7 Profile + Account Lifecycle | Completed | M6 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M8 Chat CRUD + Files Migration | Completed | M2, M3 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
-| M9 Query + LLM + Build123d Pipeline | Not Started | M8 | - |
+| M9 Query + LLM + Build123d Pipeline | Completed | M8 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M10 Hardening + Cutover + Decommission | Not Started | M7, M9 | - |
 
 ### M1: Foundation + Schema
@@ -651,14 +651,14 @@ Revised build order:
 
 - Objective: restore AI query flow and model rendering with SSE progress updates.
 - Subtasks:
-- [ ] M9.1 Implement LLM model registry and provider clients via Vercel AI SDK.
-- [ ] M9.2 Port two-stage orchestration (conversation + Build123d code generation).
-- [ ] M9.3 Integrate Build123d service render call and store outputs.
-- [ ] M9.4 Emit query/render lifecycle events (`chat.query.state`) through SSE.
-- [ ] M9.5 Migrate frontend query submit flow to SSE-driven state updates.
+- [x] M9.1 Implement LLM model registry and provider clients via Vercel AI SDK.
+- [x] M9.2 Port two-stage orchestration (conversation + Build123d code generation).
+- [x] M9.3 Integrate Build123d service render call and store outputs.
+- [x] M9.4 Emit query/render lifecycle events (`chat.query.state`) through SSE.
+- [x] M9.5 Migrate frontend query submit flow to SSE-driven state updates.
 - Exit criteria:
-- [ ] M9.E1 Query produces rendered files and assistant response.
-- [ ] M9.E2 No polling codepath remains in chat realtime UX.
+- [x] M9.E1 Query produces rendered files and assistant response.
+- [x] M9.E2 No polling codepath remains in chat realtime UX.
 
 ### M10: Hardening + Cutover + Decommission
 
