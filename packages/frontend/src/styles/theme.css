@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+:root {
+  --background: 210 20% 98%;
+  --foreground: 222 40% 12%;
+  --muted: 210 18% 93%;
+  --muted-foreground: 220 15% 42%;
+  --card: 0 0% 100%;
+  --border: 214 19% 86%;
+  --primary: 222 63% 42%;
+  --primary-foreground: 0 0% 100%;
+  --destructive: 0 72% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --radius: 0.625rem;
+}

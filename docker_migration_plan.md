@@ -427,6 +427,16 @@ Served through `/api/files/*`.
 | `generateClient<Schema>()` | REST client with JWT |
 | Cognito account flows | Profile routes + email-confirmed actions |
 
+### UI framework decision
+- Adopt `Tailwind CSS v4` + `shadcn/ui` (Radix-based primitives) as the primary UI system for the Dockerized frontend.
+- Do not add new `semantic-ui-react` usage during migration. Existing Semantic UI usage is treated as temporary legacy UI.
+- Keep a token-driven style baseline (color, spacing, radius, typography) in one shared frontend theme layer.
+- Timing by milestone:
+1. M6: establish the UI foundation and use it for new admin UI work.
+2. M7: use the same foundation for new profile/account lifecycle screens.
+3. M8: migrate chat pages/components from `semantic-ui-react` to `shadcn/ui` + Tailwind while moving to REST/SSE flows.
+4. M10: remove remaining Semantic UI runtime dependencies and CDN stylesheet includes.
+
 ### New product areas
 - Admin panel for user management and feature flags.
 - Waitlist entry + confirmation screens.
@@ -519,7 +529,7 @@ Revised build order:
 | M3 SSE + Notification Spine | Completed | M2 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M4 Waitlist + Registration Tokens | Completed | M2, M3 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M5 Invitations + Policy Controls | Completed | M4 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
-| M6 Admin APIs + Admin Panel | Not Started | M5 | - |
+| M6 Admin APIs + Admin Panel | Completed | M5 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M7 Profile + Account Lifecycle | Not Started | M6 | - |
 | M8 Chat CRUD + Files Migration | Not Started | M2, M3 | - |
 | M9 Query + LLM + Build123d Pipeline | Not Started | M8 | - |
@@ -597,14 +607,16 @@ Revised build order:
 
 - Objective: full admin control plane for users, waitlist, and settings.
 - Subtasks:
-- [ ] M6.1 Implement `/api/admin/users` list/search.
-- [ ] M6.2 Implement activate/deactivate and admin-triggered password reset.
-- [ ] M6.3 Implement `/api/admin/settings` read/update endpoints.
-- [ ] M6.4 Build admin frontend page with users, waitlist moderation, and settings toggles.
-- [ ] M6.5 Emit SSE events on admin setting changes and account status changes.
+- [x] M6.1 Implement `/api/admin/users` list/search.
+- [x] M6.2 Implement activate/deactivate and admin-triggered password reset.
+- [x] M6.3 Implement `/api/admin/settings` read/update endpoints.
+- [x] M6.4 Build admin frontend page with users, waitlist moderation, and settings toggles.
+- [x] M6.5 Emit SSE events on admin setting changes and account status changes.
+- [x] M6.6 Add frontend UI foundation (`Tailwind CSS v4`, `shadcn/ui`, shared design tokens) and apply it to admin screens.
 - Exit criteria:
-- [ ] M6.E1 Admin can fully manage waitlist and invitation policies from UI.
-- [ ] M6.E2 User activation/deactivation path works and is audited.
+- [x] M6.E1 Admin can fully manage waitlist and invitation policies from UI.
+- [x] M6.E2 User activation/deactivation path works and is audited.
+- [x] M6.E3 Admin views ship on the new UI foundation; no new Semantic UI components are introduced.
 
 ### M7: Profile + Account Lifecycle
 
@@ -615,6 +627,7 @@ Revised build order:
 - [ ] M7.3 Implement `deactivated` + `deactivated_until` (30-day window) behavior.
 - [ ] M7.4 Add worker for post-window delete/anonymize policy.
 - [ ] M7.5 Build profile UI for all lifecycle actions.
+- [ ] M7.6 Implement profile/account screens using the shared `shadcn/ui` + Tailwind component baseline from M6.
 - Exit criteria:
 - [ ] M7.E1 Account deletion enters deactivated state for 30 days.
 - [ ] M7.E2 User/admin reactivation works during grace period.
@@ -628,9 +641,11 @@ Revised build order:
 - [ ] M8.3 Migrate frontend chat pages/components to REST APIs.
 - [ ] M8.4 Replace Amplify storage integrations with `/api/files/*`.
 - [ ] M8.5 Publish chat update events over SSE (`chat.item.updated`).
+- [ ] M8.6 Replace `semantic-ui-react` chat UI with `shadcn/ui` + Tailwind styles.
 - Exit criteria:
 - [ ] M8.E1 End-to-end chat CRUD works without Amplify.
 - [ ] M8.E2 File upload and model file download verified.
+- [ ] M8.E3 Chat shell/messages/actions are on the new UI stack (no Semantic UI in active chat flows).
 
 ### M9: Query + LLM + Build123d Pipeline
 
@@ -654,9 +669,11 @@ Revised build order:
 - [ ] M10.3 Add health/readiness checks and operational runbooks.
 - [ ] M10.4 Remove Amplify runtime dependencies and obsolete integration code.
 - [ ] M10.5 Update README and deployment docs for Docker-only operation.
+- [ ] M10.6 Remove remaining Semantic UI dependencies/includes (`semantic-ui-react`, `semantic-ui-css`, CDN stylesheet references).
 - Exit criteria:
 - [ ] M10.E1 Full regression checklist passes in Docker.
 - [ ] M10.E2 Amplify is not required for runtime behavior.
+- [ ] M10.E3 Frontend has no Semantic UI runtime dependency.
 
 ---
 
