@@ -132,6 +132,22 @@ describe("Milestone 2/3 auth and events integration", () => {
     expect(meResponse.body.status).toBe("active");
   });
 
+  it("supports /api/auth/logout for authenticated users", async () => {
+    const loginResponse = await request(app).post("/api/auth/login").send({
+      email: userEmail,
+      password,
+    });
+
+    expect(loginResponse.status).toBe(200);
+    const token = (loginResponse.body as LoginResponse).token;
+
+    const logoutResponse = await request(app)
+      .post("/api/auth/logout")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(logoutResponse.status).toBe(204);
+  });
+
   it("blocks non-admin access to admin routes and allows admin users", async () => {
     const userLogin = await request(app).post("/api/auth/login").send({
       email: userEmail,

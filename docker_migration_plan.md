@@ -695,7 +695,7 @@ Revised build order:
 
 - Objective: close residual implementation gaps found in the post-M10 audit and align contracts with the migration plan.
 - Subtasks:
-- [ ] M11.1 Implement API parity: add `/api/auth/logout`, `/api/waitlist/confirm-email`, and `/api/waitlist/status` while preserving backward compatibility.
+- [x] M11.1 Implement API parity: add `/api/auth/logout`, `/api/waitlist/confirm-email`, and `/api/waitlist/status` while preserving backward compatibility.
 - [ ] M11.2 Replace in-memory email sender with SMTP-backed transactional delivery and test-mode transport.
 - [ ] M11.3 Implement Redis pub/sub fanout for SSE notification delivery across backend instances.
 - [ ] M11.4 Expand Vercel AI SDK provider support to Anthropic, XAI, and Ollama with config-driven model selection.

@@ -27,6 +27,7 @@ const password = "S3curePass!123";
 const pendingEmail = `m4-pending-${suffix}@example.test`;
 const approvedEmail = `m4-approved-${suffix}@example.test`;
 const rejectedEmail = `m4-rejected-${suffix}@example.test`;
+const statusEmail = `m4-status-${suffix}@example.test`;
 
 async function insertAdmin(email: string): Promise<void> {
   const passwordHash = await bcrypt.hash(password, 12);
@@ -119,7 +120,7 @@ describe("Milestone 4 waitlist and registration token flow", () => {
       DELETE FROM waitlist_entries
       WHERE email = ANY($1::text[]);
       `,
-      [[pendingEmail, approvedEmail, rejectedEmail]],
+      [[pendingEmail, approvedEmail, rejectedEmail, statusEmail]],
     );
 
     await query(
@@ -127,7 +128,7 @@ describe("Milestone 4 waitlist and registration token flow", () => {
       DELETE FROM registration_tokens
       WHERE email = ANY($1::text[]);
       `,
-      [[pendingEmail, approvedEmail, rejectedEmail]],
+      [[pendingEmail, approvedEmail, rejectedEmail, statusEmail]],
     );
 
     await insertAdmin(adminEmail);
@@ -167,7 +168,7 @@ describe("Milestone 4 waitlist and registration token flow", () => {
       DELETE FROM registration_tokens
       WHERE email = ANY($1::text[]);
       `,
-      [[pendingEmail, approvedEmail, rejectedEmail]],
+      [[pendingEmail, approvedEmail, rejectedEmail, statusEmail]],
     );
 
     await query(
@@ -175,7 +176,7 @@ describe("Milestone 4 waitlist and registration token flow", () => {
       DELETE FROM waitlist_entries
       WHERE email = ANY($1::text[]);
       `,
-      [[pendingEmail, approvedEmail, rejectedEmail]],
+      [[pendingEmail, approvedEmail, rejectedEmail, statusEmail]],
     );
 
     await query(
@@ -183,7 +184,7 @@ describe("Milestone 4 waitlist and registration token flow", () => {
       DELETE FROM users
       WHERE email = ANY($1::text[]);
       `,
-      [[adminEmail, pendingEmail, approvedEmail, rejectedEmail]],
+      [[adminEmail, pendingEmail, approvedEmail, rejectedEmail, statusEmail]],
     );
 
     await pool.end();
@@ -200,6 +201,37 @@ describe("Milestone 4 waitlist and registration token flow", () => {
 
     expect(registerResponse.status).toBe(403);
     expect(registerResponse.body.error).toContain("registration token");
+  });
+
+  it("supports canonical GET confirmation and waitlist status checks", async () => {
+    emailService.clearSentEmailsForTest();
+
+    const joinResponse = await request(app).post("/api/waitlist/join").send({
+      email: statusEmail,
+      marketingConsent: true,
+    });
+
+    expect(joinResponse.status).toBe(202);
+
+    const sentAfterJoin = emailService.getSentEmailsForTest();
+    const confirmationEmail = sentAfterJoin[sentAfterJoin.length - 1];
+    const confirmToken = extractTokenFromText(confirmationEmail.text);
+
+    const statusByEmailBefore = await request(app).get(`/api/waitlist/status?email=${encodeURIComponent(statusEmail)}`);
+    expect(statusByEmailBefore.status).toBe(200);
+    expect(statusByEmailBefore.body.status).toBe("pending_email_confirmation");
+
+    const statusByTokenBefore = await request(app).get(`/api/waitlist/status?token=${encodeURIComponent(confirmToken)}`);
+    expect(statusByTokenBefore.status).toBe(200);
+    expect(statusByTokenBefore.body.status).toBe("pending_email_confirmation");
+
+    const confirmViaGet = await request(app).get(`/api/waitlist/confirm-email?token=${encodeURIComponent(confirmToken)}`);
+    expect(confirmViaGet.status).toBe(200);
+    expect(confirmViaGet.body.status).toBe("pending_admin_approval");
+
+    const statusByEmailAfter = await request(app).get(`/api/waitlist/status?email=${encodeURIComponent(statusEmail)}`);
+    expect(statusByEmailAfter.status).toBe(200);
+    expect(statusByEmailAfter.body.status).toBe("pending_admin_approval");
   });
 
   it("allows admin to reject waitlist entries", async () => {

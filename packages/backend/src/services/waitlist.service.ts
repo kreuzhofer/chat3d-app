@@ -51,6 +51,16 @@ interface WaitlistListRow {
   created_at: string;
 }
 
+interface WaitlistStatusRow {
+  id: string;
+  email: string;
+  status: WaitlistStatus;
+  marketing_consent: boolean;
+  email_confirmed_at: string | null;
+  approved_at: string | null;
+  created_at: string;
+}
+
 export class WaitlistError extends Error {
   constructor(
     message: string,
@@ -207,6 +217,66 @@ export async function confirmWaitlistEmail(rawToken: string): Promise<{
   } finally {
     client.release();
   }
+}
+
+export async function getWaitlistStatus(input: {
+  email?: string;
+  confirmationToken?: string;
+}): Promise<{
+  entryId: string;
+  email: string;
+  status: WaitlistStatus;
+  marketingConsent: boolean;
+  emailConfirmedAt: string | null;
+  approvedAt: string | null;
+  createdAt: string;
+}> {
+  if (!input.email && !input.confirmationToken) {
+    throw new WaitlistError("Either email or token is required", 400);
+  }
+
+  let row: WaitlistStatusRow | undefined;
+
+  if (input.confirmationToken) {
+    const tokenHash = hashToken(input.confirmationToken);
+    const result = await query<WaitlistStatusRow>(
+      `
+      SELECT e.id, e.email, e.status, e.marketing_consent, e.email_confirmed_at::text, e.approved_at::text, e.created_at::text
+      FROM waitlist_email_confirmations c
+      INNER JOIN waitlist_entries e ON e.id = c.waitlist_entry_id
+      WHERE c.token_hash = $1
+      LIMIT 1;
+      `,
+      [tokenHash],
+    );
+    row = result.rows[0];
+  } else if (input.email) {
+    const normalizedEmail = normalizeEmail(input.email);
+    const result = await query<WaitlistStatusRow>(
+      `
+      SELECT id, email, status, marketing_consent, email_confirmed_at::text, approved_at::text, created_at::text
+      FROM waitlist_entries
+      WHERE email = $1
+      LIMIT 1;
+      `,
+      [normalizedEmail],
+    );
+    row = result.rows[0];
+  }
+
+  if (!row) {
+    throw new WaitlistError("Waitlist entry not found", 404);
+  }
+
+  return {
+    entryId: row.id,
+    email: row.email,
+    status: row.status,
+    marketingConsent: row.marketing_consent,
+    emailConfirmedAt: row.email_confirmed_at,
+    approvedAt: row.approved_at,
+    createdAt: row.created_at,
+  };
 }
 
 export async function approveWaitlistEntry(input: {

@@ -179,3 +179,14 @@ authRouter.post("/login", async (req, res) => {
 authRouter.get("/me", requireAuth, (req, res) => {
   res.status(200).json(req.authUser);
 });
+
+authRouter.post("/logout", requireAuth, async (req, res) => {
+  await recordSecurityEvent({
+    eventType: "auth.logout",
+    userId: req.authUser?.id,
+    ipAddress: req.ip,
+    path: req.path,
+  });
+
+  res.status(204).send();
+});
