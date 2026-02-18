@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireAuthAllowQueryToken } from "../middleware/auth.js";
 import { notificationService } from "../services/notification.service.js";
 import { sseService } from "../services/sse.service.js";
 
@@ -22,7 +22,7 @@ function parseOptionalPositiveInt(value: unknown): number | undefined {
 
 export const eventsRouter = Router();
 
-eventsRouter.get("/stream", requireAuth, async (req, res) => {
+eventsRouter.get("/stream", requireAuthAllowQueryToken, async (req, res) => {
   const user = req.authUser;
   if (!user) {
     res.status(401).json({ error: "Authentication required" });

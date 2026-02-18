@@ -533,7 +533,7 @@ Revised build order:
 | M7 Profile + Account Lifecycle | Completed | M6 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M8 Chat CRUD + Files Migration | Completed | M2, M3 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M9 Query + LLM + Build123d Pipeline | Completed | M8 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
-| M10 Hardening + Cutover + Decommission | Not Started | M7, M9 | - |
+| M10 Hardening + Cutover + Decommission | Completed | M7, M9 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 
 ### M1: Foundation + Schema
 
@@ -664,16 +664,16 @@ Revised build order:
 
 - Objective: production readiness and complete Amplify removal.
 - Subtasks:
-- [ ] M10.1 Add request validation, rate limits, audit logs, and abuse controls.
-- [ ] M10.2 Finalize CORS, auth token handling, and security headers.
-- [ ] M10.3 Add health/readiness checks and operational runbooks.
-- [ ] M10.4 Remove Amplify runtime dependencies and obsolete integration code.
-- [ ] M10.5 Update README and deployment docs for Docker-only operation.
-- [ ] M10.6 Remove remaining Semantic UI dependencies/includes (`semantic-ui-react`, `semantic-ui-css`, CDN stylesheet references).
+- [x] M10.1 Add request validation, rate limits, audit logs, and abuse controls.
+- [x] M10.2 Finalize CORS, auth token handling, and security headers.
+- [x] M10.3 Add health/readiness checks and operational runbooks.
+- [x] M10.4 Remove Amplify runtime dependencies and obsolete integration code.
+- [x] M10.5 Update README and deployment docs for Docker-only operation.
+- [x] M10.6 Remove remaining Semantic UI dependencies/includes (`semantic-ui-react`, `semantic-ui-css`, CDN stylesheet references).
 - Exit criteria:
-- [ ] M10.E1 Full regression checklist passes in Docker.
-- [ ] M10.E2 Amplify is not required for runtime behavior.
-- [ ] M10.E3 Frontend has no Semantic UI runtime dependency.
+- [x] M10.E1 Full regression checklist passes in Docker.
+- [x] M10.E2 Amplify is not required for runtime behavior.
+- [x] M10.E3 Frontend has no Semantic UI runtime dependency.
 
 ---
 

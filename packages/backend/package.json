@@ -12,7 +12,7 @@
     "db:bootstrap": "npm run db:migrate && npm run db:seed",
     "worker:account-deletion": "tsx src/workers/account-deletion.worker.ts",
     "test": "npm run db:migrate && vitest run",
-    "test:integration": "npm run db:migrate && vitest run src/__tests__/auth.integration.test.ts src/__tests__/waitlist.integration.test.ts src/__tests__/invitations.integration.test.ts src/__tests__/admin.integration.test.ts src/__tests__/account-lifecycle.integration.test.ts src/__tests__/chat-files.integration.test.ts src/__tests__/query.integration.test.ts"
+    "test:integration": "npm run db:migrate && vitest run src/__tests__/auth.integration.test.ts src/__tests__/waitlist.integration.test.ts src/__tests__/invitations.integration.test.ts src/__tests__/admin.integration.test.ts src/__tests__/account-lifecycle.integration.test.ts src/__tests__/chat-files.integration.test.ts src/__tests__/query.integration.test.ts src/__tests__/hardening.integration.test.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.0",

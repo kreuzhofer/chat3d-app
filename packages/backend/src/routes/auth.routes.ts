@@ -11,6 +11,7 @@ import {
   verifyPassword,
 } from "../services/auth.service.js";
 import { isWaitlistEnabled } from "../services/app-settings.service.js";
+import { recordSecurityEvent } from "../services/security-audit.service.js";
 import { consumeRegistrationToken, WaitlistError } from "../services/waitlist.service.js";
 
 export const authRouter = Router();
@@ -120,23 +121,51 @@ authRouter.post("/login", async (req, res) => {
   const password = typeof req.body?.password === "string" ? req.body.password : "";
 
   if (!email || !password) {
+    await recordSecurityEvent({
+      eventType: "auth.login.bad_request",
+      ipAddress: req.ip,
+      path: req.path,
+    });
     res.status(400).json({ error: "Email and password are required" });
     return;
   }
 
   const userWithPassword = await findUserByEmail(email);
   if (!userWithPassword) {
+    await recordSecurityEvent({
+      eventType: "auth.login.invalid_credentials",
+      ipAddress: req.ip,
+      path: req.path,
+      metadata: {
+        email,
+      },
+    });
     res.status(401).json({ error: "Invalid email or password" });
     return;
   }
 
   if (userWithPassword.status !== "active") {
+    await recordSecurityEvent({
+      eventType: "auth.login.inactive_user",
+      userId: userWithPassword.id,
+      ipAddress: req.ip,
+      path: req.path,
+      metadata: {
+        status: userWithPassword.status,
+      },
+    });
     res.status(403).json({ error: "User account is not active" });
     return;
   }
 
   const validPassword = await verifyPassword(password, userWithPassword.passwordHash);
   if (!validPassword) {
+    await recordSecurityEvent({
+      eventType: "auth.login.invalid_credentials",
+      userId: userWithPassword.id,
+      ipAddress: req.ip,
+      path: req.path,
+    });
     res.status(401).json({ error: "Invalid email or password" });
     return;
   }

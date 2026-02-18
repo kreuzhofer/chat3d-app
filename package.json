@@ -7,22 +7,19 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "docker compose up --build",
+    "build": "npm --workspace @chat3d/backend run build && npm --workspace @chat3d/frontend run typecheck",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview",
+    "preview": "docker compose ps",
     "m1:typecheck:workspaces": "tsc -b tsconfig.workspaces.json",
     "m1:backend:migrate": "npm --workspace @chat3d/backend run db:migrate",
     "m1:backend:seed": "npm --workspace @chat3d/backend run db:seed",
     "m1:backend:bootstrap": "npm --workspace @chat3d/backend run db:bootstrap"
   },
   "dependencies": {
-    "@aws-amplify/ui-react": "^6.15.0",
-    "@aws-amplify/ui-react-storage": "^3.16.0",
     "@aws-sdk/client-bedrock-runtime": "^3.991.0",
     "@dotenvx/dotenvx": "^1.52.0",
     "@types/mixpanel": "^2.14.9",
-    "aws-amplify": "^6.16.2",
     "mixpanel": "^0.20.0",
     "mixpanel-browser": "^2.74.0",
     "ollama": "^0.6.3",
@@ -33,8 +30,6 @@
     "react-responsiveness": "^0.1.5",
     "react-router": "^7.13.0",
     "remark-gfm": "^4.0.1",
-    "semantic-ui-css": "^2.5.0",
-    "semantic-ui-react": "^2.1.5",
     "three": "^0.182.0",
     "uuid": "^13.0.0",
     "winston": "^3.19.0",
@@ -42,8 +37,6 @@
     "zod-to-json-schema": "^3.25.1"
   },
   "devDependencies": {
-    "@aws-amplify/backend": "^1.21.0",
-    "@aws-amplify/backend-cli": "^1.8.2",
     "@rollup/plugin-replace": "^6.0.3",
     "@types/aws-lambda": "^8.10.160",
     "@types/mixpanel-browser": "^2.66.0",

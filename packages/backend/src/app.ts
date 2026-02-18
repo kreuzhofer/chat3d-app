@@ -1,5 +1,8 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import { query } from "./db/connection.js";
+import { corsMiddleware } from "./middleware/cors.js";
+import { rateLimitMiddleware } from "./middleware/rate-limit.js";
+import { securityHeaders } from "./middleware/security-headers.js";
 import { adminRouter } from "./routes/admin.routes.js";
 import { authRouter } from "./routes/auth.routes.js";
 import { chatRouter } from "./routes/chat.routes.js";
@@ -14,7 +17,11 @@ import { waitlistRouter } from "./routes/waitlist.routes.js";
 export function createApp() {
   const app = express();
 
+  app.set("trust proxy", true);
+  app.use(corsMiddleware);
+  app.use(securityHeaders);
   app.use(express.json());
+  app.use(rateLimitMiddleware);
 
   app.get("/health", (_req, res) => {
     res.status(200).json({ status: "ok", service: "backend" });

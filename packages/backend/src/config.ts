@@ -19,6 +19,14 @@ function readNumber(name: string, fallback: string): number {
   return parsed;
 }
 
+function readCsv(name: string, fallback: string): string[] {
+  const raw = readEnv(name, fallback);
+  return raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+}
+
 export const config = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: readNumber("PORT", "3001"),
@@ -33,6 +41,14 @@ export const config = {
   redis: {
     host: readEnv("REDIS_HOST", "localhost"),
     port: readNumber("REDIS_PORT", "6379"),
+  },
+  security: {
+    corsAllowedOrigins: readCsv("CORS_ALLOWED_ORIGINS", "http://localhost,http://localhost:80,http://localhost:5173"),
+    rateLimitWindowMs: readNumber("RATE_LIMIT_WINDOW_MS", "60000"),
+    rateLimitGeneralMax: readNumber("RATE_LIMIT_GENERAL_MAX", "500"),
+    rateLimitReactivateMax: readNumber("RATE_LIMIT_REACTIVATE_MAX", "5"),
+    rateLimitLoginMax: readNumber("RATE_LIMIT_LOGIN_MAX", "50"),
+    rateLimitQueryMax: readNumber("RATE_LIMIT_QUERY_MAX", "50"),
   },
   storage: {
     rootDir: readEnv("STORAGE_ROOT_DIR", process.env.NODE_ENV === "test" ? ".chat3d-storage" : "/data/storage"),
