@@ -5,6 +5,7 @@ import {
   deleteChatContext,
   listChatContexts,
   listChatItems,
+  updateChatContext,
   updateChatItem,
 } from "../api/chat.api";
 
@@ -71,6 +72,12 @@ describe("chat api client", () => {
         }),
       )
       .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "ctx2", name: "Renamed Context" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
         new Response(JSON.stringify({ id: "item2", role: "user", rating: 1 }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -84,6 +91,11 @@ describe("chat api client", () => {
       contextId: "ctx2",
       role: "user",
       messages: [{ text: "hi" }],
+    });
+    await updateChatContext("token-2", "ctx2", {
+      name: "Renamed Context",
+      conversationModelId: "conversation-openai",
+      chat3dModelId: "codegen-openai",
     });
     await updateChatItem({
       token: "token-2",
@@ -102,13 +114,20 @@ describe("chat api client", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
-      "/api/chat/contexts/ctx2/items/item2",
+      "/api/chat/contexts/ctx2",
       expect.objectContaining({
         method: "PATCH",
       }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
+      "/api/chat/contexts/ctx2/items/item2",
+      expect.objectContaining({
+        method: "PATCH",
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
       "/api/chat/contexts/ctx2",
       expect.objectContaining({
         method: "DELETE",

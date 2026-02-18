@@ -58,10 +58,22 @@ export function createChatContext(token: string, name: string): Promise<ChatCont
   });
 }
 
-export function updateChatContext(token: string, contextId: string, name: string): Promise<ChatContext> {
+export function updateChatContext(
+  token: string,
+  contextId: string,
+  patch: {
+    name?: string;
+    conversationModelId?: string | null;
+    chat3dModelId?: string | null;
+  },
+): Promise<ChatContext> {
   return requestChatJson<ChatContext>(token, `/contexts/${encodeURIComponent(contextId)}`, {
     method: "PATCH",
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({
+      name: patch.name,
+      conversationModelId: patch.conversationModelId,
+      chat3dModelId: patch.chat3dModelId,
+    }),
   });
 }
 

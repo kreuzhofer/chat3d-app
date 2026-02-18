@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { AdminPanel } from "./components/AdminPanel";
-import { ChatWorkspace } from "./components/ChatWorkspace";
+import { ChatPage } from "./components/ChatPage";
 import { NotificationCenter } from "./components/NotificationCenter";
 import { ProfilePanel } from "./components/ProfilePanel";
 import { QueryWorkbench } from "./components/QueryWorkbench";
@@ -11,8 +12,6 @@ import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
 import { useNotifications } from "./contexts/NotificationsContext";
 import { useAuth } from "./hooks/useAuth";
-
-type ViewKey = "chat" | "query" | "profile" | "notifications" | "admin";
 
 interface AuthFormState {
   email: string;
@@ -28,13 +27,23 @@ const initialAuthFormState: AuthFormState = {
   registrationToken: "",
 };
 
+function navigationItems(isAdmin: boolean) {
+  return [
+    { path: "/chat", label: "Chat" },
+    { path: "/query", label: "Query" },
+    { path: "/profile", label: "Profile" },
+    { path: "/notifications", label: "Notifications" },
+    ...(isAdmin ? [{ path: "/admin", label: "Admin" }] : []),
+  ];
+}
+
 export function App() {
   const { user, isAuthenticated, isLoading, login, register, logout } = useAuth();
   const { unreadCount, connectionState, refreshReplay, markAllRead } = useNotifications();
+  const location = useLocation();
 
   const [loginForm, setLoginForm] = useState<AuthFormState>(initialAuthFormState);
   const [registerForm, setRegisterForm] = useState<AuthFormState>(initialAuthFormState);
-  const [activeView, setActiveView] = useState<ViewKey>("chat");
   const [busyAction, setBusyAction] = useState<"login" | "register" | null>(null);
   const [authError, setAuthError] = useState("");
 
@@ -47,28 +56,6 @@ export function App() {
       }));
     }
   }, []);
-
-  const availableViews = useMemo(() => {
-    if (user?.role === "admin") {
-      return (["chat", "query", "profile", "notifications", "admin"] as const).map((key) => ({
-        key,
-        label:
-          key === "query"
-            ? "Query"
-            : key === "profile"
-              ? "Profile"
-              : key === "notifications"
-                ? "Notifications"
-                : key === "admin"
-                  ? "Admin"
-                  : "Chat",
-      }));
-    }
-    return (["chat", "query", "profile", "notifications"] as const).map((key) => ({
-      key,
-      label: key === "query" ? "Query" : key === "profile" ? "Profile" : key === "notifications" ? "Notifications" : "Chat",
-    }));
-  }, [user?.role]);
 
   async function onLoginSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -108,101 +95,111 @@ export function App() {
   }
 
   if (!isAuthenticated) {
+    const waitlistOnly = location.pathname.startsWith("/waitlist");
+
     return (
       <main className="min-h-screen bg-[hsl(var(--background))] p-6 text-[hsl(var(--foreground))]">
-        <div className="mx-auto grid max-w-5xl gap-4 md:grid-cols-3">
-          <Card>
-            <CardHeader>
-              <CardTitle>Sign in</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form className="space-y-3" onSubmit={(event) => void onLoginSubmit(event)}>
-                <div className="space-y-1">
-                  <Label htmlFor="login-email">Email</Label>
-                  <Input
-                    id="login-email"
-                    type="email"
-                    value={loginForm.email}
-                    onChange={(event) => setLoginForm((state) => ({ ...state, email: event.target.value }))}
-                    required
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="login-password">Password</Label>
-                  <Input
-                    id="login-password"
-                    type="password"
-                    value={loginForm.password}
-                    onChange={(event) => setLoginForm((state) => ({ ...state, password: event.target.value }))}
-                    required
-                  />
-                </div>
-                <Button disabled={busyAction !== null} type="submit">
-                  Sign in
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
+        <div className={`mx-auto grid max-w-6xl gap-4 ${waitlistOnly ? "md:grid-cols-1" : "md:grid-cols-3"}`}>
+          {!waitlistOnly ? (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Sign in</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <form className="space-y-3" onSubmit={(event) => void onLoginSubmit(event)}>
+                    <div className="space-y-1">
+                      <Label htmlFor="login-email">Email</Label>
+                      <Input
+                        id="login-email"
+                        type="email"
+                        value={loginForm.email}
+                        onChange={(event) => setLoginForm((state) => ({ ...state, email: event.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="login-password">Password</Label>
+                      <Input
+                        id="login-password"
+                        type="password"
+                        value={loginForm.password}
+                        onChange={(event) => setLoginForm((state) => ({ ...state, password: event.target.value }))}
+                        required
+                      />
+                    </div>
+                    <Button disabled={busyAction !== null} type="submit">
+                      Sign in
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Register</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form className="space-y-3" onSubmit={(event) => void onRegisterSubmit(event)}>
-                <div className="space-y-1">
-                  <Label htmlFor="register-name">Display name</Label>
-                  <Input
-                    id="register-name"
-                    value={registerForm.displayName}
-                    onChange={(event) => setRegisterForm((state) => ({ ...state, displayName: event.target.value }))}
-                    placeholder="Optional"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="register-email">Email</Label>
-                  <Input
-                    id="register-email"
-                    type="email"
-                    value={registerForm.email}
-                    onChange={(event) => setRegisterForm((state) => ({ ...state, email: event.target.value }))}
-                    required
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="register-password">Password</Label>
-                  <Input
-                    id="register-password"
-                    type="password"
-                    value={registerForm.password}
-                    onChange={(event) => setRegisterForm((state) => ({ ...state, password: event.target.value }))}
-                    required
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="register-token">Registration token</Label>
-                  <Input
-                    id="register-token"
-                    value={registerForm.registrationToken}
-                    onChange={(event) =>
-                      setRegisterForm((state) => ({ ...state, registrationToken: event.target.value }))
-                    }
-                    placeholder="Required when waitlist is enabled"
-                  />
-                </div>
-                <Button disabled={busyAction !== null} type="submit">
-                  Create account
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Register</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <form className="space-y-3" onSubmit={(event) => void onRegisterSubmit(event)}>
+                    <div className="space-y-1">
+                      <Label htmlFor="register-name">Display name</Label>
+                      <Input
+                        id="register-name"
+                        value={registerForm.displayName}
+                        onChange={(event) => setRegisterForm((state) => ({ ...state, displayName: event.target.value }))}
+                        placeholder="Optional"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="register-email">Email</Label>
+                      <Input
+                        id="register-email"
+                        type="email"
+                        value={registerForm.email}
+                        onChange={(event) => setRegisterForm((state) => ({ ...state, email: event.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="register-password">Password</Label>
+                      <Input
+                        id="register-password"
+                        type="password"
+                        value={registerForm.password}
+                        onChange={(event) => setRegisterForm((state) => ({ ...state, password: event.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="register-token">Registration token</Label>
+                      <Input
+                        id="register-token"
+                        value={registerForm.registrationToken}
+                        onChange={(event) =>
+                          setRegisterForm((state) => ({ ...state, registrationToken: event.target.value }))
+                        }
+                        placeholder="Required when waitlist is enabled"
+                      />
+                    </div>
+                    <Button disabled={busyAction !== null} type="submit">
+                      Create account
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </>
+          ) : null}
 
-          <WaitlistPanel compact />
+          <WaitlistPanel compact={!waitlistOnly} />
         </div>
-        {authError ? <p className="mx-auto mt-4 max-w-5xl text-sm text-[hsl(var(--destructive))]">{authError}</p> : null}
+        {authError ? (
+          <p className="mx-auto mt-4 max-w-5xl text-sm text-[hsl(var(--destructive))]">{authError}</p>
+        ) : null}
       </main>
     );
   }
+
+  const navItems = navigationItems(user?.role === "admin");
 
   return (
     <main className="min-h-screen bg-[hsl(var(--background))] p-4 text-[hsl(var(--foreground))]">
@@ -220,14 +217,20 @@ export function App() {
               <span className="rounded border px-2 py-1">Unread: {unreadCount}</span>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              {availableViews.map((view) => (
-                <Button
-                  key={view.key}
-                  variant={activeView === view.key ? "secondary" : "outline"}
-                  onClick={() => setActiveView(view.key)}
+              {navItems.map((item) => (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  className={({ isActive }) =>
+                    `inline-flex h-9 items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition ${
+                      isActive
+                        ? "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]"
+                        : "border border-[hsl(var(--border))] bg-white text-[hsl(var(--foreground))]"
+                    }`
+                  }
                 >
-                  {view.label}
-                </Button>
+                  {item.label}
+                </NavLink>
               ))}
               <Button variant="outline" onClick={() => void refreshReplay()}>
                 Refresh Replay
@@ -242,11 +245,23 @@ export function App() {
           </CardContent>
         </Card>
 
-        {activeView === "chat" ? <ChatWorkspace /> : null}
-        {activeView === "query" ? <QueryWorkbench /> : null}
-        {activeView === "profile" ? <ProfilePanel /> : null}
-        {activeView === "notifications" ? <NotificationCenter /> : null}
-        {activeView === "admin" && user?.role === "admin" ? <AdminPanel /> : null}
+        <Routes>
+          <Route path="/" element={<Navigate replace to="/chat" />} />
+          <Route path="/register" element={<Navigate replace to="/" />} />
+          <Route path="/waitlist" element={<WaitlistPanel />} />
+          <Route path="/waitlist/confirm" element={<WaitlistPanel />} />
+          <Route path="/chat" element={<ChatPage />} />
+          <Route path="/chat/new" element={<ChatPage />} />
+          <Route path="/chat/:contextId" element={<ChatPage />} />
+          <Route path="/query" element={<QueryWorkbench />} />
+          <Route path="/profile" element={<ProfilePanel />} />
+          <Route path="/notifications" element={<NotificationCenter />} />
+          <Route
+            path="/admin"
+            element={user?.role === "admin" ? <AdminPanel /> : <Navigate replace to="/chat" />}
+          />
+          <Route path="*" element={<Navigate replace to="/chat" />} />
+        </Routes>
       </div>
     </main>
   );

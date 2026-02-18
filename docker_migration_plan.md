@@ -534,7 +534,7 @@ Revised build order:
 | M9 Query + LLM + Build123d Pipeline | Completed | M8 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M10 Hardening + Cutover + Decommission | Completed | M7, M9 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M11 Gap Closure + Productionization | Completed | M10 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces`, `npm run guard:active-runtime`, `docker compose build backend frontend account-deletion-worker`, `docker compose up -d backend frontend account-deletion-worker`, `curl http://localhost:3001/health`, `curl http://localhost:3001/ready` |
-| M12 Legacy Chat UX Port (Amplify -> Docker Frontend) | Planned | M11 | Chat route parity demo on `/packages/frontend`, component tests, and Docker smoke validation |
+| M12 Legacy Chat UX Port (Amplify -> Docker Frontend) | Completed | M11 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces`, `npm run guard:active-runtime`, `docker compose build backend frontend`, `docker compose up -d backend frontend`, `curl http://localhost:3001/health`, frontend bundle check for `/chat/:contextId` route handlers |
 | M13 Chat Feature Parity (3D Viewer, Files, Actions) | Planned | M12 | End-to-end query/render/download/rate/regenerate verification in Docker |
 | M14 Amplify Runtime Decommission + Dependency Purge | Planned | M13 | `aws-amplify`/`semantic-ui` runtime dependency removal PR, clean lockfile, and regression runbook |
 
@@ -713,18 +713,18 @@ Revised build order:
 
 - Objective: rebuild the old Amplify chat experience in the new `/packages/frontend` app framework using REST + SSE, without introducing Amplify runtime APIs.
 - Subtasks:
-- [ ] M12.1 Produce a feature parity matrix from legacy files (`src/Pages/Chat.tsx`, `src/Components/ChatMessage*.tsx`, `src/Components/ChatContextComponent.tsx`) and map each feature to target components in `packages/frontend/src`.
-- [ ] M12.2 Add dedicated chat routes/layout in `packages/frontend` (context list, active thread, message composer, model selection controls).
-- [ ] M12.3 Implement chat context lifecycle UX parity: create, rename, open, delete, and navigation state synchronization.
-- [ ] M12.4 Implement message timeline parity: user/assistant rendering, markdown, pending/error states, and auto-scroll behavior.
-- [ ] M12.5 Integrate SSE-driven state updates for chat/query lifecycle (`chat.item.updated`, `chat.query.state`) with resilient reconnect/replay handling in chat views.
-- [ ] M12.6 Add explicit adapters from backend message payloads to UI view-models to avoid direct legacy schema coupling.
-- [ ] M12.7 Add frontend tests for route-level chat flows (context switching, optimistic/pending states, SSE event application).
-- [ ] M12.8 Document migrated chat UX behavior and known intentional deviations from legacy Amplify UI.
+- [x] M12.1 Produce a feature parity matrix from legacy files (`src/Pages/Chat.tsx`, `src/Components/ChatMessage*.tsx`, `src/Components/ChatContextComponent.tsx`) and map each feature to target components in `packages/frontend/src`.
+- [x] M12.2 Add dedicated chat routes/layout in `packages/frontend` (context list, active thread, message composer, model selection controls).
+- [x] M12.3 Implement chat context lifecycle UX parity: create, rename, open, delete, and navigation state synchronization.
+- [x] M12.4 Implement message timeline parity: user/assistant rendering, markdown, pending/error states, and auto-scroll behavior.
+- [x] M12.5 Integrate SSE-driven state updates for chat/query lifecycle (`chat.item.updated`, `chat.query.state`) with resilient reconnect/replay handling in chat views.
+- [x] M12.6 Add explicit adapters from backend message payloads to UI view-models to avoid direct legacy schema coupling.
+- [x] M12.7 Add frontend tests for route-level chat flows (context switching, optimistic/pending states, SSE event application).
+- [x] M12.8 Document migrated chat UX behavior and known intentional deviations from legacy Amplify UI.
 - Exit criteria:
-- [ ] M12.E1 Primary chat workflow (open context, send prompt, receive assistant updates) works in `/packages/frontend` without Amplify libraries.
-- [ ] M12.E2 No active chat route in `packages/frontend` imports `aws-amplify` or legacy root `src/*` modules.
-- [ ] M12.E3 Regression tests cover core chat interactions and SSE update handling.
+- [x] M12.E1 Primary chat workflow (open context, send prompt, receive assistant updates) works in `/packages/frontend` without Amplify libraries.
+- [x] M12.E2 No active chat route in `packages/frontend` imports `aws-amplify` or legacy root `src/*` modules.
+- [x] M12.E3 Regression tests cover core chat interactions and SSE update handling.
 
 ### M13: Chat Feature Parity (3D Viewer, Files, Actions)
 

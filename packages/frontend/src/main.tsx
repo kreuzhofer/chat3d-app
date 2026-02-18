@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
 import { App } from "./app";
 import { AuthProvider } from "./contexts/AuthContext";
 import { NotificationsProvider } from "./contexts/NotificationsContext";
@@ -13,10 +14,12 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <AuthProvider>
-      <NotificationsProvider>
-        <App />
-      </NotificationsProvider>
-    </AuthProvider>
+    <BrowserRouter>
+      <AuthProvider>
+        <NotificationsProvider>
+          <App />
+        </NotificationsProvider>
+      </AuthProvider>
+    </BrowserRouter>
   </StrictMode>,
 );
