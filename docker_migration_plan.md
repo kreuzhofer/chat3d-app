@@ -530,7 +530,7 @@ Revised build order:
 | M4 Waitlist + Registration Tokens | Completed | M2, M3 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M5 Invitations + Policy Controls | Completed | M4 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M6 Admin APIs + Admin Panel | Completed | M5 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
-| M7 Profile + Account Lifecycle | Not Started | M6 | - |
+| M7 Profile + Account Lifecycle | Completed | M6 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M8 Chat CRUD + Files Migration | Not Started | M2, M3 | - |
 | M9 Query + LLM + Build123d Pipeline | Not Started | M8 | - |
 | M10 Hardening + Cutover + Decommission | Not Started | M7, M9 | - |
@@ -622,15 +622,15 @@ Revised build order:
 
 - Objective: self-service account actions with email-confirmed security.
 - Subtasks:
-- [ ] M7.1 Implement request endpoints for password reset, email change, data export, account delete, account reactivate.
-- [ ] M7.2 Implement token confirmation endpoint for all account actions.
-- [ ] M7.3 Implement `deactivated` + `deactivated_until` (30-day window) behavior.
-- [ ] M7.4 Add worker for post-window delete/anonymize policy.
-- [ ] M7.5 Build profile UI for all lifecycle actions.
-- [ ] M7.6 Implement profile/account screens using the shared `shadcn/ui` + Tailwind component baseline from M6.
+- [x] M7.1 Implement request endpoints for password reset, email change, data export, account delete, account reactivate.
+- [x] M7.2 Implement token confirmation endpoint for all account actions.
+- [x] M7.3 Implement `deactivated` + `deactivated_until` (30-day window) behavior.
+- [x] M7.4 Add worker for post-window delete/anonymize policy.
+- [x] M7.5 Build profile UI for all lifecycle actions.
+- [x] M7.6 Implement profile/account screens using the shared `shadcn/ui` + Tailwind component baseline from M6.
 - Exit criteria:
-- [ ] M7.E1 Account deletion enters deactivated state for 30 days.
-- [ ] M7.E2 User/admin reactivation works during grace period.
+- [x] M7.E1 Account deletion enters deactivated state for 30 days.
+- [x] M7.E2 User/admin reactivation works during grace period.
 
 ### M8: Chat CRUD + Files Migration
 
