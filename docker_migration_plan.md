@@ -531,7 +531,7 @@ Revised build order:
 | M5 Invitations + Policy Controls | Completed | M4 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M6 Admin APIs + Admin Panel | Completed | M5 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M7 Profile + Account Lifecycle | Completed | M6 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
-| M8 Chat CRUD + Files Migration | Not Started | M2, M3 | - |
+| M8 Chat CRUD + Files Migration | Completed | M2, M3 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M9 Query + LLM + Build123d Pipeline | Not Started | M8 | - |
 | M10 Hardening + Cutover + Decommission | Not Started | M7, M9 | - |
 
@@ -636,16 +636,16 @@ Revised build order:
 
 - Objective: migrate core chat and file features off Amplify.
 - Subtasks:
-- [ ] M8.1 Implement chat context/item REST endpoints with ownership checks.
-- [ ] M8.2 Implement file upload/download/delete endpoints over local storage.
-- [ ] M8.3 Migrate frontend chat pages/components to REST APIs.
-- [ ] M8.4 Replace Amplify storage integrations with `/api/files/*`.
-- [ ] M8.5 Publish chat update events over SSE (`chat.item.updated`).
-- [ ] M8.6 Replace `semantic-ui-react` chat UI with `shadcn/ui` + Tailwind styles.
+- [x] M8.1 Implement chat context/item REST endpoints with ownership checks.
+- [x] M8.2 Implement file upload/download/delete endpoints over local storage.
+- [x] M8.3 Migrate frontend chat pages/components to REST APIs.
+- [x] M8.4 Replace Amplify storage integrations with `/api/files/*`.
+- [x] M8.5 Publish chat update events over SSE (`chat.item.updated`).
+- [x] M8.6 Replace `semantic-ui-react` chat UI with `shadcn/ui` + Tailwind styles.
 - Exit criteria:
-- [ ] M8.E1 End-to-end chat CRUD works without Amplify.
-- [ ] M8.E2 File upload and model file download verified.
-- [ ] M8.E3 Chat shell/messages/actions are on the new UI stack (no Semantic UI in active chat flows).
+- [x] M8.E1 End-to-end chat CRUD works without Amplify.
+- [x] M8.E2 File upload and model file download verified.
+- [x] M8.E3 Chat shell/messages/actions are on the new UI stack (no Semantic UI in active chat flows).
 
 ### M9: Query + LLM + Build123d Pipeline
 

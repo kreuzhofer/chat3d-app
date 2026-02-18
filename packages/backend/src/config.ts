@@ -34,6 +34,9 @@ export const config = {
     host: readEnv("REDIS_HOST", "localhost"),
     port: readNumber("REDIS_PORT", "6379"),
   },
+  storage: {
+    rootDir: readEnv("STORAGE_ROOT_DIR", process.env.NODE_ENV === "test" ? ".chat3d-storage" : "/data/storage"),
+  },
   app: {
     baseUrl: readEnv("APP_BASE_URL", "http://localhost"),
   },
@@ -49,5 +52,10 @@ export const config = {
   },
   invitations: {
     registrationTokenTtlHours: readNumber("INVITATION_REGISTRATION_TOKEN_TTL_HOURS", "168"),
+  },
+  query: {
+    build123dUrl: readEnv("BUILD123D_URL", "http://localhost:30222"),
+    renderMode: readEnv("QUERY_RENDER_MODE", process.env.NODE_ENV === "test" ? "mock" : "live"),
+    llmMode: readEnv("QUERY_LLM_MODE", process.env.NODE_ENV === "test" ? "mock" : "live"),
   },
 };

@@ -2,7 +2,9 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { query } from "./db/connection.js";
 import { adminRouter } from "./routes/admin.routes.js";
 import { authRouter } from "./routes/auth.routes.js";
+import { chatRouter } from "./routes/chat.routes.js";
 import { eventsRouter } from "./routes/events.routes.js";
+import { filesRouter } from "./routes/files.routes.js";
 import { invitationsRouter } from "./routes/invitations.routes.js";
 import { profileRouter } from "./routes/profile.routes.js";
 import { waitlistRouter } from "./routes/waitlist.routes.js";
@@ -27,7 +29,9 @@ export function createApp() {
 
   app.use("/api/auth", authRouter);
   app.use("/api/admin", adminRouter);
+  app.use("/api/chat", chatRouter);
   app.use("/api/events", eventsRouter);
+  app.use("/api/files", filesRouter);
   app.use("/api/invitations", invitationsRouter);
   app.use("/api/profile", profileRouter);
   app.use("/api/waitlist", waitlistRouter);
