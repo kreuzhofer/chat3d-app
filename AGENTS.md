@@ -4,25 +4,19 @@
 Active runtime is the Dockerized stack in `packages/*`:
 - `packages/backend`: Express + PostgreSQL API.
 - `packages/frontend`: React + Vite frontend.
+- `services/build123d`: internal rendering service.
 
-Legacy reference code remains in:
-- `legacy/src/` and `legacy/amplify/` (Amplify-era implementation, not active runtime).
-
-- `legacy/src/`: archived legacy frontend code.
-- `legacy/public/`: archived static assets (icons, images, mock HTML).
-- `legacy/amplify/`: archived legacy backend definitions, auth triggers, and Lambda handlers.
 - `dist/`: production build output (generated).
 
-Keep new runtime changes in `packages/backend` and `packages/frontend`.
+Keep runtime changes in `packages/backend`, `packages/frontend`, and service code under `services/*`.
 
 ## Build, Test, and Development Commands
-- `npm install`: install frontend dependencies.
+- `npm install`: install workspace dependencies.
 - `npm run dev`: start Docker runtime (`docker compose up --build`).
 - `npm run build`: active-runtime guard + backend/frontend build checks.
-- `npm run guard:active-runtime`: fail if active packages import Amplify/Mixpanel/Patreon/OpenSCAD.
+- `npm run guard:active-runtime`: fail if active packages import deprecated integrations.
 - `npm run preview`: serve the built bundle locally.
 - `npm run lint`: run ESLint for `.ts`/`.tsx`.
-- Legacy-only: `npx dotenvx run npx ampx sandbox` from archived legacy setup (not required for active runtime).
 
 Run `npm run lint && npm run build` before opening a PR.
 
@@ -31,7 +25,7 @@ Run `npm run lint && npm run build` before opening a PR.
 - Components/pages: PascalCase filenames and exports (`ChatMessageAI.tsx`).
 - Variables/functions: camelCase.
 - Prefer functional React components and typed props/interfaces.
-- Respect existing folder casing (`Pages`, `Components`) and keep imports consistent.
+- Respect existing folder casing and keep imports consistent.
 - Use ESLint as the baseline quality gate; fix warnings/errors before merge.
 
 ## Testing Guidelines

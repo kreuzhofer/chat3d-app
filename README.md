@@ -1,7 +1,6 @@
 # Chat3D (Docker Stack)
 
-Chat3D now runs as a Dockerized stack (PostgreSQL, Redis, backend API, frontend, build123d service, scheduled account-deletion worker).  
-AWS Amplify is no longer required for runtime behavior.
+Chat3D runs as a Dockerized stack (PostgreSQL, Redis, backend API, frontend, build123d service, scheduled account-deletion worker).
 
 ## Stack
 
@@ -71,7 +70,6 @@ Worker schedule controls:
 
 ## Notes
 
-- Legacy Amplify/frontend code is archived in `legacy/` (`legacy/amplify`, `legacy/src`) for migration reference only.
-- Active runtime ownership is `packages/*`; default install/build/test workflows target only the Docker stack runtime.
-- `npm run guard:active-runtime` enforces no Mixpanel/Patreon/OpenSCAD/Amplify imports in active runtime packages.
+- Active runtime ownership is `packages/*`; default install/build/test workflows target the Docker stack runtime.
+- `npm run guard:active-runtime` enforces no deprecated runtime integrations in active packages.
 - Active product runtime is the Docker stack and `/packages/*` services.

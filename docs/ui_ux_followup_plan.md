@@ -9,7 +9,7 @@ It modernizes the experience using Tailwind + shadcn/ui best practices and a coh
 
 ## Design Goals
 
-- Reach visual and interaction quality at least on par with the legacy Amplify app.
+- Reach visual and interaction quality at least on par with the previous-generation app.
 - Build a clear information architecture for user and admin workflows.
 - Improve chat ergonomics (focus, speed, clarity, confidence).
 - Upgrade admin tooling from basic CRUD tables to task-oriented operations.
@@ -113,7 +113,7 @@ It modernizes the experience using Tailwind + shadcn/ui best practices and a coh
 ## Non-Goals
 
 - No major backend contract expansion unless UI requires a minimal API field.
-- No re-introduction of Amplify/Semantic UI runtime dependencies.
+- No re-introduction of deprecated UI framework runtime dependencies.
 - No style-only churn without measurable UX outcome.
 
 ## UI Architecture Principles
