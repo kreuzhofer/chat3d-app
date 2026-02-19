@@ -10,6 +10,16 @@ interface ChatContextRow {
   name: string;
 }
 
+interface OwnedAssistantItemRow {
+  id: string;
+  created_at: string;
+  role: "assistant";
+}
+
+interface UserPromptRow {
+  messages: unknown;
+}
+
 type QueryState = "queued" | "conversation" | "codegen" | "rendering" | "completed" | "failed";
 
 export class QueryServiceError extends Error {
@@ -62,6 +72,87 @@ function mapExtension(filename: string): string {
   if (lower.endsWith(".3mf")) return "3mf";
   if (lower.endsWith(".b123d")) return "b123d";
   return "bin";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+function extractPromptFromMessages(messages: unknown): string | null {
+  if (!Array.isArray(messages)) {
+    return null;
+  }
+
+  for (const entry of messages) {
+    const candidate = asRecord(entry);
+    if (!candidate) {
+      continue;
+    }
+
+    const itemType = typeof candidate.itemType === "string" ? candidate.itemType : "";
+    const text = typeof candidate.text === "string" ? candidate.text.trim() : "";
+    if (itemType === "message" && text.length > 0) {
+      return text;
+    }
+  }
+
+  return null;
+}
+
+async function resolvePromptForRegeneration(input: {
+  userId: string;
+  contextId: string;
+  assistantItemId: string;
+}): Promise<string> {
+  const assistantItemResult = await query<OwnedAssistantItemRow>(
+    `
+    SELECT id, created_at::text, role
+    FROM chat_items
+    WHERE id = $1
+      AND chat_context_id = $2
+      AND owner_id = $3
+      AND role = 'assistant'
+    LIMIT 1;
+    `,
+    [input.assistantItemId, input.contextId, input.userId],
+  );
+
+  const assistantItem = assistantItemResult.rows[0];
+  if (!assistantItem) {
+    throw new QueryServiceError("Assistant item not found", 404);
+  }
+
+  const promptResult = await query<UserPromptRow>(
+    `
+    SELECT messages
+    FROM chat_items
+    WHERE chat_context_id = $1
+      AND owner_id = $2
+      AND role = 'user'
+      AND created_at <= $3::timestamptz
+    ORDER BY created_at DESC
+    LIMIT 1;
+    `,
+    [input.contextId, input.userId, assistantItem.created_at],
+  );
+
+  const prompt = extractPromptFromMessages(promptResult.rows[0]?.messages);
+  if (!prompt) {
+    throw new QueryServiceError("Unable to resolve original prompt for regeneration", 400);
+  }
+
+  return prompt;
+}
+
+function selectPreviewFile(files: Array<{ path: string; filename: string }>) {
+  const priority = [".3mf", ".stl", ".step", ".stp", ".obj"];
+  for (const extension of priority) {
+    const matched = files.find((file) => file.path.toLowerCase().endsWith(extension));
+    if (matched) {
+      return matched;
+    }
+  }
+  return files[0] ?? null;
 }
 
 export async function submitQuery(input: {
@@ -157,6 +248,14 @@ export async function submitQuery(input: {
         stateMessage: "",
       },
       {
+        itemType: "3dmodel",
+        text: "Generated 3D preview",
+        attachment: selectPreviewFile(generatedFiles)?.path ?? "",
+        state: "completed",
+        stateMessage: "",
+        files: generatedFiles,
+      },
+      {
         itemType: "meta",
         text: "Generated files",
         state: "completed",
@@ -221,4 +320,22 @@ export async function submitQuery(input: {
     }
     throw new QueryServiceError("Failed to process query", 500);
   }
+}
+
+export async function regenerateQuery(input: {
+  userId: string;
+  contextId: string;
+  assistantItemId: string;
+}) {
+  const prompt = await resolvePromptForRegeneration({
+    userId: input.userId,
+    contextId: input.contextId,
+    assistantItemId: input.assistantItemId,
+  });
+
+  return submitQuery({
+    userId: input.userId,
+    contextId: input.contextId,
+    prompt,
+  });
 }

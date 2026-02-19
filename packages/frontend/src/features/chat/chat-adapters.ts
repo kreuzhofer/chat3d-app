@@ -1,7 +1,7 @@
 import type { ChatItem } from "../../api/chat.api";
 
 export type ChatMessageState = "pending" | "completed" | "error" | "unknown";
-export type ChatSegmentKind = "message" | "error" | "meta";
+export type ChatSegmentKind = "message" | "error" | "meta" | "model";
 
 export interface ChatFileEntry {
   path: string;
@@ -14,6 +14,7 @@ export interface ChatSegment {
   text: string;
   state: ChatMessageState;
   stateMessage: string;
+  attachmentPath: string;
   files: ChatFileEntry[];
 }
 
@@ -38,6 +39,9 @@ function toMessageState(value: unknown): ChatMessageState {
 }
 
 function toSegmentKind(value: unknown): ChatSegmentKind {
+  if (value === "3dmodel") {
+    return "model";
+  }
   if (value === "errormessage") {
     return "error";
   }
@@ -82,6 +86,7 @@ function mapSegment(raw: unknown, index: number): ChatSegment {
       text: "",
       state: "unknown",
       stateMessage: "",
+      attachmentPath: "",
       files: [],
     };
   }
@@ -89,6 +94,7 @@ function mapSegment(raw: unknown, index: number): ChatSegment {
   const id = typeof message.id === "string" ? message.id : `segment-${index}`;
   const text = typeof message.text === "string" ? message.text : "";
   const stateMessage = typeof message.stateMessage === "string" ? message.stateMessage : "";
+  const attachmentPath = typeof message.attachment === "string" ? message.attachment : "";
 
   return {
     id,
@@ -96,6 +102,7 @@ function mapSegment(raw: unknown, index: number): ChatSegment {
     text,
     state: toMessageState(message.state),
     stateMessage,
+    attachmentPath,
     files: mapFiles(message.files),
   };
 }

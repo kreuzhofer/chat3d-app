@@ -91,6 +91,23 @@ describe("Milestone 9 query pipeline", () => {
     expect(queryResponse.body.assistantItem?.id).toBeTruthy();
     expect(Array.isArray(queryResponse.body.generatedFiles)).toBe(true);
     expect(queryResponse.body.generatedFiles.length).toBeGreaterThan(0);
+    expect(Array.isArray(queryResponse.body.assistantItem?.messages)).toBe(true);
+
+    const assistantMessages = queryResponse.body.assistantItem?.messages as Array<{
+      itemType?: string;
+      text?: string;
+      attachment?: string;
+      files?: Array<{ path?: string; filename?: string }>;
+    }>;
+    const itemTypes = assistantMessages.map((message) => message.itemType);
+    expect(itemTypes).toEqual(expect.arrayContaining(["message", "meta", "3dmodel"]));
+
+    const modelMessage = assistantMessages.find((message) => message.itemType === "3dmodel");
+    expect(typeof modelMessage?.attachment).toBe("string");
+
+    const fileMetadataMessage = assistantMessages.find((message) => message.itemType === "meta");
+    expect(Array.isArray(fileMetadataMessage?.files)).toBe(true);
+    expect((fileMetadataMessage?.files?.length ?? 0) > 0).toBe(true);
 
     const generatedPath = queryResponse.body.generatedFiles[0]?.path;
     expect(typeof generatedPath).toBe("string");
@@ -135,5 +152,20 @@ describe("Milestone 9 query pipeline", () => {
     );
 
     expect(itemUpdateRows.rows.length).toBeGreaterThan(0);
+
+    const regenerateResponse = await request(app)
+      .post("/api/query/regenerate")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        contextId,
+        assistantItemId: queryResponse.body.assistantItem.id,
+      });
+
+    expect(regenerateResponse.status).toBe(202);
+    expect(regenerateResponse.body.contextId).toBe(contextId);
+    expect(regenerateResponse.body.assistantItem?.id).toBeTruthy();
+    expect(regenerateResponse.body.assistantItem?.id).not.toBe(queryResponse.body.assistantItem.id);
+    expect(Array.isArray(regenerateResponse.body.generatedFiles)).toBe(true);
+    expect(regenerateResponse.body.generatedFiles.length).toBeGreaterThan(0);
   });
 });

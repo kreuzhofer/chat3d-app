@@ -535,7 +535,7 @@ Revised build order:
 | M10 Hardening + Cutover + Decommission | Completed | M7, M9 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces` |
 | M11 Gap Closure + Productionization | Completed | M10 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces`, `npm run guard:active-runtime`, `docker compose build backend frontend account-deletion-worker`, `docker compose up -d backend frontend account-deletion-worker`, `curl http://localhost:3001/health`, `curl http://localhost:3001/ready` |
 | M12 Legacy Chat UX Port (Amplify -> Docker Frontend) | Completed | M11 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces`, `npm run guard:active-runtime`, `docker compose build backend frontend`, `docker compose up -d backend frontend`, `curl http://localhost:3001/health`, frontend bundle check for `/chat/:contextId` route handlers |
-| M13 Chat Feature Parity (3D Viewer, Files, Actions) | Planned | M12 | End-to-end query/render/download/rate/regenerate verification in Docker |
+| M13 Chat Feature Parity (3D Viewer, Files, Actions) | Completed | M12 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces`, `npm run guard:active-runtime`, `docker compose build backend frontend && docker compose up -d backend frontend && docker compose ps backend frontend`, `curl http://localhost:3001/health`, `curl http://localhost:3001/ready` |
 | M14 Amplify Runtime Decommission + Dependency Purge | Planned | M13 | `aws-amplify`/`semantic-ui` runtime dependency removal PR, clean lockfile, and regression runbook |
 
 ### M1: Foundation + Schema
@@ -730,17 +730,17 @@ Revised build order:
 
 - Objective: close remaining chat capability gaps (3D preview, file handling, ratings, regenerate actions) in the new frontend/backend contracts.
 - Subtasks:
-- [ ] M13.1 Implement binary-safe file API client support in `packages/frontend` for model downloads/preview streams.
-- [ ] M13.2 Port/adapt model viewer UX from legacy (`ModelViewer.tsx`) to new frontend architecture and styling system.
-- [ ] M13.3 Add generated file action bar parity (download STEP/STL/3MF/B123D where available) with clear availability/error states.
-- [ ] M13.4 Implement assistant-item feedback/rating and regenerate/retry actions against Docker backend endpoints.
-- [ ] M13.5 Add explicit backend/frontend contract tests for message `itemType` variants (`message`, `errormessage`, model/file metadata entries).
-- [ ] M13.6 Add performance guardrails for large chat histories and model viewer mount/unmount lifecycle.
-- [ ] M13.7 Produce end-to-end test script: create prompt -> query -> render -> preview/download -> rate -> regenerate.
+- [x] M13.1 Implement binary-safe file API client support in `packages/frontend` for model downloads/preview streams.
+- [x] M13.2 Port/adapt model viewer UX from legacy (`ModelViewer.tsx`) to new frontend architecture and styling system.
+- [x] M13.3 Add generated file action bar parity (download STEP/STL/3MF/B123D where available) with clear availability/error states.
+- [x] M13.4 Implement assistant-item feedback/rating and regenerate/retry actions against Docker backend endpoints.
+- [x] M13.5 Add explicit backend/frontend contract tests for message `itemType` variants (`message`, `errormessage`, model/file metadata entries).
+- [x] M13.6 Add performance guardrails for large chat histories and model viewer mount/unmount lifecycle.
+- [x] M13.7 Produce end-to-end test script: create prompt -> query -> render -> preview/download -> rate -> regenerate.
 - Exit criteria:
-- [ ] M13.E1 New chat UI supports model generation and file consumption flows with no Amplify storage components.
-- [ ] M13.E2 Ratings/regenerate flows are fully wired and verified.
-- [ ] M13.E3 Docker smoke tests demonstrate stable chat + render + file UX across page refresh and reconnect.
+- [x] M13.E1 New chat UI supports model generation and file consumption flows with no Amplify storage components.
+- [x] M13.E2 Ratings/regenerate flows are fully wired and verified.
+- [x] M13.E3 Docker smoke tests demonstrate stable chat + render + file UX across page refresh and reconnect.
 
 ### M14: Amplify Runtime Decommission + Dependency Purge
 

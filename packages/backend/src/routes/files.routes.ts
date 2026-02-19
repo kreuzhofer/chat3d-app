@@ -26,6 +26,24 @@ function sendKnownError(
   res.status(500).json({ error: fallbackMessage, detail: String(error) });
 }
 
+function inferContentType(relativePath: string): string {
+  const lower = relativePath.toLowerCase();
+  if (lower.endsWith(".txt") || lower.endsWith(".log")) return "text/plain; charset=utf-8";
+  if (lower.endsWith(".json")) return "application/json; charset=utf-8";
+  if (lower.endsWith(".stl")) return "application/vnd.ms-pki.stl";
+  if (lower.endsWith(".step") || lower.endsWith(".stp")) return "application/step";
+  if (lower.endsWith(".3mf")) return "model/3mf";
+  if (lower.endsWith(".obj")) return "model/obj";
+  if (lower.endsWith(".b123d")) return "text/plain; charset=utf-8";
+  return "application/octet-stream";
+}
+
+function basename(relativePath: string): string {
+  const normalized = relativePath.replace(/\\/g, "/");
+  const segments = normalized.split("/").filter((segment) => segment.length > 0);
+  return segments[segments.length - 1] ?? "download.bin";
+}
+
 filesRouter.post("/upload", async (req, res) => {
   const authUser = req.authUser;
   if (!authUser) {
@@ -71,8 +89,11 @@ filesRouter.get("/download", async (req, res) => {
       relativePath,
     });
 
-    if (relativePath.endsWith(".txt") || relativePath.endsWith(".log") || relativePath.endsWith(".json")) {
-      res.type("text/plain");
+    const contentType = inferContentType(relativePath);
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${basename(relativePath)}"`);
+
+    if (contentType.startsWith("text/") || contentType.startsWith("application/json")) {
       res.status(200).send(content.toString("utf8"));
       return;
     }

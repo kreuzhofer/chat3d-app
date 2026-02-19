@@ -8,6 +8,7 @@ export * from "./auth/types";
 export * from "./auth/guards";
 export * from "./components/ChatWorkspace";
 export * from "./components/ChatPage";
+export * from "./components/ModelViewer";
 export * from "./components/ProfilePanel";
 export * from "./components/QueryWorkbench";
 export * from "./features/chat/chat-adapters";

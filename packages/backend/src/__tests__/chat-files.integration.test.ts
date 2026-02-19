@@ -175,6 +175,7 @@ describe("Milestone 8 chat/files migration", () => {
 
     expect(downloadResponse.status).toBe(200);
     expect(downloadResponse.text).toBe("milestone-8-file-content");
+    expect(downloadResponse.headers["content-disposition"]).toContain('filename="m8-note.txt"');
 
     const deleteResponse = await request(app)
       .delete("/api/files/delete")
@@ -189,5 +190,42 @@ describe("Milestone 8 chat/files migration", () => {
       .query({ path: "upload/m8-note.txt" });
 
     expect(missingDownload.status).toBe(404);
+  });
+
+  it("serves binary file downloads with metadata headers", async () => {
+    const binaryContent = Buffer.from([1, 2, 3, 4, 5, 6]);
+
+    const uploadResponse = await request(app)
+      .post("/api/files/upload")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({
+        path: "modelcreator/m8-model.stl",
+        contentBase64: binaryContent.toString("base64"),
+      });
+
+    expect(uploadResponse.status).toBe(201);
+
+    const downloadResponse = await request(app)
+      .get("/api/files/download")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .query({ path: "modelcreator/m8-model.stl" });
+
+    expect(downloadResponse.status).toBe(200);
+    expect(downloadResponse.headers["content-type"]).toContain("application/vnd.ms-pki.stl");
+    expect(downloadResponse.headers["content-disposition"]).toContain('filename="m8-model.stl"');
+    const payloadLength =
+      typeof downloadResponse.text === "string"
+        ? downloadResponse.text.length
+        : Buffer.isBuffer(downloadResponse.body)
+          ? downloadResponse.body.length
+          : 0;
+    expect(payloadLength).toBeGreaterThan(0);
+
+    const deleteResponse = await request(app)
+      .delete("/api/files/delete")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .query({ path: "modelcreator/m8-model.stl" });
+
+    expect(deleteResponse.status).toBe(204);
   });
 });

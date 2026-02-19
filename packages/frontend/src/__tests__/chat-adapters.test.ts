@@ -3,7 +3,7 @@ import { adaptChatItem } from "../features/chat/chat-adapters";
 import type { ChatItem } from "../api/chat.api";
 
 describe("chat adapters", () => {
-  it("maps backend item payloads to stable timeline view models", () => {
+  it("maps backend item payloads to stable timeline view models and item variants", () => {
     const item: ChatItem = {
       id: "item-1",
       chatContextId: "ctx-1",
@@ -22,6 +22,21 @@ describe("chat adapters", () => {
         },
         {
           id: "msg-2",
+          itemType: "errormessage",
+          text: "Oops",
+          state: "error",
+          stateMessage: "render failed",
+        },
+        {
+          id: "msg-3",
+          itemType: "3dmodel",
+          text: "Preview",
+          attachment: "modelcreator/a.stl",
+          state: "completed",
+          files: [{ path: "modelcreator/a.stl", filename: "a.stl" }],
+        },
+        {
+          id: "msg-4",
           itemType: "meta",
           text: "Generated files",
           state: "completed",
@@ -33,9 +48,12 @@ describe("chat adapters", () => {
     const adapted = adaptChatItem(item);
 
     expect(adapted.id).toBe("item-1");
-    expect(adapted.segments).toHaveLength(2);
+    expect(adapted.segments).toHaveLength(4);
     expect(adapted.segments[0].kind).toBe("message");
-    expect(adapted.segments[1].kind).toBe("meta");
-    expect(adapted.segments[1].files[0]?.filename).toBe("a.step");
+    expect(adapted.segments[1].kind).toBe("error");
+    expect(adapted.segments[2].kind).toBe("model");
+    expect(adapted.segments[2].attachmentPath).toBe("modelcreator/a.stl");
+    expect(adapted.segments[3].kind).toBe("meta");
+    expect(adapted.segments[3].files[0]?.filename).toBe("a.step");
   });
 });

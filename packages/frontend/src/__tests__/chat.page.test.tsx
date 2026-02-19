@@ -24,9 +24,11 @@ const listChatContextsMock = vi.fn();
 const listChatItemsMock = vi.fn();
 const createChatContextMock = vi.fn();
 const updateChatContextMock = vi.fn();
+const updateChatItemMock = vi.fn();
 const deleteChatContextMock = vi.fn();
 const listLlmModelsMock = vi.fn();
 const submitQueryMock = vi.fn();
+const regenerateQueryMock = vi.fn();
 
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => authState,
@@ -41,12 +43,14 @@ vi.mock("../api/chat.api", () => ({
   listChatItems: (...args: unknown[]) => listChatItemsMock(...args),
   createChatContext: (...args: unknown[]) => createChatContextMock(...args),
   updateChatContext: (...args: unknown[]) => updateChatContextMock(...args),
+  updateChatItem: (...args: unknown[]) => updateChatItemMock(...args),
   deleteChatContext: (...args: unknown[]) => deleteChatContextMock(...args),
 }));
 
 vi.mock("../api/query.api", () => ({
   listLlmModels: (...args: unknown[]) => listLlmModelsMock(...args),
   submitQuery: (...args: unknown[]) => submitQueryMock(...args),
+  regenerateQuery: (...args: unknown[]) => regenerateQueryMock(...args),
 }));
 
 function renderChatPage(initialPath = "/chat/ctx-1") {
@@ -70,9 +74,11 @@ describe("chat page route flows", () => {
     listChatItemsMock.mockReset();
     createChatContextMock.mockReset();
     updateChatContextMock.mockReset();
+    updateChatItemMock.mockReset();
     deleteChatContextMock.mockReset();
     listLlmModelsMock.mockReset();
     submitQueryMock.mockReset();
+    regenerateQueryMock.mockReset();
 
     listChatContextsMock.mockResolvedValue([
       {
@@ -116,7 +122,17 @@ describe("chat page route flows", () => {
           id: "item-ctx-1",
           chatContextId: "ctx-1",
           role: "assistant",
-          messages: [{ id: "m1", itemType: "message", text: "Context one message", state: "completed" }],
+          messages: [
+            { id: "m1", itemType: "message", text: "Context one message", state: "completed" },
+            {
+              id: "m1-model",
+              itemType: "3dmodel",
+              text: "Preview",
+              attachment: "modelcreator/test.step",
+              state: "completed",
+              files: [{ path: "modelcreator/test.step", filename: "test.step" }],
+            },
+          ],
           rating: 0,
           ownerId: "user-1",
           createdAt: "2026-02-18T00:00:00.000Z",
@@ -126,11 +142,34 @@ describe("chat page route flows", () => {
     });
 
     listLlmModelsMock.mockResolvedValue([]);
+    updateChatItemMock.mockResolvedValue({
+      id: "item-ctx-1",
+      chatContextId: "ctx-1",
+      role: "assistant",
+      messages: [{ id: "m1", itemType: "message", text: "Context one message", state: "completed" }],
+      rating: 1,
+      ownerId: "user-1",
+      createdAt: "2026-02-18T00:00:00.000Z",
+      updatedAt: "2026-02-18T00:00:00.000Z",
+    });
     submitQueryMock.mockResolvedValue({
       contextId: "ctx-1",
       userItemId: "user-item",
       assistantItem: {
         id: "assistant-item",
+        chatContextId: "ctx-1",
+        role: "assistant",
+        messages: [],
+      },
+      generatedFiles: [],
+      llm: { conversationModel: "model-a", codegenModel: "model-b" },
+      renderer: "build123d",
+    });
+    regenerateQueryMock.mockResolvedValue({
+      contextId: "ctx-1",
+      userItemId: "user-item-r2",
+      assistantItem: {
+        id: "assistant-item-r2",
         chatContextId: "ctx-1",
         role: "assistant",
         messages: [],
@@ -232,6 +271,26 @@ describe("chat page route flows", () => {
 
     await waitFor(() => {
       expect(listChatItemsMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("supports rating and regenerate actions on assistant responses", async () => {
+    renderChatPage("/chat/ctx-1");
+
+    await waitFor(() => {
+      expect(listChatItemsMock).toHaveBeenCalledWith("test-token", "ctx-1");
+    });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Thumbs up" })[0]);
+
+    await waitFor(() => {
+      expect(updateChatItemMock).toHaveBeenCalled();
+    });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Regenerate" })[0]);
+
+    await waitFor(() => {
+      expect(regenerateQueryMock).toHaveBeenCalled();
     });
   });
 });

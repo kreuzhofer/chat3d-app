@@ -10,11 +10,14 @@ import {
   type ChatContext,
   type ChatItem,
   updateChatContext,
+  updateChatItem,
 } from "../api/chat.api";
-import { listLlmModels, submitQuery, type LlmModel } from "../api/query.api";
+import { downloadFileBinary } from "../api/files.api";
+import { listLlmModels, regenerateQuery, submitQuery, type LlmModel } from "../api/query.api";
 import { useNotifications } from "../contexts/NotificationsContext";
 import { useAuth } from "../hooks/useAuth";
 import { adaptChatItem } from "../features/chat/chat-adapters";
+import { ModelViewer } from "./ModelViewer";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Input } from "./ui/input";
@@ -36,6 +39,30 @@ function routeForContext(contextId: string): string {
   return `/chat/${encodeURIComponent(contextId)}`;
 }
 
+function fileExtension(path: string): string {
+  const normalized = path.toLowerCase();
+  const index = normalized.lastIndexOf(".");
+  return index >= 0 ? normalized.slice(index) : "";
+}
+
+function uniqueFilesByPath(
+  files: Array<{
+    path: string;
+    filename: string;
+  }>,
+) {
+  const unique = new Map<string, { path: string; filename: string }>();
+  for (const file of files) {
+    if (!file.path) {
+      continue;
+    }
+    if (!unique.has(file.path)) {
+      unique.set(file.path, file);
+    }
+  }
+  return [...unique.values()];
+}
+
 export function ChatPage() {
   const { token } = useAuth();
   const { notifications, connectionState, refreshReplay } = useNotifications();
@@ -53,6 +80,7 @@ export function ChatPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [optimisticPrompt, setOptimisticPrompt] = useState<string | null>(null);
+  const [visibleTimelineCount, setVisibleTimelineCount] = useState(80);
   const [conversationModelId, setConversationModelId] = useState("");
   const [codegenModelId, setCodegenModelId] = useState("");
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
@@ -98,6 +126,10 @@ export function ChatPage() {
   const lastQueryState = queryStates[0] ?? null;
 
   const timelineItems = useMemo(() => items.map(adaptChatItem), [items]);
+  const visibleTimelineItems = useMemo(
+    () => timelineItems.slice(Math.max(timelineItems.length - visibleTimelineCount, 0)),
+    [timelineItems, visibleTimelineCount],
+  );
 
   const refreshContexts = useCallback(async () => {
     if (!token) {
@@ -161,6 +193,7 @@ export function ChatPage() {
   useEffect(() => {
     setConversationModelId(activeContext?.conversationModelId ?? "");
     setCodegenModelId(activeContext?.chat3dModelId ?? "");
+    setVisibleTimelineCount(80);
   }, [activeContext?.chat3dModelId, activeContext?.conversationModelId]);
 
   useEffect(() => {
@@ -196,7 +229,7 @@ export function ChatPage() {
     if (target && typeof target.scrollIntoView === "function") {
       target.scrollIntoView({ behavior: "smooth", block: "end" });
     }
-  }, [lastQueryState?.id, optimisticPrompt, timelineItems.length]);
+  }, [lastQueryState?.id, optimisticPrompt, visibleTimelineItems.length]);
 
   async function createContextAction() {
     if (!token) {
@@ -334,6 +367,81 @@ export function ChatPage() {
     } finally {
       setBusyAction(null);
       setOptimisticPrompt(null);
+    }
+  }
+
+  async function downloadFileAction(filePath: string) {
+    if (!token) {
+      return;
+    }
+
+    setBusyAction(`download-${filePath}`);
+    setError("");
+    try {
+      const downloaded = await downloadFileBinary({
+        token,
+        path: filePath,
+      });
+      const url = URL.createObjectURL(downloaded.blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = downloaded.filename;
+      anchor.rel = "noopener noreferrer";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (actionError) {
+      setError(toErrorMessage(actionError));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function rateItemAction(item: { id: string; rating: -1 | 0 | 1 }, rating: -1 | 1) {
+    if (!token || !activeContextId) {
+      return;
+    }
+
+    const nextRating = item.rating === rating ? 0 : rating;
+    setBusyAction(`rate-${item.id}`);
+    setError("");
+
+    try {
+      await updateChatItem({
+        token,
+        contextId: activeContextId,
+        itemId: item.id,
+        rating: nextRating,
+      });
+      await refreshItems();
+    } catch (actionError) {
+      setError(toErrorMessage(actionError));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function regenerateAction(assistantItemId: string) {
+    if (!token || !activeContextId) {
+      return;
+    }
+
+    setBusyAction(`regenerate-${assistantItemId}`);
+    setError("");
+    setMessage("");
+    try {
+      await regenerateQuery({
+        token,
+        contextId: activeContextId,
+        assistantItemId,
+      });
+      await refreshItems();
+      setMessage("Regeneration submitted.");
+    } catch (actionError) {
+      setError(toErrorMessage(actionError));
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -485,56 +593,149 @@ export function ChatPage() {
               </div>
 
               <div className="mt-3 max-h-[56vh] space-y-3 overflow-y-auto rounded-md border border-[hsl(var(--border))] p-3">
+                {timelineItems.length > visibleTimelineItems.length ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setVisibleTimelineCount((current) => current + 80)}
+                  >
+                    Show Older Messages ({timelineItems.length - visibleTimelineItems.length})
+                  </Button>
+                ) : null}
+
                 {timelineItems.length === 0 && !optimisticPrompt ? (
                   <p className="text-sm text-[hsl(var(--muted-foreground))]">
                     Start the conversation by sending a prompt.
                   </p>
                 ) : null}
 
-                {timelineItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className={`rounded-md border p-3 ${
-                      item.role === "user"
-                        ? "border-[hsl(var(--border))] bg-[hsl(var(--muted))]"
-                        : "border-[hsl(var(--border))] bg-white"
-                    }`}
-                  >
-                    <div className="mb-2 flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))]">
-                      <span className="uppercase tracking-wide">{item.role}</span>
-                      <span>{new Date(item.createdAt).toLocaleString()}</span>
-                    </div>
-                    <div className="space-y-2">
-                      {item.segments.map((segment) => (
-                        <div
-                          key={segment.id}
-                          className={`rounded border p-2 ${
-                            segment.kind === "error"
-                              ? "border-[hsl(var(--destructive))] text-[hsl(var(--destructive))]"
-                              : "border-[hsl(var(--border))]"
-                          }`}
-                        >
-                          {segment.text ? (
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>
-                          ) : (
-                            <p className="text-sm text-[hsl(var(--muted-foreground))]">(empty)</p>
-                          )}
-                          {segment.files.length > 0 ? (
-                            <ul className="mt-2 list-disc pl-5 text-sm">
-                              {segment.files.map((file) => (
-                                <li key={`${segment.id}-${file.path}`}>{file.filename}</li>
-                              ))}
-                            </ul>
+                {visibleTimelineItems.map((item) => {
+                  const allFiles = uniqueFilesByPath(item.segments.flatMap((segment) => segment.files));
+                  const preferredPreviewFile =
+                    allFiles.find((file) => [".3mf", ".stl"].includes(fileExtension(file.path))) ??
+                    allFiles.find((file) => [".step", ".stp"].includes(fileExtension(file.path))) ??
+                    null;
+                  const extensionLabels = [
+                    { extension: ".step", label: "STEP" },
+                    { extension: ".stp", label: "STP" },
+                    { extension: ".stl", label: "STL" },
+                    { extension: ".3mf", label: "3MF" },
+                    { extension: ".b123d", label: "B123D" },
+                  ];
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`rounded-md border p-3 ${
+                        item.role === "user"
+                          ? "border-[hsl(var(--border))] bg-[hsl(var(--muted))]"
+                          : "border-[hsl(var(--border))] bg-white"
+                      }`}
+                    >
+                      <div className="mb-2 flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))]">
+                        <span className="uppercase tracking-wide">{item.role}</span>
+                        <span>{new Date(item.createdAt).toLocaleString()}</span>
+                      </div>
+                      <div className="space-y-2">
+                        {item.segments.map((segment) => (
+                          <div
+                            key={segment.id}
+                            className={`rounded border p-2 ${
+                              segment.kind === "error"
+                                ? "border-[hsl(var(--destructive))] text-[hsl(var(--destructive))]"
+                                : "border-[hsl(var(--border))]"
+                            }`}
+                          >
+                            {segment.text ? (
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>
+                            ) : (
+                              <p className="text-sm text-[hsl(var(--muted-foreground))]">(empty)</p>
+                            )}
+                            {segment.kind === "model" && segment.attachmentPath ? (
+                              <div className="mt-2">
+                                <ModelViewer token={token ?? ""} filePath={segment.attachmentPath} />
+                              </div>
+                            ) : null}
+                            {segment.files.length > 0 ? (
+                              <ul className="mt-2 list-disc pl-5 text-sm">
+                                {segment.files.map((file) => (
+                                  <li key={`${segment.id}-${file.path}`}>{file.filename}</li>
+                                ))}
+                              </ul>
+                            ) : null}
+                            <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
+                              state: {segment.state}
+                              {segment.stateMessage ? ` (${segment.stateMessage})` : ""}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+
+                      {item.role === "assistant" && allFiles.length > 0 ? (
+                        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-[hsl(var(--border))] p-2">
+                          {extensionLabels.map((entry) => {
+                            const matched = allFiles.find((file) => fileExtension(file.path) === entry.extension);
+                            return (
+                              <Button
+                                key={`${item.id}-${entry.extension}`}
+                                size="sm"
+                                variant="outline"
+                                disabled={!matched || busyAction !== null}
+                                onClick={() => {
+                                  if (matched) {
+                                    void downloadFileAction(matched.path);
+                                  }
+                                }}
+                              >
+                                Download {entry.label}
+                              </Button>
+                            );
+                          })}
+                          {preferredPreviewFile && fileExtension(preferredPreviewFile.path) === ".step" ? (
+                            <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                              Preview available after exporting STL or 3MF.
+                            </p>
                           ) : null}
-                          <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
-                            state: {segment.state}
-                            {segment.stateMessage ? ` (${segment.stateMessage})` : ""}
-                          </p>
                         </div>
-                      ))}
+                      ) : null}
+
+                      {item.role === "assistant" ? (
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant={item.rating === 1 ? "secondary" : "outline"}
+                            disabled={busyAction !== null}
+                            onClick={() => {
+                              void rateItemAction(item, 1);
+                            }}
+                          >
+                            Thumbs up
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={item.rating === -1 ? "secondary" : "outline"}
+                            disabled={busyAction !== null}
+                            onClick={() => {
+                              void rateItemAction(item, -1);
+                            }}
+                          >
+                            Thumbs down
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={busyAction !== null}
+                            onClick={() => {
+                              void regenerateAction(item.id);
+                            }}
+                          >
+                            Regenerate
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
 
                 {optimisticPrompt ? (
                   <>

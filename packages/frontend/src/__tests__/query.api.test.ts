@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { listLlmModels, submitQuery } from "../api/query.api";
+import { listLlmModels, regenerateQuery, submitQuery } from "../api/query.api";
 
 describe("query api client", () => {
   const fetchMock = vi.fn<typeof fetch>();
@@ -64,6 +64,39 @@ describe("query api client", () => {
     expect(result.generatedFiles.length).toBe(1);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/query/submit",
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
+  });
+
+  it("submits regenerate payload", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          contextId: "ctx1",
+          userItemId: "item-user-2",
+          assistantItem: { id: "item-assistant-2", chatContextId: "ctx1", role: "assistant", messages: [] },
+          generatedFiles: [{ path: "modelcreator/item-assistant-2.step", filename: "cube.step" }],
+          llm: { conversationModel: "conversation-mock-v1", codegenModel: "codegen-mock-v1" },
+          renderer: "mock",
+        }),
+        {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    const result = await regenerateQuery({
+      token: "token-1",
+      contextId: "ctx1",
+      assistantItemId: "item-assistant",
+    });
+
+    expect(result.contextId).toBe("ctx1");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/regenerate",
       expect.objectContaining({
         method: "POST",
       }),

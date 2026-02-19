@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { deleteFile, downloadFileText, uploadFileBase64 } from "../api/files.api";
+import { deleteFile, downloadFileBinary, downloadFileText, uploadFileBase64 } from "../api/files.api";
 
 describe("files api client", () => {
   const fetchMock = vi.fn<typeof fetch>();
@@ -79,5 +79,33 @@ describe("files api client", () => {
         path: "upload/missing.txt",
       }),
     ).rejects.toThrow("File not found");
+  });
+
+  it("downloads binary files with metadata", async () => {
+    const blob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: "application/octet-stream" });
+    fetchMock.mockResolvedValue(
+      new Response(blob, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/vnd.ms-pki.stl",
+          "Content-Disposition": 'attachment; filename="demo.stl"',
+        },
+      }),
+    );
+
+    const downloaded = await downloadFileBinary({
+      token: "token-1",
+      path: "modelcreator/demo.stl",
+    });
+
+    expect(downloaded.filename).toBe("demo.stl");
+    expect(downloaded.contentType).toContain("stl");
+    expect(downloaded.blob.size).toBe(4);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/files/download?path=modelcreator%2Fdemo.stl",
+      expect.objectContaining({
+        method: "GET",
+      }),
+    );
   });
 });

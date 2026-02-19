@@ -66,3 +66,21 @@ export function submitQuery(input: {
     }),
   });
 }
+
+export function regenerateQuery(input: {
+  token: string;
+  contextId: string;
+  assistantItemId: string;
+}): Promise<QuerySubmitResult> {
+  return requestJson<QuerySubmitResult>(`${QUERY_API_BASE}/regenerate`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      contextId: input.contextId,
+      assistantItemId: input.assistantItemId,
+    }),
+  });
+}
