@@ -6,11 +6,11 @@ Active runtime is the Dockerized stack in `packages/*`:
 - `packages/frontend`: React + Vite frontend.
 
 Legacy reference code remains in:
-- `src/` and `amplify/` (Amplify-era implementation, not active runtime).
+- `legacy/src/` and `legacy/amplify/` (Amplify-era implementation, not active runtime).
 
-- `src/`: archived legacy frontend code.
-- `public/`: static assets (icons, images, mock HTML).
-- `amplify/`: archived legacy backend definitions, auth triggers, and Lambda handlers.
+- `legacy/src/`: archived legacy frontend code.
+- `legacy/public/`: archived static assets (icons, images, mock HTML).
+- `legacy/amplify/`: archived legacy backend definitions, auth triggers, and Lambda handlers.
 - `dist/`: production build output (generated).
 
 Keep new runtime changes in `packages/backend` and `packages/frontend`.
@@ -22,7 +22,7 @@ Keep new runtime changes in `packages/backend` and `packages/frontend`.
 - `npm run guard:active-runtime`: fail if active packages import Amplify/Mixpanel/Patreon/OpenSCAD.
 - `npm run preview`: serve the built bundle locally.
 - `npm run lint`: run ESLint for `.ts`/`.tsx`.
-- `npx dotenvx run npx ampx sandbox`: start/update Amplify sandbox using `.env`.
+- Legacy-only: `npx dotenvx run npx ampx sandbox` from archived legacy setup (not required for active runtime).
 
 Run `npm run lint && npm run build` before opening a PR.
 
@@ -35,11 +35,12 @@ Run `npm run lint && npm run build` before opening a PR.
 - Use ESLint as the baseline quality gate; fix warnings/errors before merge.
 
 ## Testing Guidelines
-There is currently no dedicated automated test framework configured in `package.json`.
-
-- Minimum pre-PR checks: `npm run lint` and `npm run build`.
+- Backend tests: `npm --workspace @chat3d/backend run test`.
+- Frontend tests: `npm --workspace @chat3d/frontend run test`.
+- Frontend typecheck: `npm --workspace @chat3d/frontend run typecheck`.
+- Workspace typecheck: `npm run m1:typecheck:workspaces`.
+- Active-runtime guard: `npm run guard:active-runtime`.
 - For UI/backend changes, include manual verification steps in the PR description (route tested, auth flow, chat behavior, etc.).
-- If you add tests, colocate by feature (for example `src/Components/__tests__/`) and document run commands in `README.md`.
 
 ## Commit & Pull Request Guidelines
 Recent history uses short, imperative commit messages (for example: `upgrade packages`, `implement build123d model generator, v0.1`).

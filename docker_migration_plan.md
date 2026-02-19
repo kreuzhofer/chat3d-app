@@ -536,7 +536,8 @@ Revised build order:
 | M11 Gap Closure + Productionization | Completed | M10 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces`, `npm run guard:active-runtime`, `docker compose build backend frontend account-deletion-worker`, `docker compose up -d backend frontend account-deletion-worker`, `curl http://localhost:3001/health`, `curl http://localhost:3001/ready` |
 | M12 Legacy Chat UX Port (Amplify -> Docker Frontend) | Completed | M11 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces`, `npm run guard:active-runtime`, `docker compose build backend frontend`, `docker compose up -d backend frontend`, `curl http://localhost:3001/health`, frontend bundle check for `/chat/:contextId` route handlers |
 | M13 Chat Feature Parity (3D Viewer, Files, Actions) | Completed | M12 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces`, `npm run guard:active-runtime`, `docker compose build backend frontend && docker compose up -d backend frontend && docker compose ps backend frontend`, `curl http://localhost:3001/health`, `curl http://localhost:3001/ready` |
-| M14 Amplify Runtime Decommission + Dependency Purge | Planned | M13 | `aws-amplify`/`semantic-ui` runtime dependency removal PR, clean lockfile, and regression runbook |
+| M14 Amplify Runtime Decommission + Dependency Purge | Completed | M13 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces`, `npm run guard:active-runtime`, `rg -n 'aws-amplify|@aws-amplify|semantic-ui-react|semantic-ui-css|mixpanel' package-lock.json` (no matches), `docker compose build backend frontend && docker compose up -d backend frontend && docker compose ps backend frontend`, `curl http://localhost:3001/health`, `curl http://localhost:3001/ready` |
+| M15 Legacy Functional Completion (Upload/Image/Diagnostics/Perf) | Planned | M14 | Browser-level and API-level parity validation against archived legacy behavior matrix |
 
 ### M1: Foundation + Schema
 
@@ -713,7 +714,7 @@ Revised build order:
 
 - Objective: rebuild the old Amplify chat experience in the new `/packages/frontend` app framework using REST + SSE, without introducing Amplify runtime APIs.
 - Subtasks:
-- [x] M12.1 Produce a feature parity matrix from legacy files (`src/Pages/Chat.tsx`, `src/Components/ChatMessage*.tsx`, `src/Components/ChatContextComponent.tsx`) and map each feature to target components in `packages/frontend/src`.
+- [x] M12.1 Produce a feature parity matrix from legacy files (`legacy/src/Pages/Chat.tsx`, `legacy/src/Components/ChatMessage*.tsx`, `legacy/src/Components/ChatContextComponent.tsx`) and map each feature to target components in `packages/frontend/src`.
 - [x] M12.2 Add dedicated chat routes/layout in `packages/frontend` (context list, active thread, message composer, model selection controls).
 - [x] M12.3 Implement chat context lifecycle UX parity: create, rename, open, delete, and navigation state synchronization.
 - [x] M12.4 Implement message timeline parity: user/assistant rendering, markdown, pending/error states, and auto-scroll behavior.
@@ -723,7 +724,7 @@ Revised build order:
 - [x] M12.8 Document migrated chat UX behavior and known intentional deviations from legacy Amplify UI.
 - Exit criteria:
 - [x] M12.E1 Primary chat workflow (open context, send prompt, receive assistant updates) works in `/packages/frontend` without Amplify libraries.
-- [x] M12.E2 No active chat route in `packages/frontend` imports `aws-amplify` or legacy root `src/*` modules.
+- [x] M12.E2 No active chat route in `packages/frontend` imports `aws-amplify` or archived legacy `legacy/src/*` modules.
 - [x] M12.E3 Regression tests cover core chat interactions and SSE update handling.
 
 ### M13: Chat Feature Parity (3D Viewer, Files, Actions)
@@ -746,17 +747,50 @@ Revised build order:
 
 - Objective: remove runtime ambiguity by decommissioning legacy Amplify app paths and eliminating unused Amplify-era dependencies from active development paths.
 - Subtasks:
-- [ ] M14.1 Define explicit ownership boundary: `/packages/*` is active runtime; legacy root app is archived reference only.
-- [ ] M14.2 Remove root runtime dependencies tied to legacy app (`aws-amplify`, `@aws-amplify/*`, `mixpanel*`, `semantic-ui*`) unless still required by active Docker runtime.
-- [ ] M14.3 Move or archive legacy root frontend code (`src/*`) behind a clear `legacy/` boundary or equivalent, with deprecation note.
-- [ ] M14.4 Remove legacy root scripts/build paths from default developer workflow so `npm install`/`npm run` align to Docker runtime targets.
-- [ ] M14.5 Add CI guard checks to fail on new imports of deprecated stacks in active packages (Amplify APIs, Semantic UI, Patreon/OpenSCAD legacy codepaths).
-- [ ] M14.6 Update README/operations docs with final cutover architecture and legacy archive policy.
-- [ ] M14.7 Run full regression on active stack (backend/frontend tests, typechecks, targeted Docker rebuild/deploy) and record evidence.
+- [x] M14.1 Define explicit ownership boundary: `/packages/*` is active runtime; legacy root app is archived reference only.
+- [x] M14.2 Remove root runtime dependencies tied to legacy app (`aws-amplify`, `@aws-amplify/*`, `mixpanel*`, `semantic-ui*`) unless still required by active Docker runtime.
+- [x] M14.3 Move or archive legacy root frontend code (`src/*`) behind a clear `legacy/` boundary or equivalent, with deprecation note.
+- [x] M14.4 Remove legacy root scripts/build paths from default developer workflow so `npm install`/`npm run` align to Docker runtime targets.
+- [x] M14.5 Add CI guard checks to fail on new imports of deprecated stacks in active packages (Amplify APIs, Semantic UI, Patreon/OpenSCAD legacy codepaths).
+- [x] M14.6 Update README/operations docs with final cutover architecture and legacy archive policy.
+- [x] M14.7 Run full regression on active stack (backend/frontend tests, typechecks, targeted Docker rebuild/deploy) and record evidence.
 - Exit criteria:
-- [ ] M14.E1 Active runtime has zero direct Amplify dependency in `packages/backend` and `packages/frontend`.
-- [ ] M14.E2 Legacy code is clearly isolated and cannot be confused with active app entrypoints.
-- [ ] M14.E3 Dependency tree and lockfile are free of deprecated runtime packages unless intentionally retained for archived code tooling.
+- [x] M14.E1 Active runtime has zero direct Amplify dependency in `packages/backend` and `packages/frontend`.
+- [x] M14.E2 Legacy code is clearly isolated and cannot be confused with active app entrypoints.
+- [x] M14.E3 Dependency tree and lockfile are free of deprecated runtime packages unless intentionally retained for archived code tooling.
+
+### Post-M14 Functional Findings (2026-02-19)
+
+Executed validations:
+- Full active-stack regression matrix (backend/frontend tests + builds + workspace typecheck + active-runtime guard) passed.
+- Docker targeted rebuild/redeploy for backend/frontend passed with healthy `/health` and `/ready`.
+- Default Build123d codegen model configured to `gpt-5.2-codex` (`QUERY_CODEGEN_MODEL` fallback and compose/env defaults).
+- Live API E2E run succeeded using `.env` OpenAI key and internal Build123d:
+  - `./scripts/m13-e2e-chat.sh`
+  - Verified flow: login -> create context -> submit query -> generated file download -> rating update -> regenerate.
+
+Observed gaps against legacy full functionality:
+
+| Gap ID | Legacy Behavior | Current Snapshot | Gap | Next Step |
+|---|---|---|---|---|
+| G9 | Predictable preview output from generation (legacy often surfaced preview-ready artifacts in chat cards) | Live flow can return only `.step` for some prompts; viewer supports `.stl`/`.3mf` best | Preview availability is prompt/render-output dependent | Add render artifact normalization policy (request/produce STL+3MF alongside STEP where feasible) and enforce in query pipeline |
+| G10 | Legacy chat supported direct file upload/image-oriented message handling paths | New chat UI supports generated-file consumption but no user upload/image message parity in active chat route | Upload/image input parity is incomplete | Add chat upload UX and backend message contract for image/file references with SSE updates |
+| G11 | Legacy AI message card displayed token/usage diagnostics and cost hints | Active UI does not expose token usage/cost metadata | Operational transparency parity gap | Extend query metadata schema and UI diagnostics panel for per-run usage/cost |
+| G12 | Legacy app had smaller interaction surface; new app currently ships a single large JS bundle warning | Frontend build warns main chunk >500k | Performance optimization backlog | Add route-level/code-level splitting and lazy-load non-critical chat viewer modules |
+
+### M15: Legacy Functional Completion (Upload/Image/Diagnostics/Perf)
+
+- Objective: complete remaining high-value legacy behaviors that are still missing after M14, while keeping Amplify fully decommissioned.
+- Subtasks:
+- [ ] M15.1 Add query/render artifact normalization so preview-ready formats (`.stl`/`.3mf`) are produced or explicitly downgraded with actionable UI messaging.
+- [ ] M15.2 Implement chat upload/image workflow parity in active frontend/backend contracts (no Amplify storage APIs).
+- [ ] M15.3 Add query token/usage/cost metadata persistence and UI rendering for assistant responses.
+- [ ] M15.4 Optimize frontend bundle/runtime performance (route-based split points, lazy viewer imports, measurable bundle-size reduction).
+- [ ] M15.5 Add browser-level E2E automation (Playwright or equivalent) covering query -> render -> preview/download -> rate -> regenerate.
+- Exit criteria:
+- [ ] M15.E1 Active chat route supports upload/image and preview-consumption parity without legacy dependencies.
+- [ ] M15.E2 Usage diagnostics are visible and validated against backend metadata.
+- [ ] M15.E3 Bundle/perf guardrails and browser E2E tests are part of regression evidence.
 
 ---
 
@@ -775,17 +809,17 @@ Revised build order:
 
 | File | What to extract |
 |---|---|
-| `amplify/functions/submitqueryfunction/handler.ts` | Two-stage LLM orchestration and tool flow |
-| `amplify/functions/submitqueryfunction/LLMDefinitions.ts` | Model configs and prompts |
-| `amplify/functions/submitqueryfunction/Build123dRenderingProvider.ts` | Rendering call pattern and response handling |
-| `amplify/functions/submitqueryfunction/Helpers.ts` | XML/document section parsing helpers |
-| `amplify/functions/submitqueryfunction/Build123dExamples.ts` | Build123d examples |
-| `amplify/functions/submitqueryfunction/StaticDocuments.ts` | Static docs used for prompting |
-| `amplify/functions/submitqueryfunction/RetryUtils.ts` | Retry/backoff behavior |
-| `amplify/data/resource.ts` | Chat data model shape |
-| `amplify/auth/pre-sign-up/handler.ts` | Registration gating patterns to port |
-| `amplify/auth/post-confirmation/handler.ts` | Post-registration hooks to replace |
-| `src/Pages/Chat.tsx` | Frontend chat state transitions and actions |
-| `src/Components/ChatMessageAI.tsx` | Chat rendering and model output display |
-| `src/Components/ModelViewer.tsx` | 3D model viewer behavior |
-| `src/Components/ChatContextComponent.tsx` | Context CRUD UX behavior |
+| `legacy/amplify/functions/submitqueryfunction/handler.ts` | Two-stage LLM orchestration and tool flow |
+| `legacy/amplify/functions/submitqueryfunction/LLMDefinitions.ts` | Model configs and prompts |
+| `legacy/amplify/functions/submitqueryfunction/Build123dRenderingProvider.ts` | Rendering call pattern and response handling |
+| `legacy/amplify/functions/submitqueryfunction/Helpers.ts` | XML/document section parsing helpers |
+| `legacy/amplify/functions/submitqueryfunction/Build123dExamples.ts` | Build123d examples |
+| `legacy/amplify/functions/submitqueryfunction/StaticDocuments.ts` | Static docs used for prompting |
+| `legacy/amplify/functions/submitqueryfunction/RetryUtils.ts` | Retry/backoff behavior |
+| `legacy/amplify/data/resource.ts` | Chat data model shape |
+| `legacy/amplify/auth/pre-sign-up/handler.ts` | Registration gating patterns to port |
+| `legacy/amplify/auth/post-confirmation/handler.ts` | Post-registration hooks to replace |
+| `legacy/src/Pages/Chat.tsx` | Frontend chat state transitions and actions |
+| `legacy/src/Components/ChatMessageAI.tsx` | Chat rendering and model output display |
+| `legacy/src/Components/ModelViewer.tsx` | 3D model viewer behavior |
+| `legacy/src/Components/ChatContextComponent.tsx` | Context CRUD UX behavior |

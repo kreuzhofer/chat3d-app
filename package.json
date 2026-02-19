@@ -1,5 +1,5 @@
 {
-  "name": "amplify-vite-react-template",
+  "name": "chat3d-workspace",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "docker compose up --build",
     "build": "npm run guard:active-runtime && npm --workspace @chat3d/backend run build && npm --workspace @chat3d/frontend run typecheck",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "lint": "eslint packages scripts --ext ts,tsx,mjs --report-unused-disable-directives --max-warnings 0",
     "preview": "docker compose ps",
     "guard:active-runtime": "node scripts/check-active-runtime-boundary.mjs",
     "m1:typecheck:workspaces": "tsc -b tsconfig.workspaces.json",
@@ -17,45 +17,14 @@
     "m1:backend:seed": "npm --workspace @chat3d/backend run db:seed",
     "m1:backend:bootstrap": "npm --workspace @chat3d/backend run db:bootstrap"
   },
-  "dependencies": {
-    "@dotenvx/dotenvx": "^1.52.0",
-    "@types/mixpanel": "^2.14.9",
-    "mixpanel": "^0.20.0",
-    "mixpanel-browser": "^2.74.0",
-    "ollama": "^0.6.3",
-    "openai": "^6.22.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-markdown": "^10.1.0",
-    "react-responsiveness": "^0.1.5",
-    "react-router": "^7.13.0",
-    "remark-gfm": "^4.0.1",
-    "three": "^0.182.0",
-    "uuid": "^13.0.0",
-    "winston": "^3.19.0",
-    "zod": "^4.3.6",
-    "zod-to-json-schema": "^3.25.1"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "@rollup/plugin-replace": "^6.0.3",
-    "@types/aws-lambda": "^8.10.160",
-    "@types/mixpanel-browser": "^2.66.0",
     "@types/node": "^25.2.3",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@types/three": "^0.182.0",
     "@typescript-eslint/eslint-plugin": "^8.56.0",
     "@typescript-eslint/parser": "^8.56.0",
-    "@vitejs/plugin-react": "^5.1.4",
-    "aws-cdk": "^2.1106.0",
-    "aws-cdk-lib": "^2.238.0",
-    "constructs": "^10.5.0",
-    "esbuild": "^0.27.3",
     "eslint": "^9.39.2",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.0",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "vite": "^7.3.1"
+    "typescript": "^5.9.3"
   }
 }

@@ -71,7 +71,7 @@ Worker schedule controls:
 
 ## Notes
 
-- Legacy Amplify code remains in `amplify/` as migration reference only.
-- Legacy frontend code under `src/` is archived reference; active runtime lives in `packages/*`.
+- Legacy Amplify/frontend code is archived in `legacy/` (`legacy/amplify`, `legacy/src`) for migration reference only.
+- Active runtime ownership is `packages/*`; default install/build/test workflows target only the Docker stack runtime.
 - `npm run guard:active-runtime` enforces no Mixpanel/Patreon/OpenSCAD/Amplify imports in active runtime packages.
 - Active product runtime is the Docker stack and `/packages/*` services.

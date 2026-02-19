@@ -12,14 +12,14 @@ It covers route-level chat workflows only (core chat context + timeline + SSE up
 
 | Legacy source | Legacy behavior | New implementation | Status |
 |---|---|---|---|
-| `src/Pages/Chat.tsx` | Route-driven chat context loading (`/chat/:chatId`, `/chat/new`) | `packages/frontend/src/app.tsx` routes: `/chat`, `/chat/new`, `/chat/:contextId` + `packages/frontend/src/components/ChatPage.tsx` | Completed |
-| `src/Components/ChatContextComponent.tsx` | Context open/delete interactions from sidebar | `packages/frontend/src/components/ChatPage.tsx` context sidebar (open/rename/delete + create) | Completed |
-| `src/Pages/Chat.tsx` | New chat creation and context naming | `packages/frontend/src/components/ChatPage.tsx` create context + rename action (`updateChatContext`) | Completed |
-| `src/Components/ChatMessageUser.tsx` | User markdown message rendering | `packages/frontend/src/components/ChatPage.tsx` timeline renderer + `react-markdown`/`remark-gfm` | Completed |
-| `src/Components/ChatMessageAI.tsx` | Assistant markdown message rendering with pending/error state | `packages/frontend/src/components/ChatPage.tsx` timeline segments using adapter state (`pending`, `error`, `completed`) | Completed |
-| `src/Pages/Chat.tsx` subscriptions | Realtime update handling via observe subscriptions | `packages/frontend/src/components/ChatPage.tsx` consuming SSE notifications (`chat.item.updated`, `chat.query.state`) + replay hooks | Completed |
-| `src/Pages/Chat.tsx` composer | Prompt submit + pipeline trigger | `packages/frontend/src/components/ChatPage.tsx` composer calling `/api/query/submit` | Completed |
-| `src/Pages/Chat.tsx` model selector | Chat-level model config selection | `packages/frontend/src/components/ChatPage.tsx` context-scoped conversation/codegen model selection and save | Completed |
+| `legacy/src/Pages/Chat.tsx` | Route-driven chat context loading (`/chat/:chatId`, `/chat/new`) | `packages/frontend/src/app.tsx` routes: `/chat`, `/chat/new`, `/chat/:contextId` + `packages/frontend/src/components/ChatPage.tsx` | Completed |
+| `legacy/src/Components/ChatContextComponent.tsx` | Context open/delete interactions from sidebar | `packages/frontend/src/components/ChatPage.tsx` context sidebar (open/rename/delete + create) | Completed |
+| `legacy/src/Pages/Chat.tsx` | New chat creation and context naming | `packages/frontend/src/components/ChatPage.tsx` create context + rename action (`updateChatContext`) | Completed |
+| `legacy/src/Components/ChatMessageUser.tsx` | User markdown message rendering | `packages/frontend/src/components/ChatPage.tsx` timeline renderer + `react-markdown`/`remark-gfm` | Completed |
+| `legacy/src/Components/ChatMessageAI.tsx` | Assistant markdown message rendering with pending/error state | `packages/frontend/src/components/ChatPage.tsx` timeline segments using adapter state (`pending`, `error`, `completed`) | Completed |
+| `legacy/src/Pages/Chat.tsx` subscriptions | Realtime update handling via observe subscriptions | `packages/frontend/src/components/ChatPage.tsx` consuming SSE notifications (`chat.item.updated`, `chat.query.state`) + replay hooks | Completed |
+| `legacy/src/Pages/Chat.tsx` composer | Prompt submit + pipeline trigger | `packages/frontend/src/components/ChatPage.tsx` composer calling `/api/query/submit` | Completed |
+| `legacy/src/Pages/Chat.tsx` model selector | Chat-level model config selection | `packages/frontend/src/components/ChatPage.tsx` context-scoped conversation/codegen model selection and save | Completed |
 
 ## Adapter Boundary
 

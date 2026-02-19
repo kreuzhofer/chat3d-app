@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { config } from "../config.js";
-import { generateConversationText, listLlmModels } from "../services/llm.service.js";
+import { extractExecutableCode, generateConversationText, listLlmModels } from "../services/llm.service.js";
 
 const originalQueryConfig = {
   llmMode: config.query.llmMode,
@@ -45,5 +45,21 @@ describe("llm service provider routing", () => {
         prompt: "Generate a short answer",
       }),
     ).rejects.toThrow("OPENAI_API_KEY is required for OpenAI provider");
+  });
+
+  it("extracts fenced python code for executable build123d payloads", () => {
+    const raw = `
+Here is your script:
+
+\`\`\`python
+from build123d import *
+with BuildPart() as model:
+    Box(10, 10, 10)
+\`\`\`
+`.trim();
+
+    const extracted = extractExecutableCode(raw);
+    expect(extracted.startsWith("from build123d import *")).toBe(true);
+    expect(extracted.includes("```")).toBe(false);
   });
 });

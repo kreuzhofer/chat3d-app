@@ -134,7 +134,7 @@ export const config = {
       process.env.NODE_ENV === "test" ? "mock" : "openai",
     ),
     conversationModelName: readEnv("QUERY_CONVERSATION_MODEL", "gpt-4o-mini"),
-    codegenModelName: readEnv("QUERY_CODEGEN_MODEL", "gpt-4o-mini"),
+    codegenModelName: readEnv("QUERY_CODEGEN_MODEL", "gpt-5.2-codex"),
     openAiApiKey: process.env.OPENAI_API_KEY ?? "",
     anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
     xaiApiKey: process.env.XAI_API_KEY ?? "",

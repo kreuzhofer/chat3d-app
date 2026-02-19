@@ -3,12 +3,25 @@ import { join, relative } from "node:path";
 
 const root = process.cwd();
 const targets = [join(root, "packages", "backend", "src"), join(root, "packages", "frontend", "src")];
+const packageManifestTargets = [
+  join(root, "packages", "backend", "package.json"),
+  join(root, "packages", "frontend", "package.json"),
+];
 const allowedExtensions = new Set([".ts", ".tsx", ".js", ".mjs", ".cjs"]);
 const forbiddenPatterns = [
   { label: "Amplify runtime", regex: /\baws-amplify\b|\@aws-amplify\//i },
   { label: "Mixpanel runtime", regex: /\bmixpanel\b/i },
   { label: "Patreon runtime", regex: /\bpatreon\b/i },
   { label: "OpenSCAD runtime", regex: /\bopenscad\b/i },
+];
+const forbiddenManifestDependencies = [
+  "aws-amplify",
+  "@aws-amplify/ui-react",
+  "@aws-amplify/ui-react-storage",
+  "semantic-ui-react",
+  "semantic-ui-css",
+  "mixpanel",
+  "mixpanel-browser",
 ];
 
 function shouldInspect(path) {
@@ -60,6 +73,24 @@ for (const target of targets) {
         }
       }
     });
+  }
+}
+
+for (const manifestPath of packageManifestTargets) {
+  const parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const sections = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
+  for (const section of sections) {
+    const deps = parsed[section] ?? {};
+    for (const dependencyName of forbiddenManifestDependencies) {
+      if (Object.prototype.hasOwnProperty.call(deps, dependencyName)) {
+        findings.push({
+          file: relative(root, manifestPath),
+          line: 1,
+          rule: "Deprecated dependency manifest",
+          text: `${section}.${dependencyName}`,
+        });
+      }
+    }
   }
 }
 

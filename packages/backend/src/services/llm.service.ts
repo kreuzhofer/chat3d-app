@@ -28,7 +28,7 @@ export interface CodeGenerationResult {
 const MODEL_REGISTRY: LlmModelDefinition[] = (["conversation", "codegen"] as const).flatMap((stage) => {
   const entries: Array<{ provider: LlmProvider; modelName: string }> = [
     { provider: "mock", modelName: stage === "conversation" ? "mock-conversation" : "mock-codegen" },
-    { provider: "openai", modelName: "gpt-4o-mini" },
+    { provider: "openai", modelName: stage === "conversation" ? "gpt-4o-mini" : "gpt-5.2-codex" },
     { provider: "anthropic", modelName: "claude-3-5-haiku-latest" },
     { provider: "xai", modelName: "grok-2-latest" },
     { provider: "ollama", modelName: "llama3.1" },
@@ -57,6 +57,19 @@ function sanitizeBaseFileName(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 64) || "generated-model";
+}
+
+export function extractExecutableCode(raw: string): string {
+  const fencedCodeBlock =
+    raw.match(/```python\s*([\s\S]*?)```/i) ??
+    raw.match(/```py\s*([\s\S]*?)```/i) ??
+    raw.match(/```\s*([\s\S]*?)```/i);
+
+  if (fencedCodeBlock?.[1]) {
+    return fencedCodeBlock[1].trim();
+  }
+
+  return raw.trim();
 }
 
 function selectModel(stage: "conversation" | "codegen"): LlmModelDefinition {
@@ -250,6 +263,6 @@ export_step(model.part, "${baseFileName}.step")
   return {
     model,
     baseFileName,
-    code: text,
+    code: extractExecutableCode(text),
   };
 }
