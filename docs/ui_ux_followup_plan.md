@@ -222,7 +222,7 @@ It modernizes the experience using Tailwind + shadcn/ui best practices and a coh
 | Milestone | Scope | Status |
 |---|---|---|
 | UX0 Public Experience + Auth Surface | Home, pricing, login/register split, legal pages, public nav/footer, conversion flow | Completed (2026-02-19) |
-| UX1 Product IA + Design System Foundation | App shell, tokens, typography, spacing, component standards, page templates | Planned |
+| UX1 Product IA + Design System Foundation | App shell, tokens, typography, spacing, component standards, page templates | Completed (2026-02-19) |
 | UX2 Core Navigation + Shell Rewrite | Unified nav, responsive shell, breadcrumb/context controls, skeleton/loading states | Planned |
 | UX3 Chat Experience Redesign | Composer ergonomics, timeline readability, model/file action UX, feedback affordances | Planned |
 | UX4 Admin Experience Redesign | Dashboard, task queues, user detail workflows, settings UX, error prevention | Planned |
@@ -262,14 +262,29 @@ It modernizes the experience using Tailwind + shadcn/ui best practices and a coh
 
 ### UX1: Product IA + Design System Foundation
 
-- [ ] UX1.1 Define typography scale, spacing scale, elevation, color roles, semantic tokens.
-- [ ] UX1.2 Add app layout primitives: `AppShell`, `PageHeader`, `SectionCard`, `EmptyState`, `InlineAlert`.
-- [ ] UX1.3 Add interaction primitives: command bar trigger, dropdown menus, dialogs, drawers, toasts.
-- [ ] UX1.4 Define form standards: validation messages, helper text, destructive action confirmations.
-- [ ] UX1.5 Document component usage rules and anti-patterns.
+- [x] UX1.1 Define typography scale, spacing scale, elevation, color roles, semantic tokens.
+- [x] UX1.2 Add app layout primitives: `AppShell`, `PageHeader`, `SectionCard`, `EmptyState`, `InlineAlert`.
+- [x] UX1.3 Add interaction primitives: command bar trigger, dropdown menus, dialogs, drawers, toasts.
+- [x] UX1.4 Define form standards: validation messages, helper text, destructive action confirmations.
+- [x] UX1.5 Document component usage rules and anti-patterns.
 - Exit criteria:
-- [ ] UX1.E1 Shared visual language is used by at least two core pages.
-- [ ] UX1.E2 No page-level ad hoc spacing/color overrides in migrated screens.
+- [x] UX1.E1 Shared visual language is used by at least two core pages.
+- [x] UX1.E2 No page-level ad hoc spacing/color overrides in migrated screens.
+
+### UX1 Validation Evidence (2026-02-19)
+
+- Theme tokens expanded in `packages/frontend/src/styles/theme.css`:
+  typography scale, spacing scale, semantic color roles, elevation layers, focus ring contract.
+- Layout primitives shipped in `packages/frontend/src/components/layout`:
+  `AppShell`, `PageHeader`, `SectionCard`, `EmptyState`, `InlineAlert`, `StateViews`, `CommandBarTrigger`.
+- Interaction primitives shipped in `packages/frontend/src/components/ui`:
+  `dropdown-menu`, `dialog`, `drawer`, `toast`, and `tabs`.
+- Form standards shipped in `packages/frontend/src/components/ui/form.tsx` and applied to auth pages:
+  field helper/error patterns + destructive action notice contract.
+- Component usage rules and anti-patterns documented in `docs/ui_component_guidelines.md`.
+- Shared visual language usage validated on:
+  - `QueryWorkbench` (header/card/empty/form patterns)
+  - `NotificationCenter` (header/card/empty/badge patterns)
 
 ### UX2: Core Navigation + Shell Rewrite
 

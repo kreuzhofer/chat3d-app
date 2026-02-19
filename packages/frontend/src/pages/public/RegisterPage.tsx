@@ -2,8 +2,8 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { FormField } from "../../components/ui/form";
 import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
 import { useAuth } from "../../hooks/useAuth";
 
 interface RegisterPageProps {
@@ -57,17 +57,15 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
         </CardHeader>
         <CardContent>
           <form className="space-y-3" onSubmit={(event) => void onSubmit(event)}>
-            <div className="space-y-1">
-              <Label htmlFor="register-name">Display name</Label>
+            <FormField label="Display name" htmlFor="register-name" helperText="Optional.">
               <Input
                 id="register-name"
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
                 placeholder="Optional"
               />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="register-email">Email</Label>
+            </FormField>
+            <FormField label="Email" htmlFor="register-email" required>
               <Input
                 id="register-email"
                 type="email"
@@ -76,9 +74,8 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
                 onChange={(event) => setEmail(event.target.value)}
                 required
               />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="register-password">Password</Label>
+            </FormField>
+            <FormField label="Password" htmlFor="register-password" required>
               <Input
                 id="register-password"
                 type="password"
@@ -87,9 +84,13 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
                 onChange={(event) => setPassword(event.target.value)}
                 required
               />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="register-token">Registration token</Label>
+            </FormField>
+            <FormField
+              label="Registration token"
+              htmlFor="register-token"
+              helperText={waitlistEnabled ? "Required while waitlist mode is enabled." : "Optional when registration is open."}
+              required={waitlistEnabled}
+            >
               <Input
                 id="register-token"
                 value={registrationToken}
@@ -97,7 +98,7 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
                 placeholder={waitlistEnabled ? "Required while waitlist is active" : "Optional"}
                 required={waitlistEnabled}
               />
-            </div>
+            </FormField>
             {error ? (
               <p className="rounded-md border border-[hsl(var(--destructive))] p-2 text-sm text-[hsl(var(--destructive))]">
                 {error}

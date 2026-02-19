@@ -1,8 +1,8 @@
 import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { cn } from "../../lib/cn";
 
-type ButtonVariant = "default" | "outline" | "destructive" | "secondary";
-type ButtonSize = "default" | "sm";
+type ButtonVariant = "default" | "outline" | "destructive" | "secondary" | "ghost";
+type ButtonSize = "default" | "sm" | "lg";
 
 const variantClasses: Record<ButtonVariant, string> = {
   default:
@@ -13,11 +13,13 @@ const variantClasses: Record<ButtonVariant, string> = {
     "bg-[hsl(var(--destructive))] text-[hsl(var(--destructive-foreground))] hover:brightness-105",
   secondary:
     "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))] hover:brightness-95",
+  ghost: "bg-transparent text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]",
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
   default: "h-9 px-4 py-2 text-sm",
   sm: "h-8 px-3 text-xs",
+  lg: "h-10 px-5 text-sm",
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

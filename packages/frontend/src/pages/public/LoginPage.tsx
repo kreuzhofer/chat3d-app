@@ -2,8 +2,8 @@ import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { FormField } from "../../components/ui/form";
 import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
 import { useAuth } from "../../hooks/useAuth";
 
 interface LoginPageProps {
@@ -40,8 +40,7 @@ export function LoginPage({ waitlistEnabled }: LoginPageProps) {
         </CardHeader>
         <CardContent>
           <form className="space-y-3" onSubmit={(event) => void onSubmit(event)}>
-            <div className="space-y-1">
-              <Label htmlFor="login-email">Email</Label>
+            <FormField label="Email" htmlFor="login-email" required>
               <Input
                 id="login-email"
                 type="email"
@@ -50,9 +49,8 @@ export function LoginPage({ waitlistEnabled }: LoginPageProps) {
                 onChange={(event) => setEmail(event.target.value)}
                 required
               />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="login-password">Password</Label>
+            </FormField>
+            <FormField label="Password" htmlFor="login-password" required>
               <Input
                 id="login-password"
                 type="password"
@@ -61,7 +59,7 @@ export function LoginPage({ waitlistEnabled }: LoginPageProps) {
                 onChange={(event) => setPassword(event.target.value)}
                 required
               />
-            </div>
+            </FormField>
             {error ? (
               <p className="rounded-md border border-[hsl(var(--destructive))] p-2 text-sm text-[hsl(var(--destructive))]">
                 {error}

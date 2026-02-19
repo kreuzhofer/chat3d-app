@@ -3,10 +3,15 @@ import { listLlmModels, submitQuery, type QuerySubmitResult } from "../api/query
 import { useAuth } from "../hooks/useAuth";
 import { useNotifications } from "../contexts/NotificationsContext";
 import { Button } from "./ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Badge } from "./ui/badge";
+import { FormField } from "./ui/form";
 import { Input } from "./ui/input";
-import { Label } from "./ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
+import { Textarea } from "./ui/textarea";
+import { EmptyState } from "./layout/EmptyState";
+import { InlineAlert } from "./layout/InlineAlert";
+import { PageHeader } from "./layout/PageHeader";
+import { SectionCard } from "./layout/SectionCard";
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -78,43 +83,36 @@ export function QueryWorkbench() {
   }
 
   return (
-    <section className="space-y-4 bg-[hsl(var(--background))] p-4">
-      <header>
-        <h2 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Query Workbench</h2>
-        <p className="text-sm text-[hsl(var(--muted-foreground))]">
-          Submit render queries and track `chat.query.state` transitions over SSE.
-        </p>
-      </header>
+    <section className="space-y-4">
+      <PageHeader
+        title="Query Workbench"
+        description="Submit render queries and track chat.query.state transitions in real time."
+        breadcrumbs={["Workspace", "Query Workbench"]}
+        actions={<Badge tone="info">SSE {notifications.length > 0 ? "active" : "idle"}</Badge>}
+      />
 
-      {message ? <p className="rounded-md border p-2 text-sm">{message}</p> : null}
-      {error ? (
-        <p className="rounded-md border border-[hsl(var(--destructive))] p-2 text-sm text-[hsl(var(--destructive))]">
-          {error}
-        </p>
-      ) : null}
+      {message ? <InlineAlert tone="success">{message}</InlineAlert> : null}
+      {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Submit Query</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-2">
-            <Label htmlFor="query-context-id">Context ID</Label>
+      <SectionCard title="Submit Query" description="Use a context ID and prompt to trigger a generation run.">
+        <div className="grid gap-3">
+          <FormField label="Context ID" htmlFor="query-context-id" helperText="Existing chat context UUID.">
             <Input
               id="query-context-id"
               value={contextId}
               onChange={(event) => setContextId(event.target.value)}
               placeholder="UUID of chat context"
             />
-            <Label htmlFor="query-prompt">Prompt</Label>
-            <Input
+          </FormField>
+          <FormField label="Prompt" htmlFor="query-prompt" helperText="Be explicit about dimensions and constraints.">
+            <Textarea
               id="query-prompt"
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               placeholder="Describe the model to generate"
             />
-          </div>
-          <div className="mt-3 flex gap-2">
+          </FormField>
+          <div className="flex gap-2">
             <Button variant="outline" disabled={busy || !token} onClick={() => void loadModels()}>
               Load Models
             </Button>
@@ -122,14 +120,21 @@ export function QueryWorkbench() {
               Submit Query
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </SectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Model Registry</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <SectionCard title="Model Registry">
+        {models.length === 0 ? (
+          <EmptyState
+            title="No models loaded"
+            description="Load the model registry first to inspect available conversation and codegen models."
+            action={
+              <Button variant="outline" disabled={busy || !token} onClick={() => void loadModels()}>
+                Load Models
+              </Button>
+            }
+          />
+        ) : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -150,14 +155,13 @@ export function QueryWorkbench() {
               ))}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
+        )}
+      </SectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Realtime Query State</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <SectionCard title="Realtime Query State">
+        {queryStates.length === 0 ? (
+          <EmptyState title="No query events yet" description="Run a query and SSE events will appear here." />
+        ) : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -176,15 +180,11 @@ export function QueryWorkbench() {
               ))}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
+        )}
+      </SectionCard>
 
       {result ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Last Query Result</CardTitle>
-          </CardHeader>
-          <CardContent>
+        <SectionCard title="Last Query Result">
             <p className="text-sm">Assistant item: {result.assistantItem.id}</p>
             <p className="text-sm">
               Files:{" "}
@@ -195,8 +195,7 @@ export function QueryWorkbench() {
             <p className="text-sm">
               Models: {result.llm.conversationModel} / {result.llm.codegenModel}
             </p>
-          </CardContent>
-        </Card>
+        </SectionCard>
       ) : null}
     </section>
   );

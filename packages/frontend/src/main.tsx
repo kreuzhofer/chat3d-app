@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { App } from "./app";
+import { ToastProvider } from "./components/ui/toast";
 import { AuthProvider } from "./contexts/AuthContext";
 import { NotificationsProvider } from "./contexts/NotificationsContext";
 import "./styles/theme.css";
@@ -17,7 +18,9 @@ createRoot(rootElement).render(
     <BrowserRouter>
       <AuthProvider>
         <NotificationsProvider>
-          <App />
+          <ToastProvider>
+            <App />
+          </ToastProvider>
         </NotificationsProvider>
       </AuthProvider>
     </BrowserRouter>
