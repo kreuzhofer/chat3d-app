@@ -223,7 +223,7 @@ It modernizes the experience using Tailwind + shadcn/ui best practices and a coh
 |---|---|---|
 | UX0 Public Experience + Auth Surface | Home, pricing, login/register split, legal pages, public nav/footer, conversion flow | Completed (2026-02-19) |
 | UX1 Product IA + Design System Foundation | App shell, tokens, typography, spacing, component standards, page templates | Completed (2026-02-19) |
-| UX2 Core Navigation + Shell Rewrite | Unified nav, responsive shell, breadcrumb/context controls, skeleton/loading states | Planned |
+| UX2 Core Navigation + Shell Rewrite | Unified nav, responsive shell, breadcrumb/context controls, skeleton/loading states | Completed (2026-02-19) |
 | UX3 Chat Experience Redesign | Composer ergonomics, timeline readability, model/file action UX, feedback affordances | Planned |
 | UX4 Admin Experience Redesign | Dashboard, task queues, user detail workflows, settings UX, error prevention | Planned |
 | UX5 Account/Notifications/Waitlist Polish | Profile journeys, notification triage, waitlist clarity and conversion UX | Planned |
@@ -288,14 +288,23 @@ It modernizes the experience using Tailwind + shadcn/ui best practices and a coh
 
 ### UX2: Core Navigation + Shell Rewrite
 
-- [ ] UX2.1 Replace top utility card with persistent app shell.
-- [ ] UX2.2 Introduce grouped navigation and role-based visibility in one nav system.
-- [ ] UX2.3 Add mobile-first adaptive nav strategy and breakpoint behavior.
-- [ ] UX2.4 Add breadcrumbs + contextual actions in page headers.
-- [ ] UX2.5 Standardize loading/empty/error states across all primary routes.
+- [x] UX2.1 Replace top utility card with persistent app shell.
+- [x] UX2.2 Introduce grouped navigation and role-based visibility in one nav system.
+- [x] UX2.3 Add mobile-first adaptive nav strategy and breakpoint behavior.
+- [x] UX2.4 Add breadcrumbs + contextual actions in page headers.
+- [x] UX2.5 Standardize loading/empty/error states across all primary routes.
 - Exit criteria:
-- [ ] UX2.E1 Route transitions preserve context and are visually consistent.
-- [ ] UX2.E2 User can navigate all main jobs with <=2 interactions from shell.
+- [x] UX2.E1 Route transitions preserve context and are visually consistent.
+- [x] UX2.E2 User can navigate all main jobs with <=2 interactions from shell.
+
+### UX2 Validation Evidence (2026-02-19)
+
+- Authenticated runtime now uses a persistent shell (`AppShell`) instead of top utility cards.
+- Grouped role-aware navigation is centralized in app-level config:
+  `Workspace`, `Account`, and conditional `Administration`.
+- Mobile-first adaptive navigation is implemented with a drawer menu for small screens.
+- Top bar now provides breadcrumb context (`App / <Route>`) and route-aware contextual actions.
+- Loading/empty/error standardization shipped through shared state views and applied at route shell level.
 
 ### UX3: Chat Experience Redesign
 
