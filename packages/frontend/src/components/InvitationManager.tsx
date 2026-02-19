@@ -7,16 +7,19 @@ import {
 } from "../api/invitations.api";
 import { useNotifications } from "../contexts/NotificationsContext";
 import { useAuth } from "../hooks/useAuth";
+import { EmptyState } from "./layout/EmptyState";
+import { InlineAlert } from "./layout/InlineAlert";
+import { SectionCard } from "./layout/SectionCard";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { Input } from "./ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
+import { FormField } from "./ui/form";
+import { Textarea } from "./ui/textarea";
 
 function parseEmails(raw: string): string[] {
-  return raw
+  return [...new Set(raw
     .split(/[\s,;]+/)
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0);
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => item.length > 0))];
 }
 
 function toErrorMessage(error: unknown): string {
@@ -25,6 +28,19 @@ function toErrorMessage(error: unknown): string {
 
 function isInvitationNotification(payload: Record<string, unknown>): boolean {
   return payload.domain === "invitation";
+}
+
+function statusTone(status: InvitationRecord["status"]) {
+  if (status === "accepted") {
+    return "success";
+  }
+  if (status === "revoked" || status === "expired") {
+    return "danger";
+  }
+  if (status === "waitlisted") {
+    return "warning";
+  }
+  return "info";
 }
 
 export function InvitationManager() {
@@ -78,134 +94,149 @@ export function InvitationManager() {
     }
   }, [loadInvitations, notifications]);
 
-  const activeInvitations = useMemo(
-    () => invitations.filter((invitation) => invitation.status !== "revoked" && invitation.status !== "expired"),
-    [invitations],
-  );
+  const parsedEmails = useMemo(() => parseEmails(inviteInput), [inviteInput]);
+
+  const invitationStats = useMemo(() => {
+    return {
+      active: invitations.filter((invitation) => invitation.status !== "revoked" && invitation.status !== "expired").length,
+      accepted: invitations.filter((invitation) => invitation.status === "accepted").length,
+      pending: invitations.filter((invitation) => invitation.status === "pending").length,
+      waitlisted: invitations.filter((invitation) => invitation.status === "waitlisted").length,
+    };
+  }, [invitations]);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Invitations</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-[hsl(var(--muted-foreground))]">
-          Invite one or more users. Separate emails by comma, space, or newline.
-        </p>
-        {message ? (
-          <p
-            className={`rounded-md border p-2 text-sm ${
-              message.kind === "success"
-                ? "border-[hsl(var(--primary))] text-[hsl(var(--foreground))]"
-                : "border-[hsl(var(--destructive))] text-[hsl(var(--destructive))]"
-            }`}
-            role="status"
-          >
-            {message.text}
-          </p>
-        ) : null}
-
-        <div className="flex flex-col gap-2 md:flex-row">
-          <Input
-            value={inviteInput}
-            onChange={(event) => setInviteInput(event.target.value)}
-            placeholder="name1@example.com, name2@example.com"
-          />
-          <Button
-            disabled={!token || busyAction !== null || parseEmails(inviteInput).length === 0}
-            onClick={() => {
-              if (!token) {
-                return;
-              }
-
-              const emails = parseEmails(inviteInput);
-              setBusyAction("create");
-              setMessage(null);
-
-              void createInvitations(token, emails)
-                .then((created) => {
-                  setInviteInput("");
-                  setMessage({
-                    kind: "success",
-                    text: `Sent ${created.length} invitation${created.length === 1 ? "" : "s"}.`,
-                  });
-                  return loadInvitations();
-                })
-                .catch((error) => {
-                  setMessage({ kind: "error", text: toErrorMessage(error) });
-                })
-                .finally(() => {
-                  setBusyAction(null);
-                });
-            }}
-          >
-            Send Invites
-          </Button>
+    <SectionCard title="Invitations" description="Invite teammates and track each invitation through acceptance or waitlist states.">
+      <div className="grid gap-3 md:grid-cols-4">
+        <div className="rounded-md border border-[hsl(var(--border))] p-2">
+          <p className="text-xs text-[hsl(var(--muted-foreground))]">Active</p>
+          <p className="text-2xl font-semibold">{invitationStats.active}</p>
         </div>
+        <div className="rounded-md border border-[hsl(var(--border))] p-2">
+          <p className="text-xs text-[hsl(var(--muted-foreground))]">Pending</p>
+          <p className="text-2xl font-semibold">{invitationStats.pending}</p>
+        </div>
+        <div className="rounded-md border border-[hsl(var(--border))] p-2">
+          <p className="text-xs text-[hsl(var(--muted-foreground))]">Waitlisted</p>
+          <p className="text-2xl font-semibold">{invitationStats.waitlisted}</p>
+        </div>
+        <div className="rounded-md border border-[hsl(var(--border))] p-2">
+          <p className="text-xs text-[hsl(var(--muted-foreground))]">Accepted</p>
+          <p className="text-2xl font-semibold">{invitationStats.accepted}</p>
+        </div>
+      </div>
 
-        <p className="text-xs text-[hsl(var(--muted-foreground))]">Active invitations: {activeInvitations.length}</p>
+      <InlineAlert tone="info">
+        Invitation quota is enforced by admin policy. If the limit is reached, invite submission returns an explicit error.
+      </InlineAlert>
 
-        {invitations.length === 0 ? (
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">No invitations yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Updated</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {invitations.map((invitation) => {
-                  const canRevoke =
-                    invitation.status === "pending" ||
-                    invitation.status === "waitlisted" ||
-                    invitation.status === "registration_sent";
+      {message ? (
+        <InlineAlert tone={message.kind === "success" ? "success" : "danger"} role="status">
+          {message.text}
+        </InlineAlert>
+      ) : null}
 
-                  return (
-                    <TableRow key={invitation.id}>
-                      <TableCell>{invitation.inviteeEmail}</TableCell>
-                      <TableCell>{invitation.status}</TableCell>
-                      <TableCell>{new Date(invitation.updatedAt).toLocaleString()}</TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={!token || !canRevoke || busyAction !== null}
-                          onClick={() => {
-                            if (!token) {
-                              return;
-                            }
+      <FormField
+        label="Invite emails"
+        htmlFor="invite-emails"
+        helperText="Separate addresses by comma, space, or newline. Duplicates are removed."
+      >
+        <Textarea
+          id="invite-emails"
+          rows={4}
+          value={inviteInput}
+          onChange={(event) => setInviteInput(event.target.value)}
+          placeholder="name1@example.com\nname2@example.com"
+        />
+      </FormField>
 
-                            setBusyAction("revoke");
-                            setMessage(null);
-                            void revokeInvitation(token, invitation.id)
-                              .then(() => {
-                                setMessage({ kind: "success", text: `Revoked ${invitation.inviteeEmail}.` });
-                                return loadInvitations();
-                              })
-                              .catch((error) => {
-                                setMessage({ kind: "error", text: toErrorMessage(error) });
-                              })
-                              .finally(() => {
-                                setBusyAction(null);
-                              });
-                          }}
-                        >
-                          Revoke
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-[hsl(var(--muted-foreground))]">Parsed recipients: {parsedEmails.length}</p>
+        <Button
+          disabled={!token || busyAction !== null || parsedEmails.length === 0}
+          onClick={() => {
+            if (!token) {
+              return;
+            }
+
+            setBusyAction("create");
+            setMessage(null);
+
+            void createInvitations(token, parsedEmails)
+              .then((created) => {
+                setInviteInput("");
+                setMessage({
+                  kind: "success",
+                  text: `Sent ${created.length} invitation${created.length === 1 ? "" : "s"}.`,
+                });
+                return loadInvitations();
+              })
+              .catch((error) => {
+                setMessage({ kind: "error", text: toErrorMessage(error) });
+              })
+              .finally(() => {
+                setBusyAction(null);
+              });
+          }}
+        >
+          Send Invites
+        </Button>
+      </div>
+
+      {invitations.length === 0 ? (
+        <EmptyState title="No invitations yet" description="Invite users to skip manual waitlist entry where policy allows." />
+      ) : (
+        <ul className="space-y-2">
+          {invitations.map((invitation) => {
+            const canRevoke =
+              invitation.status === "pending" ||
+              invitation.status === "waitlisted" ||
+              invitation.status === "registration_sent";
+
+            return (
+              <li key={invitation.id} className="rounded-md border border-[hsl(var(--border))] p-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="font-medium">{invitation.inviteeEmail}</p>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                      Updated {new Date(invitation.updatedAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge tone={statusTone(invitation.status)}>{invitation.status}</Badge>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!token || !canRevoke || busyAction !== null}
+                      onClick={() => {
+                        if (!token) {
+                          return;
+                        }
+
+                        setBusyAction("revoke");
+                        setMessage(null);
+                        void revokeInvitation(token, invitation.id)
+                          .then(() => {
+                            setMessage({ kind: "success", text: `Revoked ${invitation.inviteeEmail}.` });
+                            return loadInvitations();
+                          })
+                          .catch((error) => {
+                            setMessage({ kind: "error", text: toErrorMessage(error) });
+                          })
+                          .finally(() => {
+                            setBusyAction(null);
+                          });
+                      }}
+                    >
+                      Revoke
+                    </Button>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </SectionCard>
   );
 }

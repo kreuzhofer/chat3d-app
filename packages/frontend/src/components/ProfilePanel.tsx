@@ -8,11 +8,14 @@ import {
   requestPasswordReset,
 } from "../api/profile.api";
 import { useAuth } from "../hooks/useAuth";
-import { Button } from "./ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
 import { InvitationManager } from "./InvitationManager";
+import { InlineAlert } from "./layout/InlineAlert";
+import { PageHeader } from "./layout/PageHeader";
+import { SectionCard } from "./layout/SectionCard";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { FormField, DestructiveActionNotice } from "./ui/form";
+import { Input } from "./ui/input";
 
 type MessageKind = "success" | "error";
 
@@ -80,34 +83,28 @@ export function ProfilePanel() {
   }
 
   return (
-    <section className="space-y-4 bg-[hsl(var(--background))] p-4">
-      <header>
-        <h2 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Profile & Account</h2>
-        <p className="text-sm text-[hsl(var(--muted-foreground))]">
-          Sensitive actions require email confirmation. Follow the link in your inbox to complete each request.
-        </p>
-      </header>
+    <section className="space-y-4">
+      <PageHeader
+        title="Profile & Account"
+        description="Journey-based account controls: security, identity, data, and lifecycle actions."
+        breadcrumbs={["Workspace", "Profile"]}
+        actions={
+          <>
+            <Badge tone={user?.status === "active" ? "success" : "warning"}>{user?.status ?? "unknown"}</Badge>
+            <Badge tone={user?.role === "admin" ? "info" : "neutral"}>{user?.role ?? "user"}</Badge>
+          </>
+        }
+      />
 
       {message ? (
-        <p
-          className={`rounded-md border p-2 text-sm ${
-            message.kind === "success"
-              ? "border-[hsl(var(--primary))] text-[hsl(var(--foreground))]"
-              : "border-[hsl(var(--destructive))] text-[hsl(var(--destructive))]"
-          }`}
-          role="status"
-        >
+        <InlineAlert tone={message.kind === "success" ? "success" : "danger"} role="status">
           {message.text}
-        </p>
+        </InlineAlert>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Password Reset</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            <Label htmlFor="new-password">New password</Label>
+      <SectionCard title="Security" description="Password and credential controls.">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <FormField label="New password" htmlFor="new-password" helperText="A confirmation email is required to apply changes.">
             <Input
               id="new-password"
               type="password"
@@ -115,34 +112,28 @@ export function ProfilePanel() {
               onChange={(event) => setNewPassword(event.target.value)}
               placeholder="Enter a new password"
             />
-          </div>
-          <div className="mt-3">
-            <Button
-              disabled={!isAuthenticated || busyAction !== null}
-              onClick={() =>
-                runAction("password-reset", async () => {
-                  if (!token) {
-                    return;
-                  }
-                  await requestPasswordReset(token, newPassword);
-                  setMessage({ kind: "success", text: "Password reset confirmation email sent." });
-                  setNewPassword("");
-                })
-              }
-            >
-              Request Password Reset
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          </FormField>
+          <Button
+            disabled={!isAuthenticated || busyAction !== null}
+            onClick={() =>
+              runAction("password-reset", async () => {
+                if (!token) {
+                  return;
+                }
+                await requestPasswordReset(token, newPassword);
+                setMessage({ kind: "success", text: "Password reset confirmation email sent." });
+                setNewPassword("");
+              })
+            }
+          >
+            Request Password Reset
+          </Button>
+        </div>
+      </SectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Email Change</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            <Label htmlFor="new-email">New email</Label>
+      <SectionCard title="Identity" description="Email ownership and confirmation flows.">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <FormField label="New email" htmlFor="new-email" helperText="A confirmation email will be sent to the new address.">
             <Input
               id="new-email"
               type="email"
@@ -150,57 +141,76 @@ export function ProfilePanel() {
               onChange={(event) => setNewEmail(event.target.value)}
               placeholder="name@example.com"
             />
-          </div>
-          <div className="mt-3">
-            <Button
-              disabled={!isAuthenticated || busyAction !== null}
-              onClick={() =>
-                runAction("email-change", async () => {
-                  if (!token) {
-                    return;
-                  }
-                  await requestEmailChange(token, newEmail);
-                  setMessage({ kind: "success", text: "Email change confirmation sent to the new address." });
-                  setNewEmail("");
-                })
-              }
-            >
-              Request Email Change
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Data Export</CardTitle>
-        </CardHeader>
-        <CardContent>
+          </FormField>
           <Button
             disabled={!isAuthenticated || busyAction !== null}
             onClick={() =>
-              runAction("data-export", async () => {
+              runAction("email-change", async () => {
                 if (!token) {
                   return;
                 }
-                await requestDataExport(token);
-                setMessage({ kind: "success", text: "Data export confirmation email sent." });
+                await requestEmailChange(token, newEmail);
+                setMessage({ kind: "success", text: "Email change confirmation sent to the new address." });
+                setNewEmail("");
               })
             }
           >
-            Request Data Export
+            Request Email Change
           </Button>
-        </CardContent>
-      </Card>
+        </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Delete Account</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="mb-2 text-sm text-[hsl(var(--muted-foreground))]">
-            Deleting your account deactivates it for 30 days before permanent cleanup.
-          </p>
+        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <FormField
+            label="Manual confirmation token"
+            htmlFor="confirm-token"
+            helperText="Use only when opening email links is not possible."
+          >
+            <Input
+              id="confirm-token"
+              value={manualConfirmToken}
+              onChange={(event) => setManualConfirmToken(event.target.value)}
+              placeholder="Paste token from email link"
+            />
+          </FormField>
+          <Button
+            variant="secondary"
+            disabled={busyAction !== null || manualConfirmToken.trim() === ""}
+            onClick={() =>
+              runAction("confirm", async () => {
+                const result = await confirmProfileAction(manualConfirmToken.trim());
+                setMessage({ kind: "success", text: `Confirmed action: ${result.actionType ?? "unknown"}.` });
+                setManualConfirmToken("");
+              })
+            }
+          >
+            Confirm Token
+          </Button>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Data" description="Export your account and activity data.">
+        <Button
+          disabled={!isAuthenticated || busyAction !== null}
+          onClick={() =>
+            runAction("data-export", async () => {
+              if (!token) {
+                return;
+              }
+              await requestDataExport(token);
+              setMessage({ kind: "success", text: "Data export confirmation email sent." });
+            })
+          }
+        >
+          Request Data Export
+        </Button>
+      </SectionCard>
+
+      <SectionCard title="Account Lifecycle" description="Deactivate/reactivate lifecycle with mandatory confirmation emails.">
+        <DestructiveActionNotice>
+          Deleting your account deactivates it for 30 days before permanent cleanup.
+        </DestructiveActionNotice>
+
+        <div className="mt-3 flex flex-wrap gap-2">
           <Button
             variant="destructive"
             disabled={!isAuthenticated || busyAction !== null}
@@ -216,16 +226,14 @@ export function ProfilePanel() {
           >
             Request Account Deletion
           </Button>
-        </CardContent>
-      </Card>
+        </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Reactivate Account</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            <Label htmlFor="reactivate-email">Account email</Label>
+        <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <FormField
+            label="Reactivation email"
+            htmlFor="reactivate-email"
+            helperText="If eligible, a reactivation confirmation link will be sent."
+          >
             <Input
               id="reactivate-email"
               type="email"
@@ -233,55 +241,21 @@ export function ProfilePanel() {
               onChange={(event) => setReactivationEmail(event.target.value)}
               placeholder="name@example.com"
             />
-          </div>
-          <div className="mt-3">
-            <Button
-              variant="outline"
-              disabled={busyAction !== null}
-              onClick={() =>
-                runAction("reactivate", async () => {
-                  await requestAccountReactivation(reactivationEmail);
-                  setMessage({ kind: "success", text: "Reactivation confirmation email sent if the account is eligible." });
-                })
-              }
-            >
-              Request Reactivation
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Manual Confirmation</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            <Label htmlFor="confirm-token">Token</Label>
-            <Input
-              id="confirm-token"
-              value={manualConfirmToken}
-              onChange={(event) => setManualConfirmToken(event.target.value)}
-              placeholder="Paste token from email link"
-            />
-          </div>
-          <div className="mt-3">
-            <Button
-              variant="secondary"
-              disabled={busyAction !== null || manualConfirmToken.trim() === ""}
-              onClick={() =>
-                runAction("confirm", async () => {
-                  const result = await confirmProfileAction(manualConfirmToken.trim());
-                  setMessage({ kind: "success", text: `Confirmed action: ${result.actionType ?? "unknown"}.` });
-                  setManualConfirmToken("");
-                })
-              }
-            >
-              Confirm Token
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          </FormField>
+          <Button
+            variant="outline"
+            disabled={busyAction !== null}
+            onClick={() =>
+              runAction("reactivate", async () => {
+                await requestAccountReactivation(reactivationEmail);
+                setMessage({ kind: "success", text: "Reactivation confirmation email sent if the account is eligible." });
+              })
+            }
+          >
+            Request Reactivation
+          </Button>
+        </div>
+      </SectionCard>
 
       <InvitationManager />
     </section>

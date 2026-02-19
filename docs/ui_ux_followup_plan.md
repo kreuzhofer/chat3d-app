@@ -226,7 +226,7 @@ It modernizes the experience using Tailwind + shadcn/ui best practices and a coh
 | UX2 Core Navigation + Shell Rewrite | Unified nav, responsive shell, breadcrumb/context controls, skeleton/loading states | Completed (2026-02-19) |
 | UX3 Chat Experience Redesign | Composer ergonomics, timeline readability, model/file action UX, feedback affordances | Completed (2026-02-19) |
 | UX4 Admin Experience Redesign | Dashboard, task queues, user detail workflows, settings UX, error prevention | Completed (2026-02-19) |
-| UX5 Account/Notifications/Waitlist Polish | Profile journeys, notification triage, waitlist clarity and conversion UX | Planned |
+| UX5 Account/Notifications/Waitlist Polish | Profile journeys, notification triage, waitlist clarity and conversion UX | Completed (2026-02-19) |
 | UX6 Accessibility + UX Quality Gate | a11y checks, usability pass, visual regression snapshots, interaction polish | Planned |
 
 ## Detailed Milestones
@@ -361,13 +361,23 @@ It modernizes the experience using Tailwind + shadcn/ui best practices and a coh
 
 ### UX5: Account, Notifications, Waitlist Polish
 
-- [ ] UX5.1 Turn profile into journey-based sections (security, identity, data, deactivation).
-- [ ] UX5.2 Redesign notification center into actionable inbox with filters and deep links.
-- [ ] UX5.3 Improve waitlist funnel messaging and status clarity.
-- [ ] UX5.4 Ensure invitation flow is visible, comprehensible, and quota-aware.
+- [x] UX5.1 Turn profile into journey-based sections (security, identity, data, deactivation).
+- [x] UX5.2 Redesign notification center into actionable inbox with filters and deep links.
+- [x] UX5.3 Improve waitlist funnel messaging and status clarity.
+- [x] UX5.4 Ensure invitation flow is visible, comprehensible, and quota-aware.
 - Exit criteria:
-- [ ] UX5.E1 Non-admin users can understand account state and next actions immediately.
-- [ ] UX5.E2 Notification-to-action flow works with clear deep-linking.
+- [x] UX5.E1 Non-admin users can understand account state and next actions immediately.
+- [x] UX5.E2 Notification-to-action flow works with clear deep-linking.
+
+### UX5 Validation Evidence (2026-02-19)
+
+- Profile is reorganized into journey sections:
+  `Security`, `Identity`, `Data`, `Account Lifecycle`, and `Invitations`.
+- Notification center now functions as an actionable inbox:
+  domain filters, payload search, and deep-link actions into relevant views.
+- Waitlist experience now has explicit 3-step funnel messaging and clearer status progression language.
+- Invitation manager now surfaces workflow status and quota awareness:
+  active/pending/waitlisted/accepted summaries with explicit quota enforcement messaging.
 
 ### UX6: Accessibility + UX Quality Gate
 
