@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatPage } from "../components/ChatPage";
@@ -29,6 +29,8 @@ const deleteChatContextMock = vi.fn();
 const listLlmModelsMock = vi.fn();
 const submitQueryMock = vi.fn();
 const regenerateQueryMock = vi.fn();
+const uploadFileBase64Mock = vi.fn();
+const downloadFileBinaryMock = vi.fn();
 
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => authState,
@@ -53,6 +55,11 @@ vi.mock("../api/query.api", () => ({
   regenerateQuery: (...args: unknown[]) => regenerateQueryMock(...args),
 }));
 
+vi.mock("../api/files.api", () => ({
+  uploadFileBase64: (...args: unknown[]) => uploadFileBase64Mock(...args),
+  downloadFileBinary: (...args: unknown[]) => downloadFileBinaryMock(...args),
+}));
+
 function renderChatPage(initialPath = "/chat/ctx-1") {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
@@ -67,6 +74,10 @@ function renderChatPage(initialPath = "/chat/ctx-1") {
 
 describe("chat page route flows", () => {
   beforeEach(() => {
+    cleanup();
+  });
+
+  beforeEach(() => {
     notificationsState.notifications = [];
     notificationsState.refreshReplay.mockClear();
 
@@ -79,6 +90,8 @@ describe("chat page route flows", () => {
     listLlmModelsMock.mockReset();
     submitQueryMock.mockReset();
     regenerateQueryMock.mockReset();
+    uploadFileBase64Mock.mockReset();
+    downloadFileBinaryMock.mockReset();
 
     listChatContextsMock.mockResolvedValue([
       {
@@ -127,10 +140,26 @@ describe("chat page route flows", () => {
             {
               id: "m1-model",
               itemType: "3dmodel",
-              text: "Preview",
-              attachment: "modelcreator/test.step",
+              text: "Preview unavailable in-browser. Download STEP or regenerate with STL/3MF output.",
+              attachment: "",
               state: "completed",
               files: [{ path: "modelcreator/test.step", filename: "test.step" }],
+              artifact: {
+                previewStatus: "downgraded",
+                detail: "Renderer produced STEP only",
+              },
+            },
+            {
+              id: "m1-meta",
+              itemType: "meta",
+              text: "Diagnostics",
+              state: "completed",
+              usage: {
+                inputTokens: 120,
+                outputTokens: 40,
+                totalTokens: 160,
+                estimatedCostUsd: 0.0024,
+              },
             },
           ],
           rating: 0,
@@ -178,6 +207,15 @@ describe("chat page route flows", () => {
       llm: { conversationModel: "model-a", codegenModel: "model-b" },
       renderer: "build123d",
     });
+    uploadFileBase64Mock.mockResolvedValue({
+      path: "uploads/upload-1.png",
+      sizeBytes: 32,
+    });
+    downloadFileBinaryMock.mockResolvedValue({
+      blob: new Blob(["data"]),
+      filename: "download.bin",
+      contentType: "application/octet-stream",
+    });
   });
 
   it("supports route-level context switching", async () => {
@@ -219,7 +257,7 @@ describe("chat page route flows", () => {
       expect(listChatItemsMock).toHaveBeenCalledWith("test-token", "ctx-1");
     });
 
-    fireEvent.change(screen.getByLabelText("Prompt"), {
+    fireEvent.change(screen.getByTestId("chat-prompt-input"), {
       target: { value: "build a test cube" },
     });
     const sendButton = screen
@@ -291,6 +329,66 @@ describe("chat page route flows", () => {
 
     await waitFor(() => {
       expect(regenerateQueryMock).toHaveBeenCalled();
+    });
+  });
+
+  it("uploads attachments and includes them in query submission", async () => {
+    const view = renderChatPage("/chat/ctx-1");
+    const scoped = within(view.container);
+
+    await waitFor(() => {
+      expect(listChatItemsMock).toHaveBeenCalledWith("test-token", "ctx-1");
+    });
+
+    const file = new File(["fake-image"], "reference.png", { type: "image/png" });
+    Object.defineProperty(file, "arrayBuffer", {
+      value: vi.fn(async () => new TextEncoder().encode("fake-image").buffer),
+      configurable: true,
+    });
+    const fileInput = scoped.getByTestId("chat-attachments-input") as HTMLInputElement;
+    Object.defineProperty(fileInput, "files", {
+      value: [file],
+      configurable: true,
+    });
+    fireEvent.change(fileInput);
+    const uploadButton = scoped
+      .getAllByRole("button", { name: "Upload Selected" })
+      .find((button) => !button.hasAttribute("disabled"));
+    if (!uploadButton) {
+      throw new Error("Missing enabled upload button");
+    }
+    fireEvent.click(uploadButton);
+
+    await waitFor(() => {
+      expect(uploadFileBase64Mock).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.change(scoped.getByTestId("chat-prompt-input"), {
+      target: { value: "build a test cube with reference" },
+    });
+    const sendButton = scoped
+      .getAllByRole("button", { name: "Send" })
+      .find((button) => !button.hasAttribute("disabled"));
+    if (!sendButton) {
+      throw new Error("Missing enabled send button");
+    }
+    fireEvent.click(sendButton);
+
+    await waitFor(() => {
+      expect(submitQueryMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          token: "test-token",
+          contextId: "ctx-1",
+          prompt: "build a test cube with reference",
+          attachments: [
+            expect.objectContaining({
+              path: "uploads/upload-1.png",
+              filename: "reference.png",
+              kind: "image",
+            }),
+          ],
+        }),
+      );
     });
   });
 });

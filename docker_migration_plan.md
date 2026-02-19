@@ -538,6 +538,13 @@ Revised build order:
 | M13 Chat Feature Parity (3D Viewer, Files, Actions) | Completed | M12 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces`, `npm run guard:active-runtime`, `docker compose build backend frontend && docker compose up -d backend frontend && docker compose ps backend frontend`, `curl http://localhost:3001/health`, `curl http://localhost:3001/ready` |
 | M14 Amplify Runtime Decommission + Dependency Purge | Completed | M13 | `npm --workspace @chat3d/backend run test`, `npm --workspace @chat3d/backend run build`, `npm --workspace @chat3d/frontend run test`, `npm --workspace @chat3d/frontend run typecheck`, `npm run m1:typecheck:workspaces`, `npm run guard:active-runtime`, `rg -n 'aws-amplify|@aws-amplify|semantic-ui-react|semantic-ui-css|mixpanel' package-lock.json` (no matches), `docker compose build backend frontend && docker compose up -d backend frontend && docker compose ps backend frontend`, `curl http://localhost:3001/health`, `curl http://localhost:3001/ready` |
 | M15 Legacy Functional Completion (Upload/Image/Diagnostics/Perf) | Planned | M14 | Browser-level and API-level parity validation against archived legacy behavior matrix |
+| UX0 Public Experience + Auth Surface | Planned | M14 | Home/pricing/login/register/legal flows wired with responsive public shell and legal footer navigation |
+| UX1 Product IA + Design System Foundation | Planned | M14 | Design tokens/primitives adopted by shell and at least two primary routes |
+| UX2 Core Navigation + Shell Rewrite | Planned | UX1 | Unified role-aware shell, responsive nav, and standardized route states |
+| UX3 Chat Experience Redesign | Planned | UX2 | Chat usability review and visual parity sign-off with legacy baseline |
+| UX4 Admin Experience Redesign | Planned | UX2 | Admin queue/task flows validated in operator walkthrough |
+| UX5 Account/Notifications/Waitlist Polish | Planned | UX2 | End-to-end non-admin UX walkthrough and deep-link checks |
+| UX6 Accessibility + UX Quality Gate | Planned | UX3, UX4, UX5 | a11y checklist pass, regression snapshots, UX sign-off |
 
 ### M1: Foundation + Schema
 
@@ -782,15 +789,40 @@ Observed gaps against legacy full functionality:
 
 - Objective: complete remaining high-value legacy behaviors that are still missing after M14, while keeping Amplify fully decommissioned.
 - Subtasks:
-- [ ] M15.1 Add query/render artifact normalization so preview-ready formats (`.stl`/`.3mf`) are produced or explicitly downgraded with actionable UI messaging.
-- [ ] M15.2 Implement chat upload/image workflow parity in active frontend/backend contracts (no Amplify storage APIs).
-- [ ] M15.3 Add query token/usage/cost metadata persistence and UI rendering for assistant responses.
-- [ ] M15.4 Optimize frontend bundle/runtime performance (route-based split points, lazy viewer imports, measurable bundle-size reduction).
-- [ ] M15.5 Add browser-level E2E automation (Playwright or equivalent) covering query -> render -> preview/download -> rate -> regenerate.
+- [x] M15.1 Add query/render artifact normalization so preview-ready formats (`.stl`/`.3mf`) are produced or explicitly downgraded with actionable UI messaging.
+- [x] M15.2 Implement chat upload/image workflow parity in active frontend/backend contracts (no Amplify storage APIs).
+- [x] M15.3 Add query token/usage/cost metadata persistence and UI rendering for assistant responses.
+- [x] M15.4 Optimize frontend bundle/runtime performance (route-based split points, lazy viewer imports, measurable bundle-size reduction).
+- [x] M15.5 Add browser-level E2E automation (Playwright or equivalent) covering query -> render -> preview/download -> rate -> regenerate.
 - Exit criteria:
-- [ ] M15.E1 Active chat route supports upload/image and preview-consumption parity without legacy dependencies.
-- [ ] M15.E2 Usage diagnostics are visible and validated against backend metadata.
-- [ ] M15.E3 Bundle/perf guardrails and browser E2E tests are part of regression evidence.
+- [x] M15.E1 Active chat route supports upload/image and preview-consumption parity without legacy dependencies.
+- [x] M15.E2 Usage diagnostics are visible and validated against backend metadata.
+- [x] M15.E3 Bundle/perf guardrails and browser E2E tests are part of regression evidence.
+
+### M15 Validation Evidence (2026-02-19)
+
+- Query pipeline now persists explicit artifact metadata (`previewStatus`, `detail`) and emits actionable downgrade messaging when renderer returns STEP-only output.
+- Chat submit contract now supports uploaded file/image attachments; backend validates file ownership/access and stores attachment message segments in user chat items.
+- Assistant metadata now includes per-stage LLM usage and aggregated token/cost diagnostics; active chat UI renders usage/cost and artifact diagnostics in meta segments.
+- Frontend perf split points added:
+  - Route-level lazy loading in `packages/frontend/src/app.tsx`.
+  - Lazy viewer module loading in `packages/frontend/src/components/ChatPage.tsx`.
+  - Build output now emits split chunks (`index` ~193 kB, `ChatPage` ~177 kB, `ModelViewer` ~540 kB isolated chunk).
+- Browser E2E automation added via Playwright:
+  - `packages/frontend/e2e/chat-query-flow.spec.ts`
+  - `packages/frontend/playwright.config.ts`
+  - `npm --workspace @chat3d/frontend run test:e2e -- --list` confirms scenario discovery.
+  - `npm --workspace @chat3d/frontend run test:e2e` currently skips by default when `E2E_AUTH_EMAIL`/`E2E_AUTH_PASSWORD` are not provided.
+
+### UX Follow-up Track (Design-Only)
+
+- A dedicated design and UX roadmap now lives in:
+  - `docs/ui_ux_followup_plan.md`
+- This track is intentionally separated from backend feature migration work.
+- It focuses on:
+  - Information architecture and navigation quality.
+  - Chat/admin interaction redesign.
+  - Accessibility, responsive behavior, and UI consistency.
 
 ---
 

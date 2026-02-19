@@ -37,6 +37,7 @@ queryRouter.post("/submit", async (req, res) => {
       userId: authUser.id,
       contextId,
       prompt,
+      attachments: req.body?.attachments,
     });
     res.status(202).json(result);
   } catch (error) {

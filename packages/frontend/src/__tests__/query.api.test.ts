@@ -45,6 +45,8 @@ describe("query api client", () => {
           assistantItem: { id: "item-assistant", chatContextId: "ctx1", role: "assistant", messages: [] },
           generatedFiles: [{ path: "modelcreator/item-assistant.step", filename: "cube.step" }],
           llm: { conversationModel: "conversation-mock-v1", codegenModel: "codegen-mock-v1" },
+          artifact: { previewStatus: "downgraded", detail: "STEP only" },
+          usage: { inputTokens: 120, outputTokens: 40, totalTokens: 160, estimatedCostUsd: 0.0024 },
           renderer: "mock",
         }),
         {
@@ -58,14 +60,55 @@ describe("query api client", () => {
       token: "token-1",
       contextId: "ctx1",
       prompt: "build cube",
+      attachments: [{ path: "uploads/ref.png", filename: "ref.png", mimeType: "image/png", kind: "image" }],
     });
 
     expect(result.contextId).toBe("ctx1");
     expect(result.generatedFiles.length).toBe(1);
+    expect(result.usage?.totalTokens).toBe(160);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/query/submit",
       expect.objectContaining({
-        method: "POST",
+        body: JSON.stringify({
+          contextId: "ctx1",
+          prompt: "build cube",
+          attachments: [{ path: "uploads/ref.png", filename: "ref.png", mimeType: "image/png", kind: "image" }],
+        }),
+      }),
+    );
+  });
+
+  it("omits attachments field when none are supplied", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          contextId: "ctx1",
+          userItemId: "item-user",
+          assistantItem: { id: "item-assistant", chatContextId: "ctx1", role: "assistant", messages: [] },
+          generatedFiles: [{ path: "modelcreator/item-assistant.step", filename: "cube.step" }],
+          llm: { conversationModel: "conversation-mock-v1", codegenModel: "codegen-mock-v1" },
+          renderer: "mock",
+        }),
+        {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    await submitQuery({
+      token: "token-1",
+      contextId: "ctx1",
+      prompt: "build cube",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/submit",
+      expect.objectContaining({
+        body: JSON.stringify({
+          contextId: "ctx1",
+          prompt: "build cube",
+        }),
       }),
     );
   });

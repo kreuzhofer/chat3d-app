@@ -22,7 +22,25 @@ export interface QuerySubmitResult {
     conversationModel: string;
     codegenModel: string;
   };
+  artifact?: {
+    previewStatus: "ready" | "downgraded";
+    detail: string;
+    previewFilePath?: string | null;
+  };
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    estimatedCostUsd: number;
+  };
   renderer: string;
+}
+
+export interface QueryAttachment {
+  path: string;
+  filename: string;
+  mimeType: string;
+  kind: "file" | "image";
 }
 
 const LLM_API_BASE = "/api/llm";
@@ -53,17 +71,27 @@ export function submitQuery(input: {
   token: string;
   contextId: string;
   prompt: string;
+  attachments?: QueryAttachment[];
 }): Promise<QuerySubmitResult> {
+  const payload: {
+    contextId: string;
+    prompt: string;
+    attachments?: QueryAttachment[];
+  } = {
+    contextId: input.contextId,
+    prompt: input.prompt,
+  };
+  if (Array.isArray(input.attachments) && input.attachments.length > 0) {
+    payload.attachments = input.attachments;
+  }
+
   return requestJson<QuerySubmitResult>(`${QUERY_API_BASE}/submit`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${input.token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      contextId: input.contextId,
-      prompt: input.prompt,
-    }),
+    body: JSON.stringify(payload),
   });
 }
 

@@ -17,12 +17,22 @@ export interface LlmModelDefinition {
 export interface ConversationGenerationResult {
   text: string;
   model: LlmModelDefinition;
+  usage: LlmUsageMetadata;
 }
 
 export interface CodeGenerationResult {
   code: string;
   baseFileName: string;
   model: LlmModelDefinition;
+  usage: LlmUsageMetadata;
+}
+
+export interface LlmUsageMetadata {
+  source: "provider" | "estimated";
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number;
 }
 
 const MODEL_REGISTRY: LlmModelDefinition[] = (["conversation", "codegen"] as const).flatMap((stage) => {
@@ -93,7 +103,113 @@ function selectModel(stage: "conversation" | "codegen"): LlmModelDefinition {
   };
 }
 
-async function generateWithProvider(model: LlmModelDefinition, prompt: string): Promise<string> {
+interface ProviderGenerationResult {
+  text: string;
+  usageRaw: unknown;
+}
+
+function toSafePositiveInteger(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  const normalized = Math.floor(value);
+  return normalized >= 0 ? normalized : null;
+}
+
+function extractTokenUsage(value: unknown): {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+} {
+  if (typeof value !== "object" || value === null) {
+    return {
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null,
+    };
+  }
+
+  const usage = value as Record<string, unknown>;
+  const inputTokens = toSafePositiveInteger(usage.inputTokens ?? usage.promptTokens ?? usage.input_tokens);
+  const outputTokens = toSafePositiveInteger(
+    usage.outputTokens ?? usage.completionTokens ?? usage.output_tokens,
+  );
+  const totalTokens = toSafePositiveInteger(usage.totalTokens ?? usage.total_tokens);
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+  };
+}
+
+function estimateTokens(text: string): number {
+  const trimmed = text.trim();
+  if (trimmed === "") {
+    return 0;
+  }
+  return Math.max(1, Math.ceil(trimmed.length / 4));
+}
+
+function perTokenCostUsd(model: LlmModelDefinition): { inputPerToken: number; outputPerToken: number } {
+  const pricesPer1k: Record<string, { input: number; output: number }> = {
+    "openai:gpt-4o-mini": { input: 0.00015, output: 0.0006 },
+    "openai:gpt-5.2-codex": { input: 0.0015, output: 0.006 },
+    "anthropic:claude-3-5-haiku-latest": { input: 0.0008, output: 0.004 },
+    "xai:grok-2-latest": { input: 0.002, output: 0.01 },
+    "ollama:llama3.1": { input: 0, output: 0 },
+    "mock:mock-conversation": { input: 0, output: 0 },
+    "mock:mock-codegen": { input: 0, output: 0 },
+  };
+
+  const key = `${model.provider}:${model.modelName}`;
+  const entry = pricesPer1k[key] ?? { input: 0, output: 0 };
+  return {
+    inputPerToken: entry.input / 1000,
+    outputPerToken: entry.output / 1000,
+  };
+}
+
+function roundUsd(value: number): number {
+  return Number(value.toFixed(8));
+}
+
+function buildUsageMetadata(input: {
+  model: LlmModelDefinition;
+  prompt: string;
+  outputText: string;
+  providerUsageRaw: unknown;
+}): LlmUsageMetadata {
+  const providerUsage = extractTokenUsage(input.providerUsageRaw);
+
+  const estimatedInput = estimateTokens(input.prompt);
+  const estimatedOutput = estimateTokens(input.outputText);
+  const estimatedTotal = estimatedInput + estimatedOutput;
+
+  const inputTokens = providerUsage.inputTokens ?? estimatedInput;
+  const outputTokens = providerUsage.outputTokens ?? estimatedOutput;
+  const totalTokens = providerUsage.totalTokens ?? inputTokens + outputTokens;
+
+  const pricing = perTokenCostUsd(input.model);
+  const estimatedCostUsd = roundUsd(
+    inputTokens * pricing.inputPerToken + outputTokens * pricing.outputPerToken,
+  );
+
+  return {
+    source:
+      providerUsage.inputTokens !== null ||
+      providerUsage.outputTokens !== null ||
+      providerUsage.totalTokens !== null
+        ? "provider"
+        : "estimated",
+    inputTokens,
+    outputTokens,
+    totalTokens: totalTokens > 0 ? totalTokens : estimatedTotal,
+    estimatedCostUsd,
+  };
+}
+
+async function generateWithProvider(model: LlmModelDefinition, prompt: string): Promise<ProviderGenerationResult> {
   if (model.provider === "openai") {
     if (!config.query.openAiApiKey) {
       throw new LlmServiceError("OPENAI_API_KEY is required for OpenAI provider", 500);
@@ -112,7 +228,10 @@ async function generateWithProvider(model: LlmModelDefinition, prompt: string): 
       throw new LlmServiceError("LLM returned empty output", 502);
     }
 
-    return result.text.trim();
+    return {
+      text: result.text.trim(),
+      usageRaw: result.usage,
+    };
   }
 
   if (model.provider === "anthropic") {
@@ -133,7 +252,10 @@ async function generateWithProvider(model: LlmModelDefinition, prompt: string): 
       throw new LlmServiceError("LLM returned empty output", 502);
     }
 
-    return result.text.trim();
+    return {
+      text: result.text.trim(),
+      usageRaw: result.usage,
+    };
   }
 
   if (model.provider === "xai") {
@@ -154,7 +276,10 @@ async function generateWithProvider(model: LlmModelDefinition, prompt: string): 
       throw new LlmServiceError("LLM returned empty output", 502);
     }
 
-    return result.text.trim();
+    return {
+      text: result.text.trim(),
+      usageRaw: result.usage,
+    };
   }
 
   if (model.provider === "ollama") {
@@ -175,7 +300,10 @@ async function generateWithProvider(model: LlmModelDefinition, prompt: string): 
       throw new LlmServiceError("LLM returned empty output", 502);
     }
 
-    return result.text.trim();
+    return {
+      text: result.text.trim(),
+      usageRaw: result.usage,
+    };
   }
 
   throw new LlmServiceError(`Unsupported LLM provider: ${model.provider}`, 500);
@@ -209,23 +337,37 @@ export async function generateConversationText(input: {
   contextName: string;
 }): Promise<ConversationGenerationResult> {
   const model = selectModel("conversation");
-
-  if (model.provider === "mock") {
-    return {
-      model,
-      text: `Mock assistant response for context "${input.contextName}": ${input.prompt}`,
-    };
-  }
-
   const prompt = [
     "You are a CAD copilot. Answer briefly and provide practical modeling guidance.",
     `Chat context: ${input.contextName}`,
     `User request: ${input.prompt}`,
   ].join("\n\n");
 
+  if (model.provider === "mock") {
+    const text = `Mock assistant response for context "${input.contextName}": ${input.prompt}`;
+    return {
+      model,
+      text,
+      usage: buildUsageMetadata({
+        model,
+        prompt,
+        outputText: text,
+        providerUsageRaw: null,
+      }),
+    };
+  }
+
+  const result = await generateWithProvider(model, prompt);
+
   return {
     model,
-    text: await generateWithProvider(model, prompt),
+    text: result.text,
+    usage: buildUsageMetadata({
+      model,
+      prompt,
+      outputText: result.text,
+      providerUsageRaw: result.usageRaw,
+    }),
   };
 }
 
@@ -237,15 +379,31 @@ export async function generateBuild123dCode(input: {
   const baseFileName = sanitizeBaseFileName(input.prompt);
 
   if (model.provider === "mock") {
-    return {
-      model,
-      baseFileName,
-      code: `
+    const code = `
 from build123d import *
 with BuildPart() as model:
     Box(20, 20, 20)
 export_step(model.part, "${baseFileName}.step")
-      `.trim(),
+      `.trim();
+    const prompt = [
+      "Generate valid Python build123d code.",
+      "Requirements:",
+      `- Export one STEP file with base filename ${baseFileName}.step`,
+      "- Code must be executable as-is.",
+      `User request: ${input.prompt}`,
+      `Assistant planning notes: ${input.conversationText}`,
+    ].join("\n");
+
+    return {
+      model,
+      baseFileName,
+      code,
+      usage: buildUsageMetadata({
+        model,
+        prompt,
+        outputText: code,
+        providerUsageRaw: null,
+      }),
     };
   }
 
@@ -258,11 +416,18 @@ export_step(model.part, "${baseFileName}.step")
     `Assistant planning notes: ${input.conversationText}`,
   ].join("\n");
 
-  const text = await generateWithProvider(model, prompt);
+  const result = await generateWithProvider(model, prompt);
+  const code = extractExecutableCode(result.text);
 
   return {
     model,
     baseFileName,
-    code: extractExecutableCode(text),
+    code,
+    usage: buildUsageMetadata({
+      model,
+      prompt,
+      outputText: code,
+      providerUsageRaw: result.usageRaw,
+    }),
   };
 }

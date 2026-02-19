@@ -1,17 +1,40 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
-import { AdminPanel } from "./components/AdminPanel";
-import { ChatPage } from "./components/ChatPage";
-import { NotificationCenter } from "./components/NotificationCenter";
-import { ProfilePanel } from "./components/ProfilePanel";
-import { QueryWorkbench } from "./components/QueryWorkbench";
-import { WaitlistPanel } from "./components/WaitlistPanel";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
 import { useNotifications } from "./contexts/NotificationsContext";
 import { useAuth } from "./hooks/useAuth";
+
+const AdminPanel = lazy(async () => {
+  const module = await import("./components/AdminPanel");
+  return { default: module.AdminPanel };
+});
+const ChatPage = lazy(async () => {
+  const module = await import("./components/ChatPage");
+  return { default: module.ChatPage };
+});
+const NotificationCenter = lazy(async () => {
+  const module = await import("./components/NotificationCenter");
+  return { default: module.NotificationCenter };
+});
+const ProfilePanel = lazy(async () => {
+  const module = await import("./components/ProfilePanel");
+  return { default: module.ProfilePanel };
+});
+const QueryWorkbench = lazy(async () => {
+  const module = await import("./components/QueryWorkbench");
+  return { default: module.QueryWorkbench };
+});
+const WaitlistPanel = lazy(async () => {
+  const module = await import("./components/WaitlistPanel");
+  return { default: module.WaitlistPanel };
+});
+
+function RouteLoadingFallback() {
+  return <p className="p-4 text-sm text-[hsl(var(--muted-foreground))]">Loading view...</p>;
+}
 
 interface AuthFormState {
   email: string;
@@ -190,7 +213,9 @@ export function App() {
             </>
           ) : null}
 
-          <WaitlistPanel compact={!waitlistOnly} />
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <WaitlistPanel compact={!waitlistOnly} />
+          </Suspense>
         </div>
         {authError ? (
           <p className="mx-auto mt-4 max-w-5xl text-sm text-[hsl(var(--destructive))]">{authError}</p>
@@ -245,23 +270,25 @@ export function App() {
           </CardContent>
         </Card>
 
-        <Routes>
-          <Route path="/" element={<Navigate replace to="/chat" />} />
-          <Route path="/register" element={<Navigate replace to="/" />} />
-          <Route path="/waitlist" element={<WaitlistPanel />} />
-          <Route path="/waitlist/confirm" element={<WaitlistPanel />} />
-          <Route path="/chat" element={<ChatPage />} />
-          <Route path="/chat/new" element={<ChatPage />} />
-          <Route path="/chat/:contextId" element={<ChatPage />} />
-          <Route path="/query" element={<QueryWorkbench />} />
-          <Route path="/profile" element={<ProfilePanel />} />
-          <Route path="/notifications" element={<NotificationCenter />} />
-          <Route
-            path="/admin"
-            element={user?.role === "admin" ? <AdminPanel /> : <Navigate replace to="/chat" />}
-          />
-          <Route path="*" element={<Navigate replace to="/chat" />} />
-        </Routes>
+        <Suspense fallback={<RouteLoadingFallback />}>
+          <Routes>
+            <Route path="/" element={<Navigate replace to="/chat" />} />
+            <Route path="/register" element={<Navigate replace to="/" />} />
+            <Route path="/waitlist" element={<WaitlistPanel />} />
+            <Route path="/waitlist/confirm" element={<WaitlistPanel />} />
+            <Route path="/chat" element={<ChatPage />} />
+            <Route path="/chat/new" element={<ChatPage />} />
+            <Route path="/chat/:contextId" element={<ChatPage />} />
+            <Route path="/query" element={<QueryWorkbench />} />
+            <Route path="/profile" element={<ProfilePanel />} />
+            <Route path="/notifications" element={<NotificationCenter />} />
+            <Route
+              path="/admin"
+              element={user?.role === "admin" ? <AdminPanel /> : <Navigate replace to="/chat" />}
+            />
+            <Route path="*" element={<Navigate replace to="/chat" />} />
+          </Routes>
+        </Suspense>
       </div>
     </main>
   );

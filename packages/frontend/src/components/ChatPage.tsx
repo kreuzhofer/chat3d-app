@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -12,16 +12,20 @@ import {
   updateChatContext,
   updateChatItem,
 } from "../api/chat.api";
-import { downloadFileBinary } from "../api/files.api";
-import { listLlmModels, regenerateQuery, submitQuery, type LlmModel } from "../api/query.api";
+import { downloadFileBinary, uploadFileBase64 } from "../api/files.api";
+import { listLlmModels, regenerateQuery, submitQuery, type LlmModel, type QueryAttachment } from "../api/query.api";
 import { useNotifications } from "../contexts/NotificationsContext";
 import { useAuth } from "../hooks/useAuth";
 import { adaptChatItem } from "../features/chat/chat-adapters";
-import { ModelViewer } from "./ModelViewer";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+
+const LazyModelViewer = lazy(async () => {
+  const module = await import("./ModelViewer");
+  return { default: module.ModelViewer };
+});
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -43,6 +47,34 @@ function fileExtension(path: string): string {
   const normalized = path.toLowerCase();
   const index = normalized.lastIndexOf(".");
   return index >= 0 ? normalized.slice(index) : "";
+}
+
+function toBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return globalThis.btoa(binary);
+}
+
+function sanitizeUploadFilename(value: string): string {
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
+  return normalized.replace(/^-+|-+$/g, "") || "upload.bin";
+}
+
+function inferAttachmentKind(file: File): "image" | "file" {
+  if (file.type.startsWith("image/")) {
+    return "image";
+  }
+  const extension = fileExtension(file.name);
+  return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"].includes(extension) ? "image" : "file";
+}
+
+function formatEstimatedCostUsd(value: number): string {
+  return value.toFixed(6);
 }
 
 function uniqueFilesByPath(
@@ -80,6 +112,8 @@ export function ChatPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [optimisticPrompt, setOptimisticPrompt] = useState<string | null>(null);
+  const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
+  const [queuedAttachments, setQueuedAttachments] = useState<QueryAttachment[]>([]);
   const [visibleTimelineCount, setVisibleTimelineCount] = useState(80);
   const [conversationModelId, setConversationModelId] = useState("");
   const [codegenModelId, setCodegenModelId] = useState("");
@@ -194,7 +228,9 @@ export function ChatPage() {
     setConversationModelId(activeContext?.conversationModelId ?? "");
     setCodegenModelId(activeContext?.chat3dModelId ?? "");
     setVisibleTimelineCount(80);
-  }, [activeContext?.chat3dModelId, activeContext?.conversationModelId]);
+    setSelectedUploadFiles([]);
+    setQueuedAttachments([]);
+  }, [activeContext?.chat3dModelId, activeContext?.conversationModelId, activeContextId]);
 
   useEffect(() => {
     if (!activeContextId || notifications.length === 0) {
@@ -359,8 +395,10 @@ export function ChatPage() {
         token,
         contextId: activeContextId,
         prompt: trimmedPrompt,
+        attachments: queuedAttachments.length > 0 ? queuedAttachments : undefined,
       });
       await refreshItems();
+      setQueuedAttachments([]);
       setMessage("Prompt submitted.");
     } catch (actionError) {
       setError(toErrorMessage(actionError));
@@ -396,6 +434,58 @@ export function ChatPage() {
     } finally {
       setBusyAction(null);
     }
+  }
+
+  async function uploadSelectedFilesAction() {
+    if (!token || selectedUploadFiles.length === 0) {
+      return;
+    }
+
+    setBusyAction("upload-attachments");
+    setError("");
+    setMessage("");
+    try {
+      const uploaded: QueryAttachment[] = [];
+      for (const file of selectedUploadFiles) {
+        const fileBuffer = await file.arrayBuffer();
+        const extension = fileExtension(file.name) || ".bin";
+        const uniqueName = `${Date.now()}-${Math.random().toString(16).slice(2)}-${sanitizeUploadFilename(file.name)}`;
+        const path = `uploads/${uniqueName}${uniqueName.endsWith(extension) ? "" : extension}`;
+        const saved = await uploadFileBase64({
+          token,
+          path,
+          contentBase64: toBase64(fileBuffer),
+          contentType: file.type || undefined,
+        });
+
+        uploaded.push({
+          path: saved.path,
+          filename: file.name,
+          mimeType: file.type || "application/octet-stream",
+          kind: inferAttachmentKind(file),
+        });
+      }
+
+      setQueuedAttachments((current) => {
+        const next = [...current];
+        for (const entry of uploaded) {
+          if (!next.some((existing) => existing.path === entry.path)) {
+            next.push(entry);
+          }
+        }
+        return next;
+      });
+      setSelectedUploadFiles([]);
+      setMessage(`Uploaded ${uploaded.length} attachment${uploaded.length === 1 ? "" : "s"}.`);
+    } catch (actionError) {
+      setError(toErrorMessage(actionError));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  function removeQueuedAttachmentAction(path: string) {
+    setQueuedAttachments((current) => current.filter((attachment) => attachment.path !== path));
   }
 
   async function rateItemAction(item: { id: string; rating: -1 | 0 | 1 }, rating: -1 | 1) {
@@ -637,38 +727,88 @@ export function ChatPage() {
                         <span>{new Date(item.createdAt).toLocaleString()}</span>
                       </div>
                       <div className="space-y-2">
-                        {item.segments.map((segment) => (
-                          <div
-                            key={segment.id}
-                            className={`rounded border p-2 ${
-                              segment.kind === "error"
-                                ? "border-[hsl(var(--destructive))] text-[hsl(var(--destructive))]"
-                                : "border-[hsl(var(--border))]"
-                            }`}
-                          >
-                            {segment.text ? (
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>
-                            ) : (
-                              <p className="text-sm text-[hsl(var(--muted-foreground))]">(empty)</p>
-                            )}
-                            {segment.kind === "model" && segment.attachmentPath ? (
-                              <div className="mt-2">
-                                <ModelViewer token={token ?? ""} filePath={segment.attachmentPath} />
-                              </div>
-                            ) : null}
-                            {segment.files.length > 0 ? (
-                              <ul className="mt-2 list-disc pl-5 text-sm">
-                                {segment.files.map((file) => (
-                                  <li key={`${segment.id}-${file.path}`}>{file.filename}</li>
-                                ))}
-                              </ul>
-                            ) : null}
-                            <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
-                              state: {segment.state}
-                              {segment.stateMessage ? ` (${segment.stateMessage})` : ""}
-                            </p>
-                          </div>
-                        ))}
+                        {item.segments.map((segment) => {
+                          const isAttachment = segment.kind === "attachment";
+
+                          return (
+                            <div
+                              key={segment.id}
+                              className={`rounded border p-2 ${
+                                segment.kind === "error"
+                                  ? "border-[hsl(var(--destructive))] text-[hsl(var(--destructive))]"
+                                  : "border-[hsl(var(--border))]"
+                              }`}
+                            >
+                              {isAttachment ? (
+                                <div className="space-y-2">
+                                  <p className="text-sm font-medium">
+                                    {segment.text ||
+                                      `${segment.attachmentKind === "image" ? "Image" : "File"} attachment`}
+                                  </p>
+                                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                                    {segment.attachmentFilename || segment.attachmentPath}
+                                    {segment.attachmentMimeType ? ` · ${segment.attachmentMimeType}` : ""}
+                                  </p>
+                                  {segment.attachmentPath ? (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={busyAction !== null}
+                                      onClick={() => {
+                                        void downloadFileAction(segment.attachmentPath);
+                                      }}
+                                    >
+                                      Download Attachment
+                                    </Button>
+                                  ) : null}
+                                </div>
+                              ) : segment.text ? (
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>
+                              ) : (
+                                <p className="text-sm text-[hsl(var(--muted-foreground))]">(empty)</p>
+                              )}
+
+                              {segment.kind === "model" && segment.attachmentPath ? (
+                                <div className="mt-2">
+                                  <Suspense
+                                    fallback={
+                                      <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                                        Loading 3D viewer module...
+                                      </p>
+                                    }
+                                  >
+                                    <LazyModelViewer token={token ?? ""} filePath={segment.attachmentPath} />
+                                  </Suspense>
+                                </div>
+                              ) : null}
+
+                              {segment.kind === "meta" && segment.usage ? (
+                                <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
+                                  Usage: {segment.usage.inputTokens} in / {segment.usage.outputTokens} out /{" "}
+                                  {segment.usage.totalTokens} total · est. ${formatEstimatedCostUsd(segment.usage.estimatedCostUsd)}
+                                </p>
+                              ) : null}
+
+                              {segment.kind === "meta" && segment.artifact ? (
+                                <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
+                                  Artifacts: {segment.artifact.previewStatus} · {segment.artifact.detail}
+                                </p>
+                              ) : null}
+
+                              {segment.files.length > 0 ? (
+                                <ul className="mt-2 list-disc pl-5 text-sm">
+                                  {segment.files.map((file) => (
+                                    <li key={`${segment.id}-${file.path}`}>{file.filename}</li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                              <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
+                                state: {segment.state}
+                                {segment.stateMessage ? ` (${segment.stateMessage})` : ""}
+                              </p>
+                            </div>
+                          );
+                        })}
                       </div>
 
                       {item.role === "assistant" && allFiles.length > 0 ? (
@@ -755,11 +895,68 @@ export function ChatPage() {
                 <div ref={timelineEndRef} />
               </div>
 
-              <div className="mt-3 flex flex-wrap items-end gap-2">
+              <div className="mt-3 space-y-3">
+                <div className="rounded-md border border-[hsl(var(--border))] p-3">
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="min-w-[240px] flex-1 space-y-1">
+                      <Label htmlFor="chat-attachments">Attach files</Label>
+                      <Input
+                        id="chat-attachments"
+                        data-testid="chat-attachments-input"
+                        type="file"
+                        multiple
+                        onChange={(event) => {
+                          const nextFiles = event.target.files ? [...event.target.files] : [];
+                          setSelectedUploadFiles(nextFiles);
+                        }}
+                      />
+                    </div>
+                    <Button
+                      variant="outline"
+                      disabled={busyAction !== null || selectedUploadFiles.length === 0}
+                      onClick={() => {
+                        void uploadSelectedFilesAction();
+                      }}
+                    >
+                      Upload Selected
+                    </Button>
+                  </div>
+
+                  {selectedUploadFiles.length > 0 ? (
+                    <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
+                      Selected: {selectedUploadFiles.map((file) => file.name).join(", ")}
+                    </p>
+                  ) : null}
+
+                  {queuedAttachments.length > 0 ? (
+                    <ul className="mt-2 space-y-2">
+                      {queuedAttachments.map((attachment) => (
+                        <li
+                          key={attachment.path}
+                          className="flex items-center justify-between gap-2 rounded border border-[hsl(var(--border))] p-2 text-sm"
+                        >
+                          <span className="line-clamp-1">
+                            {attachment.kind === "image" ? "Image" : "File"}: {attachment.filename}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => removeQueuedAttachmentAction(attachment.path)}
+                          >
+                            Remove
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+
+                <div className="flex flex-wrap items-end gap-2">
                 <div className="min-w-[260px] flex-1 space-y-1">
                   <Label htmlFor="chat-prompt">Prompt</Label>
                   <Input
                     id="chat-prompt"
+                    data-testid="chat-prompt-input"
                     placeholder="Ask Chat3D..."
                     value={prompt}
                     onChange={(event) => setPrompt(event.target.value)}
@@ -787,6 +984,7 @@ export function ChatPage() {
                 >
                   Refresh Events ({connectionState})
                 </Button>
+                </div>
               </div>
             </>
           ) : (
