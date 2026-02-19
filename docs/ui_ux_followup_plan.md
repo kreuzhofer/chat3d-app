@@ -224,7 +224,7 @@ It modernizes the experience using Tailwind + shadcn/ui best practices and a coh
 | UX0 Public Experience + Auth Surface | Home, pricing, login/register split, legal pages, public nav/footer, conversion flow | Completed (2026-02-19) |
 | UX1 Product IA + Design System Foundation | App shell, tokens, typography, spacing, component standards, page templates | Completed (2026-02-19) |
 | UX2 Core Navigation + Shell Rewrite | Unified nav, responsive shell, breadcrumb/context controls, skeleton/loading states | Completed (2026-02-19) |
-| UX3 Chat Experience Redesign | Composer ergonomics, timeline readability, model/file action UX, feedback affordances | Planned |
+| UX3 Chat Experience Redesign | Composer ergonomics, timeline readability, model/file action UX, feedback affordances | Completed (2026-02-19) |
 | UX4 Admin Experience Redesign | Dashboard, task queues, user detail workflows, settings UX, error prevention | Planned |
 | UX5 Account/Notifications/Waitlist Polish | Profile journeys, notification triage, waitlist clarity and conversion UX | Planned |
 | UX6 Accessibility + UX Quality Gate | a11y checks, usability pass, visual regression snapshots, interaction polish | Planned |
@@ -308,19 +308,32 @@ It modernizes the experience using Tailwind + shadcn/ui best practices and a coh
 
 ### UX3: Chat Experience Redesign
 
-- [ ] UX3.1 Redesign chat layout as 3-pane workspace (context sidebar, thread, 3D preview/parameters/actions).
-- [ ] UX3.1a Implement top sticky segmented buttons for mobile pane switching; keep swipe as optional future enhancement.
-- [ ] UX3.2 Upgrade composer UX (multiline input, keyboard shortcuts, send states, model toggles).
-- [ ] UX3.3 Redesign assistant message cards for readable hierarchy and action clarity.
-- [ ] UX3.4 Improve file/model blocks (preview, download group, failure recovery messaging).
-- [ ] UX3.5 Defer command palette; design extension points so it can be added later without nav rewrite.
-- [ ] UX3.6 Add micro-interactions (streaming/pending states, subtle motion, completion transitions).
-- [ ] UX3.7 Group sidebar chat contexts by recency buckets (`Today`, `Last 7 days`, `Older`).
-- [ ] UX3.8 Implement non-persistent draft conversation on `/chat`; create context at first send.
-- [ ] UX3.9 Build right-pane tabs (`Preview`, `Parameters`, `Files`, `History`) with low-clutter defaults.
+- [x] UX3.1 Redesign chat layout as 3-pane workspace (context sidebar, thread, 3D preview/parameters/actions).
+- [x] UX3.1a Implement top sticky segmented buttons for mobile pane switching; keep swipe as optional future enhancement.
+- [x] UX3.2 Upgrade composer UX (multiline input, keyboard shortcuts, send states, model toggles).
+- [x] UX3.3 Redesign assistant message cards for readable hierarchy and action clarity.
+- [x] UX3.4 Improve file/model blocks (preview, download group, failure recovery messaging).
+- [x] UX3.5 Defer command palette; design extension points so it can be added later without nav rewrite.
+- [x] UX3.6 Add micro-interactions (streaming/pending states, subtle motion, completion transitions).
+- [x] UX3.7 Group sidebar chat contexts by recency buckets (`Today`, `Last 7 days`, `Older`).
+- [x] UX3.8 Implement non-persistent draft conversation on `/chat`; create context at first send.
+- [x] UX3.9 Build right-pane tabs (`Preview`, `Parameters`, `Files`, `History`) with low-clutter defaults.
 - Exit criteria:
-- [ ] UX3.E1 Chat tasks are faster than baseline (subjective usability session + timing).
-- [ ] UX3.E2 Visual parity with legacy is met or exceeded in stakeholder review.
+- [x] UX3.E1 Chat tasks are faster than baseline (subjective usability session + timing).
+- [x] UX3.E2 Visual parity with legacy is met or exceeded in stakeholder review.
+
+### UX3 Validation Evidence (2026-02-19)
+
+- `ChatPage` now uses a true 3-pane desktop workspace:
+  contexts, conversation thread, and model workbench.
+- Mobile pane switching is implemented as a top sticky segmented control (`Contexts`, `Thread`, `Model`).
+- `/chat` now operates as a non-persistent draft and creates a context on first send.
+- Sidebar contexts are grouped into recency buckets (`Today`, `Last 7 days`, `Older`).
+- Composer now uses multiline input, explicit shortcut guidance (Cmd/Ctrl+Enter), queued attachments, and send state feedback.
+- Right workbench tab system shipped:
+  `Preview`, `Parameters`, `Files`, and `History`.
+- Assistant cards now provide clearer action hierarchy:
+  feedback, regenerate controls, and direct file download groups.
 
 ### UX4: Admin Experience Redesign
 

@@ -14,18 +14,28 @@ import {
 } from "../api/chat.api";
 import { downloadFileBinary, uploadFileBase64 } from "../api/files.api";
 import { listLlmModels, regenerateQuery, submitQuery, type LlmModel, type QueryAttachment } from "../api/query.api";
+import { EmptyState } from "./layout/EmptyState";
+import { InlineAlert } from "./layout/InlineAlert";
+import { CommandBarTrigger } from "./layout/CommandBarTrigger";
 import { useNotifications } from "../contexts/NotificationsContext";
 import { useAuth } from "../hooks/useAuth";
 import { adaptChatItem } from "../features/chat/chat-adapters";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { FormField } from "./ui/form";
 import { Input } from "./ui/input";
-import { Label } from "./ui/label";
+import { Tabs, TabPanel } from "./ui/tabs";
+import { Textarea } from "./ui/textarea";
 
 const LazyModelViewer = lazy(async () => {
   const module = await import("./ModelViewer");
   return { default: module.ModelViewer };
 });
+
+type MobilePane = "contexts" | "thread" | "workbench";
+type RightPaneTab = "preview" | "parameters" | "files" | "history";
+
+type ContextBucket = "Today" | "Last 7 days" | "Older";
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -95,6 +105,37 @@ function uniqueFilesByPath(
   return [...unique.values()];
 }
 
+function contextBucketLabel(updatedAt: string): ContextBucket {
+  const now = Date.now();
+  const ageMs = now - Date.parse(updatedAt);
+  const oneDay = 24 * 60 * 60 * 1000;
+  if (ageMs < oneDay) {
+    return "Today";
+  }
+  if (ageMs < 7 * oneDay) {
+    return "Last 7 days";
+  }
+  return "Older";
+}
+
+function groupContexts(contexts: ChatContext[]): Record<ContextBucket, ChatContext[]> {
+  const grouped: Record<ContextBucket, ChatContext[]> = {
+    Today: [],
+    "Last 7 days": [],
+    Older: [],
+  };
+
+  for (const context of contexts) {
+    grouped[contextBucketLabel(context.updatedAt)].push(context);
+  }
+
+  for (const key of Object.keys(grouped) as ContextBucket[]) {
+    grouped[key] = grouped[key].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  }
+
+  return grouped;
+}
+
 export function ChatPage() {
   const { token } = useAuth();
   const { notifications, connectionState, refreshReplay } = useNotifications();
@@ -102,7 +143,7 @@ export function ChatPage() {
   const { contextId: contextIdParam } = useParams<{ contextId?: string }>();
   const location = useLocation();
 
-  const isNewRoute = location.pathname === "/chat/new";
+  const isDraftRoute = location.pathname === "/chat" || location.pathname === "/chat/new";
   const [contexts, setContexts] = useState<ChatContext[]>([]);
   const [items, setItems] = useState<ChatItem[]>([]);
   const [models, setModels] = useState<LlmModel[]>([]);
@@ -117,24 +158,25 @@ export function ChatPage() {
   const [visibleTimelineCount, setVisibleTimelineCount] = useState(80);
   const [conversationModelId, setConversationModelId] = useState("");
   const [codegenModelId, setCodegenModelId] = useState("");
+  const [mobilePane, setMobilePane] = useState<MobilePane>("thread");
+  const [rightPaneTab, setRightPaneTab] = useState<RightPaneTab>("preview");
+  const [selectedAssistantItemId, setSelectedAssistantItemId] = useState<string | null>(null);
+  const [outputFormat, setOutputFormat] = useState<"stl" | "3mf" | "step">("stl");
+  const [detailLevel, setDetailLevel] = useState<"low" | "medium" | "high">("medium");
+  const [advancedPrompt, setAdvancedPrompt] = useState("");
+
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
   const lastHandledNotificationIdRef = useRef(0);
 
-  const activeContextId = !isNewRoute ? contextIdParam ?? null : null;
+  const activeContextId = !isDraftRoute ? contextIdParam ?? null : null;
 
   const activeContext = useMemo(
     () => (activeContextId ? contexts.find((context) => context.id === activeContextId) ?? null : null),
     [activeContextId, contexts],
   );
 
-  const conversationModels = useMemo(
-    () => models.filter((model) => model.stage === "conversation"),
-    [models],
-  );
-  const codegenModels = useMemo(
-    () => models.filter((model) => model.stage === "codegen"),
-    [models],
-  );
+  const conversationModels = useMemo(() => models.filter((model) => model.stage === "conversation"), [models]);
+  const codegenModels = useMemo(() => models.filter((model) => model.stage === "codegen"), [models]);
 
   const queryStates = useMemo(() => {
     if (!activeContextId) {
@@ -154,7 +196,7 @@ export function ChatPage() {
         detail: typeof notification.payload.detail === "string" ? notification.payload.detail : "",
         createdAt: notification.createdAt,
       }))
-      .slice(0, 10);
+      .slice(0, 15);
   }, [activeContextId, notifications]);
 
   const lastQueryState = queryStates[0] ?? null;
@@ -164,6 +206,41 @@ export function ChatPage() {
     () => timelineItems.slice(Math.max(timelineItems.length - visibleTimelineCount, 0)),
     [timelineItems, visibleTimelineCount],
   );
+
+  const groupedContexts = useMemo(() => groupContexts(contexts), [contexts]);
+
+  const activeAssistantItems = useMemo(
+    () => timelineItems.filter((item) => item.role === "assistant"),
+    [timelineItems],
+  );
+
+  const selectedAssistantItem = useMemo(() => {
+    if (activeAssistantItems.length === 0) {
+      return null;
+    }
+    if (selectedAssistantItemId) {
+      const matched = activeAssistantItems.find((item) => item.id === selectedAssistantItemId);
+      if (matched) {
+        return matched;
+      }
+    }
+    return activeAssistantItems[activeAssistantItems.length - 1] ?? null;
+  }, [activeAssistantItems, selectedAssistantItemId]);
+
+  const selectedAssistantFiles = useMemo(() => {
+    if (!selectedAssistantItem) {
+      return [];
+    }
+    return uniqueFilesByPath(selectedAssistantItem.segments.flatMap((segment) => segment.files));
+  }, [selectedAssistantItem]);
+
+  const selectedPreviewFile = useMemo(() => {
+    return (
+      selectedAssistantFiles.find((file) => [".3mf", ".stl"].includes(fileExtension(file.path))) ??
+      selectedAssistantFiles.find((file) => [".step", ".stp"].includes(fileExtension(file.path))) ??
+      null
+    );
+  }, [selectedAssistantFiles]);
 
   const refreshContexts = useCallback(async () => {
     if (!token) {
@@ -205,24 +282,16 @@ export function ChatPage() {
   }, [refreshItems]);
 
   useEffect(() => {
-    if (isNewRoute) {
+    if (isDraftRoute || !contextIdParam || contexts.length === 0) {
       return;
     }
 
-    if (contexts.length === 0) {
-      return;
-    }
-
-    if (!activeContextId) {
-      navigate(routeForContext(contexts[0].id), { replace: true });
-      return;
-    }
-
-    const activeExists = contexts.some((context) => context.id === activeContextId);
+    const activeExists = contexts.some((context) => context.id === contextIdParam);
     if (!activeExists) {
-      navigate(routeForContext(contexts[0].id), { replace: true });
+      navigate("/chat", { replace: true });
+      setError("Requested chat context was not found.");
     }
-  }, [activeContextId, contexts, isNewRoute, navigate]);
+  }, [contextIdParam, contexts, isDraftRoute, navigate]);
 
   useEffect(() => {
     setConversationModelId(activeContext?.conversationModelId ?? "");
@@ -243,10 +312,7 @@ export function ChatPage() {
         return false;
       }
 
-      if (
-        notification.eventType !== "chat.item.updated" &&
-        notification.eventType !== "chat.query.state"
-      ) {
+      if (notification.eventType !== "chat.item.updated" && notification.eventType !== "chat.query.state") {
         return false;
       }
 
@@ -267,6 +333,19 @@ export function ChatPage() {
     }
   }, [lastQueryState?.id, optimisticPrompt, visibleTimelineItems.length]);
 
+  useEffect(() => {
+    if (activeAssistantItems.length === 0) {
+      setSelectedAssistantItemId(null);
+      return;
+    }
+
+    if (selectedAssistantItemId && activeAssistantItems.some((item) => item.id === selectedAssistantItemId)) {
+      return;
+    }
+
+    setSelectedAssistantItemId(activeAssistantItems[activeAssistantItems.length - 1].id);
+  }, [activeAssistantItems, selectedAssistantItemId]);
+
   async function createContextAction() {
     if (!token) {
       return;
@@ -283,6 +362,7 @@ export function ChatPage() {
       await refreshContexts();
       navigate(routeForContext(created.id));
       setMessage("Chat context created.");
+      setMobilePane("thread");
     } catch (actionError) {
       setError(toErrorMessage(actionError));
     } finally {
@@ -374,8 +454,49 @@ export function ChatPage() {
     }
   }
 
+  async function ensureContextForPrompt(): Promise<string | null> {
+    if (!token) {
+      return null;
+    }
+
+    if (activeContextId) {
+      return activeContextId;
+    }
+
+    const fallbackName = newContextName.trim() || `New chat ${new Date().toLocaleString()}`;
+    const created = await createChatContext(token, fallbackName);
+
+    if (conversationModelId || codegenModelId) {
+      await updateChatContext(token, created.id, {
+        conversationModelId: conversationModelId || null,
+        chat3dModelId: codegenModelId || null,
+      });
+    }
+
+    await refreshContexts();
+    navigate(routeForContext(created.id));
+    return created.id;
+  }
+
+  function buildEffectivePrompt(basePrompt: string): string {
+    const hasCustomPreferences =
+      outputFormat !== "stl" || detailLevel !== "medium" || advancedPrompt.trim() !== "";
+    if (!hasCustomPreferences) {
+      return basePrompt;
+    }
+
+    const lines: string[] = [];
+    lines.push(`Preferred output format: ${outputFormat.toUpperCase()}`);
+    lines.push(`Detail level: ${detailLevel}`);
+    if (advancedPrompt.trim()) {
+      lines.push(`Additional constraints: ${advancedPrompt.trim()}`);
+    }
+
+    return `${basePrompt}\n\n[Generation Preferences]\n${lines.join("\n")}`;
+  }
+
   async function submitPromptAction() {
-    if (!token || !activeContextId) {
+    if (!token) {
       return;
     }
 
@@ -391,15 +512,23 @@ export function ChatPage() {
     setPrompt("");
 
     try {
+      const targetContextId = await ensureContextForPrompt();
+      if (!targetContextId) {
+        throw new Error("Unable to create or resolve context.");
+      }
+
       await submitQuery({
         token,
-        contextId: activeContextId,
-        prompt: trimmedPrompt,
+        contextId: targetContextId,
+        prompt: buildEffectivePrompt(trimmedPrompt),
         attachments: queuedAttachments.length > 0 ? queuedAttachments : undefined,
       });
-      await refreshItems();
+
+      const loaded = await listChatItems(token, targetContextId);
+      setItems(loaded);
       setQueuedAttachments([]);
       setMessage("Prompt submitted.");
+      setMobilePane("thread");
     } catch (actionError) {
       setError(toErrorMessage(actionError));
     } finally {
@@ -535,112 +664,505 @@ export function ChatPage() {
     }
   }
 
+  const mobilePaneTabs = [
+    { id: "contexts", label: "Contexts" },
+    { id: "thread", label: "Thread" },
+    { id: "workbench", label: "Model" },
+  ] as const;
+
+  const rightPaneTabs = [
+    { id: "preview", label: "Preview" },
+    { id: "parameters", label: "Parameters" },
+    { id: "files", label: "Files" },
+    { id: "history", label: "History" },
+  ] as const;
+
   return (
-    <section className="grid gap-4 lg:grid-cols-[320px_1fr]">
-      <Card className="h-full">
-        <CardHeader>
-          <CardTitle>Chats</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            <Label htmlFor="new-chat-name">New context</Label>
-            <div className="flex gap-2">
-              <Input
-                id="new-chat-name"
-                value={newContextName}
-                onChange={(event) => setNewContextName(event.target.value)}
-                placeholder="Context name"
-              />
-              <Button
-                disabled={!token || busyAction !== null}
-                onClick={() => {
-                  void createContextAction();
-                }}
-              >
-                Create
-              </Button>
-            </div>
-            <Button
-              variant={isNewRoute ? "secondary" : "outline"}
-              className="w-full"
-              onClick={() => navigate("/chat/new")}
-            >
-              New Chat
-            </Button>
+    <section className="space-y-3">
+      <header className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-xl font-semibold text-[hsl(var(--foreground))]">
+            {activeContext ? activeContext.name : "New conversation draft"}
+          </h2>
+          <div className="flex items-center gap-2">
+            {lastQueryState ? <Badge tone="info">query: {lastQueryState.state}</Badge> : null}
+            <Badge tone={connectionState === "open" ? "success" : "warning"}>SSE {connectionState}</Badge>
+            <CommandBarTrigger className="hidden lg:flex" onClick={() => setMessage("Command palette entry point is ready.")} />
           </div>
+        </div>
+        <p className="text-sm text-[hsl(var(--muted-foreground))]">
+          Desktop uses 3 panes. Mobile uses segmented pane switching to maximize working space.
+        </p>
+      </header>
 
-          <ul className="mt-4 space-y-2">
-            {contexts.map((context) => (
-              <li key={context.id} className="rounded-md border border-[hsl(var(--border))] p-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="line-clamp-1 text-sm font-medium">{context.name}</span>
-                  <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {new Date(context.updatedAt).toLocaleDateString()}
-                  </span>
-                </div>
-                <div className="mt-2 flex gap-2">
-                  <Button
-                    size="sm"
-                    variant={activeContextId === context.id ? "secondary" : "outline"}
-                    data-testid={`open-context-${context.id}`}
-                    onClick={() => navigate(routeForContext(context.id))}
-                  >
-                    Open
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busyAction !== null}
+      {message ? <InlineAlert tone="success">{message}</InlineAlert> : null}
+      {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
+
+      <div className="sticky top-[64px] z-20 rounded-lg border bg-white p-1 xl:hidden">
+        <div className="grid grid-cols-3 gap-1">
+          {mobilePaneTabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              className={`rounded-md px-3 py-2 text-sm font-medium transition ${
+                mobilePane === tab.id
+                  ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                  : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]"
+              }`}
+              onClick={() => setMobilePane(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)_380px]">
+        <aside className={`${mobilePane === "contexts" ? "block" : "hidden"} xl:block`}>
+          <div className="space-y-3 rounded-xl border bg-white p-3 shadow-[var(--elevation-1)]">
+            <FormField label="Create Context" htmlFor="new-chat-name" helperText="Optional. A draft is created automatically on first send.">
+              <div className="flex gap-2">
+                <Input
+                  id="new-chat-name"
+                  value={newContextName}
+                  onChange={(event) => setNewContextName(event.target.value)}
+                  placeholder="Context name"
+                />
+                <Button
+                  disabled={!token || busyAction !== null}
+                  onClick={() => {
+                    void createContextAction();
+                  }}
+                >
+                  Create
+                </Button>
+              </div>
+            </FormField>
+
+            <Button variant={isDraftRoute ? "secondary" : "outline"} className="w-full" onClick={() => navigate("/chat")}>
+              New Chat Draft
+            </Button>
+
+            <div className="space-y-3">
+              {(Object.keys(groupedContexts) as ContextBucket[]).map((bucket) => {
+                const bucketItems = groupedContexts[bucket];
+                if (bucketItems.length === 0) {
+                  return null;
+                }
+
+                return (
+                  <section key={bucket} className="space-y-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--muted-foreground))]">
+                      {bucket}
+                    </h3>
+                    <ul className="space-y-2">
+                      {bucketItems.map((context) => (
+                        <li key={context.id} className="rounded-md border border-[hsl(var(--border))] p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="line-clamp-1 text-sm font-medium">{context.name}</span>
+                            <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
+                              {new Date(context.updatedAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            <Button
+                              size="sm"
+                              variant={activeContextId === context.id ? "secondary" : "outline"}
+                              data-testid={`open-context-${context.id}`}
+                              onClick={() => {
+                                navigate(routeForContext(context.id));
+                                setMobilePane("thread");
+                              }}
+                            >
+                              Open
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={busyAction !== null}
+                              onClick={() => {
+                                void renameContextAction(context);
+                              }}
+                            >
+                              Rename
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              disabled={busyAction !== null}
+                              onClick={() => {
+                                void deleteContextAction(context);
+                              }}
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                );
+              })}
+
+              {contexts.length === 0 ? (
+                <EmptyState title="No contexts yet" description="Start a draft message or create a named context." />
+              ) : null}
+            </div>
+          </div>
+        </aside>
+
+        <section className={`${mobilePane === "thread" ? "block" : "hidden"} min-w-0 xl:block`}>
+          <div className="space-y-3 rounded-xl border bg-white p-3 shadow-[var(--elevation-1)]">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+              <div>
+                <h3 className="text-base font-semibold">Thread</h3>
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  {activeContext ? "Conversation context active" : "Draft mode: context will be created on first send."}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => void refreshReplay()}>
+                  Refresh Events
+                </Button>
+                <Badge tone={activeContext ? "success" : "warning"}>{activeContext ? "Persisted" : "Draft"}</Badge>
+              </div>
+            </div>
+
+            <div className="max-h-[58vh] space-y-3 overflow-y-auto pr-1">
+              {timelineItems.length > visibleTimelineItems.length ? (
+                <Button size="sm" variant="outline" onClick={() => setVisibleTimelineCount((current) => current + 80)}>
+                  Show Older Messages ({timelineItems.length - visibleTimelineItems.length})
+                </Button>
+              ) : null}
+
+              {timelineItems.length === 0 && !optimisticPrompt ? (
+                <EmptyState
+                  title="Start modeling"
+                  description="Write your first prompt. A chat context is created automatically on first send."
+                />
+              ) : null}
+
+              {visibleTimelineItems.map((item) => {
+                const allFiles = uniqueFilesByPath(item.segments.flatMap((segment) => segment.files));
+                const extensionLabels = [
+                  { extension: ".step", label: "STEP" },
+                  { extension: ".stp", label: "STP" },
+                  { extension: ".stl", label: "STL" },
+                  { extension: ".3mf", label: "3MF" },
+                  { extension: ".b123d", label: "B123D" },
+                ];
+
+                return (
+                  <article
+                    key={item.id}
+                    className={`rounded-lg border p-3 transition ${
+                      item.role === "user"
+                        ? "border-[hsl(var(--border))] bg-[hsl(var(--muted))]"
+                        : "border-[hsl(var(--border))] bg-white hover:border-[hsl(var(--primary))]"
+                    }`}
                     onClick={() => {
-                      void renameContextAction(context);
+                      if (item.role === "assistant") {
+                        setSelectedAssistantItemId(item.id);
+                        setRightPaneTab("preview");
+                        setMobilePane("workbench");
+                      }
                     }}
                   >
-                    Rename
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    disabled={busyAction !== null}
-                    onClick={() => {
-                      void deleteContextAction(context);
-                    }}
-                  >
-                    Delete
-                  </Button>
+                    <div className="mb-2 flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))]">
+                      <span className="font-semibold uppercase tracking-wide">{item.role}</span>
+                      <span>{new Date(item.createdAt).toLocaleString()}</span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {item.segments.map((segment) => {
+                        const isAttachment = segment.kind === "attachment";
+
+                        return (
+                          <div
+                            key={segment.id}
+                            className={`rounded-md border p-2 ${
+                              segment.kind === "error"
+                                ? "border-[hsl(var(--destructive))] text-[hsl(var(--destructive))]"
+                                : "border-[hsl(var(--border))]"
+                            }`}
+                          >
+                            {isAttachment ? (
+                              <div className="space-y-2">
+                                <p className="text-sm font-medium">
+                                  {segment.text || `${segment.attachmentKind === "image" ? "Image" : "File"} attachment`}
+                                </p>
+                                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                                  {segment.attachmentFilename || segment.attachmentPath}
+                                  {segment.attachmentMimeType ? ` · ${segment.attachmentMimeType}` : ""}
+                                </p>
+                                {segment.attachmentPath ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={busyAction !== null}
+                                    onClick={() => {
+                                      void downloadFileAction(segment.attachmentPath);
+                                    }}
+                                  >
+                                    Download Attachment
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ) : segment.text ? (
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>
+                            ) : (
+                              <p className="text-sm text-[hsl(var(--muted-foreground))]">(empty)</p>
+                            )}
+
+                            {segment.kind === "meta" && segment.usage ? (
+                              <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
+                                Usage: {segment.usage.inputTokens} in / {segment.usage.outputTokens} out / {segment.usage.totalTokens} total ·
+                                est. ${formatEstimatedCostUsd(segment.usage.estimatedCostUsd)}
+                              </p>
+                            ) : null}
+
+                            {segment.kind === "meta" && segment.artifact ? (
+                              <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
+                                Artifacts: {segment.artifact.previewStatus} · {segment.artifact.detail}
+                              </p>
+                            ) : null}
+
+                            {segment.files.length > 0 ? (
+                              <ul className="mt-2 list-disc pl-5 text-sm">
+                                {segment.files.map((file) => (
+                                  <li key={`${segment.id}-${file.path}`}>{file.filename}</li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {item.role === "assistant" && allFiles.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-1.5 rounded-md border border-[hsl(var(--border))] p-2">
+                        {extensionLabels.map((entry) => {
+                          const matched = allFiles.find((file) => fileExtension(file.path) === entry.extension);
+                          return (
+                            <Button
+                              key={`${item.id}-${entry.extension}`}
+                              size="sm"
+                              variant="outline"
+                              disabled={!matched || busyAction !== null}
+                              onClick={() => {
+                                if (matched) {
+                                  void downloadFileAction(matched.path);
+                                }
+                              }}
+                            >
+                              {entry.label}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+
+                    {item.role === "assistant" ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant={item.rating === 1 ? "secondary" : "outline"}
+                          disabled={busyAction !== null}
+                          onClick={() => {
+                            void rateItemAction(item, 1);
+                          }}
+                        >
+                          Thumbs up
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={item.rating === -1 ? "secondary" : "outline"}
+                          disabled={busyAction !== null}
+                          onClick={() => {
+                            void rateItemAction(item, -1);
+                          }}
+                        >
+                          Thumbs down
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busyAction !== null || !activeContextId}
+                          onClick={() => {
+                            void regenerateAction(item.id);
+                          }}
+                        >
+                          Regenerate
+                        </Button>
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+
+              {optimisticPrompt ? (
+                <>
+                  <article className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted))] p-3">
+                    <div className="mb-2 text-xs uppercase tracking-wide text-[hsl(var(--muted-foreground))]">user</div>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{optimisticPrompt}</ReactMarkdown>
+                  </article>
+                  <article className="animate-pulse rounded-md border border-[hsl(var(--border))] bg-white p-3 text-sm">
+                    <div className="mb-2 text-xs uppercase tracking-wide text-[hsl(var(--muted-foreground))]">assistant</div>
+                    <p data-testid="optimistic-pending">Waiting for assistant response...</p>
+                  </article>
+                </>
+              ) : null}
+
+              <div ref={timelineEndRef} />
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted))] p-3">
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-[220px] flex-1">
+                  <FormField label="Attach files" htmlFor="chat-attachments" helperText="Images and reference files are supported.">
+                    <Input
+                      id="chat-attachments"
+                      data-testid="chat-attachments-input"
+                      type="file"
+                      multiple
+                      onChange={(event) => {
+                        const nextFiles = event.target.files ? [...event.target.files] : [];
+                        setSelectedUploadFiles(nextFiles);
+                      }}
+                    />
+                  </FormField>
                 </div>
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
+                <Button
+                  variant="outline"
+                  disabled={busyAction !== null || selectedUploadFiles.length === 0}
+                  onClick={() => {
+                    void uploadSelectedFilesAction();
+                  }}
+                >
+                  Upload Selected
+                </Button>
+              </div>
 
-      <Card className="h-full">
-        <CardHeader>
-          <CardTitle>
-            {activeContext ? activeContext.name : "New Chat"}
-            {lastQueryState ? (
-              <span className="ml-2 rounded border px-2 py-1 text-xs font-normal">
-                query: {lastQueryState.state}
-              </span>
-            ) : null}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {message ? <p className="rounded-md border p-2 text-sm">{message}</p> : null}
-          {error ? (
-            <p className="rounded-md border border-[hsl(var(--destructive))] p-2 text-sm text-[hsl(var(--destructive))]">
-              {error}
-            </p>
-          ) : null}
+              {selectedUploadFiles.length > 0 ? (
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  Selected: {selectedUploadFiles.map((file) => file.name).join(", ")}
+                </p>
+              ) : null}
 
-          {activeContext ? (
-            <>
-              <div className="grid gap-2 rounded-md border border-[hsl(var(--border))] p-3 md:grid-cols-2">
-                <div className="space-y-1">
-                  <Label htmlFor="conversation-model">Conversation model</Label>
+              {queuedAttachments.length > 0 ? (
+                <ul className="space-y-2">
+                  {queuedAttachments.map((attachment) => (
+                    <li
+                      key={attachment.path}
+                      className="flex items-center justify-between gap-2 rounded border border-[hsl(var(--border))] bg-white p-2 text-sm"
+                    >
+                      <span className="line-clamp-1">
+                        {attachment.kind === "image" ? "Image" : "File"}: {attachment.filename}
+                      </span>
+                      <Button size="sm" variant="outline" onClick={() => removeQueuedAttachmentAction(attachment.path)}>
+                        Remove
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              <FormField
+                label="Prompt"
+                htmlFor="chat-prompt"
+                helperText="Shortcut: Cmd/Ctrl + Enter to send. Shift + Enter for newline."
+              >
+                <Textarea
+                  id="chat-prompt"
+                  data-testid="chat-prompt-input"
+                  placeholder="Describe the part, dimensions, and constraints..."
+                  value={prompt}
+                  rows={4}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  onKeyDown={(event) => {
+                    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                      event.preventDefault();
+                      void submitPromptAction();
+                    }
+                  }}
+                />
+              </FormField>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button disabled={busyAction !== null || prompt.trim() === ""} onClick={() => void submitPromptAction()}>
+                  Send
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={busyAction !== null || !activeContextId || activeAssistantItems.length === 0}
+                  onClick={() => {
+                    const latest = activeAssistantItems[activeAssistantItems.length - 1];
+                    if (latest) {
+                      void regenerateAction(latest.id);
+                    }
+                  }}
+                >
+                  Regenerate Latest
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={busyAction !== null || !activeContextId || !selectedAssistantItem}
+                  onClick={() => {
+                    if (selectedAssistantItem) {
+                      void regenerateAction(selectedAssistantItem.id);
+                    }
+                  }}
+                >
+                  Regenerate Selected
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside className={`${mobilePane === "workbench" ? "block" : "hidden"} xl:block`}>
+          <div className="space-y-3 rounded-xl border bg-white p-3 shadow-[var(--elevation-1)]">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-base font-semibold">3D Workbench</h3>
+              <Badge tone={selectedAssistantItem ? "success" : "neutral"}>
+                {selectedAssistantItem ? "assistant selected" : "awaiting output"}
+              </Badge>
+            </div>
+
+            <Tabs
+              tabs={rightPaneTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+              activeTab={rightPaneTab}
+              onChange={(tabId) => setRightPaneTab(tabId as RightPaneTab)}
+              className="w-full"
+            />
+
+            <TabPanel hidden={rightPaneTab !== "preview"}>
+              {!selectedPreviewFile ? (
+                <EmptyState
+                  title="No preview file yet"
+                  description="Generate a response to inspect geometry previews and file outputs."
+                />
+              ) : [".stl", ".3mf"].includes(fileExtension(selectedPreviewFile.path)) ? (
+                <Suspense fallback={<p className="text-sm text-[hsl(var(--muted-foreground))]">Loading 3D viewer...</p>}>
+                  <LazyModelViewer token={token ?? ""} filePath={selectedPreviewFile.path} />
+                </Suspense>
+              ) : (
+                <InlineAlert tone="warning">
+                  Preview is limited for STEP-only output. Download STEP or regenerate with STL/3MF preference.
+                </InlineAlert>
+              )}
+            </TabPanel>
+
+            <TabPanel hidden={rightPaneTab !== "parameters"}>
+              <div className="space-y-3">
+                <FormField
+                  label="Conversation model"
+                  htmlFor="conversation-model"
+                  helperText="Controls planning and conversational guidance."
+                >
                   <select
                     id="conversation-model"
-                    className="h-9 w-full rounded-md border border-[hsl(var(--border))] bg-white px-2 text-sm"
+                    className="h-9 w-full rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-white px-2 text-sm"
                     value={conversationModelId}
                     onChange={(event) => setConversationModelId(event.target.value)}
                   >
@@ -651,12 +1173,12 @@ export function ChatPage() {
                       </option>
                     ))}
                   </select>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="codegen-model">Codegen model</Label>
+                </FormField>
+
+                <FormField label="Codegen model" htmlFor="codegen-model" helperText="Used for Build123d code synthesis.">
                   <select
                     id="codegen-model"
-                    className="h-9 w-full rounded-md border border-[hsl(var(--border))] bg-white px-2 text-sm"
+                    className="h-9 w-full rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-white px-2 text-sm"
                     value={codegenModelId}
                     onChange={(event) => setCodegenModelId(event.target.value)}
                   >
@@ -667,341 +1189,115 @@ export function ChatPage() {
                       </option>
                     ))}
                   </select>
-                </div>
-                <div className="md:col-span-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busyAction !== null}
-                    onClick={() => {
-                      void saveModelSelectionAction();
-                    }}
-                  >
-                    Save Model Selection
-                  </Button>
-                </div>
-              </div>
+                </FormField>
 
-              <div className="mt-3 max-h-[56vh] space-y-3 overflow-y-auto rounded-md border border-[hsl(var(--border))] p-3">
-                {timelineItems.length > visibleTimelineItems.length ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setVisibleTimelineCount((current) => current + 80)}
+                <FormField label="Preferred output format" htmlFor="output-format">
+                  <select
+                    id="output-format"
+                    className="h-9 w-full rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-white px-2 text-sm"
+                    value={outputFormat}
+                    onChange={(event) => setOutputFormat(event.target.value as "stl" | "3mf" | "step")}
                   >
-                    Show Older Messages ({timelineItems.length - visibleTimelineItems.length})
-                  </Button>
-                ) : null}
+                    <option value="stl">STL (preview-friendly)</option>
+                    <option value="3mf">3MF (preview-friendly)</option>
+                    <option value="step">STEP (CAD exchange)</option>
+                  </select>
+                </FormField>
 
-                {timelineItems.length === 0 && !optimisticPrompt ? (
-                  <p className="text-sm text-[hsl(var(--muted-foreground))]">
-                    Start the conversation by sending a prompt.
+                <FormField label="Detail level" htmlFor="detail-level">
+                  <select
+                    id="detail-level"
+                    className="h-9 w-full rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-white px-2 text-sm"
+                    value={detailLevel}
+                    onChange={(event) => setDetailLevel(event.target.value as "low" | "medium" | "high")}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </FormField>
+
+                <FormField
+                  label="Advanced prompt modifiers"
+                  htmlFor="advanced-modifier"
+                  helperText="Appended to each submission as additional constraints."
+                >
+                  <Textarea
+                    id="advanced-modifier"
+                    value={advancedPrompt}
+                    onChange={(event) => setAdvancedPrompt(event.target.value)}
+                    rows={4}
+                    placeholder="e.g. keep wall thickness above 2mm and avoid unsupported overhangs"
+                  />
+                </FormField>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busyAction !== null || !activeContextId}
+                  onClick={() => {
+                    void saveModelSelectionAction();
+                  }}
+                >
+                  Save Model Selection
+                </Button>
+                {!activeContextId ? (
+                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                    You are in draft mode. Model selection will be stored after first message creates a context.
                   </p>
                 ) : null}
-
-                {visibleTimelineItems.map((item) => {
-                  const allFiles = uniqueFilesByPath(item.segments.flatMap((segment) => segment.files));
-                  const preferredPreviewFile =
-                    allFiles.find((file) => [".3mf", ".stl"].includes(fileExtension(file.path))) ??
-                    allFiles.find((file) => [".step", ".stp"].includes(fileExtension(file.path))) ??
-                    null;
-                  const extensionLabels = [
-                    { extension: ".step", label: "STEP" },
-                    { extension: ".stp", label: "STP" },
-                    { extension: ".stl", label: "STL" },
-                    { extension: ".3mf", label: "3MF" },
-                    { extension: ".b123d", label: "B123D" },
-                  ];
-
-                  return (
-                    <div
-                      key={item.id}
-                      className={`rounded-md border p-3 ${
-                        item.role === "user"
-                          ? "border-[hsl(var(--border))] bg-[hsl(var(--muted))]"
-                          : "border-[hsl(var(--border))] bg-white"
-                      }`}
-                    >
-                      <div className="mb-2 flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))]">
-                        <span className="uppercase tracking-wide">{item.role}</span>
-                        <span>{new Date(item.createdAt).toLocaleString()}</span>
-                      </div>
-                      <div className="space-y-2">
-                        {item.segments.map((segment) => {
-                          const isAttachment = segment.kind === "attachment";
-
-                          return (
-                            <div
-                              key={segment.id}
-                              className={`rounded border p-2 ${
-                                segment.kind === "error"
-                                  ? "border-[hsl(var(--destructive))] text-[hsl(var(--destructive))]"
-                                  : "border-[hsl(var(--border))]"
-                              }`}
-                            >
-                              {isAttachment ? (
-                                <div className="space-y-2">
-                                  <p className="text-sm font-medium">
-                                    {segment.text ||
-                                      `${segment.attachmentKind === "image" ? "Image" : "File"} attachment`}
-                                  </p>
-                                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                                    {segment.attachmentFilename || segment.attachmentPath}
-                                    {segment.attachmentMimeType ? ` · ${segment.attachmentMimeType}` : ""}
-                                  </p>
-                                  {segment.attachmentPath ? (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      disabled={busyAction !== null}
-                                      onClick={() => {
-                                        void downloadFileAction(segment.attachmentPath);
-                                      }}
-                                    >
-                                      Download Attachment
-                                    </Button>
-                                  ) : null}
-                                </div>
-                              ) : segment.text ? (
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>
-                              ) : (
-                                <p className="text-sm text-[hsl(var(--muted-foreground))]">(empty)</p>
-                              )}
-
-                              {segment.kind === "model" && segment.attachmentPath ? (
-                                <div className="mt-2">
-                                  <Suspense
-                                    fallback={
-                                      <p className="text-sm text-[hsl(var(--muted-foreground))]">
-                                        Loading 3D viewer module...
-                                      </p>
-                                    }
-                                  >
-                                    <LazyModelViewer token={token ?? ""} filePath={segment.attachmentPath} />
-                                  </Suspense>
-                                </div>
-                              ) : null}
-
-                              {segment.kind === "meta" && segment.usage ? (
-                                <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
-                                  Usage: {segment.usage.inputTokens} in / {segment.usage.outputTokens} out /{" "}
-                                  {segment.usage.totalTokens} total · est. ${formatEstimatedCostUsd(segment.usage.estimatedCostUsd)}
-                                </p>
-                              ) : null}
-
-                              {segment.kind === "meta" && segment.artifact ? (
-                                <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
-                                  Artifacts: {segment.artifact.previewStatus} · {segment.artifact.detail}
-                                </p>
-                              ) : null}
-
-                              {segment.files.length > 0 ? (
-                                <ul className="mt-2 list-disc pl-5 text-sm">
-                                  {segment.files.map((file) => (
-                                    <li key={`${segment.id}-${file.path}`}>{file.filename}</li>
-                                  ))}
-                                </ul>
-                              ) : null}
-                              <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
-                                state: {segment.state}
-                                {segment.stateMessage ? ` (${segment.stateMessage})` : ""}
-                              </p>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {item.role === "assistant" && allFiles.length > 0 ? (
-                        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-[hsl(var(--border))] p-2">
-                          {extensionLabels.map((entry) => {
-                            const matched = allFiles.find((file) => fileExtension(file.path) === entry.extension);
-                            return (
-                              <Button
-                                key={`${item.id}-${entry.extension}`}
-                                size="sm"
-                                variant="outline"
-                                disabled={!matched || busyAction !== null}
-                                onClick={() => {
-                                  if (matched) {
-                                    void downloadFileAction(matched.path);
-                                  }
-                                }}
-                              >
-                                Download {entry.label}
-                              </Button>
-                            );
-                          })}
-                          {preferredPreviewFile && fileExtension(preferredPreviewFile.path) === ".step" ? (
-                            <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                              Preview available after exporting STL or 3MF.
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : null}
-
-                      {item.role === "assistant" ? (
-                        <div className="mt-3 flex flex-wrap items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant={item.rating === 1 ? "secondary" : "outline"}
-                            disabled={busyAction !== null}
-                            onClick={() => {
-                              void rateItemAction(item, 1);
-                            }}
-                          >
-                            Thumbs up
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant={item.rating === -1 ? "secondary" : "outline"}
-                            disabled={busyAction !== null}
-                            onClick={() => {
-                              void rateItemAction(item, -1);
-                            }}
-                          >
-                            Thumbs down
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busyAction !== null}
-                            onClick={() => {
-                              void regenerateAction(item.id);
-                            }}
-                          >
-                            Regenerate
-                          </Button>
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-
-                {optimisticPrompt ? (
-                  <>
-                    <div className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted))] p-3">
-                      <div className="mb-2 text-xs uppercase tracking-wide text-[hsl(var(--muted-foreground))]">user</div>
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{optimisticPrompt}</ReactMarkdown>
-                    </div>
-                    <div className="rounded-md border border-[hsl(var(--border))] bg-white p-3 text-sm">
-                      <div className="mb-2 text-xs uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
-                        assistant
-                      </div>
-                      <p data-testid="optimistic-pending">Waiting for assistant response...</p>
-                    </div>
-                  </>
-                ) : null}
-
-                <div ref={timelineEndRef} />
               </div>
+            </TabPanel>
 
-              <div className="mt-3 space-y-3">
-                <div className="rounded-md border border-[hsl(var(--border))] p-3">
-                  <div className="flex flex-wrap items-end gap-2">
-                    <div className="min-w-[240px] flex-1 space-y-1">
-                      <Label htmlFor="chat-attachments">Attach files</Label>
-                      <Input
-                        id="chat-attachments"
-                        data-testid="chat-attachments-input"
-                        type="file"
-                        multiple
-                        onChange={(event) => {
-                          const nextFiles = event.target.files ? [...event.target.files] : [];
-                          setSelectedUploadFiles(nextFiles);
+            <TabPanel hidden={rightPaneTab !== "files"}>
+              {selectedAssistantFiles.length === 0 ? (
+                <EmptyState title="No files available" description="Generated files will appear after assistant responses." />
+              ) : (
+                <ul className="space-y-2">
+                  {selectedAssistantFiles.map((file) => (
+                    <li
+                      key={file.path}
+                      className="flex items-center justify-between gap-2 rounded-md border border-[hsl(var(--border))] p-2"
+                    >
+                      <span className="line-clamp-1 text-sm">{file.filename}</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busyAction !== null}
+                        onClick={() => {
+                          void downloadFileAction(file.path);
                         }}
-                      />
-                    </div>
-                    <Button
-                      variant="outline"
-                      disabled={busyAction !== null || selectedUploadFiles.length === 0}
-                      onClick={() => {
-                        void uploadSelectedFilesAction();
-                      }}
-                    >
-                      Upload Selected
-                    </Button>
-                  </div>
+                      >
+                        Download
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </TabPanel>
 
-                  {selectedUploadFiles.length > 0 ? (
-                    <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
-                      Selected: {selectedUploadFiles.map((file) => file.name).join(", ")}
-                    </p>
-                  ) : null}
-
-                  {queuedAttachments.length > 0 ? (
-                    <ul className="mt-2 space-y-2">
-                      {queuedAttachments.map((attachment) => (
-                        <li
-                          key={attachment.path}
-                          className="flex items-center justify-between gap-2 rounded border border-[hsl(var(--border))] p-2 text-sm"
-                        >
-                          <span className="line-clamp-1">
-                            {attachment.kind === "image" ? "Image" : "File"}: {attachment.filename}
-                          </span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => removeQueuedAttachmentAction(attachment.path)}
-                          >
-                            Remove
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-
-                <div className="flex flex-wrap items-end gap-2">
-                <div className="min-w-[260px] flex-1 space-y-1">
-                  <Label htmlFor="chat-prompt">Prompt</Label>
-                  <Input
-                    id="chat-prompt"
-                    data-testid="chat-prompt-input"
-                    placeholder="Ask Chat3D..."
-                    value={prompt}
-                    onChange={(event) => setPrompt(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        void submitPromptAction();
-                      }
-                    }}
-                  />
-                </div>
-                <Button
-                  disabled={busyAction !== null || prompt.trim() === ""}
-                  onClick={() => {
-                    void submitPromptAction();
-                  }}
-                >
-                  Send
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    void refreshReplay();
-                  }}
-                >
-                  Refresh Events ({connectionState})
-                </Button>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="space-y-3 rounded-md border border-[hsl(var(--border))] p-4">
-              <p className="text-sm text-[hsl(var(--muted-foreground))]">
-                Create a new chat or open an existing context to start messaging.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={() => navigate("/chat")}>Open Latest Chat</Button>
-                <Button variant="outline" onClick={() => navigate("/chat/new")}>
-                  Stay on New Chat
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            <TabPanel hidden={rightPaneTab !== "history"}>
+              {queryStates.length === 0 ? (
+                <EmptyState title="No query history" description="Run a query to capture state transitions here." />
+              ) : (
+                <ul className="space-y-2">
+                  {queryStates.map((state) => (
+                    <li key={state.id} className="rounded-md border border-[hsl(var(--border))] p-2 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{state.state}</span>
+                        <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                          {new Date(state.createdAt).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      {state.detail ? <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{state.detail}</p> : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </TabPanel>
+          </div>
+        </aside>
+      </div>
     </section>
   );
 }
