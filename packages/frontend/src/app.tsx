@@ -98,7 +98,7 @@ function NavigationList({ groups, onNavigate }: { groups: NavGroup[]; onNavigate
           <h3 className="px-1 text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(var(--muted-foreground))]">
             {group.label}
           </h3>
-          <ul className="space-y-1">
+          <ul className="space-y-1" aria-label={`${group.label} navigation`}>
             {group.items.map((item) => (
               <li key={item.path}>
                 <NavLink

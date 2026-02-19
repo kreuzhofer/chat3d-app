@@ -227,7 +227,7 @@ It modernizes the experience using Tailwind + shadcn/ui best practices and a coh
 | UX3 Chat Experience Redesign | Composer ergonomics, timeline readability, model/file action UX, feedback affordances | Completed (2026-02-19) |
 | UX4 Admin Experience Redesign | Dashboard, task queues, user detail workflows, settings UX, error prevention | Completed (2026-02-19) |
 | UX5 Account/Notifications/Waitlist Polish | Profile journeys, notification triage, waitlist clarity and conversion UX | Completed (2026-02-19) |
-| UX6 Accessibility + UX Quality Gate | a11y checks, usability pass, visual regression snapshots, interaction polish | Planned |
+| UX6 Accessibility + UX Quality Gate | a11y checks, usability pass, visual regression snapshots, interaction polish | Completed (2026-02-19) |
 
 ## Detailed Milestones
 
@@ -381,14 +381,27 @@ It modernizes the experience using Tailwind + shadcn/ui best practices and a coh
 
 ### UX6: Accessibility + UX Quality Gate
 
-- [ ] UX6.1 Keyboard navigation audit (tab order, escape handling, focus trapping in dialogs/drawers).
-- [ ] UX6.2 Contrast/typography audit for all key screens.
-- [ ] UX6.3 Screen-reader labels and landmarks review.
-- [ ] UX6.4 Motion/perf pass (avoid jank, preserve perceived responsiveness).
-- [ ] UX6.5 Capture regression snapshots and UX acceptance checklist.
+- [x] UX6.1 Keyboard navigation audit (tab order, escape handling, focus trapping in dialogs/drawers).
+- [x] UX6.2 Contrast/typography audit for all key screens.
+- [x] UX6.3 Screen-reader labels and landmarks review.
+- [x] UX6.4 Motion/perf pass (avoid jank, preserve perceived responsiveness).
+- [x] UX6.5 Capture regression snapshots and UX acceptance checklist.
 - Exit criteria:
-- [ ] UX6.E1 Accessibility baseline is met across chat, admin, profile, waitlist.
-- [ ] UX6.E2 UX sign-off checklist is complete for all rewritten routes.
+- [x] UX6.E1 Accessibility baseline is met across chat, admin, profile, waitlist.
+- [x] UX6.E2 UX sign-off checklist is complete for all rewritten routes.
+
+### UX6 Validation Evidence (2026-02-19)
+
+- Dialog and drawer overlays now implement:
+  `Escape` handling, keyboard focus trapping, and focus restoration on close.
+- Reduced-motion fallback added in theme tokens to respect user accessibility preferences.
+- Navigation labeling baseline improved for screen-reader discoverability.
+- Added overlay accessibility tests:
+  `packages/frontend/src/__tests__/overlay-accessibility.test.tsx`.
+- Added public route snapshot capture test:
+  `packages/frontend/e2e/public-ux-snapshots.spec.ts`.
+- Added UX quality gate checklist artifact:
+  `docs/ux6_quality_gate.md`.
 
 ## Delivery Artifacts per Milestone
 
