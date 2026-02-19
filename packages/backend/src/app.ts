@@ -10,6 +10,7 @@ import { eventsRouter } from "./routes/events.routes.js";
 import { filesRouter } from "./routes/files.routes.js";
 import { invitationsRouter } from "./routes/invitations.routes.js";
 import { llmRouter } from "./routes/llm.routes.js";
+import { publicRouter } from "./routes/public.routes.js";
 import { profileRouter } from "./routes/profile.routes.js";
 import { queryRouter } from "./routes/query.routes.js";
 import { waitlistRouter } from "./routes/waitlist.routes.js";
@@ -43,6 +44,7 @@ export function createApp() {
   app.use("/api/files", filesRouter);
   app.use("/api/invitations", invitationsRouter);
   app.use("/api/llm", llmRouter);
+  app.use("/api/public", publicRouter);
   app.use("/api/profile", profileRouter);
   app.use("/api/query", queryRouter);
   app.use("/api/waitlist", waitlistRouter);
