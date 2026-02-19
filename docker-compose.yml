@@ -1,0 +1,134 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: chat3d-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-chat3d}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-chat3d_dev}
+      POSTGRES_DB: ${DB_NAME:-chat3d}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-chat3d} -d ${DB_NAME:-chat3d}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: chat3d-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  build123d:
+    platform: linux/amd64
+    build:
+      context: ./services/build123d
+      dockerfile: Dockerfile
+    container_name: chat3d-build123d
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:80/').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./packages/backend
+      dockerfile: Dockerfile
+    container_name: chat3d-backend
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-chat3d}
+      DB_PASSWORD: ${DB_PASSWORD:-chat3d_dev}
+      DB_NAME: ${DB_NAME:-chat3d}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      EVENT_BUS_MODE: ${EVENT_BUS_MODE:-redis}
+      REDIS_EVENT_CHANNEL: ${REDIS_EVENT_CHANNEL:-chat3d.notifications}
+      JWT_SECRET: ${JWT_SECRET:-change-this}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@chat3d.local}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-change-admin-password}
+      SEED_ADMIN_DISPLAY_NAME: ${SEED_ADMIN_DISPLAY_NAME:-Initial Admin}
+      BUILD123D_URL: ${BUILD123D_URL:-http://build123d:80}
+      QUERY_RENDER_MODE: ${QUERY_RENDER_MODE:-live}
+      QUERY_LLM_MODE: ${QUERY_LLM_MODE:-live}
+      QUERY_CONVERSATION_PROVIDER: ${QUERY_CONVERSATION_PROVIDER:-openai}
+      QUERY_CODEGEN_PROVIDER: ${QUERY_CODEGEN_PROVIDER:-openai}
+      QUERY_CONVERSATION_MODEL: ${QUERY_CONVERSATION_MODEL:-gpt-4o-mini}
+      QUERY_CODEGEN_MODEL: ${QUERY_CODEGEN_MODEL:-gpt-5.2-codex}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_TOKEN: ${OLLAMA_TOKEN:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@example.com}
+      EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-memory}
+      EMAIL_RETRY_COUNT: ${EMAIL_RETRY_COUNT:-2}
+      EMAIL_RETRY_DELAY_MS: ${EMAIL_RETRY_DELAY_MS:-250}
+      EMAIL_CONNECTION_TIMEOUT_MS: ${EMAIL_CONNECTION_TIMEOUT_MS:-10000}
+      EMAIL_SOCKET_TIMEOUT_MS: ${EMAIL_SOCKET_TIMEOUT_MS:-20000}
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      build123d:
+        condition: service_healthy
+    volumes:
+      - storage:/data/storage
+
+  account-deletion-worker:
+    build:
+      context: ./packages/backend
+      dockerfile: Dockerfile
+    container_name: chat3d-account-deletion-worker
+    environment:
+      NODE_ENV: development
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-chat3d}
+      DB_PASSWORD: ${DB_PASSWORD:-chat3d_dev}
+      DB_NAME: ${DB_NAME:-chat3d}
+      ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS: ${ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS:-3600}
+      ACCOUNT_DELETION_SWEEP_LIMIT: ${ACCOUNT_DELETION_SWEEP_LIMIT:-100}
+    command:
+      [
+        "sh",
+        "-c",
+        "while true; do npm run worker:account-deletion; sleep $${ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS}; done",
+      ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./packages/frontend
+      dockerfile: Dockerfile
+    container_name: chat3d-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  storage:

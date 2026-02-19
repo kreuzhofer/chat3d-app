@@ -1,0 +1,203 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import { downloadFileBinary } from "../api/files.api";
+import { Button } from "./ui/button";
+
+interface ModelViewerProps {
+  token: string;
+  filePath: string;
+}
+
+type ViewerState = "idle" | "loading" | "loaded" | "error";
+
+function getExtension(path: string): string {
+  const normalized = path.trim().toLowerCase();
+  if (!normalized.includes(".")) {
+    return "";
+  }
+  return normalized.slice(normalized.lastIndexOf("."));
+}
+
+function fitCameraToObject(input: {
+  camera: THREE.PerspectiveCamera;
+  controls: OrbitControls;
+  object: THREE.Object3D;
+}) {
+  const box = new THREE.Box3().setFromObject(input.object);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const maxDimension = Math.max(size.x, size.y, size.z);
+  const fitDistance = maxDimension > 0 ? maxDimension * 1.8 : 80;
+
+  input.camera.position.set(center.x + fitDistance, center.y + fitDistance, center.z + fitDistance);
+  input.camera.near = fitDistance / 100;
+  input.camera.far = fitDistance * 100;
+  input.camera.updateProjectionMatrix();
+
+  input.controls.target.copy(center);
+  input.controls.update();
+}
+
+export function ModelViewer({ token, filePath }: ModelViewerProps) {
+  const [viewerState, setViewerState] = useState<ViewerState>("idle");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isActivated, setIsActivated] = useState(false);
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const extension = useMemo(() => getExtension(filePath), [filePath]);
+
+  useEffect(() => {
+    setViewerState("idle");
+    setErrorMessage("");
+    setIsActivated(false);
+  }, [filePath]);
+
+  useEffect(() => {
+    if (!isActivated) {
+      return;
+    }
+
+    if (extension !== ".stl" && extension !== ".3mf") {
+      setViewerState("error");
+      setErrorMessage(`Preview not supported for ${extension || "this file type"}.`);
+      return;
+    }
+
+    const host = hostRef.current;
+    if (!host) {
+      return;
+    }
+
+    let disposed = false;
+    let animationFrameId = 0;
+    let objectUrl = "";
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf5f5f5);
+
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 5000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(420, 320);
+    host.innerHTML = "";
+    host.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+    const directionalA = new THREE.DirectionalLight(0xffffff, 1.4);
+    directionalA.position.set(2, 3, 2);
+    scene.add(directionalA);
+    const directionalB = new THREE.DirectionalLight(0xffffff, 1.1);
+    directionalB.position.set(-2, -3, -2);
+    scene.add(directionalB);
+
+    async function loadObject() {
+      setViewerState("loading");
+      setErrorMessage("");
+      try {
+        const downloaded = await downloadFileBinary({
+          token,
+          path: filePath,
+        });
+
+        let meshOrGroup: THREE.Object3D;
+        if (extension === ".stl") {
+          const buffer = await downloaded.blob.arrayBuffer();
+          const geometry = new STLLoader().parse(buffer);
+          geometry.computeVertexNormals();
+          meshOrGroup = new THREE.Mesh(
+            geometry,
+            new THREE.MeshStandardMaterial({ color: 0x3f72af, metalness: 0.15, roughness: 0.4 }),
+          );
+        } else {
+          objectUrl = URL.createObjectURL(downloaded.blob);
+          meshOrGroup = await new ThreeMFLoader().loadAsync(objectUrl);
+        }
+
+        if (disposed) {
+          return;
+        }
+
+        scene.add(meshOrGroup);
+        fitCameraToObject({
+          camera,
+          controls,
+          object: meshOrGroup,
+        });
+
+        const animate = () => {
+          if (disposed) {
+            return;
+          }
+          controls.update();
+          renderer.render(scene, camera);
+          animationFrameId = window.requestAnimationFrame(animate);
+        };
+        animate();
+        setViewerState("loaded");
+      } catch (error) {
+        if (disposed) {
+          return;
+        }
+        setViewerState("error");
+        setErrorMessage(error instanceof Error ? error.message : "Failed to render preview.");
+      }
+    }
+
+    void loadObject();
+
+    return () => {
+      disposed = true;
+      if (animationFrameId) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+      controls.dispose();
+      renderer.dispose();
+      scene.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (mesh.geometry) {
+          mesh.geometry.dispose();
+        }
+        const material = mesh.material;
+        if (Array.isArray(material)) {
+          material.forEach((entry) => entry.dispose?.());
+        } else {
+          material?.dispose?.();
+        }
+      });
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+      host.innerHTML = "";
+    };
+  }, [extension, filePath, isActivated, token]);
+
+  if (!isActivated) {
+    return (
+      <div className="space-y-2">
+        <p className="text-xs text-[hsl(var(--muted-foreground))]">3D preview is lazy-loaded for performance.</p>
+        <Button size="sm" variant="outline" onClick={() => setIsActivated(true)}>
+          Load Preview
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {(viewerState === "loading" || viewerState === "idle") && (
+        <p className="text-sm text-[hsl(var(--muted-foreground))]">Loading preview…</p>
+      )}
+      {viewerState === "error" && (
+        <p className="rounded-md border border-[hsl(var(--destructive))] p-2 text-sm text-[hsl(var(--destructive))]">
+          {errorMessage}
+        </p>
+      )}
+      <div ref={hostRef} className="h-[320px] w-full overflow-hidden rounded-md border border-[hsl(var(--border))]" />
+    </div>
+  );
+}

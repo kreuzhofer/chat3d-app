@@ -1,0 +1,42 @@
+{
+  "name": "@chat3d/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:seed": "tsx src/db/seed.ts",
+    "db:bootstrap": "npm run db:migrate && npm run db:seed",
+    "worker:account-deletion": "tsx src/workers/account-deletion.worker.ts",
+    "test": "npm run db:migrate && vitest run",
+    "test:integration": "npm run db:migrate && vitest run src/__tests__/auth.integration.test.ts src/__tests__/waitlist.integration.test.ts src/__tests__/invitations.integration.test.ts src/__tests__/admin.integration.test.ts src/__tests__/account-lifecycle.integration.test.ts src/__tests__/chat-files.integration.test.ts src/__tests__/query.integration.test.ts src/__tests__/hardening.integration.test.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^2.0.0",
+    "@ai-sdk/openai": "^2.0.0",
+    "@ai-sdk/openai-compatible": "^1.0.33",
+    "@ai-sdk/xai": "^2.0.0",
+    "ai": "^5.0.0",
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "jose": "^6.1.0",
+    "nodemailer": "^8.0.1",
+    "pg": "^8.16.3",
+    "redis": "^5.9.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/nodemailer": "^7.0.2",
+    "@types/node": "^24.3.0",
+    "@types/pg": "^8.15.5",
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.1.4",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

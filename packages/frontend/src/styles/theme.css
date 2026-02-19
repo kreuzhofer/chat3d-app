@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+:root {
+  --background: 213 41% 97%;
+  --foreground: 222 44% 12%;
+  --muted: 215 35% 93%;
+  --muted-foreground: 220 16% 40%;
+  --card: 0 0% 100%;
+  --border: 214 24% 84%;
+  --primary: 203 90% 42%;
+  --primary-foreground: 0 0% 100%;
+  --destructive: 0 70% 45%;
+  --destructive-foreground: 0 0% 100%;
+
+  --radius-sm: 0.5rem;
+  --radius: 0.75rem;
+  --radius-lg: 1rem;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+
+  --elevation-1: 0 2px 8px rgba(15, 23, 42, 0.06);
+  --elevation-2: 0 10px 24px rgba(15, 23, 42, 0.12);
+  --elevation-3: 0 18px 48px rgba(15, 23, 42, 0.18);
+
+  --focus-ring: 2px solid hsl(var(--primary));
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+  font-size: var(--text-base);
+  line-height: 1.5;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 0;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

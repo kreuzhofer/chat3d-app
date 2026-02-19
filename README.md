@@ -1,117 +1,75 @@
-# Chat3D - AI-Powered 3D CAD Modeling
+# Chat3D (Docker Stack)
 
-A modern 3D CAD modeling interface that allows users to create 3D models through natural language using AI-powered chat interface. Built with React, Vite, and AWS Amplify.
+Chat3D runs as a Dockerized stack (PostgreSQL, Redis, backend API, frontend, build123d service, scheduled account-deletion worker).
 
-## Features
+## Stack
 
-- **3D Environment**: Interactive 3D interface using Three.js
-- **AI Integration**: Supports multiple AI providers (OpenAI, Bedrock, Ollama)
-- **Real-time Chat**: Real-time messaging with semantic UI components
-- **Analytics**: Mixpanel integration for user analytics
-- **Authentication**: Secure user authentication with AWS Cognito
-- **Backend**: AWS Amplify backend services
-- **Routing**: React Router for navigation
-- **Type Safety**: TypeScript with Zod validation
-- **Logging**: Winston logging system
-- **Storage**: AWS S3 integration
+- Backend: Express + PostgreSQL (`/packages/backend`)
+- Frontend package: React + TypeScript (`/packages/frontend`)
+- Realtime: SSE (`/api/events/stream`)
+- Rendering: local build123d container (`/services/build123d`) running as `linux/amd64`
+- Lifecycle worker: `account-deletion-worker` sweeps expired deactivated accounts on a schedule
 
 ## Prerequisites
 
-- Node.js 18 or higher
-- npm or yarn
-- AWS CLI configured with appropriate credentials
-- AWS Amplify CLI installed
+- Docker + Docker Compose
+- Node.js 20+
+- npm
 
-## Getting Started
+## Quick Start
 
-1. Clone the repository:
-```bash
-git clone https://github.com/kreuzhofer/chat3d-react-amplify.git
-cd chat3d-react-amplify
-```
-
-2. Install dependencies:
+1. Install dependencies:
 ```bash
 npm install
 ```
 
-3. Configure environment:
-- Copy `.env.template` to `.env`
-- Update environment variables with your AWS credentials and configuration
-
-4. Start a local development environment with Amplify:
+2. Configure environment:
 ```bash
-npx dotenvx run npx ampx sandbox
+cp .env.template .env
 ```
 
-This command will:
-- Create an AWS Amplify Sandbox environment
-- Apply your local .env configuration
-- Set up the necessary backend services
-
-5. Start the development server:
+3. Start the full stack:
 ```bash
-npm run dev
+docker compose up --build
 ```
 
-## Project Structure
-
-```
-├── src/                 # Source code
-├── public/              # Static assets
-├── amplify/             # Amplify backend configuration
-├── .env.template        # Environment variables template
-└── package.json         # Project dependencies
-```
-
-## Available Scripts
-
-- `npm run dev` - Start development server
-- `npm run build` - Build production version
-- `npm run preview` - Preview production build
-- `npm run lint` - Run ESLint
-
-## Environment Variables
-
-The project uses `.env` for configuration. Copy `.env.template` to `.env` and update the following variables:
-- AWS credentials
-- AI provider configuration (OpenAI, Bedrock, Ollama)
-- Mixpanel token (for analytics)
-- Other service configurations
-
-## Deployment
-
-To deploy the application:
-
-1. Initialize Amplify:
+`build123d` is internal-only by default (reachable from backend as `http://build123d:80`).
+If you need direct host access for debugging, start with the debug override:
 ```bash
-amplify init
+docker compose -f docker-compose.yml -f docker-compose.build123d-debug.yml up --build
 ```
 
-2. Push to AWS:
+4. Bootstrap DB (migrations + seed):
 ```bash
-amplify push
+npm --workspace @chat3d/backend run db:bootstrap
 ```
 
-## Security
+## Validation Commands
 
-The project follows security best practices:
-- Environment variables for sensitive data
-- Secure authentication flow
-- Input validation using Zod
-- Secure API endpoints
+- Backend tests: `npm --workspace @chat3d/backend run test`
+- Backend build: `npm --workspace @chat3d/backend run build`
+- Frontend tests: `npm --workspace @chat3d/frontend run test`
+- Frontend typecheck: `npm --workspace @chat3d/frontend run typecheck`
+- Workspace typecheck: `npm run m1:typecheck:workspaces`
 
-## License
+## Operations
 
-This library is licensed under the MIT-0 License. See the LICENSE file.
-
-## Local development
-
-To start a local webserver to run the app, you still need an AWS Amplify Sandbox environment.
-To deploy your sandbox to AWS, run the following command in the terminal
-
-```code
-npx dotenvx run npx ampx sandbox
+- Health: `GET /health`
+- Readiness: `GET /ready`
+- Account deletion worker:
+```bash
+npm --workspace @chat3d/backend run worker:account-deletion
 ```
 
-running dotenvx ensures your local .env file will be applied to the sandbox environment to set environment variables for the backend and frontend code
+Detailed operational procedures are documented in:
+- `docs/operations-runbook.md`
+
+Worker schedule controls:
+- `ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS` (default `3600`)
+- `ACCOUNT_DELETION_SWEEP_LIMIT` (default `100`)
+
+## Notes
+
+- Active runtime ownership is `packages/*`; default install/build/test workflows target the Docker stack runtime.
+- `npm run guard:active-runtime` enforces no deprecated runtime integrations in active packages.
+- Active product runtime is the Docker stack and `/packages/*` services.

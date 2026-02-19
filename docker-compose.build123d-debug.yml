@@ -1,0 +1,4 @@
+services:
+  build123d:
+    ports:
+      - "${BUILD123D_PORT:-30222}:80"
