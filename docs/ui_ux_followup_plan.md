@@ -225,7 +225,7 @@ It modernizes the experience using Tailwind + shadcn/ui best practices and a coh
 | UX1 Product IA + Design System Foundation | App shell, tokens, typography, spacing, component standards, page templates | Completed (2026-02-19) |
 | UX2 Core Navigation + Shell Rewrite | Unified nav, responsive shell, breadcrumb/context controls, skeleton/loading states | Completed (2026-02-19) |
 | UX3 Chat Experience Redesign | Composer ergonomics, timeline readability, model/file action UX, feedback affordances | Completed (2026-02-19) |
-| UX4 Admin Experience Redesign | Dashboard, task queues, user detail workflows, settings UX, error prevention | Planned |
+| UX4 Admin Experience Redesign | Dashboard, task queues, user detail workflows, settings UX, error prevention | Completed (2026-02-19) |
 | UX5 Account/Notifications/Waitlist Polish | Profile journeys, notification triage, waitlist clarity and conversion UX | Planned |
 | UX6 Accessibility + UX Quality Gate | a11y checks, usability pass, visual regression snapshots, interaction polish | Planned |
 
@@ -337,16 +337,27 @@ It modernizes the experience using Tailwind + shadcn/ui best practices and a coh
 
 ### UX4: Admin Experience Redesign
 
-- [ ] UX4.1 Build admin dashboard with operational KPIs and queue snapshots.
-- [ ] UX4.2 Replace table-only users view with filterable list + detail drawer.
-- [ ] UX4.3 Build waitlist moderation queue with bulk actions and reason prompts.
-- [ ] UX4.4 Redesign settings page with grouped policy cards and impact summaries.
-- [ ] UX4.5 Add confirmation/undo patterns for high-risk admin actions.
-- [ ] UX4.6 Prioritize user-management and waitlist workflows in dashboard IA and quick actions.
-- [ ] UX4.7 Ship single-item moderation first; stage bulk moderation for follow-up milestone.
+- [x] UX4.1 Build admin dashboard with operational KPIs and queue snapshots.
+- [x] UX4.2 Replace table-only users view with filterable list + detail drawer.
+- [x] UX4.3 Build waitlist moderation queue with bulk actions and reason prompts.
+- [x] UX4.4 Redesign settings page with grouped policy cards and impact summaries.
+- [x] UX4.5 Add confirmation/undo patterns for high-risk admin actions.
+- [x] UX4.6 Prioritize user-management and waitlist workflows in dashboard IA and quick actions.
+- [x] UX4.7 Ship single-item moderation first; stage bulk moderation for follow-up milestone.
 - Exit criteria:
-- [ ] UX4.E1 Admin can complete core moderation flow without page hopping confusion.
-- [ ] UX4.E2 High-risk actions are explicit and auditable from UX perspective.
+- [x] UX4.E1 Admin can complete core moderation flow without page hopping confusion.
+- [x] UX4.E2 High-risk actions are explicit and auditable from UX perspective.
+
+### UX4 Validation Evidence (2026-02-19)
+
+- `AdminPanel` is now dashboard-first with KPI cards and queue snapshots.
+- Core quick actions are implemented:
+  `Review Waitlist`, `Approve Next`, `Open Deactivated Users`, `Toggle Waitlist`.
+- User management moved from table-only view to filterable list + detail drawer actions.
+- Waitlist moderation now uses a single-item queue workflow with reason notes and explicit approve/reject steps.
+- Settings are grouped into policy cards with impact summaries and guarded save flow.
+- High-risk actions now use confirmation dialogs and undo-capable toast feedback where reversible.
+- Bulk moderation remains intentionally deferred and documented as a follow-up stage.
 
 ### UX5: Account, Notifications, Waitlist Polish
 

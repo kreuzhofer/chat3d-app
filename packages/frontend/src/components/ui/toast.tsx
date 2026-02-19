@@ -8,6 +8,8 @@ interface ToastItem {
   title: string;
   description?: string;
   tone: ToastTone;
+  actionLabel?: string;
+  onAction?: () => void | Promise<void>;
 }
 
 interface ToastContextValue {
@@ -54,6 +56,18 @@ export function ToastProvider({ children }: PropsWithChildren) {
           >
             <h3 className="text-sm font-semibold">{toast.title}</h3>
             {toast.description ? <p className="mt-1 text-xs">{toast.description}</p> : null}
+            {toast.actionLabel && toast.onAction ? (
+              <button
+                type="button"
+                className="mt-2 inline-flex rounded border border-current px-2 py-1 text-xs font-semibold"
+                onClick={() => {
+                  void toast.onAction?.();
+                  setToasts((current) => current.filter((item) => item.id !== toast.id));
+                }}
+              >
+                {toast.actionLabel}
+              </button>
+            ) : null}
           </article>
         ))}
       </section>
