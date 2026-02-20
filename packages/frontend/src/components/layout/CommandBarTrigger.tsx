@@ -6,7 +6,7 @@ export function CommandBarTrigger({ className, ...props }: ButtonHTMLAttributes<
     <button
       type="button"
       className={cn(
-        "inline-flex h-9 items-center gap-2 rounded-md border border-[hsl(var(--border))] bg-white px-3 text-sm text-[hsl(var(--muted-foreground))] shadow-[var(--elevation-1)] transition hover:bg-[hsl(var(--muted))]",
+        "inline-flex h-9 items-center gap-2 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-3 text-sm text-[hsl(var(--muted-foreground))] shadow-[var(--elevation-1)] transition hover:bg-[hsl(var(--muted))]",
         className,
       )}
       {...props}

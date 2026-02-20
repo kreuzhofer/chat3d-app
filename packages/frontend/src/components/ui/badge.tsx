@@ -4,11 +4,11 @@ import { cn } from "../../lib/cn";
 type BadgeTone = "neutral" | "success" | "warning" | "danger" | "info";
 
 const toneClasses: Record<BadgeTone, string> = {
-  neutral: "border-slate-200 bg-slate-100 text-slate-700",
-  success: "border-emerald-200 bg-emerald-100 text-emerald-800",
-  warning: "border-amber-200 bg-amber-100 text-amber-800",
-  danger: "border-red-200 bg-red-100 text-red-800",
-  info: "border-sky-200 bg-sky-100 text-sky-800",
+  neutral: "border-[hsl(var(--border))] bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]",
+  success: "border-[hsl(var(--success)_/_0.3)] bg-[hsl(var(--success)_/_0.12)] text-[hsl(var(--success))]",
+  warning: "border-[hsl(var(--warning)_/_0.3)] bg-[hsl(var(--warning)_/_0.12)] text-[hsl(var(--warning))]",
+  danger: "border-[hsl(var(--destructive)_/_0.3)] bg-[hsl(var(--destructive)_/_0.12)] text-[hsl(var(--destructive))]",
+  info: "border-[hsl(var(--info)_/_0.3)] bg-[hsl(var(--info)_/_0.12)] text-[hsl(var(--info))]",
 };
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {

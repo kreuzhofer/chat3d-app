@@ -7,6 +7,7 @@ import { SectionCard } from "./layout/SectionCard";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { Select } from "./ui/select";
 
 function formatPayload(payload: Record<string, unknown>): string {
   try {
@@ -136,18 +137,18 @@ export function NotificationCenter() {
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search event type or payload"
           />
-          <select
+          <Select
             value={domainFilter}
             onChange={(event) => setDomainFilter(event.target.value as NotificationDomain)}
-            className="h-9 rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-white px-2 text-sm"
-          >
-            <option value="all">All ({domainCounts.all})</option>
-            <option value="chat">Chat ({domainCounts.chat})</option>
-            <option value="admin">Admin ({domainCounts.admin})</option>
-            <option value="account">Account ({domainCounts.account})</option>
-            <option value="invitation">Invitation ({domainCounts.invitation})</option>
-            <option value="system">System ({domainCounts.system})</option>
-          </select>
+            options={[
+              { value: "all", label: `All (${domainCounts.all})` },
+              { value: "chat", label: `Chat (${domainCounts.chat})` },
+              { value: "admin", label: `Admin (${domainCounts.admin})` },
+              { value: "account", label: `Account (${domainCounts.account})` },
+              { value: "invitation", label: `Invitation (${domainCounts.invitation})` },
+              { value: "system", label: `System (${domainCounts.system})` },
+            ]}
+          />
         </div>
       </SectionCard>
 

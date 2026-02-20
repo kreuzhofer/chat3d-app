@@ -85,7 +85,12 @@ export function Drawer({ open, title, description, side = "right", onClose, chil
 
   return (
     <div className="fixed inset-0 z-[65]" role="presentation">
-      <button type="button" aria-label="Close drawer" className="absolute inset-0 bg-black/35" onClick={onClose} />
+      <button
+        type="button"
+        aria-label="Close drawer"
+        className="absolute inset-0 bg-black/35 animate-fade-in"
+        onClick={onClose}
+      />
       <aside
         ref={drawerRef}
         role="dialog"
@@ -94,8 +99,8 @@ export function Drawer({ open, title, description, side = "right", onClose, chil
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         className={cn(
-          "absolute top-0 h-full w-full max-w-xl overflow-y-auto border-[hsl(var(--border))] bg-white p-5 shadow-[var(--elevation-3)]",
-          side === "right" ? "right-0 border-l" : "left-0 border-r",
+          "absolute top-0 h-full w-full max-w-xl overflow-y-auto border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-5 shadow-[var(--elevation-3)]",
+          side === "right" ? "right-0 border-l animate-slide-in-right" : "left-0 border-r animate-slide-in-left",
         )}
       >
         <header className="space-y-1">

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ClipboardCheck, Clock, Mail, Search, Send, ShieldCheck } from "lucide-react";
 import {
   confirmWaitlistEmail,
   getWaitlistStatus,
@@ -79,19 +80,29 @@ function WaitlistFlow({
 }) {
   return (
     <div className="space-y-4">
+      {/* Visual stepper */}
       <div className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-md border border-[hsl(var(--border))] p-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(var(--muted-foreground))]">Step 1</p>
+        <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-4">
+          <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-[hsl(var(--primary)_/_0.1)] text-[hsl(var(--primary))]">
+            <Mail className="h-4 w-4" />
+          </div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(var(--primary))]">Step 1</p>
           <p className="mt-1 text-sm font-medium">Join waitlist</p>
           <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Submit email and consent preference.</p>
         </div>
-        <div className="rounded-md border border-[hsl(var(--border))] p-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(var(--muted-foreground))]">Step 2</p>
+        <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-4">
+          <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-[hsl(var(--accent)_/_0.1)] text-[hsl(var(--accent))]">
+            <ClipboardCheck className="h-4 w-4" />
+          </div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(var(--accent))]">Step 2</p>
           <p className="mt-1 text-sm font-medium">Confirm email</p>
           <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Use token from confirmation email.</p>
         </div>
-        <div className="rounded-md border border-[hsl(var(--border))] p-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(var(--muted-foreground))]">Step 3</p>
+        <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-4">
+          <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-[hsl(var(--success)_/_0.1)] text-[hsl(var(--success))]">
+            <ShieldCheck className="h-4 w-4" />
+          </div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(var(--success))]">Step 3</p>
           <p className="mt-1 text-sm font-medium">Wait for approval</p>
           <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Admin review unlocks registration link.</p>
         </div>
@@ -110,10 +121,21 @@ function WaitlistFlow({
           />
         </FormField>
         <div className="flex flex-wrap gap-2">
-          <Button disabled={busyAction !== null || email.trim() === ""} onClick={onJoin}>
+          <Button
+            disabled={busyAction !== null || email.trim() === ""}
+            loading={busyAction === "join"}
+            iconLeft={<Send className="h-3.5 w-3.5" />}
+            onClick={onJoin}
+          >
             Join Waitlist
           </Button>
-          <Button variant="outline" disabled={busyAction !== null || email.trim() === ""} onClick={onCheckEmailStatus}>
+          <Button
+            variant="outline"
+            disabled={busyAction !== null || email.trim() === ""}
+            loading={busyAction === "status"}
+            iconLeft={<Search className="h-3.5 w-3.5" />}
+            onClick={onCheckEmailStatus}
+          >
             Check Status
           </Button>
         </div>
@@ -138,10 +160,21 @@ function WaitlistFlow({
           />
         </FormField>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" disabled={busyAction !== null || token.trim() === ""} onClick={onConfirm}>
+          <Button
+            variant="secondary"
+            disabled={busyAction !== null || token.trim() === ""}
+            loading={busyAction === "confirm"}
+            iconLeft={<ClipboardCheck className="h-3.5 w-3.5" />}
+            onClick={onConfirm}
+          >
             Confirm Email
           </Button>
-          <Button variant="outline" disabled={busyAction !== null || token.trim() === ""} onClick={onCheckTokenStatus}>
+          <Button
+            variant="outline"
+            disabled={busyAction !== null || token.trim() === ""}
+            iconLeft={<Search className="h-3.5 w-3.5" />}
+            onClick={onCheckTokenStatus}
+          >
             Check Token Status
           </Button>
         </div>

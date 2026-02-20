@@ -38,7 +38,7 @@ export function DestructiveActionNotice({ className, ...props }: HTMLAttributes<
   return (
     <div
       className={cn(
-        "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900",
+        "rounded-md border border-[hsl(var(--destructive)_/_0.3)] bg-[hsl(var(--destructive)_/_0.08)] px-3 py-2 text-sm text-[hsl(var(--destructive))]",
         className,
       )}
       {...props}

@@ -86,7 +86,7 @@ export function Dialog({ open, title, description, onClose, children }: DialogPr
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="presentation">
       <button
         aria-label="Close dialog"
-        className="absolute inset-0 bg-black/40"
+        className="absolute inset-0 bg-black/40 animate-fade-in"
         onClick={onClose}
         type="button"
       />
@@ -98,7 +98,8 @@ export function Dialog({ open, title, description, onClose, children }: DialogPr
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         className={cn(
-          "relative z-[71] w-full max-w-lg rounded-xl border border-[hsl(var(--border))] bg-white p-5 shadow-[var(--elevation-3)]",
+          "relative z-[71] w-full max-w-lg rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-5 shadow-[var(--elevation-3)]",
+          "animate-scale-in",
         )}
       >
         <header className="space-y-1">

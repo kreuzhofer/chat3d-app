@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type PropsWithChildren } from "react";
+import { AlertCircle, CheckCircle2, Info, AlertTriangle } from "lucide-react";
 import { cn } from "../../lib/cn";
 
 export type ToastTone = "info" | "success" | "warning" | "danger";
@@ -19,10 +20,24 @@ interface ToastContextValue {
 const ToastContext = createContext<ToastContextValue | null>(null);
 
 const toneClasses: Record<ToastTone, string> = {
-  info: "border-sky-200 bg-sky-50 text-sky-900",
-  success: "border-emerald-200 bg-emerald-50 text-emerald-900",
-  warning: "border-amber-200 bg-amber-50 text-amber-900",
-  danger: "border-red-200 bg-red-50 text-red-900",
+  info: "border-[hsl(var(--info)_/_0.3)] bg-[hsl(var(--info)_/_0.08)] text-[hsl(var(--foreground))]",
+  success: "border-[hsl(var(--success)_/_0.3)] bg-[hsl(var(--success)_/_0.08)] text-[hsl(var(--foreground))]",
+  warning: "border-[hsl(var(--warning)_/_0.3)] bg-[hsl(var(--warning)_/_0.08)] text-[hsl(var(--foreground))]",
+  danger: "border-[hsl(var(--destructive)_/_0.3)] bg-[hsl(var(--destructive)_/_0.08)] text-[hsl(var(--foreground))]",
+};
+
+const toneIcons: Record<ToastTone, typeof Info> = {
+  info: Info,
+  success: CheckCircle2,
+  warning: AlertTriangle,
+  danger: AlertCircle,
+};
+
+const toneIconColors: Record<ToastTone, string> = {
+  info: "text-[hsl(var(--info))]",
+  success: "text-[hsl(var(--success))]",
+  warning: "text-[hsl(var(--warning))]",
+  danger: "text-[hsl(var(--destructive))]",
 };
 
 export function ToastProvider({ children }: PropsWithChildren) {
@@ -46,30 +61,37 @@ export function ToastProvider({ children }: PropsWithChildren) {
         aria-label="Notifications"
         className="pointer-events-none fixed bottom-4 right-4 z-[80] flex w-[min(380px,92vw)] flex-col gap-2"
       >
-        {toasts.map((toast) => (
-          <article
-            key={toast.id}
-            className={cn(
-              "pointer-events-auto rounded-lg border px-3 py-2 shadow-[var(--elevation-2)]",
-              toneClasses[toast.tone],
-            )}
-          >
-            <h3 className="text-sm font-semibold">{toast.title}</h3>
-            {toast.description ? <p className="mt-1 text-xs">{toast.description}</p> : null}
-            {toast.actionLabel && toast.onAction ? (
-              <button
-                type="button"
-                className="mt-2 inline-flex rounded border border-current px-2 py-1 text-xs font-semibold"
-                onClick={() => {
-                  void toast.onAction?.();
-                  setToasts((current) => current.filter((item) => item.id !== toast.id));
-                }}
-              >
-                {toast.actionLabel}
-              </button>
-            ) : null}
-          </article>
-        ))}
+        {toasts.map((toast) => {
+          const Icon = toneIcons[toast.tone];
+          return (
+            <article
+              key={toast.id}
+              className={cn(
+                "pointer-events-auto flex items-start gap-2.5 rounded-lg border px-3 py-2.5 shadow-[var(--elevation-2)]",
+                "animate-slide-in-bottom",
+                toneClasses[toast.tone],
+              )}
+            >
+              <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", toneIconColors[toast.tone])} />
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-semibold">{toast.title}</h3>
+                {toast.description ? <p className="mt-0.5 text-xs text-[hsl(var(--muted-foreground))]">{toast.description}</p> : null}
+                {toast.actionLabel && toast.onAction ? (
+                  <button
+                    type="button"
+                    className="mt-2 inline-flex rounded border border-current px-2 py-1 text-xs font-semibold transition hover:bg-[hsl(var(--muted))]"
+                    onClick={() => {
+                      void toast.onAction?.();
+                      setToasts((current) => current.filter((item) => item.id !== toast.id));
+                    }}
+                  >
+                    {toast.actionLabel}
+                  </button>
+                ) : null}
+              </div>
+            </article>
+          );
+        })}
       </section>
     </ToastContext.Provider>
   );

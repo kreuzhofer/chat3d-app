@@ -3,6 +3,29 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  Bot,
+  Download,
+  FileText,
+  FolderOpen,
+  MessageSquare,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Send,
+  Sidebar,
+  ThumbsDown,
+  ThumbsUp,
+  Trash2,
+  Upload,
+  User,
+  Box,
+  X,
+  Image as ImageIcon,
+  File as FileIcon,
+  Paperclip,
+  Save,
+} from "lucide-react";
+import {
   createChatContext,
   deleteChatContext,
   listChatContexts,
@@ -16,14 +39,15 @@ import { downloadFileBinary, uploadFileBase64 } from "../api/files.api";
 import { listLlmModels, regenerateQuery, submitQuery, type LlmModel, type QueryAttachment } from "../api/query.api";
 import { EmptyState } from "./layout/EmptyState";
 import { InlineAlert } from "./layout/InlineAlert";
-import { CommandBarTrigger } from "./layout/CommandBarTrigger";
 import { useNotifications } from "../contexts/NotificationsContext";
 import { useAuth } from "../hooks/useAuth";
 import { adaptChatItem } from "../features/chat/chat-adapters";
+import { Avatar } from "./ui/avatar";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { FormField } from "./ui/form";
-import { Input } from "./ui/input";
+import { Select } from "./ui/select";
+import { Skeleton } from "./ui/skeleton";
 import { Tabs, TabPanel } from "./ui/tabs";
 import { Textarea } from "./ui/textarea";
 
@@ -138,7 +162,7 @@ function groupContexts(contexts: ChatContext[]): Record<ContextBucket, ChatConte
 
 export function ChatPage() {
   const { token } = useAuth();
-  const { notifications, connectionState, refreshReplay } = useNotifications();
+  const { notifications } = useNotifications();
   const navigate = useNavigate();
   const { contextId: contextIdParam } = useParams<{ contextId?: string }>();
   const location = useLocation();
@@ -166,6 +190,7 @@ export function ChatPage() {
   const [advancedPrompt, setAdvancedPrompt] = useState("");
 
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lastHandledNotificationIdRef = useRef(0);
 
   const activeContextId = !isDraftRoute ? contextIdParam ?? null : null;
@@ -346,12 +371,12 @@ export function ChatPage() {
     setSelectedAssistantItemId(activeAssistantItems[activeAssistantItems.length - 1].id);
   }, [activeAssistantItems, selectedAssistantItemId]);
 
-  async function createContextAction() {
+  async function createContextAction(overrideName?: string) {
     if (!token) {
       return;
     }
 
-    const name = newContextName.trim() || "Untitled chat";
+    const name = (overrideName ?? newContextName).trim() || "Untitled chat";
     setBusyAction("create-context");
     setError("");
     setMessage("");
@@ -565,8 +590,9 @@ export function ChatPage() {
     }
   }
 
-  async function uploadSelectedFilesAction() {
-    if (!token || selectedUploadFiles.length === 0) {
+  async function uploadSelectedFilesAction(filesToUpload?: File[]) {
+    const files = filesToUpload ?? selectedUploadFiles;
+    if (!token || files.length === 0) {
       return;
     }
 
@@ -575,7 +601,7 @@ export function ChatPage() {
     setMessage("");
     try {
       const uploaded: QueryAttachment[] = [];
-      for (const file of selectedUploadFiles) {
+      for (const file of files) {
         const fileBuffer = await file.arrayBuffer();
         const extension = fileExtension(file.name) || ".bin";
         const uniqueName = `${Date.now()}-${Math.random().toString(16).slice(2)}-${sanitizeUploadFilename(file.name)}`;
@@ -679,69 +705,71 @@ export function ChatPage() {
 
   return (
     <section className="space-y-3">
-      <header className="space-y-2">
+      <header>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xl font-semibold text-[hsl(var(--foreground))]">
-            {activeContext ? activeContext.name : "New conversation draft"}
+            {activeContext ? activeContext.name : "New conversation"}
           </h2>
           <div className="flex items-center gap-2">
             {lastQueryState ? <Badge tone="info">query: {lastQueryState.state}</Badge> : null}
-            <Badge tone={connectionState === "open" ? "success" : "warning"}>SSE {connectionState}</Badge>
-            <CommandBarTrigger className="hidden lg:flex" onClick={() => setMessage("Command palette entry point is ready.")} />
           </div>
         </div>
-        <p className="text-sm text-[hsl(var(--muted-foreground))]">
-          Desktop uses 3 panes. Mobile uses segmented pane switching to maximize working space.
-        </p>
       </header>
 
       {message ? <InlineAlert tone="success">{message}</InlineAlert> : null}
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
 
-      <div className="sticky top-[64px] z-20 rounded-lg border bg-white p-1 xl:hidden">
+      <div className="sticky top-[64px] z-20 rounded-lg border bg-[hsl(var(--surface-1))] p-1 xl:hidden">
         <div className="grid grid-cols-3 gap-1">
-          {mobilePaneTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              className={`rounded-md px-3 py-2 text-sm font-medium transition ${
-                mobilePane === tab.id
-                  ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                  : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]"
-              }`}
-              onClick={() => setMobilePane(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
+          {mobilePaneTabs.map((tab) => {
+            const icons: Record<MobilePane, typeof Sidebar> = { contexts: Sidebar, thread: MessageSquare, workbench: Box };
+            const Icon = icons[tab.id];
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition ${
+                  mobilePane === tab.id
+                    ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                    : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]"
+                }`}
+                onClick={() => setMobilePane(tab.id)}
+              >
+                <Icon className="h-4 w-4" />
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)_380px]">
         <aside className={`${mobilePane === "contexts" ? "block" : "hidden"} xl:block`}>
-          <div className="space-y-3 rounded-xl border bg-white p-3 shadow-[var(--elevation-1)]">
-            <FormField label="Create Context" htmlFor="new-chat-name" helperText="Optional. A draft is created automatically on first send.">
-              <div className="flex gap-2">
-                <Input
-                  id="new-chat-name"
-                  value={newContextName}
-                  onChange={(event) => setNewContextName(event.target.value)}
-                  placeholder="Context name"
-                />
-                <Button
-                  disabled={!token || busyAction !== null}
-                  onClick={() => {
-                    void createContextAction();
-                  }}
-                >
-                  Create
-                </Button>
-              </div>
-            </FormField>
-
-            <Button variant={isDraftRoute ? "secondary" : "outline"} className="w-full" onClick={() => navigate("/chat")}>
-              New Chat Draft
-            </Button>
+          <div className="space-y-3 rounded-xl border bg-[hsl(var(--surface-1))] p-3 shadow-[var(--elevation-1)]">
+            <div className="flex items-center gap-2">
+              <Button
+                variant={isDraftRoute ? "secondary" : "outline"}
+                className="flex-1"
+                iconLeft={<MessageSquare className="h-4 w-4" />}
+                onClick={() => navigate("/chat")}
+              >
+                New Chat
+              </Button>
+              <Button
+                size="icon"
+                variant="outline"
+                aria-label="Create named context"
+                disabled={!token || busyAction !== null}
+                onClick={() => {
+                  const name = window.prompt("Context name (leave blank for default)");
+                  if (name !== null) {
+                    void createContextAction(name);
+                  }
+                }}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
 
             <div className="space-y-3">
               {(Object.keys(groupedContexts) as ContextBucket[]).map((bucket) => {
@@ -757,30 +785,33 @@ export function ChatPage() {
                     </h3>
                     <ul className="space-y-2">
                       {bucketItems.map((context) => (
-                        <li key={context.id} className="rounded-md border border-[hsl(var(--border))] p-2">
+                        <li
+                          key={context.id}
+                          className={`group cursor-pointer rounded-md border p-2.5 transition hover:border-[hsl(var(--primary)_/_0.4)] ${
+                            activeContextId === context.id
+                              ? "border-[hsl(var(--primary)_/_0.6)] bg-[hsl(var(--primary)_/_0.06)]"
+                              : "border-[hsl(var(--border)_/_0.4)]"
+                          }`}
+                          onClick={() => {
+                            navigate(routeForContext(context.id));
+                            setMobilePane("thread");
+                          }}
+                          data-testid={`open-context-${context.id}`}
+                        >
                           <div className="flex items-center justify-between gap-2">
                             <span className="line-clamp-1 text-sm font-medium">{context.name}</span>
                             <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
                               {new Date(context.updatedAt).toLocaleDateString()}
                             </span>
                           </div>
-                          <div className="mt-2 flex flex-wrap gap-1">
+                          <div className="mt-2 flex flex-wrap gap-1 opacity-0 transition group-hover:opacity-100">
                             <Button
                               size="sm"
-                              variant={activeContextId === context.id ? "secondary" : "outline"}
-                              data-testid={`open-context-${context.id}`}
-                              onClick={() => {
-                                navigate(routeForContext(context.id));
-                                setMobilePane("thread");
-                              }}
-                            >
-                              Open
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
+                              variant="ghost"
+                              iconLeft={<Pencil className="h-3 w-3" />}
                               disabled={busyAction !== null}
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 void renameContextAction(context);
                               }}
                             >
@@ -788,9 +819,12 @@ export function ChatPage() {
                             </Button>
                             <Button
                               size="sm"
-                              variant="destructive"
+                              variant="ghost"
+                              iconLeft={<Trash2 className="h-3 w-3" />}
+                              className="text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive)_/_0.1)]"
                               disabled={busyAction !== null}
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 void deleteContextAction(context);
                               }}
                             >
@@ -812,23 +846,14 @@ export function ChatPage() {
         </aside>
 
         <section className={`${mobilePane === "thread" ? "block" : "hidden"} min-w-0 xl:block`}>
-          <div className="space-y-3 rounded-xl border bg-white p-3 shadow-[var(--elevation-1)]">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
-              <div>
-                <h3 className="text-base font-semibold">Thread</h3>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                  {activeContext ? "Conversation context active" : "Draft mode: context will be created on first send."}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => void refreshReplay()}>
-                  Refresh Events
-                </Button>
-                <Badge tone={activeContext ? "success" : "warning"}>{activeContext ? "Persisted" : "Draft"}</Badge>
-              </div>
+          <div className="space-y-3 rounded-xl border bg-[hsl(var(--surface-1))] p-3 shadow-[var(--elevation-1)]">
+            <div className="flex items-center justify-between gap-2 border-b border-[hsl(var(--border)_/_0.5)] pb-2">
+              <h3 className="text-sm font-medium text-[hsl(var(--muted-foreground))]">
+                {activeContext ? "Conversation" : "New draft — context created on first send"}
+              </h3>
             </div>
 
-            <div className="max-h-[58vh] space-y-3 overflow-y-auto pr-1">
+            <div className="max-h-[58vh] space-y-4 overflow-y-auto pr-1">
               {timelineItems.length > visibleTimelineItems.length ? (
                 <Button size="sm" variant="outline" onClick={() => setVisibleTimelineCount((current) => current + 80)}>
                   Show Older Messages ({timelineItems.length - visibleTimelineItems.length})
@@ -855,11 +880,13 @@ export function ChatPage() {
                 return (
                   <article
                     key={item.id}
-                    className={`rounded-lg border p-3 transition ${
+                    className={`animate-fade-in rounded-lg border p-3.5 transition ${
                       item.role === "user"
-                        ? "border-[hsl(var(--border))] bg-[hsl(var(--muted))]"
-                        : "border-[hsl(var(--border))] bg-white hover:border-[hsl(var(--primary))]"
-                    }`}
+                        ? "border-transparent bg-[hsl(var(--surface-2)_/_0.6)]"
+                        : selectedAssistantItemId === item.id
+                          ? "border-[hsl(var(--primary)_/_0.5)] bg-[hsl(var(--primary)_/_0.04)] shadow-sm"
+                          : "border-[hsl(var(--border)_/_0.4)] bg-[hsl(var(--surface-1))] hover:border-[hsl(var(--primary)_/_0.3)]"
+                    } ${item.role === "assistant" ? "cursor-pointer" : ""}`}
                     onClick={() => {
                       if (item.role === "assistant") {
                         setSelectedAssistantItemId(item.id);
@@ -869,21 +896,32 @@ export function ChatPage() {
                     }}
                   >
                     <div className="mb-2 flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))]">
-                      <span className="font-semibold uppercase tracking-wide">{item.role}</span>
+                      <div className="flex items-center gap-2">
+                        {item.role === "user" ? (
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(var(--muted))]">
+                            <User className="h-3.5 w-3.5" />
+                          </span>
+                        ) : (
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(var(--primary)_/_0.12)] text-[hsl(var(--primary))]">
+                            <Bot className="h-3.5 w-3.5" />
+                          </span>
+                        )}
+                        <span className="font-semibold uppercase tracking-wide">{item.role}</span>
+                      </div>
                       <span>{new Date(item.createdAt).toLocaleString()}</span>
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       {item.segments.map((segment) => {
                         const isAttachment = segment.kind === "attachment";
 
                         return (
                           <div
                             key={segment.id}
-                            className={`rounded-md border p-2 ${
+                            className={`rounded-md px-1 ${
                               segment.kind === "error"
-                                ? "border-[hsl(var(--destructive))] text-[hsl(var(--destructive))]"
-                                : "border-[hsl(var(--border))]"
+                                ? "border border-[hsl(var(--destructive))] p-2 text-[hsl(var(--destructive))]"
+                                : ""
                             }`}
                           >
                             {isAttachment ? (
@@ -940,7 +978,8 @@ export function ChatPage() {
                     </div>
 
                     {item.role === "assistant" && allFiles.length > 0 ? (
-                      <div className="mt-3 flex flex-wrap items-center gap-1.5 rounded-md border border-[hsl(var(--border))] p-2">
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-md bg-[hsl(var(--surface-2)_/_0.6)] p-2">
+                        <Download className="h-3.5 w-3.5 text-[hsl(var(--muted-foreground))]" />
                         {extensionLabels.map((entry) => {
                           const matched = allFiles.find((file) => fileExtension(file.path) === entry.extension);
                           return (
@@ -949,7 +988,8 @@ export function ChatPage() {
                               size="sm"
                               variant="outline"
                               disabled={!matched || busyAction !== null}
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 if (matched) {
                                   void downloadFileAction(matched.path);
                                 }
@@ -963,32 +1003,40 @@ export function ChatPage() {
                     ) : null}
 
                     {item.role === "assistant" ? (
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         <Button
                           size="sm"
-                          variant={item.rating === 1 ? "secondary" : "outline"}
+                          variant={item.rating === 1 ? "default" : "ghost"}
+                          iconLeft={<ThumbsUp className={`h-3.5 w-3.5 ${item.rating === 1 ? "" : "text-[hsl(var(--muted-foreground))]"}`} />}
+                          aria-label="Thumbs up"
                           disabled={busyAction !== null}
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             void rateItemAction(item, 1);
                           }}
                         >
-                          Thumbs up
+                          {item.rating === 1 ? "Liked" : ""}
                         </Button>
                         <Button
                           size="sm"
-                          variant={item.rating === -1 ? "secondary" : "outline"}
+                          variant={item.rating === -1 ? "destructive" : "ghost"}
+                          iconLeft={<ThumbsDown className={`h-3.5 w-3.5 ${item.rating === -1 ? "" : "text-[hsl(var(--muted-foreground))]"}`} />}
+                          aria-label="Thumbs down"
                           disabled={busyAction !== null}
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             void rateItemAction(item, -1);
                           }}
                         >
-                          Thumbs down
+                          {item.rating === -1 ? "Disliked" : ""}
                         </Button>
                         <Button
                           size="sm"
-                          variant="outline"
+                          variant="ghost"
+                          iconLeft={<RefreshCw className="h-3.5 w-3.5" />}
                           disabled={busyAction !== null || !activeContextId}
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             void regenerateAction(item.id);
                           }}
                         >
@@ -1002,13 +1050,27 @@ export function ChatPage() {
 
               {optimisticPrompt ? (
                 <>
-                  <article className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted))] p-3">
-                    <div className="mb-2 text-xs uppercase tracking-wide text-[hsl(var(--muted-foreground))]">user</div>
+                  <article className="animate-fade-in rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] p-3">
+                    <div className="mb-2 flex items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(var(--muted))]">
+                        <User className="h-3.5 w-3.5" />
+                      </span>
+                      <span className="font-semibold uppercase tracking-wide">user</span>
+                    </div>
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{optimisticPrompt}</ReactMarkdown>
                   </article>
-                  <article className="animate-pulse rounded-md border border-[hsl(var(--border))] bg-white p-3 text-sm">
-                    <div className="mb-2 text-xs uppercase tracking-wide text-[hsl(var(--muted-foreground))]">assistant</div>
-                    <p data-testid="optimistic-pending">Waiting for assistant response...</p>
+                  <article className="animate-fade-in rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3 text-sm">
+                    <div className="mb-2 flex items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(var(--primary)_/_0.12)] text-[hsl(var(--primary))]">
+                        <Bot className="h-3.5 w-3.5" />
+                      </span>
+                      <span className="font-semibold uppercase tracking-wide">assistant</span>
+                    </div>
+                    <div className="space-y-2" data-testid="optimistic-pending">
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="h-4 w-1/2" />
+                      <Skeleton className="h-4 w-2/3" />
+                    </div>
                   </article>
                 </>
               ) : null}
@@ -1016,104 +1078,109 @@ export function ChatPage() {
               <div ref={timelineEndRef} />
             </div>
 
-            <div className="space-y-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted))] p-3">
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="min-w-[220px] flex-1">
-                  <FormField label="Attach files" htmlFor="chat-attachments" helperText="Images and reference files are supported.">
-                    <Input
-                      id="chat-attachments"
-                      data-testid="chat-attachments-input"
-                      type="file"
-                      multiple
-                      onChange={(event) => {
-                        const nextFiles = event.target.files ? [...event.target.files] : [];
-                        setSelectedUploadFiles(nextFiles);
-                      }}
-                    />
-                  </FormField>
-                </div>
-                <Button
-                  variant="outline"
-                  disabled={busyAction !== null || selectedUploadFiles.length === 0}
-                  onClick={() => {
-                    void uploadSelectedFilesAction();
-                  }}
-                >
-                  Upload Selected
-                </Button>
-              </div>
+            <div className="space-y-2 rounded-lg border border-[hsl(var(--border)_/_0.5)] bg-[hsl(var(--surface-2))] p-3">
+              {/* Hidden file input — triggered by Paperclip button */}
+              <input
+                ref={fileInputRef}
+                id="chat-attachments"
+                data-testid="chat-attachments-input"
+                type="file"
+                multiple
+                className="sr-only"
+                onChange={(event) => {
+                  const nextFiles = event.target.files ? [...event.target.files] : [];
+                  setSelectedUploadFiles(nextFiles);
+                  if (nextFiles.length > 0) {
+                    void uploadSelectedFilesAction(nextFiles);
+                  }
+                }}
+              />
 
-              {selectedUploadFiles.length > 0 ? (
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                  Selected: {selectedUploadFiles.map((file) => file.name).join(", ")}
+              {/* Queued attachments — compact pills */}
+              {queuedAttachments.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {queuedAttachments.map((attachment) => (
+                    <span
+                      key={attachment.path}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-2.5 py-1 text-xs"
+                    >
+                      {attachment.kind === "image" ? (
+                        <ImageIcon className="h-3 w-3 text-[hsl(var(--info))]" />
+                      ) : (
+                        <FileIcon className="h-3 w-3 text-[hsl(var(--muted-foreground))]" />
+                      )}
+                      <span className="max-w-[120px] truncate">{attachment.filename}</span>
+                      <button
+                        type="button"
+                        className="ml-0.5 rounded-full p-0.5 text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
+                        onClick={() => removeQueuedAttachmentAction(attachment.path)}
+                        aria-label={`Remove ${attachment.filename}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
+              {/* Pending upload indicator */}
+              {busyAction === "upload-attachments" ? (
+                <p className="flex items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
+                  <Upload className="h-3 w-3 animate-pulse" />
+                  Uploading files...
                 </p>
               ) : null}
 
-              {queuedAttachments.length > 0 ? (
-                <ul className="space-y-2">
-                  {queuedAttachments.map((attachment) => (
-                    <li
-                      key={attachment.path}
-                      className="flex items-center justify-between gap-2 rounded border border-[hsl(var(--border))] bg-white p-2 text-sm"
+              <Textarea
+                id="chat-prompt"
+                data-testid="chat-prompt-input"
+                placeholder="Describe the part, dimensions, and constraints..."
+                value={prompt}
+                rows={3}
+                onChange={(event) => setPrompt(event.target.value)}
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                    event.preventDefault();
+                    void submitPromptAction();
+                  }
+                }}
+              />
+
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Attach files"
+                    disabled={busyAction === "upload-attachments"}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </Button>
+                  {activeContextId && activeAssistantItems.length > 0 ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      iconLeft={<RefreshCw className="h-3.5 w-3.5" />}
+                      disabled={busyAction !== null}
+                      onClick={() => {
+                        const latest = activeAssistantItems[activeAssistantItems.length - 1];
+                        if (latest) {
+                          void regenerateAction(latest.id);
+                        }
+                      }}
                     >
-                      <span className="line-clamp-1">
-                        {attachment.kind === "image" ? "Image" : "File"}: {attachment.filename}
-                      </span>
-                      <Button size="sm" variant="outline" onClick={() => removeQueuedAttachmentAction(attachment.path)}>
-                        Remove
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-
-              <FormField
-                label="Prompt"
-                htmlFor="chat-prompt"
-                helperText="Shortcut: Cmd/Ctrl + Enter to send. Shift + Enter for newline."
-              >
-                <Textarea
-                  id="chat-prompt"
-                  data-testid="chat-prompt-input"
-                  placeholder="Describe the part, dimensions, and constraints..."
-                  value={prompt}
-                  rows={4}
-                  onChange={(event) => setPrompt(event.target.value)}
-                  onKeyDown={(event) => {
-                    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                      event.preventDefault();
-                      void submitPromptAction();
-                    }
-                  }}
-                />
-              </FormField>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <Button disabled={busyAction !== null || prompt.trim() === ""} onClick={() => void submitPromptAction()}>
+                      Regenerate
+                    </Button>
+                  ) : null}
+                </div>
+                <Button
+                  iconLeft={<Send className="h-4 w-4" />}
+                  loading={busyAction === "submit-prompt"}
+                  disabled={busyAction !== null || prompt.trim() === ""}
+                  onClick={() => void submitPromptAction()}
+                >
                   Send
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={busyAction !== null || !activeContextId || activeAssistantItems.length === 0}
-                  onClick={() => {
-                    const latest = activeAssistantItems[activeAssistantItems.length - 1];
-                    if (latest) {
-                      void regenerateAction(latest.id);
-                    }
-                  }}
-                >
-                  Regenerate Latest
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={busyAction !== null || !activeContextId || !selectedAssistantItem}
-                  onClick={() => {
-                    if (selectedAssistantItem) {
-                      void regenerateAction(selectedAssistantItem.id);
-                    }
-                  }}
-                >
-                  Regenerate Selected
                 </Button>
               </div>
             </div>
@@ -1121,7 +1188,7 @@ export function ChatPage() {
         </section>
 
         <aside className={`${mobilePane === "workbench" ? "block" : "hidden"} xl:block`}>
-          <div className="space-y-3 rounded-xl border bg-white p-3 shadow-[var(--elevation-1)]">
+          <div className="space-y-3 rounded-xl border bg-[hsl(var(--surface-1))] p-3 shadow-[var(--elevation-1)]">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-base font-semibold">3D Workbench</h3>
               <Badge tone={selectedAssistantItem ? "success" : "neutral"}>
@@ -1160,61 +1227,59 @@ export function ChatPage() {
                   htmlFor="conversation-model"
                   helperText="Controls planning and conversational guidance."
                 >
-                  <select
+                  <Select
                     id="conversation-model"
-                    className="h-9 w-full rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-white px-2 text-sm"
                     value={conversationModelId}
                     onChange={(event) => setConversationModelId(event.target.value)}
-                  >
-                    <option value="">Default</option>
-                    {conversationModels.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.provider} / {model.modelName}
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      { value: "", label: "Default" },
+                      ...conversationModels.map((model) => ({
+                        value: model.id,
+                        label: `${model.provider} / ${model.modelName}`,
+                      })),
+                    ]}
+                  />
                 </FormField>
 
                 <FormField label="Codegen model" htmlFor="codegen-model" helperText="Used for Build123d code synthesis.">
-                  <select
+                  <Select
                     id="codegen-model"
-                    className="h-9 w-full rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-white px-2 text-sm"
                     value={codegenModelId}
                     onChange={(event) => setCodegenModelId(event.target.value)}
-                  >
-                    <option value="">Default</option>
-                    {codegenModels.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.provider} / {model.modelName}
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      { value: "", label: "Default" },
+                      ...codegenModels.map((model) => ({
+                        value: model.id,
+                        label: `${model.provider} / ${model.modelName}`,
+                      })),
+                    ]}
+                  />
                 </FormField>
 
                 <FormField label="Preferred output format" htmlFor="output-format">
-                  <select
+                  <Select
                     id="output-format"
-                    className="h-9 w-full rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-white px-2 text-sm"
                     value={outputFormat}
                     onChange={(event) => setOutputFormat(event.target.value as "stl" | "3mf" | "step")}
-                  >
-                    <option value="stl">STL (preview-friendly)</option>
-                    <option value="3mf">3MF (preview-friendly)</option>
-                    <option value="step">STEP (CAD exchange)</option>
-                  </select>
+                    options={[
+                      { value: "stl", label: "STL (preview-friendly)" },
+                      { value: "3mf", label: "3MF (preview-friendly)" },
+                      { value: "step", label: "STEP (CAD exchange)" },
+                    ]}
+                  />
                 </FormField>
 
                 <FormField label="Detail level" htmlFor="detail-level">
-                  <select
+                  <Select
                     id="detail-level"
-                    className="h-9 w-full rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-white px-2 text-sm"
                     value={detailLevel}
                     onChange={(event) => setDetailLevel(event.target.value as "low" | "medium" | "high")}
-                  >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                  </select>
+                    options={[
+                      { value: "low", label: "Low" },
+                      { value: "medium", label: "Medium" },
+                      { value: "high", label: "High" },
+                    ]}
+                  />
                 </FormField>
 
                 <FormField
@@ -1234,6 +1299,8 @@ export function ChatPage() {
                 <Button
                   size="sm"
                   variant="outline"
+                  iconLeft={<Save className="h-3.5 w-3.5" />}
+                  loading={busyAction === "save-model-selection"}
                   disabled={busyAction !== null || !activeContextId}
                   onClick={() => {
                     void saveModelSelectionAction();
@@ -1259,10 +1326,14 @@ export function ChatPage() {
                       key={file.path}
                       className="flex items-center justify-between gap-2 rounded-md border border-[hsl(var(--border))] p-2"
                     >
-                      <span className="line-clamp-1 text-sm">{file.filename}</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileText className="h-4 w-4 shrink-0 text-[hsl(var(--muted-foreground))]" />
+                        <span className="line-clamp-1 text-sm">{file.filename}</span>
+                      </div>
                       <Button
                         size="sm"
                         variant="outline"
+                        iconLeft={<Download className="h-3.5 w-3.5" />}
                         disabled={busyAction !== null}
                         onClick={() => {
                           void downloadFileAction(file.path);

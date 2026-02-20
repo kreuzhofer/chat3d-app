@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  /* ── Core palette ── */
   --background: 213 41% 97%;
   --foreground: 222 44% 12%;
   --muted: 215 35% 93%;
@@ -12,10 +13,27 @@
   --destructive: 0 70% 45%;
   --destructive-foreground: 0 0% 100%;
 
+  /* ── Semantic colors (new) ── */
+  --success: 152 60% 38%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 50%;
+  --warning-foreground: 38 92% 14%;
+  --info: 203 90% 42%;
+  --info-foreground: 0 0% 100%;
+  --accent: 262 60% 55%;
+  --accent-foreground: 0 0% 100%;
+
+  /* ── Surface hierarchy (new) ── */
+  --surface-1: 0 0% 100%;
+  --surface-2: 213 41% 97%;
+  --surface-3: 215 35% 93%;
+
+  /* ── Radius ── */
   --radius-sm: 0.5rem;
   --radius: 0.75rem;
   --radius-lg: 1rem;
 
+  /* ── Spacing ── */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -25,6 +43,7 @@
   --space-8: 2rem;
   --space-10: 2.5rem;
 
+  /* ── Typography ── */
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
@@ -32,14 +51,118 @@
   --text-xl: 1.25rem;
   --text-2xl: 1.5rem;
   --text-3xl: 1.875rem;
+  --font-sans: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Menlo", monospace;
 
+  /* ── Elevation ── */
   --elevation-1: 0 2px 8px rgba(15, 23, 42, 0.06);
   --elevation-2: 0 10px 24px rgba(15, 23, 42, 0.12);
   --elevation-3: 0 18px 48px rgba(15, 23, 42, 0.18);
 
+  /* ── Focus ── */
   --focus-ring: 2px solid hsl(var(--primary));
+
+  /* ── Public page background ── */
+  --public-gradient-1: rgba(16, 185, 129, 0.10);
+  --public-gradient-2: rgba(59, 130, 246, 0.10);
+  --public-bg-start: #f8fbff;
+  --public-bg-mid: #f5f8ff;
+  --public-bg-end: #eef4ff;
+
+  /* ── Animation timing (new) ── */
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 350ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* ── Dark mode (new) ── */
+[data-theme="dark"] {
+  --background: 222 47% 11%;
+  --foreground: 213 31% 91%;
+  --muted: 217 33% 17%;
+  --muted-foreground: 215 20% 65%;
+  --card: 222 47% 14%;
+  --border: 217 33% 22%;
+  --primary: 199 89% 48%;
+  --primary-foreground: 222 47% 11%;
+  --destructive: 0 63% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 152 55% 45%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 55%;
+  --warning-foreground: 38 92% 14%;
+  --info: 199 89% 48%;
+  --info-foreground: 222 47% 11%;
+  --accent: 262 55% 62%;
+  --accent-foreground: 0 0% 100%;
+  --surface-1: 222 47% 14%;
+  --surface-2: 222 47% 11%;
+  --surface-3: 217 33% 17%;
+  --elevation-1: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --elevation-2: 0 10px 24px rgba(0, 0, 0, 0.4);
+  --elevation-3: 0 18px 48px rgba(0, 0, 0, 0.5);
+
+  /* ── Public page background (dark) ── */
+  --public-gradient-1: rgba(16, 185, 129, 0.04);
+  --public-gradient-2: rgba(59, 130, 246, 0.04);
+  --public-bg-start: hsl(222 47% 11%);
+  --public-bg-mid: hsl(222 47% 11%);
+  --public-bg-end: hsl(222 47% 12%);
+}
+
+/* ── Keyframe animations (new) ── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes slideInFromRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slideOutToRight {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+
+@keyframes slideInFromLeft {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slideInFromBottom {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes slideOutToBottom {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(12px); opacity: 0; }
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Resets ── */
 * {
   box-sizing: border-box;
 }
@@ -52,7 +175,7 @@ body,
 
 body {
   margin: 0;
-  font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
   font-size: var(--text-base);
   line-height: 1.5;
   background: hsl(var(--background));
@@ -84,6 +207,12 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--font-mono);
 }
 
 :focus-visible {

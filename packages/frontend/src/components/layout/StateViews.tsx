@@ -7,7 +7,7 @@ interface LoadingViewProps {
 
 export function LoadingView({ label = "Loading..." }: LoadingViewProps) {
   return (
-    <div className="rounded-xl border border-[hsl(var(--border))] bg-white p-6">
+    <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-6">
       <p className="text-sm text-[hsl(var(--muted-foreground))]">{label}</p>
     </div>
   );

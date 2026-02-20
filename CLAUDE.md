@@ -121,6 +121,30 @@ Files stored at `/data/storage` (Docker volume):
 | backend | Custom (Node 20 Alpine) | 3001 | postgres |
 | frontend | Custom (nginx Alpine) | 80 | backend |
 
+## Verification After Changes
+
+**Mandatory:** After any code changes, rebuild and deploy the affected Docker containers locally to verify the build still works. Only rebuild containers affected by the current changes to avoid unnecessary full rebuilds.
+
+**Important:** Use the two-step approach to avoid Docker Compose reconciling and rebuilding unrelated services:
+
+```bash
+# Frontend-only changes (preferred two-step approach):
+docker compose build frontend && docker compose up -d frontend
+
+# Backend-only changes:
+docker compose build backend && docker compose up -d backend
+
+# Multiple services:
+docker compose build frontend backend && docker compose up -d frontend backend
+
+# Full rebuild (only when necessary):
+docker compose up -d --build
+```
+
+**Why two steps?** `docker compose up -d --build frontend` will still reconcile all services and may trigger unnecessary rebuilds of unrelated containers like `build123d`. The two-step `build` then `up` approach ensures only the specified service is built and restarted.
+
+Do not consider a change complete until the Docker build succeeds.
+
 ## Coding Conventions
 
 - TypeScript strict mode in all packages

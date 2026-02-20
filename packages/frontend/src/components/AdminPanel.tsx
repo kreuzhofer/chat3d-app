@@ -1,5 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Activity,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  KeyRound,
+  LayoutDashboard,
+  ListChecks,
+  RotateCcw,
+  Save,
+  Search,
+  Settings,
+  Shield,
+  ShieldOff,
+  TrendingUp,
+  UserCheck,
+  UserMinus,
+  Users,
+  UserX,
+  XCircle,
+} from "lucide-react";
+import {
   activateAdminUser,
   approveAdminWaitlistEntry,
   deactivateAdminUser,
@@ -20,12 +42,14 @@ import { EmptyState } from "./layout/EmptyState";
 import { InlineAlert } from "./layout/InlineAlert";
 import { PageHeader } from "./layout/PageHeader";
 import { SectionCard } from "./layout/SectionCard";
+import { Avatar } from "./ui/avatar";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
 import { Drawer } from "./ui/drawer";
 import { FormField, DestructiveActionNotice } from "./ui/form";
 import { Input } from "./ui/input";
+import { Select } from "./ui/select";
 import { Switch } from "./ui/switch";
 import { Tabs } from "./ui/tabs";
 import { Textarea } from "./ui/textarea";
@@ -417,10 +441,10 @@ export function AdminPanel() {
 
       <Tabs
         tabs={[
-          { id: "dashboard", label: "Dashboard" },
-          { id: "users", label: "Users" },
-          { id: "waitlist", label: "Waitlist" },
-          { id: "settings", label: "Settings" },
+          { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard className="h-4 w-4" /> },
+          { id: "users", label: "Users", icon: <Users className="h-4 w-4" /> },
+          { id: "waitlist", label: "Waitlist", icon: <ListChecks className="h-4 w-4" /> },
+          { id: "settings", label: "Settings", icon: <Settings className="h-4 w-4" /> },
         ]}
         activeTab={activeTab}
         onChange={(tabId) => setActiveTab(tabId as AdminTab)}
@@ -430,27 +454,67 @@ export function AdminPanel() {
         <div className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <SectionCard title="Pending waitlist" description="Entries awaiting moderation.">
-              <p className="text-3xl font-semibold">{dashboardKpis.pendingWaitlistCount}</p>
+              <div className="flex items-center justify-between">
+                <p className="text-3xl font-semibold">{dashboardKpis.pendingWaitlistCount}</p>
+                <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${dashboardKpis.pendingWaitlistCount > 0 ? "bg-[hsl(var(--warning)_/_0.1)] text-[hsl(var(--warning))]" : "bg-[hsl(var(--success)_/_0.1)] text-[hsl(var(--success))]"}`}>
+                  <Clock className="h-5 w-5" />
+                </div>
+              </div>
+              {dashboardKpis.pendingWaitlistCount > 0 && (
+                <div className="mt-2 h-1.5 rounded-full bg-[hsl(var(--muted))]">
+                  <div
+                    className="h-full rounded-full bg-[hsl(var(--warning))] transition-all"
+                    style={{ width: `${Math.min(100, dashboardKpis.pendingWaitlistCount * 10)}%` }}
+                  />
+                </div>
+              )}
             </SectionCard>
             <SectionCard title="Avg approval time" description="Mean time from join to approval.">
-              <p className="text-3xl font-semibold">
-                {dashboardKpis.avgWaitlistApprovalHours === null
-                  ? "n/a"
-                  : `${dashboardKpis.avgWaitlistApprovalHours.toFixed(1)}h`}
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-3xl font-semibold">
+                  {dashboardKpis.avgWaitlistApprovalHours === null
+                    ? "n/a"
+                    : `${dashboardKpis.avgWaitlistApprovalHours.toFixed(1)}h`}
+                </p>
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[hsl(var(--info)_/_0.1)] text-[hsl(var(--info))]">
+                  <TrendingUp className="h-5 w-5" />
+                </div>
+              </div>
             </SectionCard>
             <SectionCard title="New registrations (7d)">
-              <p className="text-3xl font-semibold">{dashboardKpis.newRegistrations7d}</p>
+              <div className="flex items-center justify-between">
+                <p className="text-3xl font-semibold">{dashboardKpis.newRegistrations7d}</p>
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[hsl(var(--primary)_/_0.1)] text-[hsl(var(--primary))]">
+                  <UserCheck className="h-5 w-5" />
+                </div>
+              </div>
             </SectionCard>
             <SectionCard title="Active users (7d)">
-              <p className="text-3xl font-semibold">{dashboardKpis.activeUsers7d}</p>
+              <div className="flex items-center justify-between">
+                <p className="text-3xl font-semibold">{dashboardKpis.activeUsers7d}</p>
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[hsl(var(--success)_/_0.1)] text-[hsl(var(--success))]">
+                  <Users className="h-5 w-5" />
+                </div>
+              </div>
             </SectionCard>
             <SectionCard title="Deactivated users">
-              <p className="text-3xl font-semibold">{dashboardKpis.deactivatedUsersCount}</p>
+              <div className="flex items-center justify-between">
+                <p className="text-3xl font-semibold">{dashboardKpis.deactivatedUsersCount}</p>
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[hsl(var(--destructive)_/_0.1)] text-[hsl(var(--destructive))]">
+                  <UserX className="h-5 w-5" />
+                </div>
+              </div>
             </SectionCard>
             <SectionCard title="Query success">
-              <p className="text-base font-medium">24h: {formatPct(dashboardKpis.querySuccessRate24h)}</p>
-              <p className="text-base font-medium">7d: {formatPct(dashboardKpis.querySuccessRate7d)}</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-base font-medium">24h: {formatPct(dashboardKpis.querySuccessRate24h)}</p>
+                  <p className="text-base font-medium">7d: {formatPct(dashboardKpis.querySuccessRate7d)}</p>
+                </div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[hsl(var(--accent)_/_0.1)] text-[hsl(var(--accent))]">
+                  <Activity className="h-5 w-5" />
+                </div>
+              </div>
             </SectionCard>
           </div>
 
@@ -458,6 +522,7 @@ export function AdminPanel() {
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
+                iconLeft={<ListChecks className="h-3.5 w-3.5" />}
                 onClick={() => {
                   setActiveTab("waitlist");
                 }}
@@ -466,6 +531,7 @@ export function AdminPanel() {
               </Button>
               <Button
                 variant="outline"
+                iconLeft={<CheckCircle2 className="h-3.5 w-3.5" />}
                 disabled={!queueEntry}
                 onClick={() => {
                   if (!queueEntry || !token) {
@@ -495,6 +561,7 @@ export function AdminPanel() {
               </Button>
               <Button
                 variant="outline"
+                iconLeft={<UserMinus className="h-3.5 w-3.5" />}
                 onClick={() => {
                   setActiveTab("users");
                   setStatusFilter("deactivated");
@@ -504,6 +571,7 @@ export function AdminPanel() {
               </Button>
               <Button
                 variant="destructive"
+                iconLeft={<Shield className="h-3.5 w-3.5" />}
                 onClick={() => {
                   const previous = settingsDraft.waitlistEnabled;
                   const next = !previous;
@@ -560,25 +628,29 @@ export function AdminPanel() {
           <SectionCard title="User management" description="Filter users, inspect details, and execute account actions.">
             <div className="grid gap-3 md:grid-cols-[2fr_1fr]">
               <FormField label="Search" htmlFor="user-search">
-                <Input
-                  id="user-search"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search by email or display name"
-                />
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--muted-foreground))]" />
+                  <Input
+                    id="user-search"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search by email or display name"
+                    className="pl-9"
+                  />
+                </div>
               </FormField>
               <FormField label="Status filter" htmlFor="status-filter">
-                <select
+                <Select
                   id="status-filter"
-                  className="h-9 w-full rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-white px-2 text-sm"
                   value={statusFilter}
                   onChange={(event) => setStatusFilter(event.target.value as UserStatusFilter)}
-                >
-                  <option value="all">All</option>
-                  <option value="active">Active</option>
-                  <option value="deactivated">Deactivated</option>
-                  <option value="pending_registration">Pending registration</option>
-                </select>
+                  options={[
+                    { value: "all", label: "All" },
+                    { value: "active", label: "Active" },
+                    { value: "deactivated", label: "Deactivated" },
+                    { value: "pending_registration", label: "Pending registration" },
+                  ]}
+                />
               </FormField>
             </div>
 
@@ -587,13 +659,16 @@ export function AdminPanel() {
             ) : (
               <ul className="space-y-2">
                 {visibleUsers.map((entry) => (
-                  <li key={entry.id} className="rounded-md border border-[hsl(var(--border))] p-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="font-medium">{entry.email}</p>
-                        <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                          {entry.displayName ?? "No display name"} · joined {new Date(entry.createdAt).toLocaleDateString()}
-                        </p>
+                  <li key={entry.id} className="rounded-md border border-[hsl(var(--border))] p-3 transition hover:border-[hsl(var(--primary)_/_0.3)]">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <Avatar name={entry.displayName ?? entry.email} size="sm" />
+                        <div>
+                          <p className="font-medium">{entry.email}</p>
+                          <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                            {entry.displayName ?? "No display name"} · joined {new Date(entry.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge tone={toRoleTone(entry.role)}>{entry.role}</Badge>
@@ -618,6 +693,22 @@ export function AdminPanel() {
               <EmptyState title="Queue empty" description="No waitlist entries are pending admin approval." />
             ) : (
               <div className="space-y-3">
+                {/* Queue depth indicator */}
+                <div className="flex items-center gap-3 rounded-md bg-[hsl(var(--muted)_/_0.5)] px-3 py-2 text-sm">
+                  <span className="font-medium text-[hsl(var(--foreground))]">
+                    {queueIndex + 1} of {pendingWaitlistEntries.length}
+                  </span>
+                  <div className="flex-1">
+                    <div className="h-1.5 rounded-full bg-[hsl(var(--muted))]">
+                      <div
+                        className="h-full rounded-full bg-[hsl(var(--primary))] transition-all"
+                        style={{ width: `${((queueIndex + 1) / pendingWaitlistEntries.length) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                  <span className="text-xs text-[hsl(var(--muted-foreground))]">entries pending</span>
+                </div>
+
                 <div className="rounded-md border border-[hsl(var(--border))] p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="font-medium">{queueEntry.email}</p>
@@ -648,6 +739,7 @@ export function AdminPanel() {
                 <div className="flex flex-wrap gap-2">
                   <Button
                     variant="outline"
+                    iconLeft={<CheckCircle2 className="h-3.5 w-3.5" />}
                     disabled={busyWaitlistEntryIds.has(queueEntry.id)}
                     onClick={() => {
                       if (!token) {
@@ -677,6 +769,7 @@ export function AdminPanel() {
                   </Button>
                   <Button
                     variant="destructive"
+                    iconLeft={<XCircle className="h-3.5 w-3.5" />}
                     disabled={busyWaitlistEntryIds.has(queueEntry.id)}
                     onClick={() => {
                       if (!token) {
@@ -707,6 +800,7 @@ export function AdminPanel() {
                   </Button>
                   <Button
                     variant="outline"
+                    iconLeft={<ChevronLeft className="h-3.5 w-3.5" />}
                     disabled={queueIndex <= 0}
                     onClick={() => setQueueIndex((current) => Math.max(0, current - 1))}
                   >
@@ -714,6 +808,7 @@ export function AdminPanel() {
                   </Button>
                   <Button
                     variant="outline"
+                    iconRight={<ChevronRight className="h-3.5 w-3.5" />}
                     disabled={queueIndex >= pendingWaitlistEntries.length - 1}
                     onClick={() => setQueueIndex((current) => Math.min(pendingWaitlistEntries.length - 1, current + 1))}
                   >
@@ -835,6 +930,8 @@ export function AdminPanel() {
 
             <div className="flex flex-wrap gap-2">
               <Button
+                iconLeft={<Save className="h-3.5 w-3.5" />}
+                loading={isSavingSettings}
                 disabled={isSavingSettings || !hasSettingsChanges}
                 onClick={() => {
                   openConfirm({
@@ -851,6 +948,7 @@ export function AdminPanel() {
               </Button>
               <Button
                 variant="outline"
+                iconLeft={<RotateCcw className="h-3.5 w-3.5" />}
                 disabled={!settings}
                 onClick={() => {
                   if (!settings) {
@@ -879,12 +977,17 @@ export function AdminPanel() {
       >
         {selectedUser ? (
           <div className="space-y-4">
-            <div className="rounded-md border border-[hsl(var(--border))] p-3">
-              <p className="font-medium">{selectedUser.email}</p>
-              <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
-                {selectedUser.displayName ?? "No display name"}
-              </p>
-              <div className="mt-2 flex gap-2">
+            <div className="rounded-md border border-[hsl(var(--border))] p-4">
+              <div className="flex items-center gap-3">
+                <Avatar name={selectedUser.displayName ?? selectedUser.email} size="lg" />
+                <div>
+                  <p className="font-medium">{selectedUser.email}</p>
+                  <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                    {selectedUser.displayName ?? "No display name"}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 flex gap-2">
                 <Badge tone={toRoleTone(selectedUser.role)}>{selectedUser.role}</Badge>
                 <Badge tone={toStatusTone(selectedUser.status)}>{selectedUser.status}</Badge>
               </div>
@@ -896,6 +999,7 @@ export function AdminPanel() {
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
+                iconLeft={<UserCheck className="h-3.5 w-3.5" />}
                 disabled={busyUserIds.has(selectedUser.id) || selectedUser.status !== "deactivated"}
                 onClick={() => {
                   if (!token) {
@@ -920,6 +1024,7 @@ export function AdminPanel() {
 
               <Button
                 variant="destructive"
+                iconLeft={<ShieldOff className="h-3.5 w-3.5" />}
                 disabled={busyUserIds.has(selectedUser.id) || selectedUser.status === "deactivated"}
                 onClick={() => {
                   if (!token) {
@@ -963,6 +1068,7 @@ export function AdminPanel() {
 
               <Button
                 variant="secondary"
+                iconLeft={<KeyRound className="h-3.5 w-3.5" />}
                 disabled={busyUserIds.has(selectedUser.id)}
                 onClick={() => {
                   if (!token) {
@@ -1012,6 +1118,7 @@ export function AdminPanel() {
           </Button>
           <Button
             variant={confirmState?.danger ? "destructive" : "default"}
+            loading={confirmBusy}
             disabled={confirmBusy}
             onClick={() => {
               void executeConfirm();

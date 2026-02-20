@@ -39,7 +39,7 @@ export function DropdownMenu({ triggerLabel, items, className }: DropdownMenuPro
     <div ref={rootRef} className={cn("relative", className)}>
       <button
         type="button"
-        className="inline-flex h-9 items-center justify-center rounded-md border border-[hsl(var(--border))] bg-white px-3 text-sm font-medium text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
+        className="inline-flex h-9 items-center justify-center rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-3 text-sm font-medium text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
         aria-expanded={open}
         aria-haspopup="menu"
         onClick={() => setOpen((current) => !current)}
@@ -50,7 +50,7 @@ export function DropdownMenu({ triggerLabel, items, className }: DropdownMenuPro
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 z-40 mt-1 min-w-[180px] rounded-lg border border-[hsl(var(--border))] bg-white p-1 shadow-[var(--elevation-2)]"
+          className="absolute right-0 z-40 mt-1 min-w-[180px] rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-1 shadow-[var(--elevation-2)]"
         >
           {items.map((item) => (
             <button
@@ -59,7 +59,7 @@ export function DropdownMenu({ triggerLabel, items, className }: DropdownMenuPro
               role="menuitem"
               className={cn(
                 "block w-full rounded-md px-3 py-2 text-left text-sm transition hover:bg-[hsl(var(--muted))]",
-                item.danger ? "text-red-700" : "text-[hsl(var(--foreground))]",
+                item.danger ? "text-[hsl(var(--destructive))]" : "text-[hsl(var(--foreground))]",
               )}
               disabled={item.disabled}
               onClick={() => {

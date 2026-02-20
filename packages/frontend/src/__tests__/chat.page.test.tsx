@@ -350,14 +350,8 @@ describe("chat page route flows", () => {
       value: [file],
       configurable: true,
     });
+    // File selection now auto-triggers upload
     fireEvent.change(fileInput);
-    const uploadButton = scoped
-      .getAllByRole("button", { name: "Upload Selected" })
-      .find((button) => !button.hasAttribute("disabled"));
-    if (!uploadButton) {
-      throw new Error("Missing enabled upload button");
-    }
-    fireEvent.click(uploadButton);
 
     await waitFor(() => {
       expect(uploadFileBase64Mock).toHaveBeenCalledTimes(1);

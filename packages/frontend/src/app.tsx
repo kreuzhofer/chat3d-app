@@ -1,13 +1,20 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import {
+  Bell,
+  MessageSquare,
+  Search,
+  Shield,
+  User,
+  type LucideIcon,
+} from "lucide-react";
 import { getPublicConfig } from "./api/public.api";
 import { AppShell } from "./components/layout/AppShell";
-import { CommandBarTrigger } from "./components/layout/CommandBarTrigger";
 import { LoadingView } from "./components/layout/StateViews";
-import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Drawer } from "./components/ui/drawer";
 import { DropdownMenu } from "./components/ui/dropdown-menu";
+import { ThemeToggle } from "./components/ui/theme-toggle";
 import { useNotifications } from "./contexts/NotificationsContext";
 import { useAuth } from "./hooks/useAuth";
 import { HomePage } from "./pages/public/HomePage";
@@ -44,6 +51,7 @@ interface NavItem {
   path: string;
   label: string;
   routePrefix: string;
+  icon?: LucideIcon;
 }
 
 interface NavGroup {
@@ -58,22 +66,22 @@ function authenticatedNavGroups(isAdmin: boolean): NavGroup[] {
       id: "workspace",
       label: "Workspace",
       items: [
-        { path: "/chat", label: "Chat", routePrefix: "/chat" },
-        { path: "/query", label: "Query", routePrefix: "/query" },
-        { path: "/notifications", label: "Notifications", routePrefix: "/notifications" },
+        { path: "/chat", label: "Chat", routePrefix: "/chat", icon: MessageSquare },
+        { path: "/query", label: "Query", routePrefix: "/query", icon: Search },
+        { path: "/notifications", label: "Notifications", routePrefix: "/notifications", icon: Bell },
       ],
     },
     {
       id: "account",
       label: "Account",
-      items: [{ path: "/profile", label: "Profile", routePrefix: "/profile" }],
+      items: [{ path: "/profile", label: "Profile", routePrefix: "/profile", icon: User }],
     },
     ...(isAdmin
       ? [
           {
             id: "admin",
             label: "Administration",
-            items: [{ path: "/admin", label: "Admin", routePrefix: "/admin" }],
+            items: [{ path: "/admin", label: "Admin", routePrefix: "/admin", icon: Shield }],
           },
         ]
       : []),
@@ -99,23 +107,27 @@ function NavigationList({ groups, onNavigate }: { groups: NavGroup[]; onNavigate
             {group.label}
           </h3>
           <ul className="space-y-1" aria-label={`${group.label} navigation`}>
-            {group.items.map((item) => (
-              <li key={item.path}>
-                <NavLink
-                  to={item.path}
-                  onClick={onNavigate}
-                  className={({ isActive }) =>
-                    `flex items-center rounded-md px-3 py-2 text-sm transition ${
-                      isActive
-                        ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                        : "text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]"
-                    }`
-                  }
-                >
-                  {item.label}
-                </NavLink>
-              </li>
-            ))}
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <li key={item.path}>
+                  <NavLink
+                    to={item.path}
+                    onClick={onNavigate}
+                    className={({ isActive }) =>
+                      `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition ${
+                        isActive
+                          ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                          : "text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]"
+                      }`
+                    }
+                  >
+                    {Icon ? <Icon className="h-4 w-4 shrink-0" /> : null}
+                    {item.label}
+                  </NavLink>
+                </li>
+              );
+            })}
           </ul>
         </section>
       ))}
@@ -133,34 +145,6 @@ function AuthenticatedApp() {
   const groups = useMemo(() => authenticatedNavGroups(user?.role === "admin"), [user?.role]);
   const activeNavItem = useMemo(() => resolveActiveItem(location.pathname, groups), [groups, location.pathname]);
 
-  const pageActions = useMemo(() => {
-    if (location.pathname.startsWith("/notifications")) {
-      return (
-        <Button size="sm" variant="outline" onClick={() => markAllRead()}>
-          Mark All Read
-        </Button>
-      );
-    }
-
-    if (location.pathname.startsWith("/chat") || location.pathname.startsWith("/query")) {
-      return (
-        <Button size="sm" variant="outline" onClick={() => void refreshReplay()}>
-          Refresh Events
-        </Button>
-      );
-    }
-
-    if (location.pathname.startsWith("/admin")) {
-      return (
-        <Button size="sm" variant="outline" onClick={() => navigate("/admin")}> 
-          Admin Dashboard
-        </Button>
-      );
-    }
-
-    return null;
-  }, [location.pathname, markAllRead, navigate, refreshReplay]);
-
   const topBar = (
     <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2">
@@ -171,20 +155,27 @@ function AuthenticatedApp() {
           <p className="truncate text-sm font-medium text-[hsl(var(--foreground))]">
             {activeNavItem?.label ?? "Workspace"}
           </p>
-          <p className="truncate text-xs text-[hsl(var(--muted-foreground))]">
-            App / {activeNavItem?.label ?? "Home"}
-          </p>
         </div>
       </div>
 
-      <div className="hidden min-w-[280px] flex-1 justify-center xl:flex">
-        <CommandBarTrigger onClick={() => navigate("/chat")} />
-      </div>
-
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <Badge tone={connectionState === "open" ? "success" : "warning"}>SSE {connectionState}</Badge>
-        <Badge tone={unreadCount > 0 ? "info" : "neutral"}>{unreadCount} unread</Badge>
-        {pageActions}
+      <div className="flex items-center gap-2">
+        {connectionState !== "open" ? (
+          <span className="h-2 w-2 rounded-full bg-[hsl(var(--warning))]" title="SSE disconnected" />
+        ) : null}
+        <button
+          type="button"
+          className="relative rounded-md p-2 text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
+          onClick={() => navigate("/notifications")}
+          aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
+        >
+          <Bell className="h-4 w-4" />
+          {unreadCount > 0 ? (
+            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[hsl(var(--destructive))] px-1 text-[10px] font-bold text-[hsl(var(--destructive-foreground))]">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          ) : null}
+        </button>
+        <ThemeToggle />
         <DropdownMenu
           triggerLabel={user?.email ?? "Account"}
           items={[
@@ -197,6 +188,11 @@ function AuthenticatedApp() {
               id: "refresh-replay",
               label: "Refresh Event Replay",
               onSelect: () => void refreshReplay(),
+            },
+            {
+              id: "mark-all-read",
+              label: "Mark All Read",
+              onSelect: () => markAllRead(),
             },
             {
               id: "logout",

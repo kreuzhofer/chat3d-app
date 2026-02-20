@@ -52,10 +52,10 @@ export function LegalPage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 rounded-xl border bg-white p-6">
+    <div className="mx-auto max-w-4xl space-y-6 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-6">
       <header>
-        <h1 className="text-3xl font-semibold text-slate-900">Legal</h1>
-        <p className="mt-2 text-sm text-slate-600">Terms, privacy, and cookie information.</p>
+        <h1 className="text-3xl font-semibold text-[hsl(var(--foreground))]">Legal</h1>
+        <p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]">Terms, privacy, and cookie information.</p>
       </header>
 
       {error ? (
@@ -67,13 +67,13 @@ export function LegalPage() {
       <div className="space-y-8">
         {legalSections.map((section) => (
           <article key={section.id} className="space-y-2">
-            <h2 className="text-xl font-semibold text-slate-900">{section.title}</h2>
+            <h2 className="text-xl font-semibold text-[hsl(var(--foreground))]">{section.title}</h2>
             {content[section.id] ? (
-              <div className="prose prose-slate max-w-none text-sm">
+              <div className="prose max-w-none text-sm text-[hsl(var(--foreground))]">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{content[section.id]}</ReactMarkdown>
               </div>
             ) : (
-              <p className="text-sm text-slate-500">Loading...</p>
+              <p className="text-sm text-[hsl(var(--muted-foreground))]">Loading...</p>
             )}
           </article>
         ))}
