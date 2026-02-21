@@ -42,7 +42,7 @@ Recent history uses short, imperative commit messages (for example: `upgrade pac
 - Keep commit subjects concise and action-oriented.
 - Scope each commit to one logical change.
 - PRs should include: purpose, key changes, validation steps, linked issue(s), and screenshots/GIFs for UI updates.
-- Never commit secrets; keep credentials in `.env` and use `.env.template` for required keys.
+- Never commit secrets; keep credentials in `.env` and use `.env.example` for required keys.
 
 ## Development Principles
 

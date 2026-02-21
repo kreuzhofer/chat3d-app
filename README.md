@@ -80,7 +80,7 @@ npm install
 ### 2. Configure environment
 
 ```bash
-cp .env.template .env
+cp .env.example .env
 ```
 
 Edit `.env` and set your LLM API keys and other configuration. See [Environment Variables](#environment-variables) below.
@@ -105,7 +105,7 @@ Navigate to [http://localhost](http://localhost). A default admin account is cre
 
 ## Environment Variables
 
-Copy `.env.template` to `.env` and configure:
+Copy `.env.example` to `.env` and configure:
 
 | Variable | Purpose |
 |----------|---------|
@@ -123,7 +123,7 @@ Copy `.env.template` to `.env` and configure:
 | `SEED_ADMIN_PASSWORD` | Admin account password |
 | `BUILD123D_URL` | Build123d service URL (default: `http://build123d:80`) |
 
-See `.env.template` for the full list including SMTP, Redis, and worker configuration.
+See `.env.example` for the full list including SMTP, Redis, and worker configuration.
 
 ## Docker Services
 
