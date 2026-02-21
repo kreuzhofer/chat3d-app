@@ -1,25 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
   KeyRound,
   LayoutDashboard,
   ListChecks,
-  RotateCcw,
-  Save,
-  Search,
   Settings,
-  Shield,
   ShieldOff,
-  TrendingUp,
   UserCheck,
-  UserMinus,
   Users,
-  UserX,
-  XCircle,
 } from "lucide-react";
 import {
   activateAdminUser,
@@ -38,7 +25,6 @@ import {
 } from "../api/admin.api";
 import { useNotifications } from "../contexts/NotificationsContext";
 import { useAuth } from "../hooks/useAuth";
-import { EmptyState } from "./layout/EmptyState";
 import { InlineAlert } from "./layout/InlineAlert";
 import { PageHeader } from "./layout/PageHeader";
 import { SectionCard } from "./layout/SectionCard";
@@ -47,70 +33,23 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
 import { Drawer } from "./ui/drawer";
-import { FormField, DestructiveActionNotice } from "./ui/form";
-import { Input } from "./ui/input";
-import { Select } from "./ui/select";
-import { Switch } from "./ui/switch";
 import { Tabs } from "./ui/tabs";
-import { Textarea } from "./ui/textarea";
 import { useToast } from "./ui/toast";
-
-function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function sortUsersByCreatedDate(users: AdminUser[]): AdminUser[] {
-  return [...users].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-}
-
-function sortWaitlistByCreatedDate(entries: AdminWaitlistEntry[]): AdminWaitlistEntry[] {
-  return [...entries].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
-}
+import { DashboardTab } from "./admin/DashboardTab";
+import { UsersTab } from "./admin/UsersTab";
+import { WaitlistTab } from "./admin/WaitlistTab";
+import { SettingsTab } from "./admin/SettingsTab";
+import {
+  toErrorMessage,
+  sortUsersByCreatedDate,
+  sortWaitlistByCreatedDate,
+  toRoleTone,
+  toStatusTone,
+  type ConfirmState,
+} from "./admin/utils";
 
 type AdminTab = "dashboard" | "users" | "waitlist" | "settings";
 type UserStatusFilter = "all" | "active" | "deactivated" | "pending_registration";
-
-interface ConfirmState {
-  title: string;
-  description: string;
-  confirmLabel: string;
-  danger?: boolean;
-  onConfirm: () => Promise<void>;
-}
-
-function toRoleTone(role: AdminUser["role"]) {
-  return role === "admin" ? "info" : "neutral";
-}
-
-function toStatusTone(status: AdminUser["status"]) {
-  if (status === "active") {
-    return "success";
-  }
-  if (status === "deactivated") {
-    return "danger";
-  }
-  return "warning";
-}
-
-function toWaitlistTone(status: AdminWaitlistEntry["status"]) {
-  if (status === "approved") {
-    return "success";
-  }
-  if (status === "rejected") {
-    return "danger";
-  }
-  if (status === "pending_admin_approval") {
-    return "warning";
-  }
-  return "neutral";
-}
-
-function formatPct(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "n/a";
-  }
-  return `${Math.round(value * 100)}%`;
-}
 
 export function AdminPanel() {
   const { token, user } = useAuth();
@@ -414,6 +353,78 @@ export function AdminPanel() {
     }
   }
 
+  const handleApproveEntry = useCallback(
+    async (entry: AdminWaitlistEntry) => {
+      await runWaitlistAction(entry.id, async () => {
+        if (!token) {
+          return;
+        }
+        await approveAdminWaitlistEntry(token, entry.id);
+      });
+      pushToast({
+        tone: "success",
+        title: "Entry approved",
+        description: `${entry.email} can now register.`,
+      });
+    },
+    [pushToast, runWaitlistAction, token],
+  );
+
+  const handleRejectEntry = useCallback(
+    async (entry: AdminWaitlistEntry) => {
+      await runWaitlistAction(entry.id, async () => {
+        if (!token) {
+          return;
+        }
+        await rejectAdminWaitlistEntry(token, entry.id);
+      });
+      pushToast({
+        tone: "warning",
+        title: "Entry rejected",
+        description: `${entry.email} was rejected from waitlist.`,
+      });
+    },
+    [pushToast, runWaitlistAction, token],
+  );
+
+  const handleToggleWaitlist = useCallback(
+    (currentEnabled: boolean) => {
+      const next = !currentEnabled;
+      openConfirm({
+        title: `${next ? "Enable" : "Disable"} waitlist`,
+        description:
+          "This changes how new users enter the system. Confirm this high-impact policy update.",
+        confirmLabel: next ? "Enable waitlist" : "Disable waitlist",
+        danger: true,
+        onConfirm: async () => {
+          await applySettingsPatch({ waitlistEnabled: next });
+          pushToast({
+            tone: "warning",
+            title: `Waitlist ${next ? "enabled" : "disabled"}`,
+            description: "Use undo to restore previous state.",
+            actionLabel: "Undo",
+            onAction: async () => {
+              await applySettingsPatch({ waitlistEnabled: currentEnabled });
+            },
+          });
+        },
+      });
+    },
+    [applySettingsPatch, openConfirm, pushToast],
+  );
+
+  const handleResetDraft = useCallback(() => {
+    if (!settings) {
+      return;
+    }
+    setSettingsDraft({
+      waitlistEnabled: settings.waitlistEnabled,
+      invitationsEnabled: settings.invitationsEnabled,
+      invitationWaitlistRequired: settings.invitationWaitlistRequired,
+      invitationQuotaPerUser: settings.invitationQuotaPerUser,
+    });
+  }, [settings]);
+
   if (!canRender) {
     return (
       <SectionCard title="Admin access required" description="Only authenticated admins can open this control plane.">
@@ -451,522 +462,60 @@ export function AdminPanel() {
       />
 
       {activeTab === "dashboard" ? (
-        <div className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <SectionCard title="Pending waitlist" description="Entries awaiting moderation.">
-              <div className="flex items-center justify-between">
-                <p className="text-3xl font-semibold">{dashboardKpis.pendingWaitlistCount}</p>
-                <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${dashboardKpis.pendingWaitlistCount > 0 ? "bg-[hsl(var(--warning)_/_0.1)] text-[hsl(var(--warning))]" : "bg-[hsl(var(--success)_/_0.1)] text-[hsl(var(--success))]"}`}>
-                  <Clock className="h-5 w-5" />
-                </div>
-              </div>
-              {dashboardKpis.pendingWaitlistCount > 0 && (
-                <div className="mt-2 h-1.5 rounded-full bg-[hsl(var(--muted))]">
-                  <div
-                    className="h-full rounded-full bg-[hsl(var(--warning))] transition-all"
-                    style={{ width: `${Math.min(100, dashboardKpis.pendingWaitlistCount * 10)}%` }}
-                  />
-                </div>
-              )}
-            </SectionCard>
-            <SectionCard title="Avg approval time" description="Mean time from join to approval.">
-              <div className="flex items-center justify-between">
-                <p className="text-3xl font-semibold">
-                  {dashboardKpis.avgWaitlistApprovalHours === null
-                    ? "n/a"
-                    : `${dashboardKpis.avgWaitlistApprovalHours.toFixed(1)}h`}
-                </p>
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[hsl(var(--info)_/_0.1)] text-[hsl(var(--info))]">
-                  <TrendingUp className="h-5 w-5" />
-                </div>
-              </div>
-            </SectionCard>
-            <SectionCard title="New registrations (7d)">
-              <div className="flex items-center justify-between">
-                <p className="text-3xl font-semibold">{dashboardKpis.newRegistrations7d}</p>
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[hsl(var(--primary)_/_0.1)] text-[hsl(var(--primary))]">
-                  <UserCheck className="h-5 w-5" />
-                </div>
-              </div>
-            </SectionCard>
-            <SectionCard title="Active users (7d)">
-              <div className="flex items-center justify-between">
-                <p className="text-3xl font-semibold">{dashboardKpis.activeUsers7d}</p>
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[hsl(var(--success)_/_0.1)] text-[hsl(var(--success))]">
-                  <Users className="h-5 w-5" />
-                </div>
-              </div>
-            </SectionCard>
-            <SectionCard title="Deactivated users">
-              <div className="flex items-center justify-between">
-                <p className="text-3xl font-semibold">{dashboardKpis.deactivatedUsersCount}</p>
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[hsl(var(--destructive)_/_0.1)] text-[hsl(var(--destructive))]">
-                  <UserX className="h-5 w-5" />
-                </div>
-              </div>
-            </SectionCard>
-            <SectionCard title="Query success">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-base font-medium">24h: {formatPct(dashboardKpis.querySuccessRate24h)}</p>
-                  <p className="text-base font-medium">7d: {formatPct(dashboardKpis.querySuccessRate7d)}</p>
-                </div>
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[hsl(var(--accent)_/_0.1)] text-[hsl(var(--accent))]">
-                  <Activity className="h-5 w-5" />
-                </div>
-              </div>
-            </SectionCard>
-          </div>
-
-          <SectionCard title="Quick actions" description="Prioritized operations for user and waitlist workflows.">
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                iconLeft={<ListChecks className="h-3.5 w-3.5" />}
-                onClick={() => {
-                  setActiveTab("waitlist");
-                }}
-              >
-                Review Waitlist
-              </Button>
-              <Button
-                variant="outline"
-                iconLeft={<CheckCircle2 className="h-3.5 w-3.5" />}
-                disabled={!queueEntry}
-                onClick={() => {
-                  if (!queueEntry || !token) {
-                    return;
-                  }
-                  openConfirm({
-                    title: "Approve next waitlist entry",
-                    description: `Approve ${queueEntry.email} and send a registration token email?`,
-                    confirmLabel: "Approve",
-                    onConfirm: async () => {
-                      await runWaitlistAction(queueEntry.id, async () => {
-                        if (!token) {
-                          return;
-                        }
-                        await approveAdminWaitlistEntry(token, queueEntry.id);
-                      });
-                      pushToast({
-                        tone: "success",
-                        title: "Entry approved",
-                        description: `${queueEntry.email} can now register.`,
-                      });
-                    },
-                  });
-                }}
-              >
-                Approve Next
-              </Button>
-              <Button
-                variant="outline"
-                iconLeft={<UserMinus className="h-3.5 w-3.5" />}
-                onClick={() => {
-                  setActiveTab("users");
-                  setStatusFilter("deactivated");
-                }}
-              >
-                Open Deactivated Users
-              </Button>
-              <Button
-                variant="destructive"
-                iconLeft={<Shield className="h-3.5 w-3.5" />}
-                onClick={() => {
-                  const previous = settingsDraft.waitlistEnabled;
-                  const next = !previous;
-                  openConfirm({
-                    title: `${next ? "Enable" : "Disable"} waitlist`,
-                    description:
-                      "This changes how new users enter the system. Confirm this high-impact policy update.",
-                    confirmLabel: next ? "Enable waitlist" : "Disable waitlist",
-                    danger: true,
-                    onConfirm: async () => {
-                      await applySettingsPatch({ waitlistEnabled: next });
-                      pushToast({
-                        tone: "warning",
-                        title: `Waitlist ${next ? "enabled" : "disabled"}`,
-                        description: "Use undo to restore previous state.",
-                        actionLabel: "Undo",
-                        onAction: async () => {
-                          await applySettingsPatch({ waitlistEnabled: previous });
-                        },
-                      });
-                    },
-                  });
-                }}
-              >
-                Toggle Waitlist
-              </Button>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Queue snapshot" description="Single-item moderation is active in this milestone; bulk actions are deferred.">
-            {pendingWaitlistEntries.length === 0 ? (
-              <EmptyState title="No pending entries" description="Waitlist queue is currently clear." />
-            ) : (
-              <ul className="space-y-2">
-                {pendingWaitlistEntries.slice(0, 5).map((entry) => (
-                  <li key={entry.id} className="rounded-md border border-[hsl(var(--border))] p-2 text-sm">
-                    <div className="flex items-center justify-between gap-2">
-                      <span>{entry.email}</span>
-                      <Badge tone={toWaitlistTone(entry.status)}>{entry.status}</Badge>
-                    </div>
-                    <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
-                      Joined {new Date(entry.createdAt).toLocaleString()}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </SectionCard>
-        </div>
+        <DashboardTab
+          kpis={dashboardKpis}
+          pendingWaitlistEntries={pendingWaitlistEntries}
+          queueEntry={queueEntry}
+          token={token}
+          onSwitchTab={(tab) => setActiveTab(tab as AdminTab)}
+          onOpenConfirm={openConfirm}
+          onApproveEntry={handleApproveEntry}
+          onToggleWaitlist={handleToggleWaitlist}
+          onSetStatusFilter={(filter) => setStatusFilter(filter as UserStatusFilter)}
+          settingsDraftWaitlistEnabled={settingsDraft.waitlistEnabled}
+        />
       ) : null}
 
       {activeTab === "users" ? (
-        <div className="space-y-4">
-          <SectionCard title="User management" description="Filter users, inspect details, and execute account actions.">
-            <div className="grid gap-3 md:grid-cols-[2fr_1fr]">
-              <FormField label="Search" htmlFor="user-search">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--muted-foreground))]" />
-                  <Input
-                    id="user-search"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search by email or display name"
-                    className="pl-9"
-                  />
-                </div>
-              </FormField>
-              <FormField label="Status filter" htmlFor="status-filter">
-                <Select
-                  id="status-filter"
-                  value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value as UserStatusFilter)}
-                  options={[
-                    { value: "all", label: "All" },
-                    { value: "active", label: "Active" },
-                    { value: "deactivated", label: "Deactivated" },
-                    { value: "pending_registration", label: "Pending registration" },
-                  ]}
-                />
-              </FormField>
-            </div>
-
-            {visibleUsers.length === 0 ? (
-              <EmptyState title="No matching users" description="Adjust filters or search terms." />
-            ) : (
-              <ul className="space-y-2">
-                {visibleUsers.map((entry) => (
-                  <li key={entry.id} className="rounded-md border border-[hsl(var(--border))] p-3 transition hover:border-[hsl(var(--primary)_/_0.3)]">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <Avatar name={entry.displayName ?? entry.email} size="sm" />
-                        <div>
-                          <p className="font-medium">{entry.email}</p>
-                          <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                            {entry.displayName ?? "No display name"} · joined {new Date(entry.createdAt).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge tone={toRoleTone(entry.role)}>{entry.role}</Badge>
-                        <Badge tone={toStatusTone(entry.status)}>{entry.status}</Badge>
-                        <Button size="sm" variant="outline" onClick={() => setSelectedUserId(entry.id)}>
-                          Open
-                        </Button>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </SectionCard>
-        </div>
+        <UsersTab
+          users={visibleUsers}
+          search={search}
+          statusFilter={statusFilter}
+          busyUserIds={busyUserIds}
+          onSearchChange={setSearch}
+          onStatusFilterChange={(value) => setStatusFilter(value as UserStatusFilter)}
+          onSelectUser={setSelectedUserId}
+        />
       ) : null}
 
       {activeTab === "waitlist" ? (
-        <div className="space-y-4">
-          <SectionCard title="Moderation queue" description="Single-item moderation workflow (bulk is intentionally deferred).">
-            {!queueEntry ? (
-              <EmptyState title="Queue empty" description="No waitlist entries are pending admin approval." />
-            ) : (
-              <div className="space-y-3">
-                {/* Queue depth indicator */}
-                <div className="flex items-center gap-3 rounded-md bg-[hsl(var(--muted)_/_0.5)] px-3 py-2 text-sm">
-                  <span className="font-medium text-[hsl(var(--foreground))]">
-                    {queueIndex + 1} of {pendingWaitlistEntries.length}
-                  </span>
-                  <div className="flex-1">
-                    <div className="h-1.5 rounded-full bg-[hsl(var(--muted))]">
-                      <div
-                        className="h-full rounded-full bg-[hsl(var(--primary))] transition-all"
-                        style={{ width: `${((queueIndex + 1) / pendingWaitlistEntries.length) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                  <span className="text-xs text-[hsl(var(--muted-foreground))]">entries pending</span>
-                </div>
-
-                <div className="rounded-md border border-[hsl(var(--border))] p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="font-medium">{queueEntry.email}</p>
-                    <Badge tone={toWaitlistTone(queueEntry.status)}>{queueEntry.status}</Badge>
-                  </div>
-                  <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
-                    Joined {new Date(queueEntry.createdAt).toLocaleString()}
-                  </p>
-                  <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
-                    Marketing consent: {queueEntry.marketingConsent ? "yes" : "no"}
-                  </p>
-                </div>
-
-                <FormField
-                  label="Moderation reason"
-                  htmlFor="moderation-reason"
-                  helperText="Reason is captured for operator context in this phase."
-                >
-                  <Textarea
-                    id="moderation-reason"
-                    value={moderationReason}
-                    onChange={(event) => setModerationReason(event.target.value)}
-                    rows={3}
-                    placeholder="Optional note for this moderation decision"
-                  />
-                </FormField>
-
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    iconLeft={<CheckCircle2 className="h-3.5 w-3.5" />}
-                    disabled={busyWaitlistEntryIds.has(queueEntry.id)}
-                    onClick={() => {
-                      if (!token) {
-                        return;
-                      }
-                      openConfirm({
-                        title: "Approve waitlist entry",
-                        description: `Approve ${queueEntry.email} and issue registration token?`,
-                        confirmLabel: "Approve",
-                        onConfirm: async () => {
-                          await runWaitlistAction(queueEntry.id, async () => {
-                            if (!token) {
-                              return;
-                            }
-                            await approveAdminWaitlistEntry(token, queueEntry.id);
-                          });
-                          pushToast({
-                            tone: "success",
-                            title: "Entry approved",
-                            description: `${queueEntry.email} received registration instructions.`,
-                          });
-                        },
-                      });
-                    }}
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    iconLeft={<XCircle className="h-3.5 w-3.5" />}
-                    disabled={busyWaitlistEntryIds.has(queueEntry.id)}
-                    onClick={() => {
-                      if (!token) {
-                        return;
-                      }
-                      openConfirm({
-                        title: "Reject waitlist entry",
-                        description: `Reject ${queueEntry.email}${moderationReason.trim() ? ` (reason: ${moderationReason.trim()})` : ""}?`,
-                        confirmLabel: "Reject",
-                        danger: true,
-                        onConfirm: async () => {
-                          await runWaitlistAction(queueEntry.id, async () => {
-                            if (!token) {
-                              return;
-                            }
-                            await rejectAdminWaitlistEntry(token, queueEntry.id);
-                          });
-                          pushToast({
-                            tone: "warning",
-                            title: "Entry rejected",
-                            description: `${queueEntry.email} was rejected from waitlist.`,
-                          });
-                        },
-                      });
-                    }}
-                  >
-                    Reject
-                  </Button>
-                  <Button
-                    variant="outline"
-                    iconLeft={<ChevronLeft className="h-3.5 w-3.5" />}
-                    disabled={queueIndex <= 0}
-                    onClick={() => setQueueIndex((current) => Math.max(0, current - 1))}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="outline"
-                    iconRight={<ChevronRight className="h-3.5 w-3.5" />}
-                    disabled={queueIndex >= pendingWaitlistEntries.length - 1}
-                    onClick={() => setQueueIndex((current) => Math.min(pendingWaitlistEntries.length - 1, current + 1))}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            )}
-          </SectionCard>
-
-          <SectionCard title="Queue overview">
-            {waitlistEntries.length === 0 ? (
-              <EmptyState title="No waitlist records" description="No users have entered the waitlist yet." />
-            ) : (
-              <ul className="space-y-2">
-                {waitlistEntries.slice(0, 20).map((entry) => (
-                  <li key={entry.id} className="rounded-md border border-[hsl(var(--border))] p-2 text-sm">
-                    <div className="flex items-center justify-between gap-2">
-                      <span>{entry.email}</span>
-                      <Badge tone={toWaitlistTone(entry.status)}>{entry.status}</Badge>
-                    </div>
-                    <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
-                      {new Date(entry.createdAt).toLocaleString()}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </SectionCard>
-        </div>
+        <WaitlistTab
+          waitlistEntries={waitlistEntries}
+          pendingEntries={pendingWaitlistEntries}
+          queueEntry={queueEntry}
+          queueIndex={queueIndex}
+          moderationReason={moderationReason}
+          busyWaitlistEntryIds={busyWaitlistEntryIds}
+          token={token}
+          onQueueIndexChange={setQueueIndex}
+          onModerationReasonChange={setModerationReason}
+          onOpenConfirm={openConfirm}
+          onApproveEntry={handleApproveEntry}
+          onRejectEntry={handleRejectEntry}
+        />
       ) : null}
 
       {activeTab === "settings" ? (
-        <div className="space-y-4">
-          <SectionCard title="Policy controls" description="Grouped settings with impact context and guarded save flow.">
-            {settings ? (
-              <p className="text-sm text-[hsl(var(--muted-foreground))]">
-                Last updated: {new Date(settings.updatedAt).toLocaleString()}
-              </p>
-            ) : null}
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-md border border-[hsl(var(--border))] p-3">
-                <h3 className="font-medium">Waitlist mode</h3>
-                <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
-                  When enabled, new users must join waitlist before registration.
-                </p>
-                <label className="mt-3 flex items-center gap-2 text-sm">
-                  <Switch
-                    checked={settingsDraft.waitlistEnabled}
-                    onCheckedChange={(checked) =>
-                      setSettingsDraft((existing) => ({
-                        ...existing,
-                        waitlistEnabled: checked,
-                      }))
-                    }
-                  />
-                  Enable waitlist
-                </label>
-              </div>
-
-              <div className="rounded-md border border-[hsl(var(--border))] p-3">
-                <h3 className="font-medium">Invitations</h3>
-                <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
-                  Control invitation availability and whether invited users still go through waitlist.
-                </p>
-                <label className="mt-3 flex items-center gap-2 text-sm">
-                  <Switch
-                    checked={settingsDraft.invitationsEnabled}
-                    onCheckedChange={(checked) =>
-                      setSettingsDraft((existing) => ({
-                        ...existing,
-                        invitationsEnabled: checked,
-                      }))
-                    }
-                  />
-                  Enable invitations
-                </label>
-                <label className="mt-2 flex items-center gap-2 text-sm">
-                  <Switch
-                    checked={settingsDraft.invitationWaitlistRequired}
-                    onCheckedChange={(checked) =>
-                      setSettingsDraft((existing) => ({
-                        ...existing,
-                        invitationWaitlistRequired: checked,
-                      }))
-                    }
-                  />
-                  Waitlist invited users
-                </label>
-              </div>
-
-              <div className="rounded-md border border-[hsl(var(--border))] p-3 md:col-span-2">
-                <FormField
-                  label="Invitation quota per user"
-                  htmlFor="invitation-quota"
-                  helperText="Maximum number of active invites each user can issue."
-                >
-                  <Input
-                    id="invitation-quota"
-                    type="number"
-                    min={0}
-                    value={settingsDraft.invitationQuotaPerUser}
-                    onChange={(event) => {
-                      const parsed = Number(event.target.value);
-                      setSettingsDraft((existing) => ({
-                        ...existing,
-                        invitationQuotaPerUser: Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0,
-                      }));
-                    }}
-                  />
-                </FormField>
-              </div>
-            </div>
-
-            <DestructiveActionNotice>
-              High-impact policy updates (waitlist and invitation mode) should be confirmed before applying.
-            </DestructiveActionNotice>
-
-            <div className="flex flex-wrap gap-2">
-              <Button
-                iconLeft={<Save className="h-3.5 w-3.5" />}
-                loading={isSavingSettings}
-                disabled={isSavingSettings || !hasSettingsChanges}
-                onClick={() => {
-                  openConfirm({
-                    title: "Save policy settings",
-                    description: "Apply policy changes to registration and invitation workflows?",
-                    confirmLabel: "Save settings",
-                    onConfirm: async () => {
-                      await saveSettings();
-                    },
-                  });
-                }}
-              >
-                Save Settings
-              </Button>
-              <Button
-                variant="outline"
-                iconLeft={<RotateCcw className="h-3.5 w-3.5" />}
-                disabled={!settings}
-                onClick={() => {
-                  if (!settings) {
-                    return;
-                  }
-                  setSettingsDraft({
-                    waitlistEnabled: settings.waitlistEnabled,
-                    invitationsEnabled: settings.invitationsEnabled,
-                    invitationWaitlistRequired: settings.invitationWaitlistRequired,
-                    invitationQuotaPerUser: settings.invitationQuotaPerUser,
-                  });
-                }}
-              >
-                Reset Draft
-              </Button>
-            </div>
-          </SectionCard>
-        </div>
+        <SettingsTab
+          settings={settings}
+          draft={settingsDraft}
+          hasChanges={hasSettingsChanges}
+          isSaving={isSavingSettings}
+          onDraftChange={setSettingsDraft}
+          onSave={saveSettings}
+          onReset={handleResetDraft}
+          onOpenConfirm={openConfirm}
+        />
       ) : null}
 
       <Drawer

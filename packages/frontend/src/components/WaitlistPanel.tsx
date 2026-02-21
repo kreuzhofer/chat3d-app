@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ClipboardCheck, Clock, Mail, Search, Send, ShieldCheck } from "lucide-react";
+import { ClipboardCheck, Search, Send } from "lucide-react";
 import {
   confirmWaitlistEmail,
   getWaitlistStatus,
@@ -14,6 +14,7 @@ import { Button } from "./ui/button";
 import { FormField } from "./ui/form";
 import { Input } from "./ui/input";
 import { Switch } from "./ui/switch";
+import { WaitlistStepper, type WaitlistStepperStatus } from "./WaitlistStepper";
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -49,6 +50,13 @@ function statusTone(status: WaitlistStatusResponse["status"]) {
   return "info";
 }
 
+function toStepperStatus(apiStatus: WaitlistStatusResponse["status"] | null): WaitlistStepperStatus {
+  if (apiStatus === null) return "not_joined";
+  if (apiStatus === "pending_email_confirmation") return "pending_confirmation";
+  if (apiStatus === "pending_admin_approval") return "pending_approval";
+  return apiStatus;
+}
+
 function WaitlistFlow({
   email,
   setEmail,
@@ -80,33 +88,7 @@ function WaitlistFlow({
 }) {
   return (
     <div className="space-y-4">
-      {/* Visual stepper */}
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-4">
-          <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-[hsl(var(--primary)_/_0.1)] text-[hsl(var(--primary))]">
-            <Mail className="h-4 w-4" />
-          </div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(var(--primary))]">Step 1</p>
-          <p className="mt-1 text-sm font-medium">Join waitlist</p>
-          <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Submit email and consent preference.</p>
-        </div>
-        <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-4">
-          <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-[hsl(var(--accent)_/_0.1)] text-[hsl(var(--accent))]">
-            <ClipboardCheck className="h-4 w-4" />
-          </div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(var(--accent))]">Step 2</p>
-          <p className="mt-1 text-sm font-medium">Confirm email</p>
-          <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Use token from confirmation email.</p>
-        </div>
-        <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-4">
-          <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-[hsl(var(--success)_/_0.1)] text-[hsl(var(--success))]">
-            <ShieldCheck className="h-4 w-4" />
-          </div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(var(--success))]">Step 3</p>
-          <p className="mt-1 text-sm font-medium">Wait for approval</p>
-          <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Admin review unlocks registration link.</p>
-        </div>
-      </div>
+      <WaitlistStepper status={toStepperStatus(status?.status ?? null)} />
 
       {message ? <InlineAlert tone={message.kind === "success" ? "success" : "danger"}>{message.text}</InlineAlert> : null}
 

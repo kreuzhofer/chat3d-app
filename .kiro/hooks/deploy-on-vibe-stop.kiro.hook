@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Deploy After Vibe Mode",
+  "description": "When the agent finishes a chat interaction (vibe mode coding), analyzes which files were changed and rebuilds only the affected Docker containers. Maps changes in packages/backend to backend and account-deletion-worker, packages/frontend to frontend, and services/build123d to build123d.",
+  "version": "1",
+  "when": {
+    "type": "agentStop"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "An agent execution just completed (vibe mode). Determine which source files were changed by reviewing the recent git diff (use `git diff --name-only HEAD` and `git diff --name-only` to see both staged and unstaged changes). Then map the changed files to affected Docker Compose services:\n\n- Changes under `packages/backend/` → rebuild services: `backend` and `account-deletion-worker`\n- Changes under `packages/frontend/` → rebuild service: `frontend`\n- Changes under `services/build123d/` → rebuild service: `build123d`\n- Changes only to non-service files (docs, configs at root, .kiro/, etc.) → skip rebuild entirely\n\nOnce you have the list of affected services, run:\n`docker compose up -d --build <service1> <service2> ...`\n\nThen verify the containers are healthy with:\n`docker compose ps <service1> <service2> ...`\n\nIf no buildable services were affected, state that no rebuild is needed and skip the docker commands."
+  }
+}

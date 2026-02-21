@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "name": "Deploy Affected Containers",
+  "description": "After each major spec completion (for example after finishing all tasks 1.1, 1.2, 1.3 from spec 1), analyzes which files were changed and rebuilds only the affected Docker containers. Runs docker compose up -d --build targeting only those services.",
+  "version": "1",
+  "when": {
+    "type": "postTaskExecution"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A major spec implementation just completed. DO NOT execute this after each single subtask implementation! Determine which source files were changed during a major spec implementation (for example after finishing all tasks 1.1, 1.2, 1.3 from spec 1 containing three subtasks), by reviewing the recent git diff (use `git diff --name-only HEAD` or `git diff --name-only` to see staged and unstaged changes). Then map the changed files to the affected Docker Compose services using these rules:\n\nChanges only to non-service files (docs, configs at root, .kiro/, etc.) → skip rebuild entirely\n\nOnce you have the list of affected services, run:\n`docker compose up -d --build <service1> <service2> ...`\n\nThen verify the containers are healthy with:\n`docker compose ps <service1> <service2> ...`\n\nIf no buildable services were affected, state that no rebuild is needed and skip the docker commands."
+  },
+  "workspaceFolderName": "chat3d-react-amplify",
+  "shortName": "deploy-affected-containers"
+}
