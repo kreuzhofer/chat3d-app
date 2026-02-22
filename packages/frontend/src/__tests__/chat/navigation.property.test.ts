@@ -205,8 +205,9 @@ describe("Navigation — Property 26: Admin-only header dropdown items visible i
     fc.assert(
       fc.property(
         fc.constantFrom("user", "viewer", "editor", "moderator"),
-        (role) => {
-          const items = buildDropdownNavItems(role === "admin");
+        (_role) => {
+          // Non-admin roles always produce isAdmin=false
+          const items = buildDropdownNavItems(false);
           const labels = items.map((i) => i.label);
           expect(labels).not.toContain("Admin");
           expect(labels).not.toContain("Query Workbench");
@@ -242,8 +243,9 @@ describe("Navigation — Property 26: Admin-only header dropdown items visible i
     fc.assert(
       fc.property(
         fc.constantFrom("user", "viewer", "editor"),
-        (role) => {
-          const items = buildDropdownNavItems(role === "admin");
+        (_role) => {
+          // Non-admin roles always produce isAdmin=false
+          const items = buildDropdownNavItems(false);
           const labels = items.map((i) => i.label);
           expect(labels).toEqual(["Open Profile"]);
         },

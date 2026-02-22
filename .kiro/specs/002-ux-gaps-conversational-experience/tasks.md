@@ -381,7 +381,7 @@ Transform Chat3D from a functional prompt-to-CAD pipeline into a polished conver
     - Verify redirect to `/chat` with replace navigation for non-admin, normal render for admin
     - **Validates: Requirements 19.4, 20.4, 21.1, 21.2, 21.3, 21.4, 21.5**
 
-- [-] 17. Final checkpoint — Full validation
+- [x] 17. Final checkpoint — Full validation
   - Ensure all tests pass, ask the user if questions arise.
   - Run `npm --workspace @chat3d/backend run test && npm --workspace @chat3d/backend run build`
   - Run `npm --workspace @chat3d/frontend run test && npm --workspace @chat3d/frontend run typecheck`
