@@ -1,13 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
 
-export interface DropdownItem {
+export interface DropdownActionItem {
   id: string;
   label: string;
   onSelect: () => void;
   disabled?: boolean;
   danger?: boolean;
+  type?: "item";
 }
+
+export interface DropdownSeparator {
+  id: string;
+  type: "separator";
+}
+
+export type DropdownItem = DropdownActionItem | DropdownSeparator;
 
 interface DropdownMenuProps {
   triggerLabel: string;
@@ -52,24 +60,32 @@ export function DropdownMenu({ triggerLabel, items, className }: DropdownMenuPro
           role="menu"
           className="absolute right-0 z-40 mt-1 min-w-[180px] rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-1 shadow-[var(--elevation-2)]"
         >
-          {items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="menuitem"
-              className={cn(
-                "block w-full rounded-md px-3 py-2 text-left text-sm transition hover:bg-[hsl(var(--muted))]",
-                item.danger ? "text-[hsl(var(--destructive))]" : "text-[hsl(var(--foreground))]",
-              )}
-              disabled={item.disabled}
-              onClick={() => {
-                item.onSelect();
-                setOpen(false);
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
+          {items.map((item) =>
+            item.type === "separator" ? (
+              <div
+                key={item.id}
+                role="separator"
+                className="my-1 h-px bg-[hsl(var(--border))]"
+              />
+            ) : (
+              <button
+                key={item.id}
+                type="button"
+                role="menuitem"
+                className={cn(
+                  "block w-full rounded-md px-3 py-2 text-left text-sm transition hover:bg-[hsl(var(--muted))]",
+                  item.danger ? "text-[hsl(var(--destructive))]" : "text-[hsl(var(--foreground))]",
+                )}
+                disabled={item.disabled}
+                onClick={() => {
+                  item.onSelect();
+                  setOpen(false);
+                }}
+              >
+                {item.label}
+              </button>
+            ),
+          )}
         </div>
       ) : null}
     </div>

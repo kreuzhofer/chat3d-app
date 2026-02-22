@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { config } from "../config.js";
-import { extractExecutableCode, generateConversationText, listLlmModels } from "../services/llm.service.js";
+import { extractExecutableCode, generateConversationText, generateConversationTextStream, listLlmModels } from "../services/llm.service.js";
 
 const originalQueryConfig = {
   llmMode: config.query.llmMode,
@@ -61,5 +61,36 @@ with BuildPart() as model:
     const extracted = extractExecutableCode(raw);
     expect(extracted.startsWith("from build123d import *")).toBe(true);
     expect(extracted.includes("```")).toBe(false);
+  });
+
+  it("streams conversation text token by token in mock mode", async () => {
+    config.query.llmMode = "mock";
+
+    const tokens: string[] = [];
+    const result = await generateConversationTextStream({
+      contextName: "Stream test context",
+      prompt: "Hello streaming",
+      onToken: (token) => tokens.push(token),
+    });
+
+    expect(tokens.length).toBeGreaterThan(0);
+    expect(tokens.join("").trim()).toBe(result.text);
+    expect(result.model.provider).toBe("mock");
+    expect(result.usage).toBeDefined();
+  });
+
+  it("fails fast when openai streaming is configured without API key", async () => {
+    config.query.llmMode = "live";
+    config.query.conversationProvider = "openai";
+    config.query.conversationModelName = "gpt-4o-mini";
+    config.query.openAiApiKey = "";
+
+    await expect(
+      generateConversationTextStream({
+        contextName: "Stream test context",
+        prompt: "Hello streaming",
+        onToken: () => {},
+      }),
+    ).rejects.toThrow("OPENAI_API_KEY is required for OpenAI provider");
   });
 });

@@ -3,7 +3,6 @@ import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "reac
 import {
   Bell,
   MessageSquare,
-  Search,
   Shield,
   User,
   type LucideIcon,
@@ -13,10 +12,11 @@ import { AppShell } from "./components/layout/AppShell";
 import { LoadingView } from "./components/layout/StateViews";
 import { Button } from "./components/ui/button";
 import { Drawer } from "./components/ui/drawer";
-import { DropdownMenu } from "./components/ui/dropdown-menu";
+import { DropdownMenu, type DropdownItem } from "./components/ui/dropdown-menu";
 import { ThemeToggle } from "./components/ui/theme-toggle";
 import { useNotifications } from "./contexts/NotificationsContext";
 import { useAuth } from "./hooks/useAuth";
+import { AdminRouteGuard } from "./components/AdminRouteGuard";
 import { HomePage } from "./pages/public/HomePage";
 import { ImprintPage } from "./pages/public/ImprintPage";
 import { LegalPage } from "./pages/public/LegalPage";
@@ -67,8 +67,6 @@ function authenticatedNavGroups(isAdmin: boolean): NavGroup[] {
       label: "Workspace",
       items: [
         { path: "/chat", label: "Chat", routePrefix: "/chat", icon: MessageSquare },
-        { path: "/query", label: "Query", routePrefix: "/query", icon: Search },
-        { path: "/notifications", label: "Notifications", routePrefix: "/notifications", icon: Bell },
       ],
     },
     {
@@ -142,8 +140,59 @@ function AuthenticatedApp() {
   const navigate = useNavigate();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  const groups = useMemo(() => authenticatedNavGroups(user?.role === "admin"), [user?.role]);
+  const isAdmin = user?.role === "admin";
+
+  const groups = useMemo(() => authenticatedNavGroups(isAdmin), [isAdmin]);
   const activeNavItem = useMemo(() => resolveActiveItem(location.pathname, groups), [groups, location.pathname]);
+
+  // Chat routes render without the AppShell sidebar so ChatPage occupies full viewport width
+  const isChatRoute = location.pathname === "/chat" || location.pathname === "/chat/new" || location.pathname.startsWith("/chat/");
+
+  const dropdownItems = useMemo<DropdownItem[]>(() => {
+    const navItems: DropdownItem[] = [
+      {
+        id: "open-profile",
+        label: "Open Profile",
+        onSelect: () => navigate("/profile"),
+      },
+    ];
+    if (isAdmin) {
+      navItems.push(
+        {
+          id: "admin",
+          label: "Admin",
+          onSelect: () => navigate("/admin"),
+        },
+        {
+          id: "query-workbench",
+          label: "Query Workbench",
+          onSelect: () => navigate("/query"),
+        },
+      );
+    }
+    return [
+      ...navItems,
+      { id: "sep-nav-session", type: "separator" as const },
+      {
+        id: "refresh-replay",
+        label: "Refresh Event Replay",
+        onSelect: () => void refreshReplay(),
+      },
+      {
+        id: "mark-all-read",
+        label: "Mark All Read",
+        onSelect: () => markAllRead(),
+      },
+      {
+        id: "logout",
+        label: "Logout",
+        onSelect: () => {
+          void logout();
+        },
+        danger: true,
+      },
+    ];
+  }, [isAdmin, navigate, refreshReplay, markAllRead, logout]);
 
   const topBar = (
     <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-3">
@@ -159,50 +208,28 @@ function AuthenticatedApp() {
       </div>
 
       <div className="flex items-center gap-2">
-        {connectionState !== "open" ? (
+        {isAdmin && connectionState !== "open" ? (
           <span className="h-2 w-2 rounded-full bg-[hsl(var(--warning))]" title="SSE disconnected" />
         ) : null}
-        <button
-          type="button"
-          className="relative rounded-md p-2 text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
-          onClick={() => navigate("/notifications")}
-          aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
-        >
-          <Bell className="h-4 w-4" />
-          {unreadCount > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[hsl(var(--destructive))] px-1 text-[10px] font-bold text-[hsl(var(--destructive-foreground))]">
-              {unreadCount > 99 ? "99+" : unreadCount}
-            </span>
-          ) : null}
-        </button>
+        {isAdmin ? (
+          <button
+            type="button"
+            className="relative rounded-md p-2 text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
+            onClick={() => navigate("/notifications")}
+            aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
+          >
+            <Bell className="h-4 w-4" />
+            {unreadCount > 0 ? (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[hsl(var(--destructive))] px-1 text-[10px] font-bold text-[hsl(var(--destructive-foreground))]">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            ) : null}
+          </button>
+        ) : null}
         <ThemeToggle />
         <DropdownMenu
           triggerLabel={user?.email ?? "Account"}
-          items={[
-            {
-              id: "open-profile",
-              label: "Open Profile",
-              onSelect: () => navigate("/profile"),
-            },
-            {
-              id: "refresh-replay",
-              label: "Refresh Event Replay",
-              onSelect: () => void refreshReplay(),
-            },
-            {
-              id: "mark-all-read",
-              label: "Mark All Read",
-              onSelect: () => markAllRead(),
-            },
-            {
-              id: "logout",
-              label: "Logout",
-              onSelect: () => {
-                void logout();
-              },
-              danger: true,
-            },
-          ]}
+          items={dropdownItems}
         />
       </div>
     </div>
@@ -210,19 +237,19 @@ function AuthenticatedApp() {
 
   return (
     <>
-      <AppShell topbar={topBar} sidebar={<NavigationList groups={groups} />}>
+      <AppShell topbar={topBar} sidebar={isChatRoute ? undefined : <NavigationList groups={groups} />}>
         <Suspense fallback={<LoadingView label="Loading route..." />}>
           <Routes>
             <Route path="/" element={<Navigate replace to="/chat" />} />
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/chat/new" element={<ChatPage />} />
             <Route path="/chat/:contextId" element={<ChatPage />} />
-            <Route path="/query" element={<QueryWorkbench />} />
+            <Route path="/query" element={<AdminRouteGuard><QueryWorkbench /></AdminRouteGuard>} />
             <Route path="/profile" element={<ProfilePanel />} />
-            <Route path="/notifications" element={<NotificationCenter />} />
+            <Route path="/notifications" element={<AdminRouteGuard><NotificationCenter /></AdminRouteGuard>} />
             <Route
               path="/admin"
-              element={user?.role === "admin" ? <AdminPanel /> : <Navigate replace to="/chat" />}
+              element={<AdminRouteGuard><AdminPanel /></AdminRouteGuard>}
             />
             <Route path="*" element={<Navigate replace to="/chat" />} />
           </Routes>

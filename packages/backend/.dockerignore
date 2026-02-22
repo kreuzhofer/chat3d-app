@@ -1,0 +1,9 @@
+node_modules
+dist
+.chat3d-storage
+*.log
+.env
+.env.*
+.DS_Store
+tsconfig.tsbuildinfo
+vitest.config.ts

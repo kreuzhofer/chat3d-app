@@ -1,10 +1,12 @@
 import { query } from "../db/connection.js";
 import { notificationService } from "./notification.service.js";
+import { sseService } from "./sse.service.js";
 import { createChatItem, updateChatItem, ChatError } from "./chat.service.js";
 import { FileStorageError, readUserFile, writeUserFile } from "./file-storage.service.js";
 import {
   generateBuild123dCode,
   generateConversationText,
+  generateConversationTextStream,
   LlmServiceError,
   type LlmUsageMetadata,
 } from "./llm.service.js";
@@ -25,7 +27,23 @@ interface UserPromptRow {
   messages: unknown;
 }
 
-type QueryState = "queued" | "conversation" | "codegen" | "rendering" | "completed" | "failed";
+export type QueryState = "queued" | "conversation" | "codegen" | "rendering" | "retrying" | "completed" | "failed";
+
+export interface StreamTokenEvent {
+  type: "stream-token";
+  contextId: string;
+  assistantItemId: string;
+  token: string;
+  done: boolean;
+}
+
+export interface QueryStateEvent {
+  type: "query-state";
+  contextId: string;
+  assistantItemId: string;
+  state: QueryState;
+  detail?: string;
+}
 
 export interface QueryAttachmentInput {
   path: string;
@@ -54,6 +72,152 @@ export class QueryServiceError extends Error {
   ) {
     super(message);
   }
+}
+
+// --- Conversation history for iterative refinement (Req 10) ---
+
+export interface ConversationHistoryEntry {
+  role: "user" | "assistant";
+  text: string;
+  code?: string;
+  sequencePosition: number;
+}
+
+interface ChatItemHistoryRow {
+  id: string;
+  role: "user" | "assistant";
+  messages: unknown;
+  created_at: string;
+}
+
+/**
+ * Extract the text content from a chat item's messages JSONB array.
+ * Looks for the first segment with itemType "message" and returns its text.
+ */
+function extractTextFromMessages(messages: unknown): string {
+  if (!Array.isArray(messages)) return "";
+  for (const segment of messages) {
+    if (
+      segment &&
+      typeof segment === "object" &&
+      "itemType" in segment &&
+      "text" in segment &&
+      (segment as Record<string, unknown>).itemType === "message" &&
+      typeof (segment as Record<string, unknown>).text === "string"
+    ) {
+      return ((segment as Record<string, unknown>).text as string).trim();
+    }
+  }
+  return "";
+}
+
+/**
+ * Extract Build123d code from an assistant chat item's messages JSONB array.
+ * Looks for segments with itemType "3dmodel" or "code" that contain code content.
+ */
+function extractCodeFromMessages(messages: unknown): string | undefined {
+  if (!Array.isArray(messages)) return undefined;
+  for (const segment of messages) {
+    if (!segment || typeof segment !== "object") continue;
+    const rec = segment as Record<string, unknown>;
+
+    // Check for code in 3dmodel segments — these contain the generated files
+    if (rec.itemType === "3dmodel" && Array.isArray(rec.files)) {
+      // The code itself is in the codegen result, but we can look for it
+      // in the artifact or associated code segment
+      continue;
+    }
+
+    // Check for explicit code segments
+    if (rec.itemType === "code" && typeof rec.text === "string" && rec.text.trim().length > 0) {
+      return rec.text.trim();
+    }
+  }
+
+  // Fallback: look for code blocks in the meta segment's associated data
+  // or in the conversation text that contains code fences
+  for (const segment of messages) {
+    if (!segment || typeof segment !== "object") continue;
+    const rec = segment as Record<string, unknown>;
+
+    if (rec.itemType === "meta" && rec.llm && typeof rec.llm === "object") {
+      // The meta segment doesn't directly contain code, but the codegen result
+      // is stored alongside the 3dmodel segment
+      continue;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Fetch the last N chat items for a context and build a ConversationHistoryEntry array.
+ * Returns at most `maxPairs` exchange pairs (user prompt + assistant response).
+ */
+export async function buildConversationContext(
+  contextId: string,
+  userId: string,
+  maxPairs: number = 5,
+  excludeIds: string[] = [],
+): Promise<ConversationHistoryEntry[]> {
+  // Fetch the last (maxPairs * 2) items ordered by created_at DESC, then reverse
+  // to get chronological order. We fetch more than needed to handle gaps.
+  const limit = maxPairs * 2 + 2; // small buffer for edge cases
+  const result = await query<ChatItemHistoryRow>(
+    `
+    SELECT id, role, messages, created_at::text
+    FROM chat_items
+    WHERE chat_context_id = $1
+      AND owner_id = $2
+      AND id != ALL($3::uuid[])
+    ORDER BY created_at DESC
+    LIMIT $4;
+    `,
+    [contextId, userId, excludeIds, limit],
+  );
+
+  // Reverse to chronological order
+  const items = result.rows.reverse();
+
+  // Build entries from all items
+  const entries: ConversationHistoryEntry[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const text = extractTextFromMessages(item.messages);
+    if (!text) continue;
+
+    const entry: ConversationHistoryEntry = {
+      role: item.role,
+      text,
+      sequencePosition: i + 1,
+    };
+
+    if (item.role === "assistant") {
+      const code = extractCodeFromMessages(item.messages);
+      if (code) {
+        entry.code = code;
+      }
+    }
+
+    entries.push(entry);
+  }
+
+  return capConversationEntries(entries, maxPairs);
+}
+
+/**
+ * Cap conversation entries to at most `maxPairs` exchange pairs.
+ * Returns the last `maxPairs * 2` entries if the input exceeds that limit.
+ * Exported for testability (Property 17).
+ */
+export function capConversationEntries(
+  entries: ConversationHistoryEntry[],
+  maxPairs: number = 5,
+): ConversationHistoryEntry[] {
+  if (entries.length <= maxPairs * 2) {
+    return entries;
+  }
+  return entries.slice(-maxPairs * 2);
 }
 
 async function ensureOwnedContext(userId: string, contextId: string): Promise<ChatContextRow> {
@@ -308,6 +472,7 @@ export async function submitQuery(input: {
   contextId: string;
   prompt: string;
   attachments?: unknown;
+  stream?: boolean;
 }) {
   const prompt = input.prompt.trim();
   if (prompt === "") {
@@ -362,10 +527,51 @@ export async function submitQuery(input: {
       state: "conversation",
     });
 
-    const conversation = await generateConversationText({
-      prompt: `${prompt}${formatAttachmentContext(attachments)}`,
-      contextName: context.name,
-    });
+    const onToken = input.stream
+      ? (token: string) => {
+          sseService.publishStreamToken(input.userId, {
+            contextId: input.contextId,
+            assistantItemId: assistantItem.id,
+            token,
+            done: false,
+          });
+        }
+      : undefined;
+
+    const conversationPrompt = `${prompt}${formatAttachmentContext(attachments)}`;
+
+    // Fetch conversation history for iterative refinement (Req 10)
+    // Exclude the current user+assistant items we just created by fetching before they exist in context
+    // The items we just created are already in the DB, so we exclude them by fetching items
+    // created before the current user item. We use the item IDs to filter.
+    const conversationHistory = await buildConversationContext(
+      input.contextId,
+      input.userId,
+      5,
+      [userItem.id, assistantItem.id],
+    );
+
+    const conversation = input.stream && onToken
+      ? await generateConversationTextStream({
+          prompt: conversationPrompt,
+          contextName: context.name,
+          onToken,
+          conversationHistory,
+        })
+      : await generateConversationText({
+          prompt: conversationPrompt,
+          contextName: context.name,
+          conversationHistory,
+        });
+
+    if (input.stream) {
+      sseService.publishStreamToken(input.userId, {
+        contextId: input.contextId,
+        assistantItemId: assistantItem.id,
+        token: "",
+        done: true,
+      });
+    }
 
     await publishQueryState({
       userId: input.userId,
@@ -377,6 +583,7 @@ export async function submitQuery(input: {
     const codegen = await generateBuild123dCode({
       prompt: `${prompt}${formatAttachmentContext(attachments)}`,
       conversationText: conversation.text,
+      conversationHistory,
     });
 
     await publishQueryState({
@@ -386,10 +593,66 @@ export async function submitQuery(input: {
       state: "rendering",
     });
 
-    const rendered = await renderBuild123d({
-      code: codegen.code,
-      baseFileName: codegen.baseFileName,
-    });
+    let activeCode = codegen.code;
+    let retryCodegen: typeof codegen | null = null;
+    let rendered: Awaited<ReturnType<typeof renderBuild123d>>;
+
+    try {
+      rendered = await renderBuild123d({
+        code: activeCode,
+        baseFileName: codegen.baseFileName,
+      });
+    } catch (renderError) {
+      if (!(renderError instanceof RenderingServiceError)) {
+        throw renderError;
+      }
+
+      // Error recovery: feed error + failing code back to codegen LLM for one corrective retry
+      await publishQueryState({
+        userId: input.userId,
+        contextId: input.contextId,
+        assistantItemId: assistantItem.id,
+        state: "retrying",
+        detail: "Retrying with error feedback",
+      });
+
+      const errorRecoveryContext = [
+        conversation.text,
+        "",
+        "## Error Recovery",
+        "The previously generated code failed to render. Please fix the code based on the error below.",
+        "",
+        "### Failing Code",
+        "```python",
+        activeCode,
+        "```",
+        "",
+        "### Error Message",
+        renderError.message,
+        "",
+        "Generate corrected code that fixes this error. Do NOT repeat the same mistake.",
+      ].join("\n");
+
+      retryCodegen = await generateBuild123dCode({
+        prompt: `${prompt}${formatAttachmentContext(attachments)}`,
+        conversationText: errorRecoveryContext,
+      });
+
+      activeCode = retryCodegen.code;
+
+      await publishQueryState({
+        userId: input.userId,
+        contextId: input.contextId,
+        assistantItemId: assistantItem.id,
+        state: "rendering",
+      });
+
+      // Second render attempt — if this also fails, the error propagates to the outer catch
+      rendered = await renderBuild123d({
+        code: activeCode,
+        baseFileName: retryCodegen.baseFileName,
+      });
+    }
 
     const generatedFiles: Array<{ path: string; filename: string }> = [];
     for (const file of rendered.files) {
@@ -407,7 +670,11 @@ export async function submitQuery(input: {
     }
 
     const artifact = summarizeArtifacts(generatedFiles);
-    const usage = summarizeUsage([conversation.usage, codegen.usage]);
+    const usageRecords = [conversation.usage, codegen.usage];
+    if (retryCodegen) {
+      usageRecords.push(retryCodegen.usage);
+    }
+    const usage = summarizeUsage(usageRecords);
 
     const assistantMessages = [
       {
@@ -437,9 +704,9 @@ export async function submitQuery(input: {
         artifact,
         llm: {
           conversationModel: conversation.model.id,
-          codegenModel: codegen.model.id,
+          codegenModel: (retryCodegen ?? codegen).model.id,
           conversationUsage: conversation.usage,
-          codegenUsage: codegen.usage,
+          codegenUsage: (retryCodegen ?? codegen).usage,
         },
         files: generatedFiles,
       },
@@ -466,7 +733,7 @@ export async function submitQuery(input: {
       generatedFiles,
       llm: {
         conversationModel: conversation.model.id,
-        codegenModel: codegen.model.id,
+        codegenModel: (retryCodegen ?? codegen).model.id,
       },
       artifact,
       usage,

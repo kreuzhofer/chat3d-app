@@ -1,38 +1,54 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Bot, Download, RefreshCw, ThumbsDown, ThumbsUp, User } from "lucide-react";
+import { AlertTriangle, Bot, MessageCircleWarning, RefreshCw, ThumbsDown, ThumbsUp, User } from "lucide-react";
 import type { ChatTimelineItem } from "../../features/chat/chat-adapters";
 import { Button } from "../ui/button";
+import { InlineModelViewer } from "./InlineModelViewer";
+import { CollapsibleSection } from "./CollapsibleSection";
+import { DownloadPillGroup } from "./DownloadPill";
 import { fileExtension, formatEstimatedCostUsd, uniqueFilesByPath } from "./utils";
 
 export interface MessageBubbleProps {
   item: ChatTimelineItem;
   isSelected: boolean;
   busyAction: string | null;
+  /** Auth token passed to InlineModelViewer for fetching 3D model files. */
+  token: string | null;
+  /** Streaming text for the in-progress assistant response (incremental append). */
+  streamingText?: string;
+  /** Error message when the stream was interrupted. */
+  streamingError?: string | null;
+  /** Whether streaming is currently active for this message. */
+  isStreaming?: boolean;
   onSelect: (itemId: string) => void;
   onRate: (item: { id: string; rating: -1 | 0 | 1 }, rating: -1 | 1) => void;
   onRegenerate: (assistantItemId: string) => void;
   onDownloadFile: (filePath: string) => void;
 }
 
-const extensionLabels = [
-  { extension: ".step", label: "STEP" },
-  { extension: ".stp", label: "STP" },
-  { extension: ".stl", label: "STL" },
-  { extension: ".3mf", label: "3MF" },
-  { extension: ".b123d", label: "B123D" },
-];
-
 export function MessageBubble({
   item,
   isSelected,
   busyAction,
+  token,
+  streamingText,
+  streamingError,
+  isStreaming,
   onSelect,
   onRate,
   onRegenerate,
   onDownloadFile,
 }: MessageBubbleProps) {
   const allFiles = uniqueFilesByPath(item.segments.flatMap((segment) => segment.files));
+  const hasStreamingContent = isStreaming && typeof streamingText === "string" && streamingText.length > 0;
+
+  // Find the first preview-ready file (.stl or .3mf) for inline 3D preview
+  const previewFile = item.role === "assistant" && !isStreaming
+    ? allFiles.find((f) => {
+        const ext = fileExtension(f.path);
+        return ext === ".stl" || ext === ".3mf";
+      })
+    : undefined;
 
   return (
     <article
@@ -66,94 +82,144 @@ export function MessageBubble({
       </div>
 
       <div className="space-y-1.5">
-        {item.segments.map((segment) => {
-          const isAttachment = segment.kind === "attachment";
+        {/* When streaming is active, show streaming text as plain text (incremental append) */}
+        {hasStreamingContent ? (
+          <div className="rounded-md px-1" data-testid="streaming-content">
+            <p className="whitespace-pre-wrap text-sm">{streamingText}</p>
+          </div>
+        ) : null}
 
-          return (
+        {/* When stream is interrupted, show partial text + inline error */}
+        {!isStreaming && streamingError && streamingText ? (
+          <>
+            <div className="rounded-md px-1" data-testid="streaming-partial-content">
+              <p className="whitespace-pre-wrap text-sm">{streamingText}</p>
+            </div>
             <div
-              key={segment.id}
-              className={`rounded-md px-1 ${
-                segment.kind === "error"
-                  ? "border border-[hsl(var(--destructive))] p-2 text-[hsl(var(--destructive))]"
-                  : ""
-              }`}
+              className="flex items-center gap-2 rounded-md border border-[hsl(var(--warning)_/_0.5)] bg-[hsl(var(--warning)_/_0.08)] px-2 py-1.5 text-sm text-[hsl(var(--warning-foreground,var(--foreground)))]"
+              data-testid="streaming-error"
+              role="alert"
             >
-              {isAttachment ? (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">
-                    {segment.text || `${segment.attachmentKind === "image" ? "Image" : "File"} attachment`}
-                  </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {segment.attachmentFilename || segment.attachmentPath}
-                    {segment.attachmentMimeType ? ` · ${segment.attachmentMimeType}` : ""}
-                  </p>
-                  {segment.attachmentPath ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busyAction !== null}
-                      onClick={() => {
-                        onDownloadFile(segment.attachmentPath);
-                      }}
-                    >
-                      Download Attachment
-                    </Button>
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--warning))]" />
+              <span>{streamingError}</span>
+            </div>
+          </>
+        ) : null}
+
+        {/* Normal segment rendering — shown when not actively streaming */}
+        {!hasStreamingContent && !(streamingError && streamingText) ? (
+          <>
+            {item.segments.map((segment) => {
+              const isAttachment = segment.kind === "attachment";
+              const isMeta = segment.kind === "meta";
+              const hasFiles = segment.files.length > 0;
+
+              if (segment.kind === "error") {
+                return (
+                  <div
+                    key={segment.id}
+                    className="rounded-lg border border-[hsl(var(--warning)_/_0.5)] bg-[hsl(var(--warning)_/_0.06)] p-3"
+                    data-testid="conversational-error"
+                    role="alert"
+                  >
+                    <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[hsl(var(--warning-foreground,var(--foreground)))]">
+                      <MessageCircleWarning className="h-4 w-4 shrink-0 text-[hsl(var(--warning))]" />
+                      <span>Something went wrong while generating your model</span>
+                    </div>
+                    {segment.text ? (
+                      <p className="mb-2 rounded-md bg-[hsl(var(--warning)_/_0.06)] px-2.5 py-1.5 font-mono text-xs text-[hsl(var(--muted-foreground))]" data-testid="error-detail">
+                        {segment.text}
+                      </p>
+                    ) : null}
+                    <p className="text-sm text-[hsl(var(--muted-foreground))]" data-testid="error-suggestion">
+                      Try rephrasing your request or ask me to use a different approach.
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div
+                  key={segment.id}
+                  className="rounded-md px-1"
+                >
+                  {isAttachment ? (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">
+                        {segment.text || `${segment.attachmentKind === "image" ? "Image" : "File"} attachment`}
+                      </p>
+                      <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                        {segment.attachmentFilename || segment.attachmentPath}
+                        {segment.attachmentMimeType ? ` · ${segment.attachmentMimeType}` : ""}
+                      </p>
+                      {segment.attachmentPath ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busyAction !== null}
+                          onClick={() => {
+                            onDownloadFile(segment.attachmentPath);
+                          }}
+                        >
+                          Download Attachment
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : segment.text ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>
+                  ) : (
+                    <p className="text-sm text-[hsl(var(--muted-foreground))]">(empty)</p>
+                  )}
+
+                  {/* Meta details wrapped in CollapsibleSection for progressive disclosure */}
+                  {isMeta && (segment.usage || segment.artifact) ? (
+                    <CollapsibleSection title="Details" defaultExpanded={false}>
+                      {segment.usage ? (
+                        <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                          Usage: {segment.usage.inputTokens} in / {segment.usage.outputTokens} out / {segment.usage.totalTokens} total ·
+                          est. ${formatEstimatedCostUsd(segment.usage.estimatedCostUsd)}
+                        </p>
+                      ) : null}
+                      {segment.artifact ? (
+                        <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+                          Artifacts: {segment.artifact.previewStatus} · {segment.artifact.detail}
+                        </p>
+                      ) : null}
+                    </CollapsibleSection>
+                  ) : null}
+
+                  {/* File list wrapped in CollapsibleSection for progressive disclosure */}
+                  {hasFiles ? (
+                    <div className="mt-2">
+                      <CollapsibleSection title="Files" defaultExpanded={false}>
+                        <ul className="list-disc pl-5 text-sm">
+                          {segment.files.map((file) => (
+                            <li key={`${segment.id}-${file.path}`}>{file.filename}</li>
+                          ))}
+                        </ul>
+                      </CollapsibleSection>
+                    </div>
                   ) : null}
                 </div>
-              ) : segment.text ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>
-              ) : (
-                <p className="text-sm text-[hsl(var(--muted-foreground))]">(empty)</p>
-              )}
-
-              {segment.kind === "meta" && segment.usage ? (
-                <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
-                  Usage: {segment.usage.inputTokens} in / {segment.usage.outputTokens} out / {segment.usage.totalTokens} total ·
-                  est. ${formatEstimatedCostUsd(segment.usage.estimatedCostUsd)}
-                </p>
-              ) : null}
-
-              {segment.kind === "meta" && segment.artifact ? (
-                <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
-                  Artifacts: {segment.artifact.previewStatus} · {segment.artifact.detail}
-                </p>
-              ) : null}
-
-              {segment.files.length > 0 ? (
-                <ul className="mt-2 list-disc pl-5 text-sm">
-                  {segment.files.map((file) => (
-                    <li key={`${segment.id}-${file.path}`}>{file.filename}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          );
-        })}
+              );
+            })}
+          </>
+        ) : null}
       </div>
 
-      {item.role === "assistant" && allFiles.length > 0 ? (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-md bg-[hsl(var(--surface-2)_/_0.6)] p-2">
-          <Download className="h-3.5 w-3.5 text-[hsl(var(--muted-foreground))]" />
-          {extensionLabels.map((entry) => {
-            const matched = allFiles.find((file) => fileExtension(file.path) === entry.extension);
-            return (
-              <Button
-                key={`${item.id}-${entry.extension}`}
-                size="sm"
-                variant="outline"
-                disabled={!matched || busyAction !== null}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (matched) {
-                    onDownloadFile(matched.path);
-                  }
-                }}
-              >
-                {entry.label}
-              </Button>
-            );
-          })}
+      {previewFile && token ? (
+        <div className="mt-3" data-testid="inline-model-viewer">
+          <InlineModelViewer filePath={previewFile.path} token={token} />
         </div>
+      ) : null}
+
+      {/* Download pills replacing the old download bar */}
+      {item.role === "assistant" ? (
+        <DownloadPillGroup
+          files={allFiles}
+          onDownload={onDownloadFile}
+          disabled={busyAction !== null}
+        />
       ) : null}
 
       {item.role === "assistant" ? (

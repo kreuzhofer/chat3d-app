@@ -65,6 +65,47 @@ export class SseService {
     }
   }
 
+  /**
+   * Publish an ephemeral SSE event directly to a user's connected clients
+   * without persisting to the database. Suitable for high-frequency events
+   * like streaming tokens where persistence is unnecessary.
+   */
+  publishEphemeral(userId: string, eventType: string, payload: Record<string, unknown>): void {
+    const clients = this.clientsByUser.get(userId);
+    if (!clients || clients.size === 0) {
+      return;
+    }
+
+    const data = JSON.stringify({
+      notificationId: null,
+      eventType,
+      payload,
+      createdAt: new Date().toISOString(),
+    });
+
+    for (const client of clients) {
+      client.response.write(`event: ${eventType}\n`);
+      client.response.write(`data: ${data}\n\n`);
+    }
+  }
+
+  /**
+   * Publish a stream-token event to a user's connected SSE clients.
+   * Ephemeral — not persisted to the database.
+   */
+  publishStreamToken(
+    userId: string,
+    payload: {
+      contextId: string;
+      assistantItemId: string;
+      token: string;
+      done: boolean;
+    },
+  ): void {
+    this.publishEphemeral(userId, "stream-token", payload as unknown as Record<string, unknown>);
+  }
+
+
   private addClient(client: SseClient): void {
     const clients = this.clientsByUser.get(client.userId);
     if (clients) {

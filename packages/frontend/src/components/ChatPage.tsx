@@ -23,11 +23,15 @@ import { adaptChatItem } from "../features/chat/chat-adapters";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
-import { toErrorMessage, fileExtension, uniqueFilesByPath } from "./chat/utils";
+import { toErrorMessage, fileExtension, uniqueFilesByPath, buildModelVersionEntries } from "./chat/utils";
 import { ContextSidebar } from "./chat/ContextSidebar";
 import { MessageBubble } from "./chat/MessageBubble";
 import { PromptComposer } from "./chat/PromptComposer";
 import { WorkbenchPane } from "./chat/WorkbenchPane";
+import { useStreamingQuery } from "../hooks/useStreamingQuery";
+import { TypingIndicator } from "./chat/TypingIndicator";
+import { ExamplePrompts } from "./chat/ExamplePrompts";
+import { CapabilityHints } from "./chat/CapabilityHints";
 
 type MobilePane = "contexts" | "thread" | "workbench";
 
@@ -127,9 +131,11 @@ export function ChatPage() {
   const [outputFormat, setOutputFormat] = useState<"stl" | "3mf" | "step">("stl");
   const [detailLevel, setDetailLevel] = useState<"low" | "medium" | "high">("medium");
   const [advancedPrompt, setAdvancedPrompt] = useState("");
+  const [streamingAssistantItemId, setStreamingAssistantItemId] = useState<string | null>(null);
 
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
   const lastHandledNotificationIdRef = useRef(0);
+  const prevAssistantItemCountRef = useRef<number | null>(null);
 
   const activeContextId = !isDraftRoute ? contextIdParam ?? null : null;
 
@@ -177,6 +183,11 @@ export function ChatPage() {
     [timelineItems],
   );
 
+  const modelVersions = useMemo(
+    () => buildModelVersionEntries(timelineItems),
+    [timelineItems],
+  );
+
   const selectedAssistantItem = useMemo(() => {
     if (activeAssistantItems.length === 0) {
       return null;
@@ -204,6 +215,31 @@ export function ChatPage() {
       null
     );
   }, [selectedAssistantFiles]);
+
+  // ── Streaming integration ──────────────────────────────────────────────────
+  // streamingAssistantItemId is set when a prompt is submitted and the backend
+  // returns the new assistant item. It's cleared when streaming completes.
+  const {
+    streamingText,
+    queryState,
+    isStreaming,
+    error: streamingError,
+  } = useStreamingQuery({
+    token,
+    assistantItemId: streamingAssistantItemId,
+  });
+
+  // Clear streamingAssistantItemId when streaming finishes
+  useEffect(() => {
+    if (streamingAssistantItemId && !isStreaming) {
+      setStreamingAssistantItemId(null);
+    }
+  }, [streamingAssistantItemId, isStreaming]);
+
+  // Show typing indicator when query is active but no streaming text yet
+  const showTypingIndicator = isStreaming
+    && streamingText.length === 0
+    && !streamingError;
 
   const refreshContexts = useCallback(async () => {
     if (!token) {
@@ -262,6 +298,7 @@ export function ChatPage() {
     setVisibleTimelineCount(80);
     setSelectedUploadFiles([]);
     setQueuedAttachments([]);
+    setStreamingAssistantItemId(null);
   }, [activeContext?.chat3dModelId, activeContext?.conversationModelId, activeContextId]);
 
   useEffect(() => {
@@ -294,7 +331,7 @@ export function ChatPage() {
     if (target && typeof target.scrollIntoView === "function") {
       target.scrollIntoView({ behavior: "smooth", block: "end" });
     }
-  }, [lastQueryState?.id, optimisticPrompt, visibleTimelineItems.length]);
+  }, [lastQueryState?.id, optimisticPrompt, visibleTimelineItems.length, streamingText]);
 
   useEffect(() => {
     if (activeAssistantItems.length === 0) {
@@ -308,6 +345,43 @@ export function ChatPage() {
 
     setSelectedAssistantItemId(activeAssistantItems[activeAssistantItems.length - 1].id);
   }, [activeAssistantItems, selectedAssistantItemId]);
+
+  // ── Mobile auto-switch to workbench on new generation ──────────────────────
+  useEffect(() => {
+    const count = activeAssistantItems.length;
+
+    // Initialize ref on first render — don't auto-switch for existing history
+    if (prevAssistantItemCountRef.current === null) {
+      prevAssistantItemCountRef.current = count;
+      return;
+    }
+
+    // Only act when a new assistant item appears
+    if (count <= prevAssistantItemCountRef.current) {
+      prevAssistantItemCountRef.current = count;
+      return;
+    }
+
+    prevAssistantItemCountRef.current = count;
+
+    // Check if the latest item has preview-ready files (STL/3MF)
+    const latest = activeAssistantItems[count - 1];
+    const hasPreviewFile = latest.segments.some((segment) =>
+      segment.files.some((file) => {
+        const ext = fileExtension(file.path);
+        return ext === ".stl" || ext === ".3mf";
+      }),
+    );
+
+    if (!hasPreviewFile) {
+      return;
+    }
+
+    // Auto-switch only on mobile (below xl breakpoint = 1280px)
+    if (window.innerWidth < 1280) {
+      setMobilePane("workbench");
+    }
+  }, [activeAssistantItems]);
 
   async function createContextAction(overrideName?: string) {
     if (!token) {
@@ -480,12 +554,15 @@ export function ChatPage() {
         throw new Error("Unable to create or resolve context.");
       }
 
-      await submitQuery({
+      const result = await submitQuery({
         token,
         contextId: targetContextId,
         prompt: buildEffectivePrompt(trimmedPrompt),
         attachments: queuedAttachments.length > 0 ? queuedAttachments : undefined,
       });
+
+      // Start listening for streaming events for the newly created assistant item
+      setStreamingAssistantItemId(result.assistantItem.id);
 
       const loaded = await listChatItems(token, targetContextId);
       setItems(loaded);
@@ -705,27 +782,40 @@ export function ChatPage() {
               ) : null}
 
               {timelineItems.length === 0 && !optimisticPrompt ? (
-                <EmptyState
-                  title="Start modeling"
-                  description="Write your first prompt. A chat context is created automatically on first send."
-                />
+                <>
+                  <EmptyState
+                    title="Start modeling"
+                    description="Write your first prompt. A chat context is created automatically on first send."
+                  />
+                  <CapabilityHints className="mb-2" />
+                  <ExamplePrompts onSelectPrompt={(text) => setPrompt(text)} />
+                </>
               ) : null}
 
-              {visibleTimelineItems.map((item) => (
-                <MessageBubble
-                  key={item.id}
-                  item={item}
-                  isSelected={selectedAssistantItemId === item.id}
-                  busyAction={busyAction}
-                  onSelect={(itemId) => {
-                    setSelectedAssistantItemId(itemId);
-                    setMobilePane("workbench");
-                  }}
-                  onRate={(rateItem, rating) => void rateItemAction(rateItem, rating)}
-                  onRegenerate={(assistantItemId) => void regenerateAction(assistantItemId)}
-                  onDownloadFile={(filePath) => void downloadFileAction(filePath)}
-                />
-              ))}
+              {visibleTimelineItems.map((item) => {
+                const isStreamingItem = item.role === "assistant" && item.id === streamingAssistantItemId;
+                return (
+                  <MessageBubble
+                    key={item.id}
+                    item={item}
+                    isSelected={selectedAssistantItemId === item.id}
+                    busyAction={busyAction}
+                    token={token}
+                    streamingText={isStreamingItem ? streamingText : undefined}
+                    streamingError={isStreamingItem ? streamingError : undefined}
+                    isStreaming={isStreamingItem ? isStreaming : undefined}
+                    onSelect={(itemId) => {
+                      setSelectedAssistantItemId(itemId);
+                      setMobilePane("workbench");
+                    }}
+                    onRate={(rateItem, rating) => void rateItemAction(rateItem, rating)}
+                    onRegenerate={(assistantItemId) => void regenerateAction(assistantItemId)}
+                    onDownloadFile={(filePath) => void downloadFileAction(filePath)}
+                  />
+                );
+              })}
+
+              {showTypingIndicator ? <TypingIndicator queryState={queryState} /> : null}
 
               {optimisticPrompt ? (
                 <>
@@ -764,6 +854,7 @@ export function ChatPage() {
               busyAction={busyAction}
               hasAssistantItems={activeAssistantItems.length > 0}
               activeContextId={activeContextId}
+              isStreaming={isStreaming}
               onSubmit={() => void submitPromptAction()}
               onAttachFiles={(files) => void uploadSelectedFilesAction(files)}
               onRemoveAttachment={(path) => setQueuedAttachments((current) => current.filter((a) => a.path !== path))}
@@ -783,6 +874,8 @@ export function ChatPage() {
             selectedAssistantFiles={selectedAssistantFiles}
             selectedPreviewFile={selectedPreviewFile}
             queryStates={queryStates}
+            modelVersions={modelVersions}
+            selectedVersionId={selectedAssistantItemId}
             conversationModels={conversationModels}
             codegenModels={codegenModels}
             conversationModelId={conversationModelId}
@@ -800,6 +893,7 @@ export function ChatPage() {
             onAdvancedPromptChange={setAdvancedPrompt}
             onSaveModelSelection={() => void saveModelSelectionAction()}
             onDownloadFile={(filePath) => void downloadFileAction(filePath)}
+            onSelectVersion={setSelectedAssistantItemId}
           />
         </aside>
       </div>

@@ -3,9 +3,17 @@
 ## Service Startup
 
 ```bash
-docker compose up --build -d
+# Full rebuild (all services including build123d — takes ~15-20 min on ARM Macs)
+docker compose build
+docker compose up -d
 docker compose ps
 ```
+
+> **Tip:** To rebuild only specific services (e.g. after backend/frontend changes), use the two-step approach to avoid unnecessarily rebuilding heavy services like `build123d`:
+> ```bash
+> docker compose build backend frontend
+> docker compose up -d
+> ```
 
 Expected long-running services include:
 - `backend`

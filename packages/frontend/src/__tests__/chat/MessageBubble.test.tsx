@@ -79,6 +79,7 @@ describe("MessageBubble — Property 1: renders role and text content", () => {
             item={item}
             isSelected={false}
             busyAction={null}
+            token={null}
             onSelect={noopSelect}
             onRate={noopRate}
             onRegenerate={noopRegenerate}

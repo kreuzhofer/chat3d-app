@@ -53,18 +53,18 @@ The app is functionally complete through milestones M1–M15 and design upgrades
 |-------|-------------|--------|
 | DQ1 | Design tokens, icons, animation primitives, skeleton/spinner/code-block components | **Complete** |
 | DQ2 | Dialog/drawer/toast transitions, badge tokens, avatar, select, button upgrades | **Complete** |
-| DQ3 | Chat page icons, rating icons, ModelViewer responsive + ResizeObserver, custom Select | **Partially complete** — icons and viewer done; component extraction not done |
-| DQ4 | Public pages icons, login/register branding, password toggle/strength | **Mostly complete** — waitlist stepper not done |
-| DQ5 | Admin KPI indicators, avatar in user list | **Partially complete** — indicators done; component extraction not done |
+| DQ3 | Chat page icons, rating icons, ModelViewer responsive + ResizeObserver, custom Select, ChatPage component extraction | **Complete** |
+| DQ4 | Public pages icons, login/register branding, password toggle/strength, waitlist visual stepper | **Complete** |
+| DQ5 | Admin KPI indicators, avatar in user list, AdminPanel component extraction | **Complete** |
 | DQ6 | Dark mode, theme toggle | **Complete** |
 
-### Open Design Debt
+### Resolved Design Debt (spec 001-design-debt-resolution)
 
-These items were planned in DQ3–DQ5 but not yet implemented:
+All three open design debts have been resolved:
 
-- [ ] **ChatPage component extraction** — ChatPage.tsx is 1,374 lines. Extract ContextSidebar, MessageBubble, PromptComposer, WorkbenchPane into separate files.
-- [ ] **AdminPanel component extraction** — AdminPanel.tsx is ~1,000 lines. Extract DashboardTab, UsersTab, WaitlistTab, SettingsTab.
-- [ ] **Waitlist visual stepper** — The public waitlist page has no step visualization.
+- [x] **ChatPage component extraction** — ChatPage.tsx decomposed into ContextSidebar, MessageBubble, PromptComposer, WorkbenchPane under `components/chat/`, with shared utilities in `chat/utils.ts`. ChatPage now composes these sub-components and is under 200 lines.
+- [x] **AdminPanel component extraction** — AdminPanel.tsx decomposed into DashboardTab, UsersTab, WaitlistTab, SettingsTab under `components/admin/`, with shared utilities in `admin/utils.ts`. AdminPanel now composes these tab sub-components and is under 150 lines.
+- [x] **Waitlist visual stepper** — WaitlistStepper component renders a three-step progress indicator (Join → Confirm Email → Approved) with status-driven step states, Design_Token colors, lucide-react icons, ARIA accessibility attributes, and responsive layout. Integrated into WaitlistPanel above the existing flow content.
 
 ---
 
@@ -149,18 +149,9 @@ The app works end-to-end, but the UX doesn't yet feel like a polished conversati
 - [ ] On mobile, auto-switch to preview pane when a new model is generated
 - [ ] Add a fullscreen toggle for the 3D preview
 
-### 6. Component Architecture (Technical Debt)
+### 6. Component Architecture (Technical Debt) — ✅ Resolved
 
-**Problem:** ChatPage.tsx (1,374 lines) and AdminPanel.tsx (~1,000 lines) are monolithic single-file components. This makes them hard to maintain, test, and extend.
-
-**What good looks like:**
-- ChatPage composed of ContextSidebar, ThreadPane, PromptComposer, WorkbenchPane
-- AdminPanel composed of DashboardTab, UsersTab, WaitlistTab, SettingsTab
-- Each sub-component is independently testable
-
-**Concrete improvements:**
-- [ ] Extract ChatPage into sub-components (ContextSidebar, MessageBubble, PromptComposer, WorkbenchPane)
-- [ ] Extract AdminPanel into sub-components (DashboardTab, UsersTab, WaitlistTab, SettingsTab)
+Resolved via spec 001-design-debt-resolution. ChatPage is now composed of ContextSidebar, MessageBubble, PromptComposer, WorkbenchPane. AdminPanel is composed of DashboardTab, UsersTab, WaitlistTab, SettingsTab. Each sub-component is independently testable with property-based tests.
 
 ---
 
@@ -194,9 +185,9 @@ The app works end-to-end, but the UX doesn't yet feel like a polished conversati
 ### Phase 4: Polish and Architecture
 > Priority: **Medium** — improves maintainability and completeness
 
-- Extract ChatPage into sub-components
-- Extract AdminPanel into sub-components
-- Waitlist visual stepper
+- ~~Extract ChatPage into sub-components~~ ✅
+- ~~Extract AdminPanel into sub-components~~ ✅
+- ~~Waitlist visual stepper~~ ✅
 - ModelViewer fullscreen toggle and camera controls
 - Mobile auto-switch to preview on generation
 

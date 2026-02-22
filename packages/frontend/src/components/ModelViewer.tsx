@@ -3,9 +3,11 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
-import { Box, Maximize2, Minimize2, RotateCcw, RefreshCw } from "lucide-react";
+import { Box, RefreshCw } from "lucide-react";
 import { downloadFileBinary } from "../api/files.api";
+import { cn } from "../lib/cn";
 import { Button } from "./ui/button";
+import { CameraControlsToolbar } from "./chat/CameraControlsToolbar";
 import { Skeleton } from "./ui/skeleton";
 
 interface ModelViewerProps {
@@ -70,6 +72,18 @@ export function ModelViewer({ token, filePath }: ModelViewerProps) {
       });
     }
   }, []);
+
+  // Exit fullscreen on Escape key
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isFullscreen]);
 
   useEffect(() => {
     if (!isActivated) {
@@ -234,7 +248,14 @@ export function ModelViewer({ token, filePath }: ModelViewerProps) {
   }
 
   return (
-    <div className="space-y-2">
+    <div
+      className={cn(
+        "relative",
+        isFullscreen
+          ? "fixed inset-0 z-50 bg-[hsl(var(--surface-1))]"
+          : "space-y-2",
+      )}
+    >
       {(viewerState === "loading" || viewerState === "idle") && (
         <div className="space-y-3 p-4">
           <div className="flex items-center gap-2 text-sm text-[hsl(var(--muted-foreground))]">
@@ -260,27 +281,23 @@ export function ModelViewer({ token, filePath }: ModelViewerProps) {
           </Button>
         </div>
       )}
-      {/* Viewer toolbar */}
+      {/* Camera controls toolbar */}
       {viewerState === "loaded" && (
-        <div className="flex items-center gap-1">
-          <Button size="sm" variant="ghost" iconLeft={<RotateCcw className="h-3.5 w-3.5" />} onClick={handleResetCamera}>
-            Reset View
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            iconLeft={isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-            onClick={() => setIsFullscreen((prev) => !prev)}
-          >
-            {isFullscreen ? "Exit Fullscreen" : "Expand"}
-          </Button>
-        </div>
+        <CameraControlsToolbar
+          onResetView={handleResetCamera}
+          onZoomToFit={handleResetCamera}
+          onToggleFullscreen={() => setIsFullscreen((prev) => !prev)}
+          isFullscreen={isFullscreen}
+          className="absolute bottom-3 left-3 z-10"
+        />
       )}
       <div
         ref={hostRef}
-        className={`w-full overflow-hidden rounded-md border border-[hsl(var(--border))] transition-all ${
-          isFullscreen ? "h-[70vh]" : "h-[320px]"
-        } ${viewerState === "loading" || viewerState === "idle" ? "hidden" : ""}`}
+        className={cn(
+          "w-full overflow-hidden rounded-md border border-[hsl(var(--border))] transition-all",
+          isFullscreen ? "h-full" : "h-[320px]",
+          (viewerState === "loading" || viewerState === "idle") && "hidden",
+        )}
       />
     </div>
   );

@@ -11,6 +11,7 @@ import {
 import type { QueryAttachment } from "../../api/query.api";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
+import { CapabilityHints } from "./CapabilityHints";
 
 export interface PromptComposerProps {
   prompt: string;
@@ -19,6 +20,8 @@ export interface PromptComposerProps {
   busyAction: string | null;
   hasAssistantItems: boolean;
   activeContextId: string | null;
+  /** When true, the send button is disabled to prevent concurrent submissions. */
+  isStreaming?: boolean;
   onSubmit: () => void;
   onAttachFiles: (files: File[]) => void;
   onRemoveAttachment: (path: string) => void;
@@ -32,6 +35,7 @@ export function PromptComposer({
   busyAction,
   hasAssistantItems,
   activeContextId,
+  isStreaming = false,
   onSubmit,
   onAttachFiles,
   onRemoveAttachment,
@@ -129,11 +133,12 @@ export function PromptComposer({
               Regenerate
             </Button>
           ) : null}
+          <CapabilityHints />
         </div>
         <Button
           iconLeft={<Send className="h-4 w-4" />}
           loading={busyAction === "submit-prompt"}
-          disabled={busyAction !== null || prompt.trim() === ""}
+          disabled={busyAction !== null || isStreaming || prompt.trim() === ""}
           onClick={onSubmit}
         >
           Send

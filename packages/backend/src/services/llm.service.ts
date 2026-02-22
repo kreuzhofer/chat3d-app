@@ -1,9 +1,11 @@
-import { generateText } from "ai";
+import { generateText, streamText } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createXai } from "@ai-sdk/xai";
 import { config } from "../config.js";
+import { getBuild123dReference } from "../data/build123d-api-reference.js";
+import type { ConversationHistoryEntry } from "./query.service.js";
 
 type LlmProvider = "mock" | "openai" | "anthropic" | "xai" | "ollama";
 
@@ -309,6 +311,73 @@ async function generateWithProvider(model: LlmModelDefinition, prompt: string): 
   throw new LlmServiceError(`Unsupported LLM provider: ${model.provider}`, 500);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function resolveProviderModel(model: LlmModelDefinition): any {
+  if (model.provider === "openai") {
+    if (!config.query.openAiApiKey) {
+      throw new LlmServiceError("OPENAI_API_KEY is required for OpenAI provider", 500);
+    }
+    return createOpenAI({ apiKey: config.query.openAiApiKey })(model.modelName);
+  }
+
+  if (model.provider === "anthropic") {
+    if (!config.query.anthropicApiKey) {
+      throw new LlmServiceError("ANTHROPIC_API_KEY is required for Anthropic provider", 500);
+    }
+    return createAnthropic({ apiKey: config.query.anthropicApiKey })(model.modelName);
+  }
+
+  if (model.provider === "xai") {
+    if (!config.query.xaiApiKey) {
+      throw new LlmServiceError("XAI_API_KEY is required for xAI provider", 500);
+    }
+    return createXai({ apiKey: config.query.xaiApiKey })(model.modelName);
+  }
+
+  if (model.provider === "ollama") {
+    const normalizedBaseUrl = config.query.ollamaBaseUrl.replace(/\/+$/, "");
+    const baseUrlWithVersion = normalizedBaseUrl.endsWith("/v1") ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
+    const ollama = createOpenAICompatible({
+      name: "ollama",
+      baseURL: baseUrlWithVersion,
+      apiKey: config.query.ollamaToken.trim() === "" ? undefined : config.query.ollamaToken.trim(),
+    });
+    return ollama.chatModel(model.modelName);
+  }
+
+  throw new LlmServiceError(`Unsupported LLM provider: ${model.provider}`, 500);
+}
+
+async function streamWithProvider(
+  model: LlmModelDefinition,
+  prompt: string,
+  onToken: (token: string) => void,
+): Promise<ProviderGenerationResult> {
+  const providerModel = resolveProviderModel(model);
+
+  const result = streamText({
+    model: providerModel,
+    prompt,
+  });
+
+  let fullText = "";
+  for await (const chunk of result.textStream) {
+    fullText += chunk;
+    onToken(chunk);
+  }
+
+  const finalResult = await result;
+
+  if (fullText.trim() === "") {
+    throw new LlmServiceError("LLM returned empty output", 502);
+  }
+
+  return {
+    text: fullText.trim(),
+    usageRaw: finalResult.usage,
+  };
+}
+
 export function listLlmModels(): LlmModelDefinition[] {
   const configuredConversation = {
     id: `conversation-${config.query.conversationProvider}-${config.query.conversationModelName}`,
@@ -332,16 +401,52 @@ export function listLlmModels(): LlmModelDefinition[] {
   return [...unique.values()];
 }
 
+/**
+ * Format conversation history entries into a text block for LLM prompts.
+ * Returns empty string if no history is available.
+ */
+export function formatConversationHistory(history?: ConversationHistoryEntry[]): string {
+  if (!history || history.length === 0) return "";
+
+  const lines = ["## Conversation History"];
+  for (const entry of history) {
+    const roleLabel = entry.role === "user" ? "User" : "Assistant";
+    lines.push(`[${entry.sequencePosition}] ${roleLabel}: ${entry.text}`);
+    if (entry.code) {
+      lines.push("```python", entry.code, "```");
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Find the most recent Build123d code from conversation history.
+ * Used as the baseline for modification in codegen prompts.
+ */
+export function findMostRecentCode(history?: ConversationHistoryEntry[]): string | undefined {
+  if (!history || history.length === 0) return undefined;
+  // Walk backwards to find the most recent assistant entry with code
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].role === "assistant" && history[i].code) {
+      return history[i].code;
+    }
+  }
+  return undefined;
+}
+
 export async function generateConversationText(input: {
   prompt: string;
   contextName: string;
+  conversationHistory?: ConversationHistoryEntry[];
 }): Promise<ConversationGenerationResult> {
   const model = selectModel("conversation");
+  const historyBlock = formatConversationHistory(input.conversationHistory);
   const prompt = [
     "You are a CAD copilot. Answer briefly and provide practical modeling guidance.",
     `Chat context: ${input.contextName}`,
+    historyBlock,
     `User request: ${input.prompt}`,
-  ].join("\n\n");
+  ].filter(Boolean).join("\n\n");
 
   if (model.provider === "mock") {
     const text = `Mock assistant response for context "${input.contextName}": ${input.prompt}`;
@@ -371,9 +476,117 @@ export async function generateConversationText(input: {
   };
 }
 
+export async function generateConversationTextStream(input: {
+  prompt: string;
+  contextName: string;
+  onToken: (token: string) => void;
+  conversationHistory?: ConversationHistoryEntry[];
+}): Promise<ConversationGenerationResult> {
+  const model = selectModel("conversation");
+  const historyBlock = formatConversationHistory(input.conversationHistory);
+  const prompt = [
+    "You are a CAD copilot. Answer briefly and provide practical modeling guidance.",
+    `Chat context: ${input.contextName}`,
+    historyBlock,
+    `User request: ${input.prompt}`,
+  ].filter(Boolean).join("\n\n");
+
+  if (model.provider === "mock") {
+    const text = `Mock assistant response for context "${input.contextName}": ${input.prompt}`;
+    // Simulate streaming by emitting the mock response word by word
+    for (const word of text.split(" ")) {
+      input.onToken(word + " ");
+    }
+    return {
+      model,
+      text,
+      usage: buildUsageMetadata({
+        model,
+        prompt,
+        outputText: text,
+        providerUsageRaw: null,
+      }),
+    };
+  }
+
+  const result = await streamWithProvider(model, prompt, input.onToken);
+
+  return {
+    model,
+    text: result.text,
+    usage: buildUsageMetadata({
+      model,
+      prompt,
+      outputText: result.text,
+      providerUsageRaw: result.usageRaw,
+    }),
+  };
+}
+
+export function buildCodegenPrompt(
+  baseFileName: string,
+  userPrompt: string,
+  conversationText: string,
+  conversationHistory?: ConversationHistoryEntry[],
+): string {
+  const { entries, examples } = getBuild123dReference();
+
+  const classReference = entries
+    .map((e) => `  - ${e.className}: ${e.signature} — ${e.description}`)
+    .join("\n");
+
+  const exampleSnippets = examples
+    .map((ex) => `### ${ex.operation}: ${ex.description}\n\`\`\`python\n${ex.code}\n\`\`\``)
+    .join("\n\n");
+
+  const sections = [
+    "Generate valid Python build123d code.",
+    "",
+    "## Build123d API Reference — Available Classes and Functions",
+    classReference,
+    "",
+    "## Example Code Snippets",
+    exampleSnippets,
+    "",
+    "Use ONLY the classes and functions listed above. Do NOT invent or hallucinate classes that are not in this reference.",
+    "",
+  ];
+
+  // Include most recent code as baseline for modification (Req 10.3, 11.1)
+  const baselineCode = findMostRecentCode(conversationHistory);
+  if (baselineCode) {
+    sections.push(
+      "## Previous Code (baseline for modification)",
+      "Modify this existing code based on the user's follow-up request. Preserve working parts and apply the requested changes.",
+      "```python",
+      baselineCode,
+      "```",
+      "",
+    );
+  }
+
+  // Include conversation history for context (Req 10.1, 10.4)
+  const historyBlock = formatConversationHistory(conversationHistory);
+  if (historyBlock) {
+    sections.push(historyBlock, "");
+  }
+
+  sections.push(
+    "## Requirements",
+    `- Export one STEP file with base filename ${baseFileName}.step`,
+    "- Code must be executable as-is.",
+    "",
+    `User request: ${userPrompt}`,
+    `Assistant planning notes: ${conversationText}`,
+  );
+
+  return sections.join("\n");
+}
+
 export async function generateBuild123dCode(input: {
   prompt: string;
   conversationText: string;
+  conversationHistory?: ConversationHistoryEntry[];
 }): Promise<CodeGenerationResult> {
   const model = selectModel("codegen");
   const baseFileName = sanitizeBaseFileName(input.prompt);
@@ -385,14 +598,7 @@ with BuildPart() as model:
     Box(20, 20, 20)
 export_step(model.part, "${baseFileName}.step")
       `.trim();
-    const prompt = [
-      "Generate valid Python build123d code.",
-      "Requirements:",
-      `- Export one STEP file with base filename ${baseFileName}.step`,
-      "- Code must be executable as-is.",
-      `User request: ${input.prompt}`,
-      `Assistant planning notes: ${input.conversationText}`,
-    ].join("\n");
+    const prompt = buildCodegenPrompt(baseFileName, input.prompt, input.conversationText, input.conversationHistory);
 
     return {
       model,
@@ -407,14 +613,7 @@ export_step(model.part, "${baseFileName}.step")
     };
   }
 
-  const prompt = [
-    "Generate valid Python build123d code.",
-    "Requirements:",
-    `- Export one STEP file with base filename ${baseFileName}.step`,
-    "- Code must be executable as-is.",
-    `User request: ${input.prompt}`,
-    `Assistant planning notes: ${input.conversationText}`,
-  ].join("\n");
+  const prompt = buildCodegenPrompt(baseFileName, input.prompt, input.conversationText, input.conversationHistory);
 
   const result = await generateWithProvider(model, prompt);
   const code = extractExecutableCode(result.text);

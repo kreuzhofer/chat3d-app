@@ -1,7 +1,8 @@
 import { lazy, Suspense, useState } from "react";
-import { Download, FileText, Save } from "lucide-react";
+import { Download, FileText, History, Save } from "lucide-react";
 import type { ChatTimelineItem } from "../../features/chat/chat-adapters";
 import type { LlmModel } from "../../api/query.api";
+import type { ModelVersionEntry } from "./utils";
 import { fileExtension } from "./utils";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -24,6 +25,8 @@ export interface WorkbenchPaneProps {
   selectedAssistantFiles: Array<{ path: string; filename: string }>;
   selectedPreviewFile: { path: string; filename: string } | null;
   queryStates: Array<{ id: number; state: string; detail: string; createdAt: string }>;
+  modelVersions: ModelVersionEntry[];
+  selectedVersionId: string | null;
   conversationModels: LlmModel[];
   codegenModels: LlmModel[];
   conversationModelId: string;
@@ -41,6 +44,7 @@ export interface WorkbenchPaneProps {
   onAdvancedPromptChange: (value: string) => void;
   onSaveModelSelection: () => void;
   onDownloadFile: (filePath: string) => void;
+  onSelectVersion: (assistantItemId: string) => void;
 }
 
 const rightPaneTabs = [
@@ -55,6 +59,8 @@ export function WorkbenchPane({
   selectedAssistantFiles,
   selectedPreviewFile,
   queryStates,
+  modelVersions,
+  selectedVersionId,
   conversationModels,
   codegenModels,
   conversationModelId,
@@ -72,6 +78,7 @@ export function WorkbenchPane({
   onAdvancedPromptChange,
   onSaveModelSelection,
   onDownloadFile,
+  onSelectVersion,
 }: WorkbenchPaneProps) {
   const [rightPaneTab, setRightPaneTab] = useState<RightPaneTab>("preview");
 
@@ -232,21 +239,40 @@ export function WorkbenchPane({
       </TabPanel>
 
       <TabPanel hidden={rightPaneTab !== "history"}>
-        {queryStates.length === 0 ? (
-          <EmptyState title="No query history" description="Run a query to capture state transitions here." />
+        {modelVersions.length === 0 ? (
+          <EmptyState title="No model versions" description="Generate a model to see version history here." />
         ) : (
-          <ul className="space-y-2">
-            {queryStates.map((state) => (
-              <li key={state.id} className="rounded-md border border-[hsl(var(--border))] p-2 text-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium">{state.state}</span>
-                  <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {new Date(state.createdAt).toLocaleTimeString()}
-                  </span>
-                </div>
-                {state.detail ? <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{state.detail}</p> : null}
-              </li>
-            ))}
+          <ul className="space-y-2" role="list" aria-label="Model version history">
+            {modelVersions.map((version) => {
+              const isSelected = selectedVersionId === version.assistantItemId;
+              return (
+                <li key={version.assistantItemId}>
+                  <button
+                    type="button"
+                    className={`w-full rounded-md border p-2 text-left text-sm transition ${
+                      isSelected
+                        ? "border-[hsl(var(--primary))] bg-[hsl(var(--primary)_/_0.08)] ring-1 ring-[hsl(var(--primary)_/_0.3)]"
+                        : "border-[hsl(var(--border))] hover:bg-[hsl(var(--muted)_/_0.5)]"
+                    }`}
+                    aria-current={isSelected ? "true" : undefined}
+                    onClick={() => onSelectVersion(version.assistantItemId)}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5">
+                        <History className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--muted-foreground))]" />
+                        <span className="font-medium">v{version.sequenceNumber}</span>
+                      </span>
+                      <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                        {new Date(version.timestamp).toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-xs text-[hsl(var(--muted-foreground))]">
+                      {version.promptSummary}
+                    </p>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </TabPanel>

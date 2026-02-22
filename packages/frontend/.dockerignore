@@ -1,0 +1,10 @@
+node_modules
+dist
+e2e
+*.log
+.env
+.env.*
+.DS_Store
+tsconfig.tsbuildinfo
+vitest.config.ts
+playwright.config.ts

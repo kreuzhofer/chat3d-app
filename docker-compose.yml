@@ -29,6 +29,7 @@ services:
 
   build123d:
     platform: linux/amd64
+    image: chat3d-build123d:local
     build:
       context: ./services/build123d
       dockerfile: Dockerfile
