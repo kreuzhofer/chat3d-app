@@ -561,13 +561,14 @@ export function ChatPage() {
         attachments: queuedAttachments.length > 0 ? queuedAttachments : undefined,
       });
 
-      // Start listening for streaming events for the newly created assistant item
+      // Start listening for streaming events immediately — the backend now returns
+      // the assistant item ID before the pipeline runs, so SSE events arrive in real-time
       setStreamingAssistantItemId(result.assistantItem.id);
 
+      // Load items to show the pending assistant item in the timeline
       const loaded = await listChatItems(token, targetContextId);
       setItems(loaded);
       setQueuedAttachments([]);
-      setMessage("Prompt submitted.");
       setMobilePane("thread");
     } catch (actionError) {
       setError(toErrorMessage(actionError));

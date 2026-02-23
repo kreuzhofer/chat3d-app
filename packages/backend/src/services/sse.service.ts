@@ -37,13 +37,13 @@ export class SseService {
       userId,
       response,
       heartbeatTimer: setInterval(() => {
-        response.write(": heartbeat\\n\\n");
+        response.write(": heartbeat\n\n");
       }, this.heartbeatIntervalMs),
     };
 
     this.addClient(client);
 
-    response.write(": connected\\n\\n");
+    response.write(": connected\n\n");
 
     for (const replayEvent of replayEvents) {
       this.sendToClient(client, replayEvent);
@@ -138,9 +138,9 @@ export class SseService {
       createdAt: event.createdAt,
     });
 
-    client.response.write(`id: ${event.id}\\n`);
-    client.response.write(`event: ${event.eventType}\\n`);
-    client.response.write(`data: ${payload}\\n\\n`);
+    client.response.write(`id: ${event.id}\n`);
+    client.response.write(`event: ${event.eventType}\n`);
+    client.response.write(`data: ${payload}\n\n`);
   }
 }
 

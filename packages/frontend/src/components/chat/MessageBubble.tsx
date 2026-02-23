@@ -82,10 +82,10 @@ export function MessageBubble({
       </div>
 
       <div className="space-y-1.5">
-        {/* When streaming is active, show streaming text as plain text (incremental append) */}
+        {/* When streaming is active, render streaming text with markdown (incremental append) */}
         {hasStreamingContent ? (
           <div className="rounded-md px-1" data-testid="streaming-content">
-            <p className="whitespace-pre-wrap text-sm">{streamingText}</p>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
           </div>
         ) : null}
 
@@ -93,7 +93,7 @@ export function MessageBubble({
         {!isStreaming && streamingError && streamingText ? (
           <>
             <div className="rounded-md px-1" data-testid="streaming-partial-content">
-              <p className="whitespace-pre-wrap text-sm">{streamingText}</p>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
             </div>
             <div
               className="flex items-center gap-2 rounded-md border border-[hsl(var(--warning)_/_0.5)] bg-[hsl(var(--warning)_/_0.08)] px-2 py-1.5 text-sm text-[hsl(var(--warning-foreground,var(--foreground)))]"

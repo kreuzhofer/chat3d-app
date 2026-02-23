@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
-import { QueryServiceError, regenerateQuery, submitQuery } from "../services/query.service.js";
+import { QueryServiceError, initiateQuery, executeQueryPipeline, regenerateQuery } from "../services/query.service.js";
 
 export const queryRouter = Router();
 
@@ -33,13 +33,35 @@ queryRouter.post("/submit", async (req, res) => {
   }
 
   try {
-    const result = await submitQuery({
+    const initiated = await initiateQuery({
       userId: authUser.id,
       contextId,
       prompt,
       attachments: req.body?.attachments,
     });
-    res.status(202).json(result);
+
+    // Return immediately so the frontend can start listening for SSE events
+    res.status(202).json({
+      contextId: initiated.contextId,
+      userItemId: initiated.userItem.id,
+      assistantItem: initiated.assistantItem,
+      generatedFiles: [],
+      llm: { conversationModel: "", codegenModel: "" },
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUsd: 0 },
+      renderer: "pending",
+    });
+
+    // Fire pipeline in background — progress is communicated via SSE
+    void executeQueryPipeline({
+      userId: authUser.id,
+      contextId: initiated.contextId,
+      prompt: initiated.prompt,
+      attachments: initiated.attachments,
+      context: initiated.context,
+      userItemId: initiated.userItem.id,
+      assistantItemId: initiated.assistantItem.id,
+      stream: true,
+    });
   } catch (error) {
     sendKnownError(res, error);
   }

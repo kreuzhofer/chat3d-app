@@ -7,6 +7,7 @@ import {
   generateBuild123dCode,
   generateConversationText,
   generateConversationTextStream,
+  parseConversationResponse,
   LlmServiceError,
   type LlmUsageMetadata,
 } from "./llm.service.js";
@@ -467,6 +468,398 @@ function summarizeArtifacts(generatedFiles: Array<{ path: string; filename: stri
   };
 }
 
+/**
+ * Create user and assistant chat items for a query, returning the IDs immediately.
+ * The actual pipeline (conversation → codegen → rendering) runs separately.
+ */
+export async function initiateQuery(input: {
+  userId: string;
+  contextId: string;
+  prompt: string;
+  attachments?: unknown;
+}) {
+  const prompt = input.prompt.trim();
+  if (prompt === "") {
+    throw new QueryServiceError("prompt is required", 400);
+  }
+  const attachments = normalizeQueryAttachments(input.attachments);
+
+  const context = await ensureOwnedContext(input.userId, input.contextId);
+  await assertAttachmentsAccessible(input.userId, attachments);
+
+  const userMessages = [
+    { itemType: "message", text: prompt, state: "completed", stateMessage: "" },
+    ...attachments.map((attachment) => ({
+      itemType: "attachment",
+      text: `${attachment.kind === "image" ? "Image" : "File"} attached: ${attachment.filename}`,
+      attachment: attachment.path,
+      filename: attachment.filename,
+      mimeType: attachment.mimeType,
+      attachmentKind: attachment.kind,
+      state: "completed",
+      stateMessage: "",
+      files: [{ path: attachment.path, filename: attachment.filename }],
+    })),
+  ];
+
+  const userItem = await createChatItem({
+    userId: input.userId,
+    contextId: input.contextId,
+    role: "user",
+    messages: userMessages,
+  });
+
+  const assistantItem = await createChatItem({
+    userId: input.userId,
+    contextId: input.contextId,
+    role: "assistant",
+    messages: [{ itemType: "message", text: "Working on your request...", state: "pending", stateMessage: "" }],
+  });
+
+  return {
+    contextId: input.contextId,
+    userItem,
+    assistantItem,
+    prompt,
+    attachments,
+    context,
+  };
+}
+
+/**
+ * Run the full query pipeline (conversation → codegen → rendering).
+ * Publishes progress via SSE. Called after initiateQuery returns.
+ */
+export async function executeQueryPipeline(input: {
+  userId: string;
+  contextId: string;
+  prompt: string;
+  attachments: QueryAttachmentInput[];
+  context: ChatContextRow;
+  userItemId: string;
+  assistantItemId: string;
+  stream?: boolean;
+}) {
+  const { prompt, attachments } = input;
+  const context = input.context;
+  const assistantItemId = input.assistantItemId;
+
+  await publishQueryState({
+    userId: input.userId,
+    contextId: input.contextId,
+    assistantItemId,
+    state: "queued",
+  });
+
+  try {
+    await publishQueryState({
+      userId: input.userId,
+      contextId: input.contextId,
+      assistantItemId,
+      state: "conversation",
+    });
+
+    // Buffer to strip the leading intent tag ([CHAT_ONLY] / [CODEGEN_NEEDED]) from streamed tokens.
+    // Once the tag is consumed, remaining tokens pass through directly.
+    let tagBuffer = "";
+    let tagStripped = false;
+
+    const onToken = input.stream
+      ? (token: string) => {
+          if (!tagStripped) {
+            tagBuffer += token;
+            // Check if we've accumulated enough to detect and strip the tag
+            const chatMatch = tagBuffer.match(/^\[CHAT_ONLY\]\s*/);
+            const codegenMatch = tagBuffer.match(/^\[CODEGEN_NEEDED\]\s*/);
+            const match = chatMatch || codegenMatch;
+            if (match) {
+              tagStripped = true;
+              const remainder = tagBuffer.slice(match[0].length);
+              if (remainder) {
+                sseService.publishStreamToken(input.userId, {
+                  contextId: input.contextId,
+                  assistantItemId,
+                  token: remainder,
+                  done: false,
+                });
+              }
+              return;
+            }
+            // If buffer doesn't start with '[', it's not a tag — flush everything
+            if (!tagBuffer.startsWith("[")) {
+              tagStripped = true;
+              sseService.publishStreamToken(input.userId, {
+                contextId: input.contextId,
+                assistantItemId,
+                token: tagBuffer,
+                done: false,
+              });
+              return;
+            }
+            // Still accumulating — wait for more tokens (max reasonable tag length ~20 chars)
+            if (tagBuffer.length > 20) {
+              // Tag too long, not a valid tag — flush buffer
+              tagStripped = true;
+              sseService.publishStreamToken(input.userId, {
+                contextId: input.contextId,
+                assistantItemId,
+                token: tagBuffer,
+                done: false,
+              });
+            }
+            return;
+          }
+          sseService.publishStreamToken(input.userId, {
+            contextId: input.contextId,
+            assistantItemId,
+            token,
+            done: false,
+          });
+        }
+      : undefined;
+
+    const conversationPrompt = `${prompt}${formatAttachmentContext(attachments)}`;
+
+    // Fetch conversation history for iterative refinement (Req 10)
+    // Exclude the current user+assistant items we just created by fetching before they exist in context
+    // The items we just created are already in the DB, so we exclude them by fetching items
+    // created before the current user item. We use the item IDs to filter.
+    const conversationHistory = await buildConversationContext(
+      input.contextId,
+      input.userId,
+      5,
+      [input.userItemId, assistantItemId],
+    );
+
+    const conversation = input.stream && onToken
+      ? await generateConversationTextStream({
+          prompt: conversationPrompt,
+          contextName: context.name,
+          onToken,
+          conversationHistory,
+        })
+      : await generateConversationText({
+          prompt: conversationPrompt,
+          contextName: context.name,
+          conversationHistory,
+        });
+
+    if (input.stream) {
+      sseService.publishStreamToken(input.userId, {
+        contextId: input.contextId,
+        assistantItemId,
+        token: "",
+        done: true,
+      });
+    }
+
+    // Parse conversation response to determine if codegen is needed
+    const parsed = parseConversationResponse(conversation.text);
+    const conversationText = parsed.text;
+
+    // If the conversation is chat-only (no 3D model requested), skip codegen/rendering
+    if (!parsed.needsCodegen) {
+      const chatOnlyMessages = [
+        {
+          itemType: "message",
+          text: conversationText,
+          state: "completed",
+          stateMessage: "",
+        },
+      ];
+
+      await updateChatItem({
+        userId: input.userId,
+        contextId: input.contextId,
+        itemId: assistantItemId,
+        messages: chatOnlyMessages,
+      });
+
+      await publishQueryState({
+        userId: input.userId,
+        contextId: input.contextId,
+        assistantItemId,
+        state: "completed",
+      });
+
+      return;
+    }
+
+    await publishQueryState({
+      userId: input.userId,
+      contextId: input.contextId,
+      assistantItemId,
+      state: "codegen",
+    });
+
+    const codegen = await generateBuild123dCode({
+      prompt: `${prompt}${formatAttachmentContext(attachments)}`,
+      conversationText,
+      conversationHistory,
+    });
+
+    await publishQueryState({
+      userId: input.userId,
+      contextId: input.contextId,
+      assistantItemId,
+      state: "rendering",
+    });
+
+    let activeCode = codegen.code;
+    let retryCodegen: typeof codegen | null = null;
+    let rendered: Awaited<ReturnType<typeof renderBuild123d>>;
+
+    try {
+      rendered = await renderBuild123d({
+        code: activeCode,
+        baseFileName: codegen.baseFileName,
+      });
+    } catch (renderError) {
+      if (!(renderError instanceof RenderingServiceError)) {
+        throw renderError;
+      }
+
+      await publishQueryState({
+        userId: input.userId,
+        contextId: input.contextId,
+        assistantItemId,
+        state: "retrying",
+        detail: "Retrying with error feedback",
+      });
+
+      const errorRecoveryContext = [
+        conversationText,
+        "",
+        "## Error Recovery",
+        "The previously generated code failed to render. Please fix the code based on the error below.",
+        "",
+        "### Failing Code",
+        "```python",
+        activeCode,
+        "```",
+        "",
+        "### Error Message",
+        renderError.message,
+        "",
+        "Generate corrected code that fixes this error. Do NOT repeat the same mistake.",
+      ].join("\n");
+
+      retryCodegen = await generateBuild123dCode({
+        prompt: `${prompt}${formatAttachmentContext(attachments)}`,
+        conversationText: errorRecoveryContext,
+      });
+
+      activeCode = retryCodegen.code;
+
+      await publishQueryState({
+        userId: input.userId,
+        contextId: input.contextId,
+        assistantItemId,
+        state: "rendering",
+      });
+
+      rendered = await renderBuild123d({
+        code: activeCode,
+        baseFileName: retryCodegen.baseFileName,
+      });
+    }
+
+    const generatedFiles: Array<{ path: string; filename: string }> = [];
+    for (const file of rendered.files) {
+      const extension = mapExtension(file.filename);
+      const relativePath = `modelcreator/${assistantItemId}.${extension}`;
+      await writeUserFile({
+        userId: input.userId,
+        relativePath,
+        contentBase64: file.contentBase64,
+      });
+      generatedFiles.push({
+        path: relativePath,
+        filename: file.filename,
+      });
+    }
+
+    const artifact = summarizeArtifacts(generatedFiles);
+    const usageRecords = [conversation.usage, codegen.usage];
+    if (retryCodegen) {
+      usageRecords.push(retryCodegen.usage);
+    }
+    const usage = summarizeUsage(usageRecords);
+
+    const assistantMessages = [
+      {
+        itemType: "message",
+        text: conversationText,
+        state: "completed",
+        stateMessage: "",
+      },
+      {
+        itemType: "3dmodel",
+        text:
+          artifact.previewStatus === "ready"
+            ? "Generated 3D preview."
+            : `Preview unavailable in-browser. ${artifact.detail}`,
+        attachment: artifact.previewFilePath ?? "",
+        state: "completed",
+        stateMessage: "",
+        artifact,
+        files: generatedFiles,
+      },
+      {
+        itemType: "meta",
+        text: "Generation diagnostics",
+        state: "completed",
+        stateMessage: "",
+        usage,
+        artifact,
+        llm: {
+          conversationModel: conversation.model.id,
+          codegenModel: (retryCodegen ?? codegen).model.id,
+          conversationUsage: conversation.usage,
+          codegenUsage: (retryCodegen ?? codegen).usage,
+        },
+        files: generatedFiles,
+      },
+    ];
+
+    await updateChatItem({
+      userId: input.userId,
+      contextId: input.contextId,
+      itemId: assistantItemId,
+      messages: assistantMessages,
+    });
+
+    await publishQueryState({
+      userId: input.userId,
+      contextId: input.contextId,
+      assistantItemId,
+      state: "completed",
+    });
+  } catch (error) {
+    await publishQueryState({
+      userId: input.userId,
+      contextId: input.contextId,
+      assistantItemId,
+      state: "failed",
+      detail: error instanceof Error ? error.message : String(error),
+    });
+
+    await updateChatItem({
+      userId: input.userId,
+      contextId: input.contextId,
+      itemId: assistantItemId,
+      messages: [
+        {
+          itemType: "errormessage",
+          text: error instanceof Error ? error.message : "Query failed",
+          state: "error",
+          stateMessage: "",
+        },
+      ],
+    });
+  }
+}
+
 export async function submitQuery(input: {
   userId: string;
   contextId: string;
@@ -527,8 +920,51 @@ export async function submitQuery(input: {
       state: "conversation",
     });
 
+    // Buffer to strip the leading intent tag ([CHAT_ONLY] / [CODEGEN_NEEDED]) from streamed tokens.
+    let regenTagBuffer = "";
+    let regenTagStripped = false;
+
     const onToken = input.stream
       ? (token: string) => {
+          if (!regenTagStripped) {
+            regenTagBuffer += token;
+            const chatMatch = regenTagBuffer.match(/^\[CHAT_ONLY\]\s*/);
+            const codegenMatch = regenTagBuffer.match(/^\[CODEGEN_NEEDED\]\s*/);
+            const match = chatMatch || codegenMatch;
+            if (match) {
+              regenTagStripped = true;
+              const remainder = regenTagBuffer.slice(match[0].length);
+              if (remainder) {
+                sseService.publishStreamToken(input.userId, {
+                  contextId: input.contextId,
+                  assistantItemId: assistantItem.id,
+                  token: remainder,
+                  done: false,
+                });
+              }
+              return;
+            }
+            if (!regenTagBuffer.startsWith("[")) {
+              regenTagStripped = true;
+              sseService.publishStreamToken(input.userId, {
+                contextId: input.contextId,
+                assistantItemId: assistantItem.id,
+                token: regenTagBuffer,
+                done: false,
+              });
+              return;
+            }
+            if (regenTagBuffer.length > 20) {
+              regenTagStripped = true;
+              sseService.publishStreamToken(input.userId, {
+                contextId: input.contextId,
+                assistantItemId: assistantItem.id,
+                token: regenTagBuffer,
+                done: false,
+              });
+            }
+            return;
+          }
           sseService.publishStreamToken(input.userId, {
             contextId: input.contextId,
             assistantItemId: assistantItem.id,
@@ -573,6 +1009,49 @@ export async function submitQuery(input: {
       });
     }
 
+    // Parse conversation response to determine if codegen is needed
+    const parsed = parseConversationResponse(conversation.text);
+    const conversationText = parsed.text;
+
+    // If the conversation is chat-only (no 3D model requested), skip codegen/rendering
+    if (!parsed.needsCodegen) {
+      const chatOnlyMessages = [
+        {
+          itemType: "message",
+          text: conversationText,
+          state: "completed",
+          stateMessage: "",
+        },
+      ];
+
+      const finalizedAssistantItem = await updateChatItem({
+        userId: input.userId,
+        contextId: input.contextId,
+        itemId: assistantItem.id,
+        messages: chatOnlyMessages,
+      });
+
+      await publishQueryState({
+        userId: input.userId,
+        contextId: input.contextId,
+        assistantItemId: assistantItem.id,
+        state: "completed",
+      });
+
+      return {
+        contextId: input.contextId,
+        userItemId: userItem.id,
+        assistantItem: finalizedAssistantItem,
+        generatedFiles: [],
+        llm: {
+          conversationModel: conversation.model.id,
+          codegenModel: "",
+        },
+        usage: summarizeUsage([conversation.usage]),
+        renderer: "none",
+      };
+    }
+
     await publishQueryState({
       userId: input.userId,
       contextId: input.contextId,
@@ -582,7 +1061,7 @@ export async function submitQuery(input: {
 
     const codegen = await generateBuild123dCode({
       prompt: `${prompt}${formatAttachmentContext(attachments)}`,
-      conversationText: conversation.text,
+      conversationText,
       conversationHistory,
     });
 
@@ -617,7 +1096,7 @@ export async function submitQuery(input: {
       });
 
       const errorRecoveryContext = [
-        conversation.text,
+        conversationText,
         "",
         "## Error Recovery",
         "The previously generated code failed to render. Please fix the code based on the error below.",
@@ -679,7 +1158,7 @@ export async function submitQuery(input: {
     const assistantMessages = [
       {
         itemType: "message",
-        text: conversation.text,
+        text: conversationText,
         state: "completed",
         stateMessage: "",
       },

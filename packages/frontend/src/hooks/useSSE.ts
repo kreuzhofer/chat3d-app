@@ -22,7 +22,12 @@ const SUPPORTED_EVENTS = [
   "notification.created",
   "admin.settings.updated",
   "account.status.changed",
+  "stream-token",
 ] as const;
+
+/** Reconnect delays: 1s, 2s, 4s, 8s, 15s, 30s (capped). */
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30000;
 
 function toQueryString(token: string, lastEventId: string | null): string {
   const params = new URLSearchParams({ token });
@@ -46,65 +51,115 @@ function setStoredLastEventId(id: string | null) {
 export function useSSE({ token, enabled = true, onMessage }: UseSseOptions) {
   const [state, setState] = useState<SseConnectionState>(enabled ? "connecting" : "idle");
   const sourceRef = useRef<EventSource | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retriesRef = useRef(0);
+  // Stable refs so the connect function always sees current values
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
+  const onMessageRef = useRef(onMessage);
+  onMessageRef.current = onMessage;
 
   useEffect(() => {
-    if (!enabled || !token) {
-      setState(enabled ? "closed" : "idle");
-      sourceRef.current?.close();
-      sourceRef.current = null;
-      return;
-    }
-
-    setState("connecting");
-
-    const url = `/api/events/stream?${toQueryString(token, getStoredLastEventId())}`;
-    const source = new EventSource(url);
-    sourceRef.current = source;
-
-    const onOpen = () => setState("open");
-    const onError = () => setState("error");
-
-    source.onopen = onOpen;
-    source.onerror = onError;
-
-    const onEvent = (event: MessageEvent) => {
-      const eventId = event.lastEventId || null;
-      setStoredLastEventId(eventId);
-
-      try {
-        const data = JSON.parse(event.data) as {
-          notificationId: number;
-          eventType: string;
-          payload: Record<string, unknown>;
-          createdAt: string;
-        };
-
-        onMessage?.({
-          id: data.notificationId,
-          eventType: data.eventType,
-          payload: data.payload,
-          createdAt: data.createdAt,
-        });
-      } catch {
-        // Ignore malformed SSE payloads and keep stream active.
+    function cleanup() {
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
       }
-    };
-
-    for (const eventName of SUPPORTED_EVENTS) {
-      source.addEventListener(eventName, onEvent as EventListener);
+      if (sourceRef.current) {
+        sourceRef.current.close();
+        sourceRef.current = null;
+      }
     }
 
-    return () => {
-      source.close();
-      sourceRef.current = null;
-      setState("closed");
-    };
-  }, [enabled, onMessage, token]);
+    function connect() {
+      const currentToken = tokenRef.current;
+      if (!enabledRef.current || !currentToken) {
+        setState(enabledRef.current ? "closed" : "idle");
+        return;
+      }
+
+      setState("connecting");
+
+      const url = `/api/events/stream?${toQueryString(currentToken, getStoredLastEventId())}`;
+      const source = new EventSource(url);
+      sourceRef.current = source;
+
+      source.onopen = () => {
+        setState("open");
+        retriesRef.current = 0; // Reset backoff on successful connection
+      };
+
+      source.onerror = () => {
+        // EventSource fires onerror for both transient disconnects and fatal
+        // failures (e.g. HTTP 502). When readyState is CLOSED the browser will
+        // NOT auto-reconnect, so we handle it ourselves with backoff.
+        if (source.readyState === EventSource.CLOSED) {
+          setState("error");
+          cleanup();
+          scheduleReconnect();
+        } else {
+          // CONNECTING — browser is auto-reconnecting
+          setState("connecting");
+        }
+      };
+
+      const onEvent = (event: MessageEvent) => {
+        const eventId = event.lastEventId || null;
+        setStoredLastEventId(eventId);
+
+        try {
+          const data = JSON.parse(event.data) as {
+            notificationId: number;
+            eventType: string;
+            payload: Record<string, unknown>;
+            createdAt: string;
+          };
+
+          onMessageRef.current?.({
+            id: data.notificationId,
+            eventType: data.eventType,
+            payload: data.payload,
+            createdAt: data.createdAt,
+          });
+        } catch {
+          // Ignore malformed SSE payloads and keep stream active.
+        }
+      };
+
+      for (const eventName of SUPPORTED_EVENTS) {
+        source.addEventListener(eventName, onEvent as EventListener);
+      }
+    }
+
+    function scheduleReconnect() {
+      const delay = Math.min(RECONNECT_BASE_MS * 2 ** retriesRef.current, RECONNECT_MAX_MS);
+      retriesRef.current += 1;
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null;
+        connect();
+      }, delay);
+    }
+
+    if (!enabled || !token) {
+      cleanup();
+      setState(enabled ? "closed" : "idle");
+      return cleanup;
+    }
+
+    connect();
+    return cleanup;
+  }, [enabled, token]);
 
   return useMemo(
     () => ({
       state,
       close: () => {
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = null;
+        }
         sourceRef.current?.close();
         sourceRef.current = null;
         setState("closed");

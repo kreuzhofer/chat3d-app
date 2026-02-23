@@ -5,37 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatPage } from "../components/ChatPage";
 
-/* ── EventSource mock (required by useStreamingQuery used in ChatPage) ──── */
-
-class MockEventSource {
-  static instances: MockEventSource[] = [];
-  url: string;
-  listeners = new Map<string, Array<(event: MessageEvent) => void>>();
-  onerror: (() => void) | null = null;
-  closed = false;
-
-  constructor(url: string) {
-    this.url = url;
-    MockEventSource.instances.push(this);
-  }
-  addEventListener(type: string, handler: (event: MessageEvent) => void) {
-    const existing = this.listeners.get(type) ?? [];
-    existing.push(handler);
-    this.listeners.set(type, existing);
-  }
-  close() {
-    this.closed = true;
-  }
-}
-
-beforeEach(() => {
-  MockEventSource.instances = [];
-  vi.stubGlobal("EventSource", MockEventSource);
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
+/* ── useStreamingQuery now uses the shared SSE connection via NotificationsContext ── */
 
 const authState = {
   token: "test-token",
@@ -50,6 +20,7 @@ const notificationsState = {
   }>,
   connectionState: "open" as const,
   refreshReplay: vi.fn().mockResolvedValue(undefined),
+  subscribe: vi.fn(() => () => {}),
 };
 
 const listChatContextsMock = vi.fn();

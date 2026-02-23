@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
   type PropsWithChildren,
 } from "react";
@@ -19,12 +20,16 @@ export interface NotificationRecord {
   readAt?: string | null;
 }
 
+export type SseSubscriber = (message: SseMessage) => void;
+
 interface NotificationsContextValue {
   notifications: NotificationRecord[];
   unreadCount: number;
   connectionState: "idle" | "connecting" | "open" | "closed" | "error";
   refreshReplay: () => Promise<void>;
   markAllRead: () => void;
+  /** Subscribe to raw SSE messages (including ephemeral ones like stream-token). */
+  subscribe: (fn: SseSubscriber) => () => void;
 }
 
 const NotificationsContext = createContext<NotificationsContextValue | undefined>(undefined);
@@ -39,9 +44,20 @@ function mapSseToNotification(message: SseMessage): NotificationRecord {
   };
 }
 
+/** Event types that are ephemeral (high-frequency, not persisted). */
+const EPHEMERAL_EVENTS = new Set(["stream-token"]);
+
 export function NotificationsProvider({ children }: PropsWithChildren) {
   const { token, isAuthenticated } = useAuth();
   const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
+  const subscribersRef = useRef(new Set<SseSubscriber>());
+
+  const subscribe = useCallback((fn: SseSubscriber) => {
+    subscribersRef.current.add(fn);
+    return () => {
+      subscribersRef.current.delete(fn);
+    };
+  }, []);
 
   const addNotification = useCallback((record: NotificationRecord) => {
     setNotifications((existing) => {
@@ -74,7 +90,15 @@ export function NotificationsProvider({ children }: PropsWithChildren) {
 
   const onStreamMessage = useCallback(
     (message: SseMessage) => {
-      addNotification(mapSseToNotification(message));
+      // Notify all subscribers (including streaming hook)
+      for (const sub of subscribersRef.current) {
+        sub(message);
+      }
+
+      // Only persist non-ephemeral events as notifications
+      if (!EPHEMERAL_EVENTS.has(message.eventType)) {
+        addNotification(mapSseToNotification(message));
+      }
     },
     [addNotification],
   );
@@ -101,8 +125,9 @@ export function NotificationsProvider({ children }: PropsWithChildren) {
       connectionState,
       refreshReplay,
       markAllRead,
+      subscribe,
     }),
-    [connectionState, markAllRead, notifications, refreshReplay, unreadCount],
+    [connectionState, markAllRead, notifications, refreshReplay, subscribe],
   );
 
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>;

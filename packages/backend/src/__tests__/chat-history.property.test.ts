@@ -71,6 +71,16 @@ vi.mock("../services/llm.service.js", () => ({
   generateConversationText: (...args: unknown[]) => mockGenerateConversationText(...args),
   generateConversationTextStream: vi.fn(),
   generateBuild123dCode: (...args: unknown[]) => mockGenerateBuild123dCode(...args),
+  parseConversationResponse: (raw: string) => {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith("[CODEGEN_NEEDED]")) {
+      return { needsCodegen: true, text: trimmed.slice("[CODEGEN_NEEDED]".length).trim() };
+    }
+    if (trimmed.startsWith("[CHAT_ONLY]")) {
+      return { needsCodegen: false, text: trimmed.slice("[CHAT_ONLY]".length).trim() };
+    }
+    return { needsCodegen: false, text: trimmed };
+  },
   LlmServiceError: class LlmServiceError extends Error {
     constructor(message: string, public readonly statusCode = 500) {
       super(message);
@@ -100,7 +110,7 @@ import { query as dbQuery } from "../db/connection.js";
 
 function mockConversationResult() {
   return {
-    text: "Here is your model.",
+    text: "[CODEGEN_NEEDED]\nHere is your model.",
     model: { id: "mock-conv", provider: "mock", stage: "conversation", modelName: "mock" },
     usage: { source: "estimated", inputTokens: 10, outputTokens: 10, totalTokens: 20, estimatedCostUsd: 0 },
   };

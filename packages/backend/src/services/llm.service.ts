@@ -434,22 +434,59 @@ export function findMostRecentCode(history?: ConversationHistoryEntry[]): string
   return undefined;
 }
 
+const CONVERSATION_SYSTEM_PROMPT = [
+  "You are a CAD copilot for Chat3D, a prompt-to-CAD workspace that generates 3D models using Build123d.",
+  "",
+  "IMPORTANT: You must begin your response with exactly one of these tags on its own line:",
+  "- [CODEGEN_NEEDED] — if the user is requesting a 3D model, part, or geometry to be created, modified, or regenerated.",
+  "- [CHAT_ONLY] — if the user is asking a question, making conversation, requesting information, or anything that does NOT require generating a 3D model.",
+  "",
+  "After the tag, provide your response. Be brief and practical.",
+  "Examples of [CHAT_ONLY]: greetings, questions about capabilities, requests for tips, feedback on previous results without requesting changes.",
+  "Examples of [CODEGEN_NEEDED]: 'design a gear', 'make it taller', 'add a fillet', 'create an enclosure', any request that implies generating or modifying 3D geometry.",
+].join("\n");
+
+function buildConversationPrompt(input: {
+  prompt: string;
+  contextName: string;
+  conversationHistory?: ConversationHistoryEntry[];
+}): string {
+  const historyBlock = formatConversationHistory(input.conversationHistory);
+  return [
+    CONVERSATION_SYSTEM_PROMPT,
+    `Chat context: ${input.contextName}`,
+    historyBlock,
+    `User request: ${input.prompt}`,
+  ].filter(Boolean).join("\n\n");
+}
+
+/**
+ * Parse the conversation response to extract the codegen decision tag and clean text.
+ * Returns { needsCodegen: boolean, text: string } where text has the tag stripped.
+ */
+export function parseConversationResponse(raw: string): { needsCodegen: boolean; text: string } {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("[CODEGEN_NEEDED]")) {
+    return { needsCodegen: true, text: trimmed.slice("[CODEGEN_NEEDED]".length).trim() };
+  }
+  if (trimmed.startsWith("[CHAT_ONLY]")) {
+    return { needsCodegen: false, text: trimmed.slice("[CHAT_ONLY]".length).trim() };
+  }
+  // Default to chat-only if the LLM didn't follow instructions — safer to skip codegen
+  // than to trigger an unwanted model generation for a conversational question.
+  return { needsCodegen: false, text: trimmed };
+}
+
 export async function generateConversationText(input: {
   prompt: string;
   contextName: string;
   conversationHistory?: ConversationHistoryEntry[];
 }): Promise<ConversationGenerationResult> {
   const model = selectModel("conversation");
-  const historyBlock = formatConversationHistory(input.conversationHistory);
-  const prompt = [
-    "You are a CAD copilot. Answer briefly and provide practical modeling guidance.",
-    `Chat context: ${input.contextName}`,
-    historyBlock,
-    `User request: ${input.prompt}`,
-  ].filter(Boolean).join("\n\n");
+  const prompt = buildConversationPrompt(input);
 
   if (model.provider === "mock") {
-    const text = `Mock assistant response for context "${input.contextName}": ${input.prompt}`;
+    const text = `[CODEGEN_NEEDED]\nMock assistant response for context "${input.contextName}": ${input.prompt}`;
     return {
       model,
       text,
@@ -483,16 +520,10 @@ export async function generateConversationTextStream(input: {
   conversationHistory?: ConversationHistoryEntry[];
 }): Promise<ConversationGenerationResult> {
   const model = selectModel("conversation");
-  const historyBlock = formatConversationHistory(input.conversationHistory);
-  const prompt = [
-    "You are a CAD copilot. Answer briefly and provide practical modeling guidance.",
-    `Chat context: ${input.contextName}`,
-    historyBlock,
-    `User request: ${input.prompt}`,
-  ].filter(Boolean).join("\n\n");
+  const prompt = buildConversationPrompt(input);
 
   if (model.provider === "mock") {
-    const text = `Mock assistant response for context "${input.contextName}": ${input.prompt}`;
+    const text = `[CODEGEN_NEEDED]\nMock assistant response for context "${input.contextName}": ${input.prompt}`;
     // Simulate streaming by emitting the mock response word by word
     for (const word of text.split(" ")) {
       input.onToken(word + " ");

@@ -1,60 +1,37 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
+import { createElement, type PropsWithChildren } from "react";
 import { useStreamingQuery } from "../../hooks/useStreamingQuery";
+import type { SseSubscriber } from "../../contexts/NotificationsContext";
+import type { SseMessage } from "../../hooks/useSSE";
 
-/* ── EventSource mock ─────────────────────────────────────────────────────── */
+/* ── Mock NotificationsContext ────────────────────────────────────────────── */
 
-type EventHandler = (event: MessageEvent) => void;
+let capturedSubscriber: SseSubscriber | null = null;
+const mockSubscribe = vi.fn((fn: SseSubscriber) => {
+  capturedSubscriber = fn;
+  return () => {
+    capturedSubscriber = null;
+  };
+});
 
-class MockEventSource {
-  static instances: MockEventSource[] = [];
-
-  url: string;
-  listeners = new Map<string, EventHandler[]>();
-  onerror: (() => void) | null = null;
-  closed = false;
-
-  constructor(url: string) {
-    this.url = url;
-    MockEventSource.instances.push(this);
-  }
-
-  addEventListener(type: string, handler: EventHandler) {
-    const existing = this.listeners.get(type) ?? [];
-    existing.push(handler);
-    this.listeners.set(type, existing);
-  }
-
-  close() {
-    this.closed = true;
-  }
-
-  // Test helpers
-  emit(type: string, data: unknown) {
-    const handlers = this.listeners.get(type) ?? [];
-    const event = new MessageEvent(type, { data: JSON.stringify(data) });
-    for (const handler of handlers) {
-      handler(event);
-    }
-  }
-
-  triggerError() {
-    this.onerror?.();
-  }
-}
-
-function latestSource(): MockEventSource {
-  const source = MockEventSource.instances[MockEventSource.instances.length - 1];
-  if (!source) throw new Error("No MockEventSource created");
-  return source;
-}
+vi.mock("../../contexts/NotificationsContext", () => ({
+  useNotifications: () => ({
+    notifications: [],
+    unreadCount: 0,
+    connectionState: "open",
+    refreshReplay: vi.fn(),
+    markAllRead: vi.fn(),
+    subscribe: mockSubscribe,
+  }),
+}));
 
 /* ── Setup / Teardown ─────────────────────────────────────────────────────── */
 
 beforeEach(() => {
-  MockEventSource.instances = [];
-  vi.stubGlobal("EventSource", MockEventSource);
+  capturedSubscriber = null;
+  mockSubscribe.mockClear();
 });
 
 afterEach(() => {
@@ -63,18 +40,22 @@ afterEach(() => {
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 
+function emitMessage(eventType: string, payload: Record<string, unknown>) {
+  if (!capturedSubscriber) throw new Error("No subscriber registered");
+  capturedSubscriber({
+    id: 0,
+    eventType,
+    payload,
+    createdAt: new Date().toISOString(),
+  });
+}
+
 function streamTokenPayload(assistantItemId: string, token: string, done = false) {
-  return {
-    eventType: "stream-token",
-    payload: { contextId: "ctx-1", assistantItemId, token, done },
-  };
+  return { contextId: "ctx-1", assistantItemId, token, done };
 }
 
 function queryStatePayload(assistantItemId: string, state: string, detail?: string) {
-  return {
-    eventType: "chat.query.state",
-    payload: { contextId: "ctx-1", assistantItemId, state, detail: detail ?? null },
-  };
+  return { contextId: "ctx-1", assistantItemId, state, detail: detail ?? null };
 }
 
 /* ── Tests ─────────────────────────────────────────────────────────────────── */
@@ -89,7 +70,7 @@ describe("useStreamingQuery", () => {
     expect(result.current.queryState).toBeNull();
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.error).toBeNull();
-    expect(MockEventSource.instances).toHaveLength(0);
+    expect(mockSubscribe).not.toHaveBeenCalled();
   });
 
   it("returns idle state when assistantItemId is null", () => {
@@ -98,19 +79,19 @@ describe("useStreamingQuery", () => {
     );
 
     expect(result.current.isStreaming).toBe(false);
-    expect(MockEventSource.instances).toHaveLength(0);
+    expect(mockSubscribe).not.toHaveBeenCalled();
   });
 
-  it("creates EventSource with token when both token and assistantItemId provided", () => {
+  it("subscribes to shared SSE when both token and assistantItemId provided", () => {
     renderHook(() =>
       useStreamingQuery({ token: "jwt-token", assistantItemId: "item-1" }),
     );
 
-    expect(MockEventSource.instances).toHaveLength(1);
-    expect(latestSource().url).toContain("token=jwt-token");
+    expect(mockSubscribe).toHaveBeenCalledTimes(1);
+    expect(capturedSubscriber).not.toBeNull();
   });
 
-  it("sets isStreaming to true when connection is active", () => {
+  it("sets isStreaming to true when active", () => {
     const { result } = renderHook(() =>
       useStreamingQuery({ token: "jwt-token", assistantItemId: "item-1" }),
     );
@@ -123,15 +104,13 @@ describe("useStreamingQuery", () => {
       useStreamingQuery({ token: "jwt-token", assistantItemId: "item-1" }),
     );
 
-    const source = latestSource();
-
     act(() => {
-      source.emit("stream-token", streamTokenPayload("item-1", "Hello"));
+      emitMessage("stream-token", streamTokenPayload("item-1", "Hello"));
     });
     expect(result.current.streamingText).toBe("Hello");
 
     act(() => {
-      source.emit("stream-token", streamTokenPayload("item-1", " world"));
+      emitMessage("stream-token", streamTokenPayload("item-1", " world"));
     });
     expect(result.current.streamingText).toBe("Hello world");
   });
@@ -141,10 +120,8 @@ describe("useStreamingQuery", () => {
       useStreamingQuery({ token: "jwt-token", assistantItemId: "item-1" }),
     );
 
-    const source = latestSource();
-
     act(() => {
-      source.emit("stream-token", streamTokenPayload("item-OTHER", "ignored"));
+      emitMessage("stream-token", streamTokenPayload("item-OTHER", "ignored"));
     });
     expect(result.current.streamingText).toBe("");
   });
@@ -154,15 +131,13 @@ describe("useStreamingQuery", () => {
       useStreamingQuery({ token: "jwt-token", assistantItemId: "item-1" }),
     );
 
-    const source = latestSource();
-
     act(() => {
-      source.emit("chat.query.state", queryStatePayload("item-1", "conversation"));
+      emitMessage("chat.query.state", queryStatePayload("item-1", "conversation"));
     });
     expect(result.current.queryState).toBe("conversation");
 
     act(() => {
-      source.emit("chat.query.state", queryStatePayload("item-1", "codegen"));
+      emitMessage("chat.query.state", queryStatePayload("item-1", "codegen"));
     });
     expect(result.current.queryState).toBe("codegen");
   });
@@ -172,28 +147,23 @@ describe("useStreamingQuery", () => {
       useStreamingQuery({ token: "jwt-token", assistantItemId: "item-1" }),
     );
 
-    const source = latestSource();
-
     act(() => {
-      source.emit("chat.query.state", queryStatePayload("item-OTHER", "codegen"));
+      emitMessage("chat.query.state", queryStatePayload("item-OTHER", "codegen"));
     });
     expect(result.current.queryState).toBeNull();
   });
 
-  it("sets isStreaming to false and closes connection on completed state", () => {
+  it("sets isStreaming to false on completed state", () => {
     const { result } = renderHook(() =>
       useStreamingQuery({ token: "jwt-token", assistantItemId: "item-1" }),
     );
 
-    const source = latestSource();
-
     act(() => {
-      source.emit("chat.query.state", queryStatePayload("item-1", "completed"));
+      emitMessage("chat.query.state", queryStatePayload("item-1", "completed"));
     });
 
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.error).toBeNull();
-    expect(source.closed).toBe(true);
   });
 
   it("sets error and stops streaming on failed state", () => {
@@ -201,16 +171,13 @@ describe("useStreamingQuery", () => {
       useStreamingQuery({ token: "jwt-token", assistantItemId: "item-1" }),
     );
 
-    const source = latestSource();
-
     act(() => {
-      source.emit("chat.query.state", queryStatePayload("item-1", "failed", "LLM timeout"));
+      emitMessage("chat.query.state", queryStatePayload("item-1", "failed", "LLM timeout"));
     });
 
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.error).toBe("LLM timeout");
     expect(result.current.queryState).toBe("failed");
-    expect(source.closed).toBe(true);
   });
 
   it("uses default error message when failed state has no detail", () => {
@@ -218,35 +185,11 @@ describe("useStreamingQuery", () => {
       useStreamingQuery({ token: "jwt-token", assistantItemId: "item-1" }),
     );
 
-    const source = latestSource();
-
     act(() => {
-      source.emit("chat.query.state", queryStatePayload("item-1", "failed"));
+      emitMessage("chat.query.state", queryStatePayload("item-1", "failed"));
     });
 
     expect(result.current.error).toBe("Query failed");
-  });
-
-  it("handles connection interruption with partial response display", () => {
-    const { result } = renderHook(() =>
-      useStreamingQuery({ token: "jwt-token", assistantItemId: "item-1" }),
-    );
-
-    const source = latestSource();
-
-    // Accumulate some text first
-    act(() => {
-      source.emit("stream-token", streamTokenPayload("item-1", "Partial response"));
-    });
-
-    // Simulate connection error
-    act(() => {
-      source.triggerError();
-    });
-
-    expect(result.current.streamingText).toBe("Partial response");
-    expect(result.current.isStreaming).toBe(false);
-    expect(result.current.error).toBe("Stream interrupted. Your partial response is shown above.");
   });
 
   it("resets state when assistantItemId changes", () => {
@@ -256,10 +199,8 @@ describe("useStreamingQuery", () => {
       { initialProps: { assistantItemId: "item-1" as string | null } },
     );
 
-    const source1 = latestSource();
-
     act(() => {
-      source1.emit("stream-token", streamTokenPayload("item-1", "First response"));
+      emitMessage("stream-token", streamTokenPayload("item-1", "First response"));
     });
     expect(result.current.streamingText).toBe("First response");
 
@@ -270,39 +211,16 @@ describe("useStreamingQuery", () => {
     expect(result.current.queryState).toBeNull();
     expect(result.current.isStreaming).toBe(true);
     expect(result.current.error).toBeNull();
-    expect(source1.closed).toBe(true);
   });
 
-  it("closes EventSource on unmount", () => {
+  it("unsubscribes on unmount", () => {
     const { unmount } = renderHook(() =>
       useStreamingQuery({ token: "jwt-token", assistantItemId: "item-1" }),
     );
 
-    const source = latestSource();
-    expect(source.closed).toBe(false);
-
+    expect(capturedSubscriber).not.toBeNull();
     unmount();
-    expect(source.closed).toBe(true);
-  });
-
-  it("handles malformed SSE data gracefully", () => {
-    const { result } = renderHook(() =>
-      useStreamingQuery({ token: "jwt-token", assistantItemId: "item-1" }),
-    );
-
-    const source = latestSource();
-
-    // Emit malformed data — should not throw or change state
-    act(() => {
-      const handlers = source.listeners.get("stream-token") ?? [];
-      const event = new MessageEvent("stream-token", { data: "not-json" });
-      for (const handler of handlers) {
-        handler(event);
-      }
-    });
-
-    expect(result.current.streamingText).toBe("");
-    expect(result.current.error).toBeNull();
+    expect(capturedSubscriber).toBeNull();
   });
 
   it("preserves accumulated text through multiple token events including done", () => {
@@ -310,12 +228,10 @@ describe("useStreamingQuery", () => {
       useStreamingQuery({ token: "jwt-token", assistantItemId: "item-1" }),
     );
 
-    const source = latestSource();
-
     act(() => {
-      source.emit("stream-token", streamTokenPayload("item-1", "Hello"));
-      source.emit("stream-token", streamTokenPayload("item-1", " "));
-      source.emit("stream-token", streamTokenPayload("item-1", "world", true));
+      emitMessage("stream-token", streamTokenPayload("item-1", "Hello"));
+      emitMessage("stream-token", streamTokenPayload("item-1", " "));
+      emitMessage("stream-token", streamTokenPayload("item-1", "world", true));
     });
 
     expect(result.current.streamingText).toBe("Hello world");

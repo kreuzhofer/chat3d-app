@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNotifications, type SseSubscriber } from "../contexts/NotificationsContext";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,26 +48,13 @@ export interface UseStreamingQueryResult {
 
 const ACTIVE_STATES = new Set<QueryState>(["queued", "conversation", "codegen", "rendering", "retrying"]);
 
-function parseEventData(raw: string): { eventType: string; payload: Record<string, unknown> } | null {
-  try {
-    const data = JSON.parse(raw) as {
-      eventType?: string;
-      payload?: Record<string, unknown>;
-    };
-    if (typeof data.eventType === "string" && data.payload && typeof data.payload === "object") {
-      return { eventType: data.eventType, payload: data.payload };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 /**
  * Listens to SSE `stream-token` and `chat.query.state` events filtered by
- * `assistantItemId`. Accumulates streaming text and tracks query state.
+ * `assistantItemId` via the shared SSE connection managed by NotificationsProvider.
+ * No separate EventSource is created — this eliminates the race condition where
+ * tokens could arrive before a second connection finishes its handshake.
  *
  * Validates: Requirements 1.2, 1.4, 1.5
  */
@@ -79,16 +67,38 @@ export function useStreamingQuery({
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Use refs to avoid stale closures in event handlers
+  const { subscribe } = useNotifications();
+
+  // Use refs to avoid stale closures in the subscriber callback
   const assistantItemIdRef = useRef(assistantItemId);
   assistantItemIdRef.current = assistantItemId;
 
-  const sourceRef = useRef<EventSource | null>(null);
+  const handleMessage: SseSubscriber = useCallback((message) => {
+    const currentId = assistantItemIdRef.current;
+    if (!currentId) return;
 
-  const cleanup = useCallback(() => {
-    if (sourceRef.current) {
-      sourceRef.current.close();
-      sourceRef.current = null;
+    if (message.eventType === "stream-token") {
+      const payload = message.payload as unknown as StreamTokenPayload;
+      if (payload.assistantItemId !== currentId) return;
+
+      if (payload.token) {
+        setStreamingText((prev) => prev + payload.token);
+      }
+      // payload.done means conversation tokens finished, but pipeline may continue
+      // isStreaming stays true until query-state reaches completed/failed
+    } else if (message.eventType === "chat.query.state") {
+      const payload = message.payload as unknown as QueryStatePayload;
+      if (payload.assistantItemId !== currentId) return;
+
+      const state = payload.state;
+      setQueryState(state);
+
+      if (state === "completed") {
+        setIsStreaming(false);
+      } else if (state === "failed") {
+        setIsStreaming(false);
+        setError(payload.detail ?? "Query failed");
+      }
     }
   }, []);
 
@@ -100,68 +110,14 @@ export function useStreamingQuery({
     setError(null);
 
     if (!token || !assistantItemId) {
-      cleanup();
       return;
     }
 
     setIsStreaming(true);
 
-    const params = new URLSearchParams({ token });
-    const source = new EventSource(`/api/events/stream?${params.toString()}`);
-    sourceRef.current = source;
-
-    const handleStreamToken = (event: MessageEvent) => {
-      const parsed = parseEventData(event.data);
-      if (!parsed || parsed.eventType !== "stream-token") return;
-
-      const payload = parsed.payload as unknown as StreamTokenPayload;
-      if (payload.assistantItemId !== assistantItemIdRef.current) return;
-
-      if (payload.token) {
-        setStreamingText((prev) => prev + payload.token);
-      }
-
-      if (payload.done) {
-        // Conversation stage complete — tokens finished but pipeline continues
-        // isStreaming stays true until query-state reaches completed/failed
-      }
-    };
-
-    const handleQueryState = (event: MessageEvent) => {
-      const parsed = parseEventData(event.data);
-      if (!parsed || parsed.eventType !== "chat.query.state") return;
-
-      const payload = parsed.payload as unknown as QueryStatePayload;
-      if (payload.assistantItemId !== assistantItemIdRef.current) return;
-
-      const state = payload.state;
-      setQueryState(state);
-
-      if (state === "completed") {
-        setIsStreaming(false);
-        cleanup();
-      } else if (state === "failed") {
-        setIsStreaming(false);
-        setError(payload.detail ?? "Query failed");
-        cleanup();
-      }
-    };
-
-    const handleError = () => {
-      // EventSource error — connection interrupted
-      setIsStreaming(false);
-      setError("Stream interrupted. Your partial response is shown above.");
-      cleanup();
-    };
-
-    source.addEventListener("stream-token", handleStreamToken as EventListener);
-    source.addEventListener("chat.query.state", handleQueryState as EventListener);
-    source.onerror = handleError;
-
-    return () => {
-      cleanup();
-    };
-  }, [token, assistantItemId, cleanup]);
+    const unsubscribe = subscribe(handleMessage);
+    return unsubscribe;
+  }, [token, assistantItemId, subscribe, handleMessage]);
 
   return { streamingText, queryState, isStreaming, error };
 }

@@ -48,6 +48,7 @@ vi.mock("../contexts/NotificationsContext", () => ({
     connectionState: "open",
     refreshReplay: vi.fn().mockResolvedValue(undefined),
     markAllRead: vi.fn(),
+    subscribe: vi.fn(() => () => {}),
   }),
 }));
 
