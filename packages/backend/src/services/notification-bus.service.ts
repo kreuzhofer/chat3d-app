@@ -86,9 +86,18 @@ export class NotificationBusService {
 
   private handlePayload(payload: string): void {
     try {
-      const parsed = JSON.parse(payload) as Partial<PersistedNotificationEvent>;
+      const parsed = JSON.parse(payload) as Record<string, unknown>;
+      // PostgreSQL bigint columns are returned as strings by the pg driver,
+      // so accept both number and numeric string for the id field.
+      const rawId = parsed.id;
+      const numericId =
+        typeof rawId === "number"
+          ? rawId
+          : typeof rawId === "string"
+            ? Number(rawId)
+            : NaN;
       if (
-        typeof parsed.id !== "number" ||
+        !Number.isFinite(numericId) ||
         typeof parsed.userId !== "string" ||
         typeof parsed.eventType !== "string" ||
         typeof parsed.payload !== "object" ||
@@ -99,11 +108,11 @@ export class NotificationBusService {
       }
 
       const event: PersistedNotificationEvent = {
-        id: parsed.id,
+        id: numericId,
         userId: parsed.userId,
-        eventType: parsed.eventType,
+        eventType: parsed.eventType as string,
         payload: parsed.payload as Record<string, unknown>,
-        createdAt: parsed.createdAt,
+        createdAt: parsed.createdAt as string,
         readAt: typeof parsed.readAt === "string" ? parsed.readAt : null,
       };
 
