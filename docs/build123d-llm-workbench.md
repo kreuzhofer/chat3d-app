@@ -1,6 +1,6 @@
 # Build123d LLM Workbench — Design Document
 
-> **Status:** Draft v0.2 — 2026-02-24
+> **Status:** Draft v0.3 — 2026-02-24
 > **Owner:** kreuzhofer
 > **Branch:** `claude/build123d-llm-workbench-Zzddt`
 
@@ -694,7 +694,109 @@ All guarded by `AdminRouteGuard`. Navigation entry added to admin nav group.
 
 ---
 
-## 15. Open Questions / Deferred Decisions
+## 15. Parts Knowledge Library (Future)
+
+### 15.1 Problem
+
+Higher-complexity categories (8–11) reference real-world hardware: Raspberry Pi 4, Arduino Uno, ESP32 DevKit, etc. The code-generation LLM needs precise dimensional knowledge to produce correct port cutout positions, standoff hole patterns, and PCB footprints. This knowledge should **not** be required in the user prompt — a user should be able to type *"A case for a Raspberry Pi 4"* without specifying that the USB-A ports are 17.4mm × 15.0mm at a 29mm offset from the board edge.
+
+### 15.2 Approach
+
+An expandable library of **part datasheets** stored as structured Markdown or YAML files, version-controlled in the repository and seeded into a `workbench_part_datasheets` table.
+
+```
+workbench/
+  parts/
+    raspberry-pi-4-model-b.md
+    raspberry-pi-5.md
+    raspberry-pi-zero-2-w.md
+    arduino-uno-r3.md
+    arduino-mega-2560.md
+    arduino-nano.md
+    esp32-devkit-v1.md
+    esp32-cam.md
+    nodemcu-esp8266-v3.md
+    jetson-nano-b01.md
+    ...
+```
+
+Each file contains:
+- **PCB dimensions** (length × width × thickness in mm)
+- **Mounting holes** (positions relative to a corner origin, hole diameter, recommended standoff height)
+- **Port inventory** (type, position, cutout dimensions: width × height × offset from board edge)
+- **Connectors** (GPIO header position, ribbon cable slots, antenna connectors)
+- **Thermal zones** (SoC position for heatsink/vent placement)
+- **Keep-out zones** (areas that need clearance, e.g., SD card slot ejection path)
+
+### 15.3 Context Injection
+
+When a prompt mentions a known part (e.g., "Raspberry Pi 4"), the system automatically:
+1. Detects the part reference via keyword matching or entity extraction.
+2. Retrieves the matching datasheet from the library.
+3. Appends it to the code-generation prompt as a structured reference section **after** the system prompt and **before** the user prompt.
+
+This is analogous to RAG but with curated, hand-verified data instead of vector-search results. The datasheets are small enough (typically < 2K tokens each) to include in full without chunking.
+
+### 15.4 Scope
+
+This is **future work** — not in the current implementation phases. The initial training run will rely on the LLM's existing knowledge of popular board dimensions (which is reasonably good for Raspberry Pi / Arduino but poor for niche boards). The parts library becomes critical when:
+- Expanding to niche boards (STM32 Nucleo variants, custom PCBs)
+- Requiring sub-millimeter accuracy on port cutout placement
+- Training for production-quality enclosure design
+
+### 15.5 Database Extension (Future)
+
+```sql
+CREATE TABLE workbench_part_datasheets (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  slug        VARCHAR(255) NOT NULL UNIQUE,  -- e.g., "raspberry-pi-4-model-b"
+  name        VARCHAR(255) NOT NULL,
+  keywords    TEXT[] NOT NULL,               -- matching triggers: ["raspberry pi 4", "rpi4", "pi 4 model b"]
+  content     TEXT NOT NULL,                 -- full datasheet markdown
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+---
+
+## 16. 3D Printing Design Guidelines (Future)
+
+### 16.1 Problem
+
+Fine-tuning for correct Build123d code is necessary but not sufficient. For practical use, generated enclosures and parts must be **3D-printable** without excessive supports, warping, or failed prints. This is a separate concern from geometric correctness.
+
+### 16.2 Approach
+
+An optional **3D-printability guidelines** document stored as `workbench/3d-printing-guidelines.md`. When activated, this is appended to the system prompt to bias the LLM toward print-friendly designs.
+
+Topics to cover:
+- **Overhangs**: Maximum unsupported overhang angle (typically 45°); when to add chamfers or support ribs
+- **Bridges**: Maximum bridging span (typically 50mm); how to break long bridges with intermediate supports
+- **Minimum wall thickness**: Typically 1.2mm (3 perimeters at 0.4mm nozzle)
+- **Minimum hole diameter**: Typically 2mm; compensation for shrinkage on small holes
+- **Threads**: Avoid printed threads < M6; prefer heat-set inserts for M2–M4; thread pitch and clearance
+- **Snap fits**: Recommended deflection, wall thickness, and draft angles for FDM snap clips
+- **Orientation awareness**: Design features with a flat bottom for bed adhesion; minimize the number of support-requiring overhangs
+- **Tolerances**: Typical FDM tolerance ±0.2mm; clearance fits for mating parts (0.3–0.5mm gap)
+- **Elephant's foot**: First-layer compensation; chamfer bottom edges 0.4mm
+- **Split bodies**: When to split a part into multiple pieces for easier printing
+- **Screw bosses**: Wall thickness around heat-set inserts, recommended hole dimensions
+
+### 16.3 Context Injection
+
+This guideline document is **optional** and controlled via a toggle:
+- Stored as a versioned entry in `workbench_system_prompts` (separate from the main Build123d API reference)
+- An `include_print_guidelines` boolean flag on batch generation jobs controls whether it's appended
+- Useful for A/B testing: generate the same prompt with and without print guidelines to measure impact
+
+### 16.4 Scope
+
+This is **future work** — not in the current implementation phases. The initial training run focuses on geometric correctness. Print-friendliness is a quality-of-life improvement that can be layered on in a subsequent training iteration, potentially as a separate LoRA adapter or merged fine-tune.
+
+---
+
+## 17. Open Questions / Deferred Decisions
 
 | # | Question | Status |
 |---|----------|--------|
@@ -704,7 +806,10 @@ All guarded by `AdminRouteGuard`. Navigation entry added to admin nav group.
 | 4 | Rate limiting on `/generate` batch endpoint? | Add in Phase 3 |
 | 5 | File storage path for workbench renders | `/data/storage/workbench/{exampleId}/` |
 | 6 | Batch job persistence (in-memory vs DB-backed queue)? | Start in-memory; upgrade if needed |
+| 7 | Parts knowledge library: initial board set and datasheet format? | Future — see §15 |
+| 8 | 3D-printability guidelines: include in v1 training or separate LoRA? | Future — see §16 |
+| 9 | Parts library: keyword matching vs embedding-based retrieval? | Future — start with keywords |
 
 ---
 
-*End of Design Document v0.2*
+*End of Design Document v0.3*
