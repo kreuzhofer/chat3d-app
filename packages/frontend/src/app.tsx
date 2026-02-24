@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   Bell,
+  FlaskConical,
   MessageSquare,
   Shield,
   User,
@@ -46,6 +47,18 @@ const QueryWorkbench = lazy(async () => {
   const module = await import("./components/QueryWorkbench");
   return { default: module.QueryWorkbench };
 });
+const WorkbenchPage = lazy(async () => {
+  const module = await import("./components/WorkbenchPage");
+  return { default: module.WorkbenchPage };
+});
+const WorkbenchCategoryPage = lazy(async () => {
+  const module = await import("./components/WorkbenchCategoryPage");
+  return { default: module.WorkbenchCategoryPage };
+});
+const WorkbenchPromptPage = lazy(async () => {
+  const module = await import("./components/WorkbenchPromptPage");
+  return { default: module.WorkbenchPromptPage };
+});
 
 interface NavItem {
   path: string;
@@ -79,7 +92,10 @@ function authenticatedNavGroups(isAdmin: boolean): NavGroup[] {
           {
             id: "admin",
             label: "Administration",
-            items: [{ path: "/admin", label: "Admin", routePrefix: "/admin", icon: Shield }],
+            items: [
+              { path: "/admin", label: "Admin", routePrefix: "/admin", icon: Shield },
+              { path: "/workbench", label: "Workbench", routePrefix: "/workbench", icon: FlaskConical },
+            ],
           },
         ]
       : []),
@@ -168,6 +184,11 @@ function AuthenticatedApp() {
           label: "Query Workbench",
           onSelect: () => navigate("/query"),
         },
+        {
+          id: "workbench",
+          label: "LLM Workbench",
+          onSelect: () => navigate("/workbench"),
+        },
       );
     }
     return [
@@ -251,6 +272,9 @@ function AuthenticatedApp() {
               path="/admin"
               element={<AdminRouteGuard><AdminPanel /></AdminRouteGuard>}
             />
+            <Route path="/workbench" element={<AdminRouteGuard><WorkbenchPage /></AdminRouteGuard>} />
+            <Route path="/workbench/:categoryId" element={<AdminRouteGuard><WorkbenchCategoryPage /></AdminRouteGuard>} />
+            <Route path="/workbench/:categoryId/:promptId" element={<AdminRouteGuard><WorkbenchPromptPage /></AdminRouteGuard>} />
             <Route path="*" element={<Navigate replace to="/chat" />} />
           </Routes>
         </Suspense>
