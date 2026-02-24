@@ -1,6 +1,6 @@
 # Build123d LLM Workbench — Design Document
 
-> **Status:** Draft v0.3 — 2026-02-24
+> **Status:** Draft v0.4 — 2026-02-24
 > **Owner:** kreuzhofer
 > **Branch:** `claude/build123d-llm-workbench-Zzddt`
 
@@ -668,58 +668,71 @@ All guarded by `AdminRouteGuard`. Navigation entry added to admin nav group.
 - [x] Write all 11 category files (`workbench/categories/01-primitives.md` … `11-pcb-cases.md`) with 100 prompts each
 - [x] Seeder script validates file format and reports prompt count per category
 
-### Phase 3 — Backend API
+### Phase 3 — Backend API ✅
 
 Split into incremental sub-phases. Each sub-phase produces a working, buildable backend.
 
-#### Phase 3a — Database Schema & Seeder
+#### Phase 3a — Database Schema & Seeder ✅
 
-- [ ] Migration `007_workbench_tables.ts`: create `workbench_categories`, `workbench_example_prompts`, `workbench_examples`, `workbench_system_prompts` tables with indexes
-- [ ] Register migration in `migrations/index.ts`
-- [ ] `workbench-seeder.service.ts`: parse `workbench/categories/*.md` frontmatter + numbered prompts, seed `workbench_categories` and `workbench_example_prompts` tables; parse `workbench/system-prompt.md`, seed `workbench_system_prompts`
-- [ ] `workbench.routes.ts` (initial): `POST /categories/seed`, `GET /categories`, `GET /categories/:id/prompts` — admin-only
-- [ ] Register router in `app.ts`
-- [ ] Build verification
+- [x] Migration `007_workbench_tables.ts`: create `workbench_categories`, `workbench_example_prompts`, `workbench_examples`, `workbench_system_prompts` tables with indexes
+- [x] Register migration in `migrations/index.ts`
+- [x] `workbench-seeder.service.ts`: parse `workbench/categories/*.md` frontmatter + numbered prompts, seed `workbench_categories` and `workbench_example_prompts` tables; parse `workbench/system-prompt.md`, seed `workbench_system_prompts`
+- [x] `workbench.routes.ts` (initial): `POST /categories/seed`, `GET /categories`, `GET /categories/:id/prompts` — admin-only
+- [x] Register router in `app.ts`
+- [x] Build verification
 
-#### Phase 3b — STL Rendering Client & System Prompt CRUD
+#### Phase 3b — STL Rendering Client & System Prompt CRUD ✅
 
-- [ ] `stl-rendering-client.service.ts`: call `POST /render` on STL rendering service, mock mode support, error handling following `rendering.service.ts` pattern
-- [ ] System prompt routes: `GET /system-prompts`, `GET /system-prompts/active`, `POST /system-prompts/:id/activate`
-- [ ] Build verification
+- [x] `stl-rendering-client.service.ts`: call `POST /render` on STL rendering service, mock mode support, error handling following `rendering.service.ts` pattern
+- [x] System prompt routes: `GET /system-prompts`, `GET /system-prompts/active`, `POST /system-prompts/:id/activate`
+- [x] Build verification
 
-#### Phase 3c — Visual Evaluation Service
+#### Phase 3c — Visual Evaluation Service ✅
 
-- [ ] `visual-eval.service.ts`: adapted from `chat3d-docker` (`visualEval.ts` + prompt), Vercel AI SDK `generateText()` with image content parts, multi-provider (Anthropic/OpenAI), three-level JSON response parsing fallback, retry logic (2 retries)
-- [ ] New env vars: `EVAL_VLM_PROVIDER`, `EVAL_VLM_MODEL` in config + docker-compose + .env.example
-- [ ] Build verification
+- [x] `visual-eval.service.ts`: adapted from `chat3d-docker` (`visualEval.ts` + prompt), Vercel AI SDK `generateText()` with image content parts, multi-provider (Anthropic/OpenAI), three-level JSON response parsing fallback, retry logic (2 retries)
+- [x] New env vars: `EVAL_VLM_PROVIDER`, `EVAL_VLM_MODEL` in config + docker-compose + .env.example
+- [x] Build verification
 
-#### Phase 3d — Code Generation Pipeline
+#### Phase 3d — Code Generation Pipeline ✅
 
-- [ ] `workbench-codegen.service.ts`: single-prompt generation pipeline — build system prompt + few-shot examples + user prompt → LLM codegen → Build123d render → STL rendering screenshots → VLM evaluate → store result in `workbench_examples`
-- [ ] Fix loop: on render error or VLM score < 7, rebuild prompt with error/suggestions feedback → retry up to `MAX_FIX_ITERATIONS` (5)
-- [ ] Auto-approval: score ≥ 7 → `auto_approved`; exhausted retries → flag for human review
-- [ ] Route: `POST /generate` (single prompt generation)
-- [ ] Build verification
+- [x] `workbench-codegen.service.ts`: single-prompt generation pipeline — build system prompt + few-shot examples + user prompt → LLM codegen → Build123d render → STL rendering screenshots → VLM evaluate → store result in `workbench_examples`
+- [x] Fix loop: on render error or VLM score < 7, rebuild prompt with error/suggestions feedback → retry up to `MAX_FIX_ITERATIONS` (5)
+- [x] Auto-approval: score ≥ 7 → `auto_approved`; exhausted retries → flag for human review
+- [x] Route: `POST /generate` (single prompt generation)
+- [x] Code template wrapping: LLM-generated code wrapped with Build123d imports and exports automatically
+- [x] Build verification
 
-#### Phase 3e — Example CRUD & JSONL Export
+#### Phase 3e — Example CRUD & JSONL Export ✅
 
-- [ ] Example routes: `GET /examples/:id`, `PATCH /examples/:id/approve`, `PATCH /examples/:id/reject`, `PATCH /examples/:id/code` (edit + re-render + re-evaluate), `POST /examples/:id/retry`
-- [ ] Export routes: `GET /export/jsonl` (download approved examples as LLaMA-Factory JSONL), `GET /export/stats` (counts per category by approval status)
-- [ ] Build verification
+- [x] Example routes: `GET /examples/:id`, `PATCH /examples/:id/approve`, `PATCH /examples/:id/reject`, `PATCH /examples/:id/code` (edit + re-render + re-evaluate), `POST /examples/:id/retry`
+- [x] Export routes: `GET /export/jsonl` (download approved examples as LLaMA-Factory JSONL), `GET /export/stats` (counts per category by approval status)
+- [x] Delete routes: `DELETE /examples/:id`, `DELETE /prompts/:promptId/examples`, `DELETE /categories/:categoryId/examples` with confirmation dialogs in UI
+- [x] Build verification
 
-### Phase 4 — Frontend UI
+### Phase 4 — Frontend UI ✅
 
-- [ ] `WorkbenchPage`, `WorkbenchCategoryPage`, `WorkbenchPromptPage`
-- [ ] Admin nav entry, route wiring
-- [ ] `workbench.api.ts` frontend client
-- [ ] Build verification
+- [x] `WorkbenchPage`, `WorkbenchCategoryPage`, `WorkbenchPromptPage`
+- [x] Admin nav entry, route wiring
+- [x] `workbench.api.ts` frontend client
+- [x] Build verification
 
-### Phase 5 — Batch Automation & Polish
+### Phase 5 — Batch Automation & Polish ✅
 
-- [ ] Batch job queue with progress polling (`POST /generate/batch`, `GET /jobs/:jobId`)
+- [x] Batch job queue with progress polling (`POST /generate/batch`, `GET /jobs/:jobId`)
+- [x] System prompt management (versioning, activation via API)
+- [x] Code template wrapping for Build123d imports/exports
 - [ ] Multiple seeds / re-run for dataset expansion
-- [ ] System prompt editor in UI
 - [ ] Export preview before download
+
+### Phase 6 — Vector Search for Few-Shot Examples ✅
+
+- [x] Migration `008_pgvector_embeddings.ts`: pgvector extension, `embedding` column (vector(1536)), HNSW index
+- [x] `workbench-embeddings.service.ts`: embed, backfill, semantic similarity search, status reporting
+- [x] OpenAI `text-embedding-3-large` with `dimensions: 1536` (Matryoshka Representation Learning — better quality than text-embedding-3-small at same dimensions, stays within pgvector 2000-dimension limit)
+- [x] Docker Compose: `pgvector/pgvector:pg16` image, `EMBEDDING_PROVIDER` + `EMBEDDING_MODEL` env vars
+- [x] Codegen pipeline: vector search primary → category-scoped fallback when embeddings unavailable
+- [x] Routes: `POST /embeddings/backfill`, `GET /embeddings/status`
+- [x] Build verification
 
 ---
 
@@ -830,15 +843,15 @@ This is **future work** — not in the current implementation phases. The initia
 | # | Question | Status |
 |---|----------|--------|
 | 1 | Fine-tuning framework (LLaMA-Factory vs Axolotl vs Unsloth) | Deferred |
-| 2 | VLM default: Anthropic `claude-sonnet-4-6` or OpenAI `gpt-4o`? | Anthropic preferred; configurable |
-| 3 | Reference image per prompt (for VLM comparison)? | Nice-to-have; Phase 5 |
-| 4 | Rate limiting on `/generate` batch endpoint? | Add in Phase 3 |
-| 5 | File storage path for workbench renders | `/data/storage/workbench/{exampleId}/` |
-| 6 | Batch job persistence (in-memory vs DB-backed queue)? | Start in-memory; upgrade if needed |
+| 2 | VLM default: Anthropic `claude-sonnet-4-6` or OpenAI `gpt-4o`? | **Resolved:** Anthropic default, configurable via `EVAL_VLM_PROVIDER` |
+| 3 | Reference image per prompt (for VLM comparison)? | Nice-to-have; not yet implemented |
+| 4 | Rate limiting on `/generate` batch endpoint? | Not yet implemented |
+| 5 | File storage path for workbench renders | **Resolved:** `/data/storage/workbench/{exampleId}/` |
+| 6 | Batch job persistence (in-memory vs DB-backed queue)? | **Resolved:** In-memory Map; sufficient for single-backend |
 | 7 | Parts knowledge library: initial board set and datasheet format? | Future — see §15 |
 | 8 | 3D-printability guidelines: include in v1 training or separate LoRA? | Future — see §16 |
 | 9 | Parts library: keyword matching vs embedding-based retrieval? | Future — start with keywords |
 
 ---
 
-*End of Design Document v0.3*
+*End of Design Document v0.4*

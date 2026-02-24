@@ -33,7 +33,9 @@ services:
     build:
       context: ./services/build123d
       dockerfile: Dockerfile
-    container_name: chat3d-build123d
+    restart: unless-stopped
+    deploy:
+      replicas: 2
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:80/').read()"]
       interval: 10s
