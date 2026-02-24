@@ -11,6 +11,14 @@ import {
   WorkbenchSeederError,
 } from "../services/workbench-seeder.service.js";
 import { generateForPrompt } from "../services/workbench-codegen.service.js";
+import {
+  approveExample,
+  exportApprovedJsonl,
+  getExample,
+  getExportStats,
+  rejectExample,
+  updateExampleCode,
+} from "../services/workbench-examples.service.js";
 
 export const workbenchRouter = Router();
 
@@ -113,5 +121,106 @@ workbenchRouter.post("/generate", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "Generation failed", detail: String(error) });
+  }
+});
+
+// ── Examples ─────────────────────────────────────────────────────────
+
+workbenchRouter.get("/examples/:id", async (req, res) => {
+  try {
+    const example = await getExample(req.params.id);
+    res.status(200).json(example);
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to get example", detail: String(error) });
+  }
+});
+
+workbenchRouter.patch("/examples/:id/approve", async (req, res) => {
+  try {
+    await approveExample(req.params.id);
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to approve example", detail: String(error) });
+  }
+});
+
+workbenchRouter.patch("/examples/:id/reject", async (req, res) => {
+  try {
+    const { note } = req.body as { note?: string };
+    await rejectExample(req.params.id, note);
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to reject example", detail: String(error) });
+  }
+});
+
+workbenchRouter.patch("/examples/:id/code", async (req, res) => {
+  try {
+    const { code } = req.body as { code?: string };
+    if (!code || typeof code !== "string") {
+      res.status(400).json({ error: "code is required" });
+      return;
+    }
+    await updateExampleCode(req.params.id, code);
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to update example code", detail: String(error) });
+  }
+});
+
+workbenchRouter.post("/examples/:id/retry", async (req, res) => {
+  try {
+    // Look up the prompt_id for this example, then re-run generation
+    const example = await getExample(req.params.id);
+    const result = await generateForPrompt(example.promptId);
+    res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Retry failed", detail: String(error) });
+  }
+});
+
+// ── Export ────────────────────────────────────────────────────────────
+
+workbenchRouter.get("/export/stats", async (_req, res) => {
+  try {
+    const stats = await getExportStats();
+    res.status(200).json(stats);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to get export stats", detail: String(error) });
+  }
+});
+
+workbenchRouter.get("/export/jsonl", async (_req, res) => {
+  try {
+    const jsonl = await exportApprovedJsonl();
+    res.setHeader("Content-Type", "application/jsonl");
+    res.setHeader("Content-Disposition", "attachment; filename=training-data.jsonl");
+    res.status(200).send(jsonl);
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Export failed", detail: String(error) });
   }
 });
