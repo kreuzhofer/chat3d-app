@@ -227,7 +227,7 @@ export function WorkbenchCategoryPage() {
           title: result.approvalStatus === "auto_approved" ? "Auto-approved!" : "Generation complete",
           description: `Score: ${result.evalScore ?? "N/A"}, iteration: ${result.iteration}`,
         });
-        await loadData();
+        await loadData(true);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {

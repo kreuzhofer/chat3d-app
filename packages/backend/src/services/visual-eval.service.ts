@@ -112,20 +112,31 @@ Adjust your expectations to the category complexity level. A complexity-1 primit
 category only needs to demonstrate the basic shape correctly. A complexity-10 PCB case
 must have accurate port cutouts, standoff placement, and structural features.
 
-Our renders are untextured 3D models displayed with flat shading and no anti-aliasing.
-Focus on geometric similarity only — not texture, color (unless the prompt requests color),
-photorealism, or rendering quality. Focus on: Does this 3D model represent the same type
-of object? Do the overall shape, proportions, and key features match?
+CRITICAL — about the rendering format:
+These images show STL file renders. STL is a tessellated mesh format — ALL surfaces are
+composed of flat triangular facets. This is inherent to the format, not a defect.
+Curved surfaces (cylinders, spheres, fillets, cones, tori) will ALWAYS appear faceted.
+The render uses flat shading with no anti-aliasing, so edges may look jagged.
 
-IMPORTANT — classifying issues vs suggestions:
+You MUST completely ignore ALL of the following when scoring:
+- Faceted/polygonal appearance of curved surfaces
+- Lack of smoothness on rounded geometry
+- Jagged or aliased edges
+- Visible triangulation or tessellation artifacts
+- Surface roughness from mesh approximation
+These are ALL normal STL rendering characteristics and must NEVER reduce the score.
+
+Focus ONLY on geometric similarity: Does this 3D model represent the correct type of object?
+Do the overall shape, proportions, and key features match the request? Ignore texture, color
+(unless the prompt requests color), photorealism, and rendering quality entirely.
+
+Classifying issues vs suggestions:
 - "issues": ONLY real geometric/structural problems — wrong shape, missing features,
   incorrect proportions, extra geometry, misaligned parts. These are problems in the
   Build123d code that produces the geometry.
-- "suggestions": rendering artifacts (aliasing, faceting, smoothness), minor cosmetic
-  observations, and code-level improvement ideas. These are NOT geometric errors.
-
-Do NOT put rendering artifacts like "lack of smoothness", "jagged edges", "faceted surface",
-or "aliasing" into issues — these come from the render pipeline, not the model code.
+- "suggestions": rendering observations, minor cosmetic notes, and code-level improvement
+  ideas. These are NOT geometric errors and must NOT affect the score.
+  Never put faceting, smoothness, aliasing, or tessellation observations into issues.
 
 Return JSON only:
 {
