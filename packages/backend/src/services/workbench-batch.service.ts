@@ -67,13 +67,34 @@ function generateJobId(): string {
 // ── Public API ───────────────────────────────────────────────────────
 
 /**
+ * Return the running batch job for a category, or null if none.
+ */
+export function getRunningJobForCategory(categoryId: string): BatchJobSummary | null {
+  for (const job of jobs.values()) {
+    if (job.categoryId === categoryId && job.status === "running") {
+      return toSummary(job);
+    }
+  }
+  return null;
+}
+
+/**
  * Start a batch generation job for a category.
  * Optionally skip prompts that already have an approved example.
+ * Throws 409 if a batch is already running for this category.
  */
 export async function startBatchJob(
   categoryId: string,
   options: { skipApproved?: boolean } = {},
 ): Promise<BatchJobSummary> {
+  // Prevent double-starts
+  const existing = getRunningJobForCategory(categoryId);
+  if (existing) {
+    const err = new Error("A batch job is already running for this category");
+    (err as Error & { statusCode: number }).statusCode = 409;
+    throw err;
+  }
+
   // Verify category exists
   const catResult = await pool.query<{ name: string }>(
     `SELECT name FROM workbench_categories WHERE id = $1`,

@@ -191,7 +191,12 @@ export interface EvaluateModelInput {
 export async function evaluateModel(input: EvaluateModelInput): Promise<EvaluationResult> {
   const { userPrompt, categoryName, complexity, images } = input;
 
+  console.log(
+    `[vlm-eval] starting evaluation: prompt="${userPrompt.slice(0, 80)}…", category=${categoryName}, complexity=${complexity}, images=${images.length}`,
+  );
+
   if (!images || images.length === 0) {
+    console.warn("[vlm-eval] no images provided — returning score 1");
     return {
       score: 1,
       issues: ["No images provided for evaluation"],
@@ -205,6 +210,8 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
 
   const { provider, modelName } = resolveVlmProvider();
   const vlmModelLabel = `${provider}/${modelName}`;
+  console.log(`[vlm-eval] using ${vlmModelLabel}`);
+
   const systemPrompt = buildEvaluationSystemPrompt(userPrompt, categoryName, complexity);
 
   // Build user message with image parts
@@ -222,6 +229,7 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
     try {
       const providerModel = createProviderModel(provider, modelName);
 
+      console.log(`[vlm-eval] attempt ${attempt + 1}/${EVAL_MAX_RETRIES + 1} — calling ${vlmModelLabel}`);
       const result = await generateText({
         model: providerModel,
         system: systemPrompt,
@@ -234,7 +242,13 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
         throw new Error("Empty response from VLM");
       }
 
+      console.log(`[vlm-eval] raw response (first 300 chars): ${responseText.slice(0, 300)}`);
+
       const parsed = parseEvaluationResponse(responseText);
+
+      console.log(
+        `[vlm-eval] score=${parsed.score}, issues=${parsed.issues.length}, suggestions=${parsed.suggestions.length}`,
+      );
 
       return {
         ...parsed,
@@ -247,7 +261,7 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
       lastError = error instanceof Error ? error : new Error(String(error));
       if (attempt < EVAL_MAX_RETRIES) {
         console.warn(
-          `VLM evaluation attempt ${attempt + 1} failed, retrying: ${lastError.message}`,
+          `[vlm-eval] attempt ${attempt + 1} failed, retrying: ${lastError.message}`,
         );
         // Brief delay before retry
         await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
@@ -255,7 +269,7 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
     }
   }
 
-  console.error(`VLM evaluation failed after ${EVAL_MAX_RETRIES + 1} attempts:`, lastError?.message);
+  console.error(`[vlm-eval] failed after ${EVAL_MAX_RETRIES + 1} attempts: ${lastError?.message}`);
   return {
     score: 1,
     issues: [`Evaluation failed: ${lastError?.message ?? "Unknown error"}`],

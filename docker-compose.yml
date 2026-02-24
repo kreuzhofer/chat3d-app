@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: chat3d-postgres
     environment:
       POSTGRES_USER: ${DB_USER:-chat3d}
@@ -90,6 +90,8 @@ services:
       OLLAMA_TOKEN: ${OLLAMA_TOKEN:-}
       EVAL_VLM_PROVIDER: ${EVAL_VLM_PROVIDER:-anthropic}
       EVAL_VLM_MODEL: ${EVAL_VLM_MODEL:-claude-sonnet-4-6}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-large}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_SECURE: ${SMTP_SECURE:-false}

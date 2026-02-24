@@ -162,6 +162,8 @@ export const config = {
       "EVAL_VLM_MODEL",
       readEvalVlmProvider() === "anthropic" ? "claude-sonnet-4-6" : "gpt-4o",
     ),
+    embeddingProvider: readEnv("EMBEDDING_PROVIDER", "openai"),
+    embeddingModel: readEnv("EMBEDDING_MODEL", "text-embedding-3-large"),
   },
   email: {
     transport: readEmailTransport(),

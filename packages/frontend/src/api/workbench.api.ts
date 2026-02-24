@@ -164,6 +164,13 @@ export function seedCategories(token: string): Promise<SeedResult> {
   return requestJson<SeedResult>(token, "/categories/seed", { method: "POST" });
 }
 
+export function updatePromptText(token: string, promptId: string, prompt: string): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(token, `/prompts/${encodeURIComponent(promptId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ prompt }),
+  });
+}
+
 // ── Generation ───────────────────────────────────────────────────────
 
 export function generateForPrompt(token: string, promptId: string): Promise<GenerateResult> {
@@ -192,6 +199,12 @@ export function getJobStatus(token: string, jobId: string): Promise<BatchJobSumm
   });
 }
 
+export function getRunningJob(token: string, categoryId: string): Promise<BatchJobSummary | null> {
+  return requestJson<BatchJobSummary | null>(token, `/jobs/running?categoryId=${encodeURIComponent(categoryId)}`, {
+    method: "GET",
+  });
+}
+
 export function cancelJob(token: string, jobId: string): Promise<{ ok: true }> {
   return requestJson<{ ok: true }>(token, `/jobs/${encodeURIComponent(jobId)}/cancel`, {
     method: "POST",
@@ -199,6 +212,12 @@ export function cancelJob(token: string, jobId: string): Promise<{ ok: true }> {
 }
 
 // ── Examples ─────────────────────────────────────────────────────────
+
+export function listExamplesForPrompt(token: string, promptId: string): Promise<WorkbenchExample[]> {
+  return requestJson<WorkbenchExample[]>(token, `/prompts/${encodeURIComponent(promptId)}/examples`, {
+    method: "GET",
+  });
+}
 
 export function getExample(token: string, exampleId: string): Promise<WorkbenchExample> {
   return requestJson<WorkbenchExample>(token, `/examples/${encodeURIComponent(exampleId)}`, {
@@ -229,6 +248,24 @@ export function updateExampleCode(token: string, exampleId: string, code: string
 export function retryExample(token: string, exampleId: string): Promise<GenerateResult> {
   return requestJson<GenerateResult>(token, `/examples/${encodeURIComponent(exampleId)}/retry`, {
     method: "POST",
+  });
+}
+
+export function deleteExample(token: string, exampleId: string): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(token, `/examples/${encodeURIComponent(exampleId)}`, {
+    method: "DELETE",
+  });
+}
+
+export function deleteExamplesForPrompt(token: string, promptId: string): Promise<{ deleted: number }> {
+  return requestJson<{ deleted: number }>(token, `/prompts/${encodeURIComponent(promptId)}/examples`, {
+    method: "DELETE",
+  });
+}
+
+export function deleteExamplesForCategory(token: string, categoryId: string): Promise<{ deleted: number }> {
+  return requestJson<{ deleted: number }>(token, `/categories/${encodeURIComponent(categoryId)}/examples`, {
+    method: "DELETE",
   });
 }
 

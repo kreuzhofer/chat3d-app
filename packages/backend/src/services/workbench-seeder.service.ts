@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, existsSync } from "fs";
 import { join } from "path";
 import { pool } from "../db/connection.js";
 import { config } from "../config.js";
+import { embedAndStorePrompt } from "./workbench-embeddings.service.js";
 
 export class WorkbenchSeederError extends Error {
   constructor(
@@ -227,6 +228,8 @@ interface CategoryRow {
 }
 
 export async function listCategories() {
+  // Count prompts that have at least one example with a given status.
+  // This avoids inflated counts when a single prompt has multiple examples.
   const result = await pool.query<CategoryRow>(`
     SELECT
       c.id,
@@ -235,10 +238,10 @@ export async function listCategories() {
       c.complexity,
       c.description,
       COUNT(DISTINCT p.id)::text AS prompt_count,
-      COUNT(DISTINCT CASE WHEN e.approval_status = 'auto_approved' THEN e.id END)::text AS auto_approved_count,
-      COUNT(DISTINCT CASE WHEN e.approval_status = 'human_approved' THEN e.id END)::text AS human_approved_count,
-      COUNT(DISTINCT CASE WHEN e.approval_status = 'pending' THEN e.id END)::text AS pending_count,
-      COUNT(DISTINCT CASE WHEN e.approval_status = 'rejected' THEN e.id END)::text AS rejected_count,
+      COUNT(DISTINCT CASE WHEN e.approval_status = 'auto_approved' THEN p.id END)::text AS auto_approved_count,
+      COUNT(DISTINCT CASE WHEN e.approval_status = 'human_approved' THEN p.id END)::text AS human_approved_count,
+      COUNT(DISTINCT CASE WHEN e.approval_status = 'pending' THEN p.id END)::text AS pending_count,
+      COUNT(DISTINCT CASE WHEN e.approval_status = 'rejected' THEN p.id END)::text AS rejected_count,
       c.created_at,
       c.updated_at
     FROM workbench_categories c
@@ -324,6 +327,29 @@ export async function listPromptsForCategory(categoryId: string) {
     bestApproval: row.best_approval,
     createdAt: row.created_at,
   }));
+}
+
+export async function updatePromptText(promptId: string, newText: string): Promise<void> {
+  if (!newText || newText.trim().length === 0) {
+    throw new WorkbenchSeederError("Prompt text cannot be empty", 400);
+  }
+
+  const trimmed = newText.trim();
+
+  // Clear embedding so it gets re-generated
+  const result = await pool.query(
+    `UPDATE workbench_example_prompts SET prompt = $2, embedding = NULL WHERE id = $1 RETURNING id`,
+    [promptId, trimmed],
+  );
+
+  if (result.rowCount === 0) {
+    throw new WorkbenchSeederError("Prompt not found", 404);
+  }
+
+  // Re-embed asynchronously
+  void embedAndStorePrompt(promptId, trimmed).catch((err) =>
+    console.warn(`[workbench] failed to re-embed prompt ${promptId}: ${err}`),
+  );
 }
 
 // ── System prompt CRUD ────────────────────────────────────────────────

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Loader2, Play, Sparkles, Square, Zap } from "lucide-react";
+import { ArrowLeft, Loader2, Play, Sparkles, Square, Trash2, Zap } from "lucide-react";
 import {
   cancelJob,
+  deleteExamplesForCategory,
   generateForPrompt,
   getJobStatus,
+  getRunningJob,
   listCategories,
   listPromptsForCategory,
   startBatchJob,
@@ -17,6 +19,7 @@ import { InlineAlert } from "./layout/InlineAlert";
 import { PageHeader } from "./layout/PageHeader";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { Dialog } from "./ui/dialog";
 import { useToast } from "./ui/toast";
 
 type Filter = "all" | "pending" | "approved" | "no_examples";
@@ -50,23 +53,35 @@ export function WorkbenchCategoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [generatingPromptId, setGeneratingPromptId] = useState<string | null>(null);
   const [batchJob, setBatchJob] = useState<BatchJobSummary | null>(null);
+  const [confirmResetCategory, setConfirmResetCategory] = useState(false);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (silent = false) => {
     if (!token || !categoryId) return;
-    setIsLoading(true);
-    setError(null);
+    if (!silent) {
+      setIsLoading(true);
+      setError(null);
+    }
     try {
-      const [cats, promptList] = await Promise.all([
+      const fetches: [Promise<WorkbenchCategory[]>, Promise<WorkbenchPrompt[]>, Promise<BatchJobSummary | null>?] = [
         listCategories(token),
         listPromptsForCategory(token, categoryId),
-      ]);
+      ];
+      // On initial load, check if there's already a running batch job for this category
+      if (!silent) {
+        fetches.push(getRunningJob(token, categoryId));
+      }
+      const [cats, promptList, runningJob] = await Promise.all(fetches);
       const cat = cats.find((c) => c.id === categoryId) ?? null;
       setCategory(cat);
       setPrompts(promptList);
+      // Reconnect to a running batch job (e.g. after page refresh)
+      if (!silent && runningJob && runningJob.status === "running") {
+        setBatchJob(runningJob);
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (!silent) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   }, [categoryId, token]);
 
@@ -83,13 +98,16 @@ export function WorkbenchCategoryPage() {
         const status = await getJobStatus(token, batchJob.jobId);
         setBatchJob(status);
         if (status.status !== "running") {
-          // Job finished — refresh data and show toast
-          void loadData();
+          // Job finished — final refresh and show toast
+          void loadData(true);
           pushToast({
             tone: status.status === "completed" ? "success" : "warning",
             title: `Batch ${status.status}`,
             description: `${status.completed} completed, ${status.failed} failed, ${status.skipped} skipped`,
           });
+        } else {
+          // Still running — silently refresh prompt list so scores/statuses update live
+          void loadData(true);
         }
       } catch {
         // Ignore polling errors — will retry on next tick
@@ -163,6 +181,19 @@ export function WorkbenchCategoryPage() {
     [loadData, pushToast, token],
   );
 
+  const handleResetCategory = useCallback(async () => {
+    if (!token || !categoryId) return;
+    setError(null);
+    try {
+      const result = await deleteExamplesForCategory(token, categoryId);
+      setConfirmResetCategory(false);
+      pushToast({ tone: "warning", title: "Category reset", description: `${result.deleted} examples deleted` });
+      await loadData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [categoryId, loadData, pushToast, token]);
+
   return (
     <section className="space-y-4">
       <PageHeader
@@ -184,15 +215,26 @@ export function WorkbenchCategoryPage() {
                 Cancel Batch
               </Button>
             ) : (
-              <Button
-                variant="default"
-                size="sm"
-                iconLeft={<Zap className="h-3.5 w-3.5" />}
-                onClick={() => void handleBatchGenerate(true)}
-                disabled={generatingPromptId !== null}
-              >
-                Generate All
-              </Button>
+              <>
+                <Button
+                  variant="default"
+                  size="sm"
+                  iconLeft={<Zap className="h-3.5 w-3.5" />}
+                  onClick={() => void handleBatchGenerate(true)}
+                  disabled={generatingPromptId !== null}
+                >
+                  Generate All
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  iconLeft={<Trash2 className="h-3.5 w-3.5" />}
+                  disabled={generatingPromptId !== null}
+                  onClick={() => setConfirmResetCategory(true)}
+                >
+                  Reset Results
+                </Button>
+              </>
             )}
           </>
         }
@@ -298,6 +340,27 @@ export function WorkbenchCategoryPage() {
           ))}
         </div>
       )}
+
+      {/* Reset category confirmation */}
+      <Dialog
+        open={confirmResetCategory}
+        title="Reset all results"
+        description={`Delete all generated examples for category "${category?.name ?? ""}"? This removes all examples across all prompts and cannot be undone.`}
+        onClose={() => setConfirmResetCategory(false)}
+      >
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={() => setConfirmResetCategory(false)}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => void handleResetCategory()}
+          >
+            Delete All Examples
+          </Button>
+        </div>
+      </Dialog>
     </section>
   );
 }

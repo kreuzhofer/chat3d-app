@@ -8,21 +8,31 @@ import {
   listPromptsForCategory,
   listSystemPrompts,
   seedFromFiles,
+  updatePromptText,
   WorkbenchSeederError,
 } from "../services/workbench-seeder.service.js";
 import { generateForPrompt } from "../services/workbench-codegen.service.js";
 import {
   approveExample,
+  deleteExample,
+  deleteExamplesForCategory,
+  deleteExamplesForPrompt,
   exportApprovedJsonl,
   getExample,
   getExportStats,
+  listExamplesForPrompt,
   rejectExample,
   updateExampleCode,
 } from "../services/workbench-examples.service.js";
 import {
+  backfillEmbeddings,
+  getEmbeddingStatus,
+} from "../services/workbench-embeddings.service.js";
+import {
   cancelJob,
   getJobDetails,
   getJobStatus,
+  getRunningJobForCategory,
   listJobs,
   startBatchJob,
 } from "../services/workbench-batch.service.js";
@@ -56,6 +66,24 @@ workbenchRouter.get("/categories/:id/prompts", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "Failed to list prompts", detail: String(error) });
+  }
+});
+
+workbenchRouter.patch("/prompts/:id", async (req, res) => {
+  try {
+    const { prompt } = req.body as { prompt?: string };
+    if (!prompt || typeof prompt !== "string") {
+      res.status(400).json({ error: "prompt (string) is required" });
+      return;
+    }
+    await updatePromptText(req.params.id, prompt);
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to update prompt", detail: String(error) });
   }
 });
 
@@ -132,6 +160,19 @@ workbenchRouter.post("/generate", async (req, res) => {
 });
 
 // ── Examples ─────────────────────────────────────────────────────────
+
+workbenchRouter.get("/prompts/:promptId/examples", async (req, res) => {
+  try {
+    const examples = await listExamplesForPrompt(req.params.promptId);
+    res.status(200).json(examples);
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to list examples", detail: String(error) });
+  }
+});
 
 workbenchRouter.get("/examples/:id", async (req, res) => {
   try {
@@ -225,6 +266,11 @@ workbenchRouter.post("/generate/batch", async (req, res) => {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (statusCode && statusCode >= 400 && statusCode < 600) {
+      res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
     res.status(500).json({ error: "Batch generation failed", detail: String(error) });
   }
 });
@@ -235,6 +281,21 @@ workbenchRouter.get("/jobs", async (_req, res) => {
     res.status(200).json(allJobs);
   } catch (error) {
     res.status(500).json({ error: "Failed to list jobs", detail: String(error) });
+  }
+});
+
+// Must be before /jobs/:jobId to avoid "running" being captured as a jobId param
+workbenchRouter.get("/jobs/running", async (req, res) => {
+  try {
+    const categoryId = req.query.categoryId;
+    if (!categoryId || typeof categoryId !== "string") {
+      res.status(400).json({ error: "categoryId query parameter is required" });
+      return;
+    }
+    const job = getRunningJobForCategory(categoryId);
+    res.status(200).json(job);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to check running jobs", detail: String(error) });
   }
 });
 
@@ -274,6 +335,67 @@ workbenchRouter.post("/jobs/:jobId/cancel", async (req, res) => {
     res.status(200).json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: "Failed to cancel job", detail: String(error) });
+  }
+});
+
+// ── Embeddings ──────────────────────────────────────────────────────
+
+workbenchRouter.post("/embeddings/backfill", async (_req, res) => {
+  try {
+    const result = await backfillEmbeddings();
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ error: "Embedding backfill failed", detail: String(error) });
+  }
+});
+
+workbenchRouter.get("/embeddings/status", async (_req, res) => {
+  try {
+    const status = await getEmbeddingStatus();
+    res.status(200).json(status);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to get embedding status", detail: String(error) });
+  }
+});
+
+// ── Delete Examples ─────────────────────────────────────────────────
+
+workbenchRouter.delete("/examples/:id", async (req, res) => {
+  try {
+    await deleteExample(req.params.id);
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to delete example", detail: String(error) });
+  }
+});
+
+workbenchRouter.delete("/prompts/:promptId/examples", async (req, res) => {
+  try {
+    const result = await deleteExamplesForPrompt(req.params.promptId);
+    res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to delete examples", detail: String(error) });
+  }
+});
+
+workbenchRouter.delete("/categories/:categoryId/examples", async (req, res) => {
+  try {
+    const result = await deleteExamplesForCategory(req.params.categoryId);
+    res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to delete category examples", detail: String(error) });
   }
 });
 

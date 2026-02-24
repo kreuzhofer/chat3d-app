@@ -22,6 +22,7 @@ import {
 } from "./stl-rendering-client.service.js";
 import { evaluateModel, type EvaluationResult } from "./visual-eval.service.js";
 import { getActiveSystemPrompt, WorkbenchSeederError } from "./workbench-seeder.service.js";
+import { findSimilarExamples } from "./workbench-embeddings.service.js";
 
 const MAX_FIX_ITERATIONS = 5;
 const AUTO_APPROVE_THRESHOLD = 7;
@@ -247,7 +248,11 @@ function buildFixPrompt(
 
 // ── Few-shot example retrieval ───────────────────────────────────────
 
-async function fetchFewShotExamples(categoryId: string, limit = 6): Promise<FewShotExample[]> {
+/**
+ * Fallback: category-scoped selection by eval score.
+ * Used when vector search is unavailable (no embeddings or API error).
+ */
+async function fetchFewShotExamplesByCategory(categoryId: string, limit = 6): Promise<FewShotExample[]> {
   const result = await pool.query<{ prompt: string; code: string }>(
     `SELECT p.prompt, e.code
      FROM workbench_examples e
@@ -259,6 +264,32 @@ async function fetchFewShotExamples(categoryId: string, limit = 6): Promise<FewS
     [categoryId, limit],
   );
   return result.rows;
+}
+
+/**
+ * Primary: vector similarity search across all categories.
+ * Falls back to category-scoped selection if vector search fails or returns empty.
+ */
+async function fetchFewShotExamples(
+  promptText: string,
+  categoryId: string,
+  limit = 6,
+): Promise<FewShotExample[]> {
+  try {
+    const results = await findSimilarExamples(promptText, limit);
+    if (results.length > 0) {
+      console.log(
+        `[workbench] vector search returned ${results.length} examples ` +
+        `(similarity: ${results[results.length - 1].similarity.toFixed(3)}–${results[0].similarity.toFixed(3)})`,
+      );
+      return results.map(({ prompt, code }) => ({ prompt, code }));
+    }
+    console.log(`[workbench] vector search returned 0 results, falling back to category query`);
+  } catch (error) {
+    console.warn(`[workbench] vector search failed, falling back to category query: ${error}`);
+  }
+
+  return fetchFewShotExamplesByCategory(categoryId, limit);
 }
 
 // ── Prompt context loading ───────────────────────────────────────────
@@ -425,11 +456,21 @@ function findFileByExtension(files: RenderedFile[], ext: string): RenderedFile |
 // ── Main pipeline ────────────────────────────────────────────────────
 
 export async function generateForPrompt(promptId: string): Promise<GenerateResult> {
+  console.log(`[workbench] ═══════════════════════════════════════════════════`);
+  console.log(`[workbench] Starting generation for prompt ${promptId}`);
+
   // 1. Load context
   const ctx = await loadPromptContext(promptId);
+  console.log(`[workbench] prompt="${ctx.prompt.slice(0, 80)}…" category=${ctx.categoryName} complexity=${ctx.complexity}`);
+
   const systemPromptRow = await getActiveSystemPrompt();
-  const fewShots = await fetchFewShotExamples(ctx.categoryId);
+  console.log(`[workbench] system prompt loaded (${systemPromptRow.content.length} chars)`);
+
+  const fewShots = await fetchFewShotExamples(ctx.prompt, ctx.categoryId);
+  console.log(`[workbench] few-shot examples: ${fewShots.length}`);
+
   const { model: providerModel, label: llmModelLabel } = resolveCodegenModel();
+  console.log(`[workbench] codegen model: ${llmModelLabel}`);
 
   let currentCode = "";
   let renderError: string | null = null;
@@ -440,6 +481,8 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
   let totalCompletionTokens = 0;
 
   for (let iteration = 1; iteration <= MAX_FIX_ITERATIONS; iteration++) {
+    console.log(`[workbench] ── iteration ${iteration}/${MAX_FIX_ITERATIONS} ──`);
+
     // 2. Generate code
     const prompt =
       iteration === 1
@@ -455,10 +498,12 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
             evalResult?.suggestions ?? null,
           );
 
+    console.log(`[workbench] LLM prompt length: ${prompt.length} chars`);
     const codeResult = await generateCode(prompt, providerModel);
     currentCode = codeResult.code;
     totalPromptTokens += codeResult.promptTokens;
     totalCompletionTokens += codeResult.completionTokens;
+    console.log(`[workbench] LLM returned code (${currentCode.length} chars, tokens: prompt=${codeResult.promptTokens} completion=${codeResult.completionTokens})`);
 
     // Reset per-iteration state
     renderError = null;
@@ -469,16 +514,19 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
     // 3. Render with Build123d — wrap raw code in template for execution
     const baseFileName = `wb-${ctx.promptId.slice(0, 8)}-iter${iteration}`;
     const executableCode = wrapInTemplate(currentCode, baseFileName);
+    console.log(`[workbench] wrapped code for Build123d (${executableCode.length} chars):`);
+    console.log(executableCode);
     try {
       const renderResult = await renderBuild123d({
         code: executableCode,
         baseFileName,
       });
       renderedFiles = renderResult.files;
+      console.log(`[workbench] Build123d render success — ${renderedFiles.length} files: ${renderedFiles.map((f) => f.filename).join(", ")}`);
     } catch (error) {
       renderError = error instanceof Error ? error.message : String(error);
       console.warn(
-        `[workbench] Render failed for prompt ${ctx.promptId} iteration ${iteration}: ${renderError}`,
+        `[workbench] Render FAILED for prompt ${ctx.promptId} iteration ${iteration}: ${renderError}`,
       );
 
       // If this is the last iteration, persist the failure and return
@@ -527,27 +575,33 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
     // 4. Screenshot via STL rendering service
     const stlFile = findFileByExtension(renderedFiles, ".stl");
     const threemfFile = findFileByExtension(renderedFiles, ".3mf");
+    console.log(`[workbench] available files: stl=${stlFile?.filename ?? "none"}, 3mf=${threemfFile?.filename ?? "none"}`);
 
     // Prefer 3MF (preserves color), fall back to STL
     const modelFile = threemfFile ?? stlFile;
     if (modelFile) {
+      const format = threemfFile ? "3mf" as const : "stl" as const;
+      console.log(`[workbench] sending ${format} to STL rendering service for screenshots (data length=${modelFile.contentBase64.length})`);
       try {
-        const format = threemfFile ? "3mf" as const : "stl" as const;
         const screenshotResult = await renderModelScreenshots({
           modelData: modelFile.contentBase64,
           format,
         });
         screenshots = screenshotResult.images;
+        console.log(`[workbench] screenshots received: ${screenshots.map((s) => s.angle).join(", ")}`);
       } catch (error) {
         console.warn(
-          `[workbench] Screenshot failed for prompt ${ctx.promptId} iteration ${iteration}: ${error}`,
+          `[workbench] Screenshot FAILED for prompt ${ctx.promptId} iteration ${iteration}: ${error}`,
         );
         // Continue with empty screenshots — VLM eval will score low
       }
+    } else {
+      console.warn(`[workbench] no STL or 3MF file available — skipping screenshots`);
     }
 
     // 5. VLM Evaluate
     const imageBase64s = screenshots.map((s) => s.base64);
+    console.log(`[workbench] VLM evaluation: ${imageBase64s.length} images to evaluate`);
     if (imageBase64s.length > 0) {
       evalResult = await evaluateModel({
         userPrompt: ctx.prompt,
@@ -555,6 +609,9 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
         complexity: ctx.complexity,
         images: imageBase64s,
       });
+      console.log(`[workbench] VLM result: score=${evalResult.score} looksCorrect=${evalResult.looksCorrect}`);
+    } else {
+      console.warn(`[workbench] skipping VLM evaluation — no screenshots`);
     }
 
     const stepFile = findFileByExtension(renderedFiles, ".step") ?? findFileByExtension(renderedFiles, ".stp");
@@ -562,6 +619,7 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
     // 6. Check auto-approval
     const score = evalResult?.score ?? null;
     const approved = score !== null && score >= AUTO_APPROVE_THRESHOLD;
+    console.log(`[workbench] score=${score} threshold=${AUTO_APPROVE_THRESHOLD} approved=${approved} lastIteration=${iteration >= MAX_FIX_ITERATIONS}`);
 
     if (approved || iteration >= MAX_FIX_ITERATIONS) {
       const exampleId = await insertExample({

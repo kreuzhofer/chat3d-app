@@ -84,6 +84,54 @@ function parseJsonbArray(value: unknown): string[] {
   return [];
 }
 
+// ── List examples for a prompt ───────────────────────────────────────
+
+export async function listExamplesForPrompt(promptId: string): Promise<ExampleDetail[]> {
+  const result = await pool.query<ExampleRow>(
+    `SELECT
+       e.*,
+       p.prompt AS prompt_text,
+       c.name AS category_name,
+       c.complexity
+     FROM workbench_examples e
+     JOIN workbench_example_prompts p ON p.id = e.prompt_id
+     JOIN workbench_categories c ON c.id = p.category_id
+     WHERE e.prompt_id = $1
+     ORDER BY e.created_at DESC`,
+    [promptId],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    promptId: row.prompt_id,
+    promptText: row.prompt_text ?? "",
+    categoryName: row.category_name ?? "",
+    complexity: row.complexity ?? 1,
+    iteration: row.iteration,
+    generationSeed: row.generation_seed,
+    code: row.code,
+    renderStatus: row.render_status,
+    renderError: row.render_error,
+    stlPath: row.stl_path,
+    stepPath: row.step_path,
+    threemfPath: row.threemf_path,
+    screenshotFront: row.screenshot_front,
+    screenshotTop: row.screenshot_top,
+    screenshotIso: row.screenshot_iso,
+    evalScore: row.eval_score,
+    evalIssues: parseJsonbArray(row.eval_issues),
+    evalSuggestions: parseJsonbArray(row.eval_suggestions),
+    approvalStatus: row.approval_status,
+    rejectionNote: row.rejection_note,
+    llmModel: row.llm_model,
+    vlmModel: row.vlm_model,
+    promptTokens: row.prompt_tokens,
+    completionTokens: row.completion_tokens,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
 // ── Get single example ───────────────────────────────────────────────
 
 export async function getExample(exampleId: string): Promise<ExampleDetail> {
@@ -141,8 +189,8 @@ export async function getExample(exampleId: string): Promise<ExampleDetail> {
 export async function approveExample(exampleId: string): Promise<void> {
   const result = await pool.query(
     `UPDATE workbench_examples
-     SET approval_status = 'human_approved', updated_at = NOW()
-     WHERE id = $1 AND approval_status IN ('pending', 'auto_approved')
+     SET approval_status = 'human_approved', rejection_note = NULL, updated_at = NOW()
+     WHERE id = $1 AND approval_status IN ('pending', 'auto_approved', 'rejected')
      RETURNING id`,
     [exampleId],
   );
@@ -211,6 +259,37 @@ export async function updateExampleCode(exampleId: string, newCode: string): Pro
   if (result.rowCount === 0) {
     throw new WorkbenchSeederError("Example not found", 404);
   }
+}
+
+// ── Delete ──────────────────────────────────────────────────────────
+
+export async function deleteExample(exampleId: string): Promise<void> {
+  const result = await pool.query(
+    `DELETE FROM workbench_examples WHERE id = $1 RETURNING id`,
+    [exampleId],
+  );
+  if (result.rowCount === 0) {
+    throw new WorkbenchSeederError("Example not found", 404);
+  }
+}
+
+export async function deleteExamplesForPrompt(promptId: string): Promise<{ deleted: number }> {
+  const result = await pool.query(
+    `DELETE FROM workbench_examples WHERE prompt_id = $1`,
+    [promptId],
+  );
+  return { deleted: result.rowCount ?? 0 };
+}
+
+export async function deleteExamplesForCategory(categoryId: string): Promise<{ deleted: number }> {
+  const result = await pool.query(
+    `DELETE FROM workbench_examples
+     WHERE prompt_id IN (
+       SELECT id FROM workbench_example_prompts WHERE category_id = $1
+     )`,
+    [categoryId],
+  );
+  return { deleted: result.rowCount ?? 0 };
 }
 
 // ── Export stats ─────────────────────────────────────────────────────

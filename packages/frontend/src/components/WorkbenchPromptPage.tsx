@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Check, Play, RefreshCw, ThumbsDown, X } from "lucide-react";
+import { ArrowLeft, Check, Pencil, Play, RefreshCw, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 import {
   approveExample,
+  deleteExample as apiDeleteExample,
+  deleteExamplesForPrompt as apiDeleteExamplesForPrompt,
   generateForPrompt,
   getExample,
+  listExamplesForPrompt,
   listPromptsForCategory,
   rejectExample,
   retryExample,
   updateExampleCode,
+  updatePromptText,
   type GenerateResult,
   type WorkbenchExample,
   type WorkbenchPrompt,
@@ -20,6 +24,7 @@ import { SectionCard } from "./layout/SectionCard";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { CodeBlock } from "./ui/code-block";
+import { Dialog } from "./ui/dialog";
 import { useToast } from "./ui/toast";
 
 function approvalTone(status: string): "success" | "info" | "warning" | "danger" | "neutral" {
@@ -44,24 +49,25 @@ export function WorkbenchPromptPage() {
   const [busy, setBusy] = useState(false);
   const [editingCode, setEditingCode] = useState(false);
   const [codeEditValue, setCodeEditValue] = useState("");
+  const [editingPrompt, setEditingPrompt] = useState(false);
+  const [promptEditValue, setPromptEditValue] = useState("");
+  const [confirmDeleteExampleId, setConfirmDeleteExampleId] = useState<string | null>(null);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!token || !categoryId || !promptId) return;
     setIsLoading(true);
     setError(null);
     try {
-      const promptList = await listPromptsForCategory(token, categoryId);
+      const [promptList, exampleList] = await Promise.all([
+        listPromptsForCategory(token, categoryId),
+        listExamplesForPrompt(token, promptId),
+      ]);
       const p = promptList.find((pp) => pp.id === promptId) ?? null;
       setPrompt(p);
-
-      // Load examples for this prompt — we don't have a direct endpoint,
-      // but the prompt has exampleCount. For now, we rely on the single
-      // generate/retry flow. If there are examples, we need the generate
-      // result which returns an exampleId.
-      // For a full implementation, we'd need a GET /prompts/:id/examples endpoint.
-      // For now, clear examples on load.
-      setExamples([]);
-      setSelectedExample(null);
+      setExamples(exampleList);
+      // Auto-select the first (most recent) example
+      setSelectedExample(exampleList.length > 0 ? exampleList[0] : null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -170,11 +176,63 @@ export function WorkbenchPromptPage() {
     }
   }, [codeEditValue, pushToast, selectedExample, token]);
 
+  const handleSavePrompt = useCallback(async () => {
+    if (!token || !promptId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await updatePromptText(token, promptId, promptEditValue);
+      setEditingPrompt(false);
+      pushToast({ tone: "success", title: "Prompt updated" });
+      await loadData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [loadData, promptEditValue, promptId, pushToast, token]);
+
+  const handleDeleteExample = useCallback(async (exampleId: string) => {
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiDeleteExample(token, exampleId);
+      setConfirmDeleteExampleId(null);
+      pushToast({ tone: "warning", title: "Example deleted" });
+      // If the deleted example was selected, clear selection
+      if (selectedExample?.id === exampleId) {
+        setSelectedExample(null);
+      }
+      await loadData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [loadData, pushToast, selectedExample, token]);
+
+  const handleDeleteAllExamples = useCallback(async () => {
+    if (!token || !promptId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await apiDeleteExamplesForPrompt(token, promptId);
+      setConfirmDeleteAll(false);
+      setSelectedExample(null);
+      pushToast({ tone: "warning", title: "All examples deleted", description: `${result.deleted} examples removed` });
+      await loadData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [loadData, promptId, pushToast, token]);
+
   return (
     <section className="space-y-4">
       <PageHeader
         title={`Prompt #${prompt?.index ?? "..."}`}
-        description={prompt?.prompt}
         breadcrumbs={["Admin", "Workbench", selectedExample?.categoryName ?? "Category", `Prompt ${prompt?.index ?? ""}`]}
         actions={
           <div className="flex gap-2">
@@ -184,9 +242,57 @@ export function WorkbenchPromptPage() {
             <Button size="sm" iconLeft={<Play className="h-3.5 w-3.5" />} loading={busy} onClick={() => void handleGenerate()}>
               Generate
             </Button>
+            {examples.length > 0 ? (
+              <Button
+                size="sm"
+                variant="destructive"
+                iconLeft={<Trash2 className="h-3.5 w-3.5" />}
+                disabled={busy}
+                onClick={() => setConfirmDeleteAll(true)}
+              >
+                Delete All
+              </Button>
+            ) : null}
           </div>
         }
       />
+
+      {/* Editable prompt text */}
+      <SectionCard
+        title="Prompt"
+        actions={
+          editingPrompt ? (
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" iconLeft={<X className="h-3 w-3" />} onClick={() => setEditingPrompt(false)}>
+                Cancel
+              </Button>
+              <Button size="sm" iconLeft={<Check className="h-3 w-3" />} loading={busy} onClick={() => void handleSavePrompt()}>
+                Save
+              </Button>
+            </div>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              iconLeft={<Pencil className="h-3 w-3" />}
+              onClick={() => { setPromptEditValue(prompt?.prompt ?? ""); setEditingPrompt(true); }}
+            >
+              Edit
+            </Button>
+          )
+        }
+      >
+        {editingPrompt ? (
+          <textarea
+            className="w-full rounded border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 text-sm"
+            rows={3}
+            value={promptEditValue}
+            onChange={(e) => setPromptEditValue(e.target.value)}
+          />
+        ) : (
+          <p className="text-sm">{prompt?.prompt ?? "..."}</p>
+        )}
+      </SectionCard>
 
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
       {isLoading ? <InlineAlert tone="info">Loading...</InlineAlert> : null}
@@ -195,14 +301,24 @@ export function WorkbenchPromptPage() {
       {examples.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {examples.map((ex, i) => (
-            <Button
-              key={ex.id}
-              size="sm"
-              variant={selectedExample?.id === ex.id ? "default" : "outline"}
-              onClick={() => setSelectedExample(ex)}
-            >
-              #{i + 1} — Score: {ex.evalScore ?? "?"} <Badge tone={approvalTone(ex.approvalStatus)} className="ml-1">{ex.approvalStatus.replace("_", " ")}</Badge>
-            </Button>
+            <div key={ex.id} className="flex items-center gap-0.5">
+              <Button
+                size="sm"
+                variant={selectedExample?.id === ex.id ? "default" : "outline"}
+                onClick={() => setSelectedExample(ex)}
+              >
+                #{i + 1} — Score: {ex.evalScore ?? "?"} <Badge tone={approvalTone(ex.approvalStatus)} className="ml-1">{ex.approvalStatus.replace("_", " ")}</Badge>
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))]"
+                disabled={busy}
+                onClick={() => setConfirmDeleteExampleId(ex.id)}
+              >
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            </div>
           ))}
         </div>
       ) : null}
@@ -254,19 +370,54 @@ export function WorkbenchPromptPage() {
             description={`VLM: ${selectedExample.vlmModel ?? "N/A"} | LLM: ${selectedExample.llmModel ?? "N/A"}`}
             actions={
               <div className="flex gap-2">
-                {selectedExample.approvalStatus !== "human_approved" && selectedExample.approvalStatus !== "rejected" ? (
-                  <>
-                    <Button size="sm" variant="outline" iconLeft={<Check className="h-3 w-3" />} loading={busy} onClick={() => void handleApprove()}>
-                      Approve
-                    </Button>
-                    <Button size="sm" variant="destructive" iconLeft={<ThumbsDown className="h-3 w-3" />} loading={busy} onClick={() => void handleReject()}>
-                      Reject
-                    </Button>
-                  </>
-                ) : null}
-                <Button size="sm" variant="outline" iconLeft={<RefreshCw className="h-3 w-3" />} loading={busy} onClick={() => void handleRetry()}>
-                  Retry
-                </Button>
+                {(() => {
+                  const isAutoApproved = selectedExample.approvalStatus === "auto_approved";
+                  const isHumanApproved = selectedExample.approvalStatus === "human_approved";
+                  const isApproved = isAutoApproved || isHumanApproved;
+                  const isRejected = selectedExample.approvalStatus === "rejected";
+                  return (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className={isApproved
+                          ? "border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          : "border border-emerald-200 text-emerald-400 hover:bg-emerald-50 hover:text-emerald-600"
+                        }
+                        iconLeft={<ThumbsUp className="h-3 w-3" />}
+                        loading={busy}
+                        disabled={isHumanApproved}
+                        onClick={() => void handleApprove()}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className={isRejected
+                          ? "border border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
+                          : "border border-red-200 text-red-300 hover:bg-red-50 hover:text-red-600"
+                        }
+                        iconLeft={<ThumbsDown className="h-3 w-3" />}
+                        loading={busy}
+                        disabled={isRejected}
+                        onClick={() => void handleReject()}
+                      >
+                        Reject
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
+                        iconLeft={<RefreshCw className="h-3 w-3" />}
+                        loading={busy}
+                        onClick={() => void handleRetry()}
+                      >
+                        Retry
+                      </Button>
+                    </>
+                  );
+                })()}
               </div>
             }
           >
@@ -352,6 +503,50 @@ export function WorkbenchPromptPage() {
           </p>
         </SectionCard>
       ) : null}
+
+      {/* Delete single example confirmation */}
+      <Dialog
+        open={confirmDeleteExampleId !== null}
+        title="Delete example"
+        description="This cannot be undone."
+        onClose={() => setConfirmDeleteExampleId(null)}
+      >
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={() => setConfirmDeleteExampleId(null)}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            loading={busy}
+            onClick={() => confirmDeleteExampleId && void handleDeleteExample(confirmDeleteExampleId)}
+          >
+            Delete
+          </Button>
+        </div>
+      </Dialog>
+
+      {/* Delete all examples confirmation */}
+      <Dialog
+        open={confirmDeleteAll}
+        title="Delete all examples"
+        description={`Delete all ${examples.length} examples for this prompt? This cannot be undone.`}
+        onClose={() => setConfirmDeleteAll(false)}
+      >
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={() => setConfirmDeleteAll(false)}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            loading={busy}
+            onClick={() => void handleDeleteAllExamples()}
+          >
+            Delete All
+          </Button>
+        </div>
+      </Dialog>
     </section>
   );
 }
