@@ -10,6 +10,7 @@ import {
   seedFromFiles,
   WorkbenchSeederError,
 } from "../services/workbench-seeder.service.js";
+import { generateForPrompt } from "../services/workbench-codegen.service.js";
 
 export const workbenchRouter = Router();
 
@@ -92,5 +93,25 @@ workbenchRouter.post("/system-prompts/:id/activate", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "Failed to activate system prompt", detail: String(error) });
+  }
+});
+
+// ── Generation ───────────────────────────────────────────────────────
+
+workbenchRouter.post("/generate", async (req, res) => {
+  try {
+    const { promptId } = req.body as { promptId?: string };
+    if (!promptId || typeof promptId !== "string") {
+      res.status(400).json({ error: "promptId is required" });
+      return;
+    }
+    const result = await generateForPrompt(promptId);
+    res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Generation failed", detail: String(error) });
   }
 });
