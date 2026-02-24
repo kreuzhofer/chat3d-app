@@ -9,11 +9,12 @@
 import { generateText } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { config } from "../config.js";
 
 const EVAL_MAX_RETRIES = 2;
 
-type VlmProvider = "anthropic" | "openai";
+type VlmProvider = "anthropic" | "openai" | "ollama";
 
 // ── Result types ─────────────────────────────────────────────────────
 
@@ -38,6 +39,11 @@ interface ParsedEvaluation {
 function resolveVlmProvider(): { provider: VlmProvider; modelName: string } {
   const provider = config.workbench.evalVlmProvider;
   const modelName = config.workbench.evalVlmModel;
+
+  // Ollama needs no API key — just a running server
+  if (provider === "ollama") {
+    return { provider, modelName };
+  }
 
   // If Anthropic is configured but key is missing, fall back to OpenAI
   if (provider === "anthropic" && !config.query.anthropicApiKey) {
@@ -64,7 +70,19 @@ function createProviderModel(provider: VlmProvider, modelName: string): any {
   if (provider === "anthropic") {
     return createAnthropic({ apiKey: config.query.anthropicApiKey })(modelName);
   }
-  return createOpenAI({ apiKey: config.query.openAiApiKey })(modelName);
+  if (provider === "ollama") {
+    const normalizedBaseUrl = config.query.ollamaBaseUrl.replace(/\/+$/, "");
+    const baseUrlWithVersion = normalizedBaseUrl.endsWith("/v1")
+      ? normalizedBaseUrl
+      : `${normalizedBaseUrl}/v1`;
+    const ollama = createOpenAICompatible({
+      name: "ollama",
+      baseURL: baseUrlWithVersion,
+      apiKey: config.query.ollamaToken.trim() === "" ? undefined : config.query.ollamaToken.trim(),
+    });
+    return ollama.chatModel(modelName);
+  }
+  return createOpenAI({ apiKey: config.query.openAiApiKey, baseURL: config.query.openAiBaseUrl })(modelName);
 }
 
 // ── Evaluation prompt ────────────────────────────────────────────────

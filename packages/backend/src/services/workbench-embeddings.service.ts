@@ -8,6 +8,7 @@
 
 import { embed, embedMany } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { config } from "../config.js";
 import { pool } from "../db/connection.js";
 
@@ -45,7 +46,22 @@ function resolveEmbeddingModel() {
     if (!config.query.openAiApiKey) {
       throw new Error("OPENAI_API_KEY is required for embeddings");
     }
-    return createOpenAI({ apiKey: config.query.openAiApiKey }).embedding(modelName, {
+    return createOpenAI({ apiKey: config.query.openAiApiKey, baseURL: config.query.openAiBaseUrl }).embedding(modelName, {
+      dimensions: EMBEDDING_DIMENSIONS,
+    });
+  }
+
+  if (provider === "ollama") {
+    const normalizedBaseUrl = config.query.ollamaBaseUrl.replace(/\/+$/, "");
+    const baseUrlWithVersion = normalizedBaseUrl.endsWith("/v1")
+      ? normalizedBaseUrl
+      : `${normalizedBaseUrl}/v1`;
+    const ollama = createOpenAICompatible({
+      name: "ollama",
+      baseURL: baseUrlWithVersion,
+      apiKey: config.query.ollamaToken.trim() === "" ? undefined : config.query.ollamaToken.trim(),
+    });
+    return ollama.textEmbeddingModel(modelName, {
       dimensions: EMBEDDING_DIMENSIONS,
     });
   }

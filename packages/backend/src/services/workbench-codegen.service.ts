@@ -88,8 +88,8 @@ type CodegenProvider = "mock" | "openai" | "anthropic" | "xai" | "ollama";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function resolveCodegenModel(): { model: any; label: string } {
-  const provider = config.query.codegenProvider as CodegenProvider;
-  const modelName = config.query.codegenModelName;
+  const provider = config.workbench.codegenProvider as CodegenProvider;
+  const modelName = config.workbench.codegenModelName;
 
   if (provider === "mock") {
     return { model: null, label: "mock" };
@@ -100,7 +100,7 @@ function resolveCodegenModel(): { model: any; label: string } {
       throw new WorkbenchSeederError("OPENAI_API_KEY is required for codegen", 500);
     }
     return {
-      model: createOpenAI({ apiKey: config.query.openAiApiKey })(modelName),
+      model: createOpenAI({ apiKey: config.query.openAiApiKey, baseURL: config.query.openAiBaseUrl })(modelName),
       label: `openai/${modelName}`,
     };
   }

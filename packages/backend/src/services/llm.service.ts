@@ -219,6 +219,7 @@ async function generateWithProvider(model: LlmModelDefinition, prompt: string): 
 
     const openai = createOpenAI({
       apiKey: config.query.openAiApiKey,
+      baseURL: config.query.openAiBaseUrl,
     });
 
     const result = await generateText({
@@ -317,7 +318,7 @@ function resolveProviderModel(model: LlmModelDefinition): any {
     if (!config.query.openAiApiKey) {
       throw new LlmServiceError("OPENAI_API_KEY is required for OpenAI provider", 500);
     }
-    return createOpenAI({ apiKey: config.query.openAiApiKey })(model.modelName);
+    return createOpenAI({ apiKey: config.query.openAiApiKey, baseURL: config.query.openAiBaseUrl })(model.modelName);
   }
 
   if (model.provider === "anthropic") {

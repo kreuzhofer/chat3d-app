@@ -67,15 +67,30 @@ function readEventBusMode(): "local" | "redis" {
   return "redis";
 }
 
-function readEvalVlmProvider(): "anthropic" | "openai" {
+function readEvalVlmProvider(): "anthropic" | "openai" | "ollama" {
   const explicit = process.env.EVAL_VLM_PROVIDER;
   if (explicit) {
-    if (explicit === "anthropic" || explicit === "openai") {
+    if (explicit === "anthropic" || explicit === "openai" || explicit === "ollama") {
       return explicit;
     }
-    throw new Error("EVAL_VLM_PROVIDER must be either 'anthropic' or 'openai'");
+    throw new Error("EVAL_VLM_PROVIDER must be one of: anthropic, openai, ollama");
   }
   return "anthropic";
+}
+
+function readWorkbenchCodegenProvider(): "mock" | "openai" | "anthropic" | "xai" | "ollama" {
+  const explicit = process.env.WORKBENCH_CODEGEN_PROVIDER;
+  if (explicit) {
+    if (explicit === "mock" || explicit === "openai" || explicit === "anthropic" || explicit === "xai" || explicit === "ollama") {
+      return explicit;
+    }
+    throw new Error("WORKBENCH_CODEGEN_PROVIDER must be one of: mock, openai, anthropic, xai, ollama");
+  }
+  // Fall back to the main chat codegen provider for backwards compatibility
+  return readQueryProviderEnv(
+    "QUERY_CODEGEN_PROVIDER",
+    process.env.NODE_ENV === "test" ? "mock" : "openai",
+  );
 }
 
 function readQueryProviderEnv(name: string, fallback: string): "mock" | "openai" | "anthropic" | "xai" | "ollama" {
@@ -147,6 +162,7 @@ export const config = {
     conversationModelName: readEnv("QUERY_CONVERSATION_MODEL", "gpt-4o-mini"),
     codegenModelName: readEnv("QUERY_CODEGEN_MODEL", "gpt-5.2-codex"),
     openAiApiKey: process.env.OPENAI_API_KEY ?? "",
+    openAiBaseUrl: readOptionalEnv("OPENAI_BASE_URL"),
     anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
     xaiApiKey: process.env.XAI_API_KEY ?? "",
     ollamaBaseUrl: readEnv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
@@ -157,10 +173,17 @@ export const config = {
   },
   workbench: {
     dataDir: readEnv("WORKBENCH_DATA_DIR", "workbench"),
+    codegenProvider: readWorkbenchCodegenProvider(),
+    codegenModelName: readOptionalEnv("WORKBENCH_CODEGEN_MODEL")
+      ?? readEnv("QUERY_CODEGEN_MODEL", "gpt-5.2-codex"),
     evalVlmProvider: readEvalVlmProvider(),
     evalVlmModel: readEnv(
       "EVAL_VLM_MODEL",
-      readEvalVlmProvider() === "anthropic" ? "claude-sonnet-4-6" : "gpt-4o",
+      readEvalVlmProvider() === "anthropic"
+        ? "claude-sonnet-4-6"
+        : readEvalVlmProvider() === "openai"
+          ? "gpt-4o"
+          : "llama3.2-vision",
     ),
     embeddingProvider: readEnv("EMBEDDING_PROVIDER", "openai"),
     embeddingModel: readEnv("EMBEDDING_MODEL", "text-embedding-3-large"),
