@@ -654,28 +654,57 @@ All guarded by `AdminRouteGuard`. Navigation entry added to admin nav group.
 
 ## 14. Implementation Phases
 
-### Phase 1 — STL Rendering Service
+### Phase 1 — STL Rendering Service ✅
 
-- [ ] `services/stl-rendering-service/` — Node.js + Express + Puppeteer + Three.js template
-- [ ] `POST /render` and `GET /health` endpoints
-- [ ] Dockerfile + `docker-compose.yml` addition
-- [ ] `STL_RENDERING_SERVICE_URL` env var in backend config
-- [ ] Build verification
+- [x] `services/stl-rendering-service/` — Node.js + Express + Puppeteer + Three.js template
+- [x] `POST /render` and `GET /health` endpoints (STL + 3MF support)
+- [x] Dockerfile + `docker-compose.yml` addition
+- [x] `STL_RENDERING_SERVICE_URL` env var in backend config
+- [x] Build verification
 
-### Phase 2 — Curriculum Content
+### Phase 2 — Curriculum Content ✅
 
-- [ ] Write `workbench/system-prompt.md` (comprehensive Build123d reference)
-- [ ] Write all 11 category files (`workbench/categories/01-primitives.md` … `11-pcb-cases.md`) with 100 prompts each
-- [ ] Seeder script validates file format and reports prompt count per category
+- [x] Write `workbench/system-prompt.md` (comprehensive Build123d reference)
+- [x] Write all 11 category files (`workbench/categories/01-primitives.md` … `11-pcb-cases.md`) with 100 prompts each
+- [x] Seeder script validates file format and reports prompt count per category
 
 ### Phase 3 — Backend API
 
-- [ ] DB migration: 4 new tables
-- [ ] `workbench.service.ts` — generation pipeline, VLM evaluation, fix loop
-- [ ] `visual-eval.service.ts` — adapted from `chat3d-docker`, Vercel AI SDK, multi-provider
-- [ ] `workbench.routes.ts` under `/api/admin/workbench`
-- [ ] STL rendering service integration
-- [ ] JSONL export
+Split into incremental sub-phases. Each sub-phase produces a working, buildable backend.
+
+#### Phase 3a — Database Schema & Seeder
+
+- [ ] Migration `007_workbench_tables.ts`: create `workbench_categories`, `workbench_example_prompts`, `workbench_examples`, `workbench_system_prompts` tables with indexes
+- [ ] Register migration in `migrations/index.ts`
+- [ ] `workbench-seeder.service.ts`: parse `workbench/categories/*.md` frontmatter + numbered prompts, seed `workbench_categories` and `workbench_example_prompts` tables; parse `workbench/system-prompt.md`, seed `workbench_system_prompts`
+- [ ] `workbench.routes.ts` (initial): `POST /categories/seed`, `GET /categories`, `GET /categories/:id/prompts` — admin-only
+- [ ] Register router in `app.ts`
+- [ ] Build verification
+
+#### Phase 3b — STL Rendering Client & System Prompt CRUD
+
+- [ ] `stl-rendering-client.service.ts`: call `POST /render` on STL rendering service, mock mode support, error handling following `rendering.service.ts` pattern
+- [ ] System prompt routes: `GET /system-prompts`, `GET /system-prompts/active`, `POST /system-prompts/:id/activate`
+- [ ] Build verification
+
+#### Phase 3c — Visual Evaluation Service
+
+- [ ] `visual-eval.service.ts`: adapted from `chat3d-docker` (`visualEval.ts` + prompt), Vercel AI SDK `generateText()` with image content parts, multi-provider (Anthropic/OpenAI), three-level JSON response parsing fallback, retry logic (2 retries)
+- [ ] New env vars: `EVAL_VLM_PROVIDER`, `EVAL_VLM_MODEL` in config + docker-compose + .env.example
+- [ ] Build verification
+
+#### Phase 3d — Code Generation Pipeline
+
+- [ ] `workbench-codegen.service.ts`: single-prompt generation pipeline — build system prompt + few-shot examples + user prompt → LLM codegen → Build123d render → STL rendering screenshots → VLM evaluate → store result in `workbench_examples`
+- [ ] Fix loop: on render error or VLM score < 7, rebuild prompt with error/suggestions feedback → retry up to `MAX_FIX_ITERATIONS` (5)
+- [ ] Auto-approval: score ≥ 7 → `auto_approved`; exhausted retries → flag for human review
+- [ ] Route: `POST /generate` (single prompt generation)
+- [ ] Build verification
+
+#### Phase 3e — Example CRUD & JSONL Export
+
+- [ ] Example routes: `GET /examples/:id`, `PATCH /examples/:id/approve`, `PATCH /examples/:id/reject`, `PATCH /examples/:id/code` (edit + re-render + re-evaluate), `POST /examples/:id/retry`
+- [ ] Export routes: `GET /export/jsonl` (download approved examples as LLaMA-Factory JSONL), `GET /export/stats` (counts per category by approval status)
 - [ ] Build verification
 
 ### Phase 4 — Frontend UI
@@ -687,7 +716,7 @@ All guarded by `AdminRouteGuard`. Navigation entry added to admin nav group.
 
 ### Phase 5 — Batch Automation & Polish
 
-- [ ] Batch job queue with progress polling
+- [ ] Batch job queue with progress polling (`POST /generate/batch`, `GET /jobs/:jobId`)
 - [ ] Multiple seeds / re-run for dataset expansion
 - [ ] System prompt editor in UI
 - [ ] Export preview before download
