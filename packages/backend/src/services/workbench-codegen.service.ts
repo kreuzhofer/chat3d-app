@@ -23,6 +23,7 @@ import {
 import { evaluateModel, type EvaluationResult } from "./visual-eval.service.js";
 import { getActiveSystemPrompt, WorkbenchSeederError } from "./workbench-seeder.service.js";
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
+import { validatePrompt } from "./workbench-prompt-validation.service.js";
 
 const MAX_FIX_ITERATIONS = 5;
 const AUTO_APPROVE_THRESHOLD = 8;
@@ -64,7 +65,7 @@ export interface GenerateResult {
   evalScore: number | null;
   evalIssues: string[] | null;
   evalSuggestions: string[] | null;
-  approvalStatus: "pending" | "auto_approved";
+  approvalStatus: "pending" | "auto_approved" | "rejected";
   llmModel: string;
   vlmModel: string | null;
 }
@@ -87,7 +88,7 @@ interface FewShotExample {
 type CodegenProvider = "mock" | "openai" | "anthropic" | "xai" | "ollama";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function resolveCodegenModel(): { model: any; label: string } {
+export function resolveCodegenModel(): { model: any; label: string } {
   const provider = config.workbench.codegenProvider as CodegenProvider;
   const modelName = config.workbench.codegenModelName;
 
@@ -340,6 +341,7 @@ async function insertExample(data: {
   evalIssues: string[] | null;
   evalSuggestions: string[] | null;
   approvalStatus: string;
+  rejectionNote?: string | null;
   llmModel: string;
   vlmModel: string | null;
   promptTokens: number;
@@ -351,9 +353,9 @@ async function insertExample(data: {
        stl_path, step_path,
        screenshot_front, screenshot_top, screenshot_iso,
        eval_score, eval_issues, eval_suggestions,
-       approval_status, llm_model, vlm_model,
+       approval_status, rejection_note, llm_model, vlm_model,
        prompt_tokens, completion_tokens
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
      RETURNING id`,
     [
       data.promptId,
@@ -370,6 +372,7 @@ async function insertExample(data: {
       data.evalIssues ? JSON.stringify(data.evalIssues) : null,
       data.evalSuggestions ? JSON.stringify(data.evalSuggestions) : null,
       data.approvalStatus,
+      data.rejectionNote ?? null,
       data.llmModel,
       data.vlmModel,
       data.promptTokens,
@@ -459,18 +462,60 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
   console.log(`[workbench] ═══════════════════════════════════════════════════`);
   console.log(`[workbench] Starting generation for prompt ${promptId}`);
 
-  // 1. Load context
+  // 1. Load context and resolve model
   const ctx = await loadPromptContext(promptId);
   console.log(`[workbench] prompt="${ctx.prompt.slice(0, 80)}…" category=${ctx.categoryName} complexity=${ctx.complexity}`);
 
+  const { model: providerModel, label: llmModelLabel } = resolveCodegenModel();
+  console.log(`[workbench] codegen model: ${llmModelLabel}`);
+
+  // 2. Validate prompt before expensive codegen pipeline
+  const validation = await validatePrompt(ctx.prompt);
+  if (!validation.valid) {
+    console.log(`[workbench] ✗ prompt REJECTED: ${validation.reason}`);
+    const exampleId = await insertExample({
+      promptId: ctx.promptId,
+      iteration: 0,
+      code: "-- PROMPT VALIDATION REJECTED --",
+      renderStatus: "error",
+      renderError: `Prompt validation failed: ${validation.reason}`,
+      stlPath: null,
+      stepPath: null,
+      screenshotFront: null,
+      screenshotTop: null,
+      screenshotIso: null,
+      evalScore: null,
+      evalIssues: null,
+      evalSuggestions: null,
+      approvalStatus: "rejected",
+      rejectionNote: validation.reason,
+      llmModel: llmModelLabel,
+      vlmModel: null,
+      promptTokens: validation.promptTokens,
+      completionTokens: validation.completionTokens,
+    });
+    return {
+      exampleId,
+      promptId: ctx.promptId,
+      iteration: 0,
+      code: "-- PROMPT VALIDATION REJECTED --",
+      renderStatus: "error",
+      renderError: `Prompt validation failed: ${validation.reason}`,
+      evalScore: null,
+      evalIssues: null,
+      evalSuggestions: null,
+      approvalStatus: "rejected",
+      llmModel: llmModelLabel,
+      vlmModel: null,
+    };
+  }
+
+  // 3. Load system prompt and few-shot examples
   const systemPromptRow = await getActiveSystemPrompt();
   console.log(`[workbench] system prompt loaded (${systemPromptRow.content.length} chars)`);
 
   const fewShots = await fetchFewShotExamples(ctx.prompt, ctx.categoryId);
   console.log(`[workbench] few-shot examples: ${fewShots.length}`);
-
-  const { model: providerModel, label: llmModelLabel } = resolveCodegenModel();
-  console.log(`[workbench] codegen model: ${llmModelLabel}`);
 
   let currentCode = "";
   let renderError: string | null = null;

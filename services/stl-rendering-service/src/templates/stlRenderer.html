@@ -78,6 +78,7 @@
     }
 
     function positionCamera(camera, angle, distance, modelCenterY) {
+      // All cameras look at the model center and are exactly `distance` away from it
       const lookAt = new THREE.Vector3(0, modelCenterY, 0);
 
       switch (angle) {
@@ -85,13 +86,13 @@
           camera.position.set(0, modelCenterY, distance);
           break;
         case 'top':
-          camera.position.set(0, distance, 0.001);
+          // Place camera `distance` above the lookAt point (not above the origin)
+          camera.position.set(0, modelCenterY + distance, 0.001);
           break;
         case 'isometric': {
-          // Compensate for diagonal: (d,d,d) is sqrt(3)*d from origin,
-          // so divide by sqrt(3) to keep apparent object size consistent
+          // (d,d,d) offset from lookAt — magnitude is d*sqrt(3), so d = distance/sqrt(3)
           const d = distance / Math.sqrt(3);
-          camera.position.set(d, d + modelCenterY, d);
+          camera.position.set(d, modelCenterY + d, d);
           break;
         }
         default:

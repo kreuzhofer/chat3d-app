@@ -32,7 +32,7 @@ export interface BatchJob {
 export interface BatchPromptResult {
   promptId: string;
   promptText: string;
-  status: "success" | "error" | "skipped";
+  status: "success" | "error" | "skipped" | "rejected";
   exampleId: string | null;
   evalScore: number | null;
   approvalStatus: string | null;
@@ -247,27 +247,45 @@ async function runBatchJob(
     let result: GenerateResult | null = null;
     try {
       result = await generateForPrompt(prompt.id);
-      job.completed += 1;
-      job.results.push({
-        promptId: prompt.id,
-        promptText: prompt.prompt,
-        status: "success",
-        exampleId: result.exampleId,
-        evalScore: result.evalScore,
-        approvalStatus: result.approvalStatus,
-        error: null,
-      });
 
-      // Generate embedding for approved examples so they're available for
-      // few-shot retrieval by subsequent prompts in this batch
-      if (result.approvalStatus === "auto_approved") {
-        try {
-          await embedAndStorePrompt(prompt.id, prompt.prompt);
-        } catch (embedError) {
-          console.error(
-            `[workbench-batch] Failed to embed prompt ${prompt.id}: ${embedError instanceof Error ? embedError.message : String(embedError)}`,
-          );
-          // Non-fatal: embedding failure shouldn't fail the batch prompt
+      if (result.approvalStatus === "rejected") {
+        // Prompt was rejected by validation — count as completed (not failed)
+        job.completed += 1;
+        job.results.push({
+          promptId: prompt.id,
+          promptText: prompt.prompt,
+          status: "rejected",
+          exampleId: result.exampleId,
+          evalScore: null,
+          approvalStatus: "rejected",
+          error: result.renderError,
+        });
+        console.log(
+          `[workbench-batch] Prompt ${prompt.id} rejected by validation: ${result.renderError}`,
+        );
+      } else {
+        job.completed += 1;
+        job.results.push({
+          promptId: prompt.id,
+          promptText: prompt.prompt,
+          status: "success",
+          exampleId: result.exampleId,
+          evalScore: result.evalScore,
+          approvalStatus: result.approvalStatus,
+          error: null,
+        });
+
+        // Generate embedding for approved examples so they're available for
+        // few-shot retrieval by subsequent prompts in this batch
+        if (result.approvalStatus === "auto_approved") {
+          try {
+            await embedAndStorePrompt(prompt.id, prompt.prompt);
+          } catch (embedError) {
+            console.error(
+              `[workbench-batch] Failed to embed prompt ${prompt.id}: ${embedError instanceof Error ? embedError.message : String(embedError)}`,
+            );
+            // Non-fatal: embedding failure shouldn't fail the batch prompt
+          }
         }
       }
     } catch (error) {

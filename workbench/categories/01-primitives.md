@@ -45,7 +45,7 @@ description: >
 33. Three stacked cylinders forming a tiered cake shape. Bottom: 80mm diameter, 20mm tall. Middle: 55mm diameter, 20mm tall. Top: 30mm diameter, 20mm tall.
 34. A cylinder sitting on top of a box. Box: 60mm × 60mm × 30mm. Cylinder: 20mm diameter, 40mm tall, centred on the box.
 35. A sphere resting on a cylinder plinth. Plinth: 30mm diameter, 20mm tall. Sphere: 25mm diameter, resting on top.
-36. Two cylinders side by side, touching — each 20mm diameter and 50mm tall, placed 20mm apart on the X axis.
+36. Two cylinders side by side, touching — each 20mm diameter and 50mm tall, centres 20mm apart on the X axis.
 37. A row of four cubes, each 20mm × 20mm × 20mm, placed 30mm apart along the X axis.
 38. A half-cylinder (semi-circular cross-section): 50mm diameter, 80mm long, sliced in half along its length using arc_size=180.
 39. A quarter-sphere dome, 60mm radius, cut to a quarter using arc_size parameters.

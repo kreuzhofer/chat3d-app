@@ -148,32 +148,38 @@ export async function seedFromFiles(): Promise<SeedResult> {
   try {
     await client.query("BEGIN");
 
-    // Clear existing data (idempotent re-seed)
-    await client.query("DELETE FROM workbench_example_prompts");
-    await client.query("DELETE FROM workbench_categories");
-
     for (const { filename, frontmatter, prompts } of parsed) {
-      // Insert category
+      // Upsert category by rank — never delete, only insert or update metadata
       const catResult = await client.query<{ id: string }>(
         `INSERT INTO workbench_categories (rank, name, complexity, description)
          VALUES ($1, $2, $3, $4)
+         ON CONFLICT (rank) DO UPDATE SET
+           name = EXCLUDED.name,
+           complexity = EXCLUDED.complexity,
+           description = EXCLUDED.description,
+           updated_at = NOW()
          RETURNING id`,
         [frontmatter.rank, frontmatter.name, frontmatter.complexity, frontmatter.description],
       );
       const categoryId = catResult.rows[0].id;
 
-      // Insert prompts
+      // Upsert prompts by (category_id, index) — update text if changed, add new ones
+      // Never delete existing prompts (they may have examples attached)
+      let changed = 0;
       for (let i = 0; i < prompts.length; i++) {
-        await client.query(
+        const upsertResult = await client.query(
           `INSERT INTO workbench_example_prompts (category_id, index, prompt)
-           VALUES ($1, $2, $3)`,
+           VALUES ($1, $2, $3)
+           ON CONFLICT (category_id, index) DO UPDATE SET prompt = EXCLUDED.prompt
+           WHERE workbench_example_prompts.prompt IS DISTINCT FROM EXCLUDED.prompt`,
           [categoryId, i + 1, prompts[i]],
         );
+        if ((upsertResult.rowCount ?? 0) > 0) changed++;
       }
 
       totalPrompts += prompts.length;
       console.log(
-        `  Seeded category ${frontmatter.rank}: ${frontmatter.name} — ${prompts.length} prompts (${filename})`,
+        `  Category ${frontmatter.rank}: ${frontmatter.name} — ${prompts.length} prompts (${changed} new/updated, ${prompts.length - changed} unchanged) (${filename})`,
       );
     }
 
