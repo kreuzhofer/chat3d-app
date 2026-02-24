@@ -48,9 +48,8 @@ function resolveEmbeddingModel() {
     if (!config.query.openAiApiKey) {
       throw new Error("OPENAI_API_KEY is required for embeddings");
     }
-    return createOpenAI({ apiKey: config.query.openAiApiKey, baseURL: config.query.openAiBaseUrl }).embedding(modelName, {
-      dimensions: EMBEDDING_DIMENSIONS,
-    });
+    // dimensions is passed via providerOptions at call time (required for @ai-sdk/openai v2)
+    return createOpenAI({ apiKey: config.query.openAiApiKey, baseURL: config.query.openAiBaseUrl }).embedding(modelName);
   }
 
   if (provider === "ollama") {
@@ -63,9 +62,7 @@ function resolveEmbeddingModel() {
       baseURL: baseUrlWithVersion,
       apiKey: config.query.ollamaToken.trim() === "" ? undefined : config.query.ollamaToken.trim(),
     });
-    return ollama.textEmbeddingModel(modelName, {
-      dimensions: EMBEDDING_DIMENSIONS,
-    });
+    return ollama.textEmbeddingModel(modelName);
   }
 
   throw new Error(`Unsupported embedding provider: ${provider}`);
@@ -78,7 +75,11 @@ function resolveEmbeddingModel() {
  */
 export async function embedPromptText(text: string): Promise<number[]> {
   const model = resolveEmbeddingModel();
-  const result = await embed({ model, value: text });
+  const result = await embed({
+    model,
+    value: text,
+    providerOptions: { openai: { dimensions: EMBEDDING_DIMENSIONS } },
+  });
   return result.embedding;
 }
 
@@ -136,7 +137,11 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
     console.log(`[embeddings] embedding batch ${i / BATCH_SIZE + 1} (${batch.length} texts)`);
     let embedResult;
     try {
-      embedResult = await embedMany({ model, values: texts });
+      embedResult = await embedMany({
+        model,
+        values: texts,
+        providerOptions: { openai: { dimensions: EMBEDDING_DIMENSIONS } },
+      });
     } catch (error) {
       console.error(`[embeddings] embedMany failed on batch ${i / BATCH_SIZE + 1}:`, error);
       throw error;
