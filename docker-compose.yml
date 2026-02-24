@@ -40,6 +40,20 @@ services:
       timeout: 5s
       retries: 20
 
+  stl-rendering-service:
+    build:
+      context: ./services/stl-rendering-service
+      dockerfile: Dockerfile
+    container_name: chat3d-stl-renderer
+    environment:
+      NODE_ENV: development
+      PORT: 3002
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
   backend:
     build:
       context: ./packages/backend
@@ -62,6 +76,7 @@ services:
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-change-admin-password}
       SEED_ADMIN_DISPLAY_NAME: ${SEED_ADMIN_DISPLAY_NAME:-Initial Admin}
       BUILD123D_URL: ${BUILD123D_URL:-http://build123d:80}
+      STL_RENDERING_SERVICE_URL: ${STL_RENDERING_SERVICE_URL:-http://stl-rendering-service:3002}
       QUERY_RENDER_MODE: ${QUERY_RENDER_MODE:-live}
       QUERY_LLM_MODE: ${QUERY_LLM_MODE:-live}
       QUERY_CONVERSATION_PROVIDER: ${QUERY_CONVERSATION_PROVIDER:-openai}

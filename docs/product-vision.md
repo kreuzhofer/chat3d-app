@@ -8,6 +8,8 @@
 
 Chat3D is a **prompt-to-CAD workspace**: users describe 3D parts in natural language and receive production-ready geometry (STL, STEP, 3MF) through an interactive conversation. The app should feel like talking to a CAD engineer — you describe what you need, see the result immediately, give feedback, and iterate until the part is right.
 
+The conversational UX is complete. The next frontier is **code generation quality** — fine-tuning an open-weight LLM on a curated Build123d dataset so the underlying model reliably produces correct geometry without hallucinations. The [Build123d LLM Workbench](build123d-llm-workbench.md) is the sub-project driving this effort.
+
 ### Core Experience
 
 The user opens a chat, types "Design a spur gear with 20 teeth and a 5mm bore", and within seconds sees:
@@ -59,6 +61,7 @@ The app is functionally complete through milestones M1–M15, design upgrades DQ
 - Design token system, dark mode, lucide-react icons
 - Responsive layout with mobile pane switching
 - Docker Compose deployment (PostgreSQL, Redis, Build123d, backend, frontend)
+- Build123d LLM Workbench design complete — complexity curriculum (11 categories, 1,100 prompts), automated generation/evaluation pipeline, STL rendering service, and VLM scoring architecture specified ([design doc](build123d-llm-workbench.md))
 
 ### Design Upgrade Status (DQ1–DQ6)
 
@@ -183,6 +186,33 @@ Resolved via spec 001-design-debt-resolution. ChatPage is now composed of Contex
 - ~~Consolidate navigation into header dropdown~~ ✅
 - ~~Admin-only route guards~~ ✅
 - ~~Notification bell restricted to admin users~~ ✅
+
+### Phase 5: Build123d LLM Workbench — Design Complete, Implementation Pending
+> Priority: **High** — directly improves core model generation quality
+
+The chat experience is only as good as the LLM's ability to produce correct Build123d code. Today, no available LLM generates reliable Build123d code out of the box — models hallucinate class names, wrong argument order, and invalid geometry. The Build123d LLM Workbench is an admin-only sub-project to generate, validate, and curate a high-quality training dataset for fine-tuning an open-weight LLM specifically for Build123d code generation.
+
+**Design document:** [`docs/build123d-llm-workbench.md`](build123d-llm-workbench.md)
+
+**Key components:**
+
+- **Complexity curriculum** — 11 categories (Primitives → PCB Cases), 100 natural-language prompts each (1,100 total). Prompt files live in `workbench/categories/`.
+- **Automated pipeline** — Generate code → Render via Build123d → Screenshot via STL rendering service → VLM evaluate → auto-approve (score ≥ 7) or auto-fix with VLM feedback (up to 5 retries).
+- **STL rendering service** — New Docker service (`services/stl-rendering-service/`) using Puppeteer + Three.js to render STL/3MF to PNG screenshots for VLM evaluation.
+- **VLM evaluation** — Anthropic Claude or OpenAI GPT-4o scores rendered screenshots against the original prompt on shape accuracy, proportions, and feature completeness.
+- **Training dataset export** — LLaMA-Factory JSONL format. Scale targets: v1 ~1,000 examples → Final ~10,000 via re-running prompts with varied temperature/seeds.
+
+**Implementation phases:**
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| WB-1 | Database schema, category/prompt CRUD, seeding from curriculum files | Planned |
+| WB-2 | STL rendering service, screenshot pipeline | Planned |
+| WB-3 | Code generation + VLM evaluation loop | Planned |
+| WB-4 | Admin UI — browse categories, review examples, trigger generation | Planned |
+| WB-5 | Dataset export, batch generation orchestration | Planned |
+
+**Future extensions:** Parts knowledge library (hardware datasheets for accurate dimensions) and 3D-printing design guidelines (FDM constraints, wall thickness, overhang rules).
 
 ---
 

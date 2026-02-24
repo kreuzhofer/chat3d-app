@@ -141,6 +141,9 @@ export const config = {
     ollamaBaseUrl: readEnv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
     ollamaToken: process.env.OLLAMA_TOKEN ?? "",
   },
+  stlRenderingService: {
+    url: readEnv("STL_RENDERING_SERVICE_URL", "http://stl-rendering-service:3002"),
+  },
   email: {
     transport: readEmailTransport(),
     smtpHost: readOptionalEnv("SMTP_HOST"),

@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>STL/3MF Renderer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; }
+    #canvas-container { width: 100vw; height: 100vh; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+    import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';
+
+    // Globals set by Puppeteer before calling renderImage():
+    //   window.modelData    — base64-encoded STL or 3MF
+    //   window.modelFormat  — "stl" or "3mf"
+    //   window.renderOptions — { width, height, angle }
+
+    function setupScene(options) {
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xf0f0f0);
+
+      const camera = new THREE.PerspectiveCamera(
+        75,
+        options.width / options.height,
+        0.1,
+        10000
+      );
+
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        preserveDrawingBuffer: true,
+      });
+      renderer.setSize(options.width, options.height);
+      renderer.setPixelRatio(1);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.2;
+
+      document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+      // 5-light rig
+      scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+
+      const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
+      keyLight.position.set(100, 150, 100);
+      keyLight.castShadow = true;
+      scene.add(keyLight);
+
+      const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
+      fillLight.position.set(-100, 50, -50);
+      scene.add(fillLight);
+
+      const rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
+      rimLight.position.set(0, 50, -150);
+      scene.add(rimLight);
+
+      const topLight = new THREE.DirectionalLight(0xffffff, 0.5);
+      topLight.position.set(0, 200, 0);
+      scene.add(topLight);
+
+      return { scene, camera, renderer };
+    }
+
+    function positionCamera(camera, angle, distance, modelCenterY) {
+      const lookAt = new THREE.Vector3(0, modelCenterY, 0);
+
+      switch (angle) {
+        case 'front':
+          camera.position.set(0, modelCenterY, distance);
+          break;
+        case 'top':
+          camera.position.set(0, distance, 0.001);
+          break;
+        case 'isometric':
+          camera.position.set(distance, distance, distance);
+          break;
+        default:
+          camera.position.set(0, modelCenterY, distance);
+      }
+
+      camera.lookAt(lookAt);
+      camera.updateProjectionMatrix();
+    }
+
+    function decodeBase64(data) {
+      const binary = atob(data);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
+
+    function centerAndGround(object, box) {
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+      object.position.sub(center);
+
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      object.position.y += size.y / 2;
+
+      return size;
+    }
+
+    function captureAndCleanup(scene, camera, renderer) {
+      renderer.render(scene, camera);
+      const dataUrl = renderer.domElement.toDataURL('image/png');
+
+      scene.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) {
+            obj.material.forEach((m) => m.dispose());
+          } else {
+            obj.material.dispose();
+          }
+        }
+      });
+      renderer.dispose();
+
+      return dataUrl;
+    }
+
+    function loadSTL(arrayBuffer) {
+      const loader = new STLLoader();
+      const geometry = loader.parse(arrayBuffer);
+
+      const material = new THREE.MeshStandardMaterial({
+        color: 0x2196f3,
+        metalness: 0.1,
+        roughness: 0.6,
+        side: THREE.DoubleSide,
+      });
+
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+
+      geometry.computeBoundingBox();
+      const size = centerAndGround(mesh, geometry.boundingBox);
+
+      return { object: mesh, size };
+    }
+
+    async function load3MF(arrayBuffer) {
+      const blob = new Blob([arrayBuffer]);
+      const objectUrl = URL.createObjectURL(blob);
+
+      try {
+        const loader = new ThreeMFLoader();
+        const group = await loader.loadAsync(objectUrl);
+
+        // Apply default material to any meshes without color
+        group.traverse((child) => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+            if (child.material) {
+              child.material.side = THREE.DoubleSide;
+            }
+          }
+        });
+
+        const box = new THREE.Box3().setFromObject(group);
+        const size = centerAndGround(group, box);
+
+        return { object: group, size };
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    }
+
+    window.renderImage = async function () {
+      const modelData = window.modelData;
+      const modelFormat = window.modelFormat || 'stl';
+      const options = window.renderOptions || {
+        width: 512,
+        height: 512,
+        angle: 'front',
+      };
+
+      if (!modelData) {
+        throw new Error('No model data provided');
+      }
+
+      const { scene, camera, renderer } = setupScene(options);
+      const arrayBuffer = decodeBase64(modelData);
+
+      let result;
+      if (modelFormat === '3mf') {
+        result = await load3MF(arrayBuffer);
+      } else {
+        result = loadSTL(arrayBuffer);
+      }
+
+      scene.add(result.object);
+
+      const maxDim = Math.max(result.size.x, result.size.y, result.size.z);
+      const distance = maxDim * 2.5;
+      const modelCenterY = result.size.y / 2;
+
+      positionCamera(camera, options.angle, distance, modelCenterY);
+
+      return captureAndCleanup(scene, camera, renderer);
+    };
+
+    window.rendererReady = true;
+  </script>
+</body>
+</html>

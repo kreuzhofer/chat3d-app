@@ -1,0 +1,20 @@
+{
+  "name": "stl-rendering-service",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "puppeteer": "^23.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}
