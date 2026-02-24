@@ -37,7 +37,7 @@ The path from 1,000 to 10,000 is re-running each prompt with varied temperature/
 
 - Admin-only feature, accessible at `/workbench` in the frontend.
 - Backend API under `/api/admin/workbench/`.
-- New standalone Docker service: `screenshot-service` (Puppeteer + Three.js STL renderer).
+- New standalone Docker service: `stl-rendering-service` (Puppeteer + Three.js STL/3MF renderer).
 - New database tables in the existing PostgreSQL instance.
 - No changes to the user-facing Chat3D experience.
 
@@ -49,11 +49,11 @@ The path from 1,000 to 10,000 is re-running each prompt with varied temperature/
 
 The workbench reuses the existing auth system (admin role), LLM infrastructure (Vercel AI SDK), Build123d render service, and database. A separate app would duplicate all of this.
 
-### 2.2 Screenshot Service as a Separate Docker Container
+### 2.2 STL Rendering Service as a Separate Docker Container
 
-Puppeteer + Three.js requires Chromium — inappropriate to include in the main backend image. Extracted as `services/screenshot-service/`. Implementation derived from `chat3d-docker` project (`imageRenderer.ts`).
+Puppeteer + Three.js requires Chromium — inappropriate to include in the main backend image. Extracted as `services/stl-rendering-service/`. Implementation derived from `chat3d-docker` project (`imageRenderer.ts`).
 
-- New env var: `SCREENSHOT_SERVICE_URL` (default: `http://screenshot-service:3002`)
+- New env var: `STL_RENDERING_SERVICE_URL` (default: `http://stl-rendering-service:3002`)
 
 ### 2.3 Categories Are Complexity Groups, Not Individual Examples
 
@@ -131,7 +131,7 @@ Colors are preserved in **3MF export** (`export_3mf`) but not in STL. Approximat
 
 For colored examples:
 - The generation prompt instructs the LLM to use `Color` and export 3MF instead of STEP
-- The screenshot service accepts 3MF via `ThreeMFLoader` (already used by the Chat3D frontend) in addition to STL
+- The STL rendering service accepts 3MF via `ThreeMFLoader` (already used by the Chat3D frontend) in addition to STL
 - The VLM can then evaluate color correctness alongside shape
 
 ---
@@ -142,26 +142,26 @@ For colored examples:
 graph TD
     Admin["Admin Browser\n/workbench"] -->|JWT, admin role| Backend["Backend\n:3001 /api/admin/workbench"]
     Backend -->|POST /render/| Build123d["Build123d Service\n:30222"]
-    Backend -->|POST /screenshot| Screenshot["Screenshot Service\n:3002"]
+    Backend -->|POST /render| STLRenderer["STL Rendering Service\n:3002"]
     Backend -->|Image search| ImageSearch["Bing/Google\nImage Search API"]
     Backend -->|VLM evaluate| LLM_VLM["VLM Provider\n(Anthropic/OpenAI)"]
     Backend -->|generateText codegen| LLM_Codegen["Codegen LLM\n(configured provider)"]
     Backend <-->|SQL| DB["PostgreSQL\n:5432"]
     Build123d -->|.stl/.step| Storage["/data/storage/workbench/"]
-    Screenshot -->|PNG base64| Backend
+    STLRenderer -->|PNG base64| Backend
 ```
 
 ### New Docker Services
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| `screenshot-service` | 3002 | STL → PNG via Puppeteer + Three.js |
+| `stl-rendering-service` | 3002 | STL/3MF → PNG via Puppeteer + Three.js |
 
 ### New Environment Variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `SCREENSHOT_SERVICE_URL` | `http://screenshot-service:3002` | Screenshot service URL |
+| `STL_RENDERING_SERVICE_URL` | `http://stl-rendering-service:3002` | STL rendering service URL |
 | `EVAL_VLM_PROVIDER` | `anthropic` | VLM provider for visual evaluation |
 | `EVAL_VLM_MODEL` | `claude-sonnet-4-6` | VLM model name |
 | `IMAGE_SEARCH_PROVIDER` | `bing` | Image search provider (`bing` \| `google` \| `none`) |
@@ -322,7 +322,7 @@ This is the core loop. For each `(category, prompt)` pair:
 │   render_error, iter < MAX_FIX ────────────────────────────────────────┤
 │   render_error, iter ≥ MAX_FIX → FLAG human review                     │
 ▼                                                                        │
-[3] SCREENSHOT (screenshot-service)                                      │
+[3] SCREENSHOT (stl-rendering-service)                                      │
 │   3 angles: front, top, isometric                                      │
 ▼                                                                        │
 [4] VLM EVALUATE                                                         │
@@ -493,11 +493,11 @@ All routes under `/api/admin/workbench` require `requireAuth` + `requireRole("ad
 
 ---
 
-## 9. Screenshot Service
+## 9. STL Rendering Service
 
 ### 9.1 API
 
-**`POST /screenshot`**
+**`POST /render`**
 
 ```json
 // Request
@@ -654,12 +654,12 @@ All guarded by `AdminRouteGuard`. Navigation entry added to admin nav group.
 
 ## 14. Implementation Phases
 
-### Phase 1 — Screenshot Service
+### Phase 1 — STL Rendering Service
 
-- [ ] `services/screenshot-service/` — Node.js + Express + Puppeteer + Three.js template
-- [ ] `POST /screenshot` and `GET /health` endpoints
+- [ ] `services/stl-rendering-service/` — Node.js + Express + Puppeteer + Three.js template
+- [ ] `POST /render` and `GET /health` endpoints
 - [ ] Dockerfile + `docker-compose.yml` addition
-- [ ] `SCREENSHOT_SERVICE_URL` env var in backend config
+- [ ] `STL_RENDERING_SERVICE_URL` env var in backend config
 - [ ] Build verification
 
 ### Phase 2 — Curriculum Content
@@ -674,7 +674,7 @@ All guarded by `AdminRouteGuard`. Navigation entry added to admin nav group.
 - [ ] `workbench.service.ts` — generation pipeline, VLM evaluation, fix loop
 - [ ] `visual-eval.service.ts` — adapted from `chat3d-docker`, Vercel AI SDK, multi-provider
 - [ ] `workbench.routes.ts` under `/api/admin/workbench`
-- [ ] Screenshot service proxy
+- [ ] STL rendering service integration
 - [ ] JSONL export
 - [ ] Build verification
 
