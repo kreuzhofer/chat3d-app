@@ -26,6 +26,31 @@ import { getActiveSystemPrompt, WorkbenchSeederError } from "./workbench-seeder.
 const MAX_FIX_ITERATIONS = 5;
 const AUTO_APPROVE_THRESHOLD = 7;
 
+/**
+ * Code template that wraps LLM-generated modeling code.
+ * The LLM produces only the Build123d modeling code ending with `root_part = ...`.
+ * This template adds the import and all export calls around it.
+ */
+const CODE_TEMPLATE = `from build123d import *
+###CODE###
+export_step(root_part, "###FILENAME###.step")
+exporter = Mesher()
+exporter.add_shape(root_part)
+exporter.write("###FILENAME###.3mf")
+exporter.write("###FILENAME###.stl")
+`;
+
+/**
+ * Wrap raw LLM-generated modeling code in the execution template.
+ * The raw code is stored in the DB for training data; the wrapped version
+ * is sent to Build123d for rendering.
+ */
+function wrapInTemplate(rawCode: string, baseFileName: string): string {
+  return CODE_TEMPLATE
+    .replace("###CODE###", rawCode)
+    .replaceAll("###FILENAME###", baseFileName);
+}
+
 // ── Types ────────────────────────────────────────────────────────────
 
 export interface GenerateResult {
@@ -142,8 +167,8 @@ function buildInitialPrompt(
 
   sections.push(
     "## Requirements",
-    "- Export one STEP file using export_step(). Use any reasonable filename.",
-    "- Code must be executable as-is with no missing imports.",
+    "- Generate ONLY the Build123d modeling code. Do NOT include imports or exports.",
+    "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
     "- Use only Build123d classes and functions from the reference above.",
     "",
     `User request: ${userPrompt}`,
@@ -207,11 +232,11 @@ function buildFixPrompt(
 
   sections.push(
     "Fix the code. Preserve the intended geometry described in the original request.",
-    "Return only the corrected Python code in a fenced code block.",
+    "Return only the corrected Build123d modeling code in a fenced code block.",
     "",
     "## Requirements",
-    "- Export one STEP file using export_step(). Use any reasonable filename.",
-    "- Code must be executable as-is with no missing imports.",
+    "- Generate ONLY the Build123d modeling code. Do NOT include imports or exports.",
+    "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
     "",
     `## Original request:`,
     userPrompt,
@@ -325,18 +350,39 @@ async function insertExample(data: {
 
 // ── Code generation ──────────────────────────────────────────────────
 
+/**
+ * Strip template boilerplate that the LLM might include despite instructions.
+ * We want to store only the modeling code (no imports, no exports).
+ */
+function stripTemplateBoilerplate(code: string): string {
+  return code
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (trimmed === "from build123d import *") return false;
+      if (trimmed.startsWith("export_step(")) return false;
+      if (trimmed.startsWith("exporter = Mesher(")) return false;
+      if (trimmed.startsWith("exporter.add_shape(")) return false;
+      if (trimmed.startsWith("exporter.write(")) return false;
+      return true;
+    })
+    .join("\n")
+    .trim();
+}
+
 async function generateCode(
   prompt: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   providerModel: any,
 ): Promise<{ code: string; promptTokens: number; completionTokens: number }> {
   if (providerModel === null) {
-    // Mock mode
+    // Mock mode — raw modeling code only (no imports/exports)
     const code = `
-from build123d import *
-with BuildPart() as model:
+# Simple box
+with BuildPart() as part:
     Box(20, 20, 20)
-export_step(model.part, "model.step")
+
+root_part = part.part
     `.trim();
     return { code, promptTokens: 0, completionTokens: 0 };
   }
@@ -350,8 +396,12 @@ export_step(model.part, "model.step")
     throw new Error("LLM returned empty output");
   }
 
+  // Extract code from fenced block, then strip any boilerplate the LLM added
+  const rawCode = extractExecutableCode(result.text);
+  const cleanCode = stripTemplateBoilerplate(rawCode);
+
   return {
-    code: extractExecutableCode(result.text),
+    code: cleanCode,
     promptTokens: result.usage?.promptTokens ?? 0,
     completionTokens: result.usage?.completionTokens ?? 0,
   };
@@ -416,11 +466,13 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
     renderedFiles = [];
     screenshots = [];
 
-    // 3. Render with Build123d
+    // 3. Render with Build123d — wrap raw code in template for execution
+    const baseFileName = `wb-${ctx.promptId.slice(0, 8)}-iter${iteration}`;
+    const executableCode = wrapInTemplate(currentCode, baseFileName);
     try {
       const renderResult = await renderBuild123d({
-        code: currentCode,
-        baseFileName: `wb-${ctx.promptId.slice(0, 8)}-iter${iteration}`,
+        code: executableCode,
+        baseFileName,
       });
       renderedFiles = renderResult.files;
     } catch (error) {

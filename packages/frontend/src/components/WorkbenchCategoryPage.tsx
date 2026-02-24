@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Play, Sparkles } from "lucide-react";
+import { ArrowLeft, Loader2, Play, Sparkles, Square, Zap } from "lucide-react";
 import {
+  cancelJob,
   generateForPrompt,
+  getJobStatus,
   listCategories,
   listPromptsForCategory,
+  startBatchJob,
+  type BatchJobSummary,
   type WorkbenchCategory,
   type WorkbenchPrompt,
 } from "../api/workbench.api";
@@ -45,6 +49,7 @@ export function WorkbenchCategoryPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generatingPromptId, setGeneratingPromptId] = useState<string | null>(null);
+  const [batchJob, setBatchJob] = useState<BatchJobSummary | null>(null);
 
   const loadData = useCallback(async () => {
     if (!token || !categoryId) return;
@@ -68,6 +73,63 @@ export function WorkbenchCategoryPage() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  // Poll batch job status
+  useEffect(() => {
+    if (!batchJob || !token || batchJob.status !== "running") return;
+
+    const interval = setInterval(async () => {
+      try {
+        const status = await getJobStatus(token, batchJob.jobId);
+        setBatchJob(status);
+        if (status.status !== "running") {
+          // Job finished — refresh data and show toast
+          void loadData();
+          pushToast({
+            tone: status.status === "completed" ? "success" : "warning",
+            title: `Batch ${status.status}`,
+            description: `${status.completed} completed, ${status.failed} failed, ${status.skipped} skipped`,
+          });
+        }
+      } catch {
+        // Ignore polling errors — will retry on next tick
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [batchJob, loadData, pushToast, token]);
+
+  const handleBatchGenerate = useCallback(
+    async (skipApproved: boolean) => {
+      if (!token || !categoryId) return;
+      setError(null);
+      try {
+        const job = await startBatchJob(token, categoryId, skipApproved);
+        setBatchJob(job);
+        pushToast({
+          tone: "info",
+          title: "Batch started",
+          description: `Processing ${job.total} prompts${job.skipped > 0 ? ` (${job.skipped} skipped)` : ""}...`,
+        });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [categoryId, pushToast, token],
+  );
+
+  const handleCancelBatch = useCallback(async () => {
+    if (!token || !batchJob) return;
+    try {
+      await cancelJob(token, batchJob.jobId);
+      setBatchJob((prev) => (prev ? { ...prev, status: "cancelled" } : null));
+      pushToast({ tone: "warning", title: "Batch cancelled" });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [batchJob, pushToast, token]);
+
+  const batchRunning = batchJob?.status === "running";
 
   const filteredPrompts = useMemo(() => {
     return prompts.filter((p) => {
@@ -108,13 +170,60 @@ export function WorkbenchCategoryPage() {
         description={category?.description}
         breadcrumbs={["Admin", "Workbench", category?.name ?? "..."]}
         actions={
-          <Button variant="outline" size="sm" iconLeft={<ArrowLeft className="h-3.5 w-3.5" />} onClick={() => navigate("/workbench")}>
-            Back
-          </Button>
+          <>
+            <Button variant="outline" size="sm" iconLeft={<ArrowLeft className="h-3.5 w-3.5" />} onClick={() => navigate("/workbench")}>
+              Back
+            </Button>
+            {batchRunning ? (
+              <Button
+                variant="outline"
+                size="sm"
+                iconLeft={<Square className="h-3.5 w-3.5" />}
+                onClick={() => void handleCancelBatch()}
+              >
+                Cancel Batch
+              </Button>
+            ) : (
+              <Button
+                variant="default"
+                size="sm"
+                iconLeft={<Zap className="h-3.5 w-3.5" />}
+                onClick={() => void handleBatchGenerate(true)}
+                disabled={generatingPromptId !== null}
+              >
+                Generate All
+              </Button>
+            )}
+          </>
         }
       />
 
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
+
+      {batchJob && batchJob.status === "running" ? (
+        <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3">
+          <div className="flex items-center gap-2 text-sm">
+            <Loader2 className="h-4 w-4 animate-spin text-[hsl(var(--primary))]" />
+            <span className="font-medium">
+              Batch: {batchJob.completed + batchJob.failed} / {batchJob.total}
+            </span>
+            {batchJob.failed > 0 ? (
+              <Badge tone="danger">{batchJob.failed} failed</Badge>
+            ) : null}
+          </div>
+          {batchJob.currentPromptText ? (
+            <p className="mt-1 truncate text-xs text-[hsl(var(--muted-foreground))]">
+              Current: {batchJob.currentPromptText}
+            </p>
+          ) : null}
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[hsl(var(--muted))]">
+            <div
+              className="h-full rounded-full bg-[hsl(var(--primary))] transition-all"
+              style={{ width: `${batchJob.total > 0 ? Math.round(((batchJob.completed + batchJob.failed) / batchJob.total) * 100) : 0}%` }}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
         {(["all", "no_examples", "pending", "approved"] as Filter[]).map((f) => (
@@ -179,7 +288,7 @@ export function WorkbenchCategoryPage() {
                   variant="outline"
                   iconLeft={generatingPromptId === prompt.id ? <Sparkles className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
                   loading={generatingPromptId === prompt.id}
-                  disabled={generatingPromptId !== null}
+                  disabled={generatingPromptId !== null || batchRunning}
                   onClick={() => void handleGenerate(prompt.id)}
                 >
                   Generate

@@ -133,6 +133,21 @@ export interface SeedResult {
   systemPromptSeeded: boolean;
 }
 
+export interface BatchJobSummary {
+  jobId: string;
+  categoryId: string;
+  categoryName: string;
+  status: "running" | "completed" | "failed" | "cancelled";
+  total: number;
+  completed: number;
+  failed: number;
+  skipped: number;
+  currentPromptText: string | null;
+  error: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
 // ── Categories ───────────────────────────────────────────────────────
 
 export function listCategories(token: string): Promise<WorkbenchCategory[]> {
@@ -155,6 +170,31 @@ export function generateForPrompt(token: string, promptId: string): Promise<Gene
   return requestJson<GenerateResult>(token, "/generate", {
     method: "POST",
     body: JSON.stringify({ promptId }),
+  });
+}
+
+// ── Batch Generation ────────────────────────────────────────────────
+
+export function startBatchJob(
+  token: string,
+  categoryId: string,
+  skipApproved = true,
+): Promise<BatchJobSummary> {
+  return requestJson<BatchJobSummary>(token, "/generate/batch", {
+    method: "POST",
+    body: JSON.stringify({ categoryId, skipApproved }),
+  });
+}
+
+export function getJobStatus(token: string, jobId: string): Promise<BatchJobSummary> {
+  return requestJson<BatchJobSummary>(token, `/jobs/${encodeURIComponent(jobId)}`, {
+    method: "GET",
+  });
+}
+
+export function cancelJob(token: string, jobId: string): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(token, `/jobs/${encodeURIComponent(jobId)}/cancel`, {
+    method: "POST",
   });
 }
 

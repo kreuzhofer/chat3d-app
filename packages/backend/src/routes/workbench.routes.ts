@@ -19,6 +19,13 @@ import {
   rejectExample,
   updateExampleCode,
 } from "../services/workbench-examples.service.js";
+import {
+  cancelJob,
+  getJobDetails,
+  getJobStatus,
+  listJobs,
+  startBatchJob,
+} from "../services/workbench-batch.service.js";
 
 export const workbenchRouter = Router();
 
@@ -196,6 +203,77 @@ workbenchRouter.post("/examples/:id/retry", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "Retry failed", detail: String(error) });
+  }
+});
+
+// ── Batch Generation ──────────────────────────────────────────────────
+
+workbenchRouter.post("/generate/batch", async (req, res) => {
+  try {
+    const { categoryId, skipApproved } = req.body as {
+      categoryId?: string;
+      skipApproved?: boolean;
+    };
+    if (!categoryId || typeof categoryId !== "string") {
+      res.status(400).json({ error: "categoryId is required" });
+      return;
+    }
+    const job = await startBatchJob(categoryId, { skipApproved: skipApproved ?? true });
+    res.status(202).json(job);
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Batch generation failed", detail: String(error) });
+  }
+});
+
+workbenchRouter.get("/jobs", async (_req, res) => {
+  try {
+    const allJobs = listJobs();
+    res.status(200).json(allJobs);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to list jobs", detail: String(error) });
+  }
+});
+
+workbenchRouter.get("/jobs/:jobId", async (req, res) => {
+  try {
+    const job = getJobStatus(req.params.jobId);
+    if (!job) {
+      res.status(404).json({ error: "Job not found" });
+      return;
+    }
+    res.status(200).json(job);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to get job status", detail: String(error) });
+  }
+});
+
+workbenchRouter.get("/jobs/:jobId/details", async (req, res) => {
+  try {
+    const job = getJobDetails(req.params.jobId);
+    if (!job) {
+      res.status(404).json({ error: "Job not found" });
+      return;
+    }
+    res.status(200).json(job);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to get job details", detail: String(error) });
+  }
+});
+
+workbenchRouter.post("/jobs/:jobId/cancel", async (req, res) => {
+  try {
+    const cancelled = cancelJob(req.params.jobId);
+    if (!cancelled) {
+      res.status(404).json({ error: "Job not found or not running" });
+      return;
+    }
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to cancel job", detail: String(error) });
   }
 });
 
