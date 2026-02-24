@@ -25,7 +25,7 @@ import { getActiveSystemPrompt, WorkbenchSeederError } from "./workbench-seeder.
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
 
 const MAX_FIX_ITERATIONS = 5;
-const AUTO_APPROVE_THRESHOLD = 7;
+const AUTO_APPROVE_THRESHOLD = 8;
 
 /**
  * Code template that wraps LLM-generated modeling code.
@@ -480,6 +480,20 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
 
+  // Track best successful result across iterations so we can fall back
+  // if a fix attempt regresses the score.
+  let best: {
+    code: string;
+    score: number;
+    evalResult: EvaluationResult | null;
+    stlFilename: string | null;
+    stepFilename: string | null;
+    screenshots: RenderedScreenshot[];
+    iteration: number;
+    promptTokens: number;
+    completionTokens: number;
+  } | null = null;
+
   for (let iteration = 1; iteration <= MAX_FIX_ITERATIONS; iteration++) {
     console.log(`[workbench] ── iteration ${iteration}/${MAX_FIX_ITERATIONS} ──`);
 
@@ -619,56 +633,92 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
 
     const stepFile = findFileByExtension(renderedFiles, ".step") ?? findFileByExtension(renderedFiles, ".stp");
 
-    // 6. Check auto-approval
+    // 6. Track best result and decide whether to continue fixing
     const score = evalResult?.score ?? null;
     const approved = score !== null && score >= AUTO_APPROVE_THRESHOLD;
-    console.log(`[workbench] score=${score} threshold=${AUTO_APPROVE_THRESHOLD} approved=${approved} lastIteration=${iteration >= MAX_FIX_ITERATIONS}`);
+    const hasIssues = (evalResult?.issues ?? []).length > 0;
+    console.log(`[workbench] score=${score} threshold=${AUTO_APPROVE_THRESHOLD} approved=${approved} hasIssues=${hasIssues} lastIteration=${iteration >= MAX_FIX_ITERATIONS}`);
 
-    if (approved || iteration >= MAX_FIX_ITERATIONS) {
-      const exampleId = await insertExample({
-        promptId: ctx.promptId,
-        iteration,
+    // Track the best successful result so we never regress
+    if (score !== null && (best === null || score > best.score)) {
+      best = {
         code: currentCode,
-        renderStatus: "success",
-        renderError: null,
-        stlPath: stlFile?.filename ?? null,
-        stepPath: stepFile?.filename ?? null,
-        screenshotFront: findScreenshot(screenshots, "front"),
-        screenshotTop: findScreenshot(screenshots, "top"),
-        screenshotIso: findScreenshot(screenshots, "isometric"),
-        evalScore: score,
-        evalIssues: evalResult?.issues ?? null,
-        evalSuggestions: evalResult?.suggestions ?? null,
-        approvalStatus: approved ? "auto_approved" : "pending",
-        llmModel: llmModelLabel,
-        vlmModel: evalResult?.vlmModel ?? null,
+        score,
+        evalResult,
+        stlFilename: stlFile?.filename ?? null,
+        stepFilename: stepFile?.filename ?? null,
+        screenshots: [...screenshots],
+        iteration,
         promptTokens: totalPromptTokens,
         completionTokens: totalCompletionTokens,
+      };
+      console.log(`[workbench] new best: score=${score} iteration=${iteration}`);
+    }
+
+    // Stop if: perfect score with no issues, or last iteration
+    // Continue fixing if: below threshold, OR above threshold but VLM reported issues
+    const shouldStop = (approved && !hasIssues) || iteration >= MAX_FIX_ITERATIONS;
+
+    if (shouldStop) {
+      // Use the best result across all iterations (guards against regressions)
+      const final = best ?? {
+        code: currentCode,
+        score,
+        evalResult,
+        stlFilename: stlFile?.filename ?? null,
+        stepFilename: stepFile?.filename ?? null,
+        screenshots,
+        iteration,
+        promptTokens: totalPromptTokens,
+        completionTokens: totalCompletionTokens,
+      };
+      const finalScore = final.score;
+      const finalApproved = finalScore !== null && finalScore >= AUTO_APPROVE_THRESHOLD;
+
+      const exampleId = await insertExample({
+        promptId: ctx.promptId,
+        iteration: final.iteration,
+        code: final.code,
+        renderStatus: "success",
+        renderError: null,
+        stlPath: final.stlFilename,
+        stepPath: final.stepFilename,
+        screenshotFront: findScreenshot(final.screenshots, "front"),
+        screenshotTop: findScreenshot(final.screenshots, "top"),
+        screenshotIso: findScreenshot(final.screenshots, "isometric"),
+        evalScore: finalScore,
+        evalIssues: final.evalResult?.issues ?? null,
+        evalSuggestions: final.evalResult?.suggestions ?? null,
+        approvalStatus: finalApproved ? "auto_approved" : "pending",
+        llmModel: llmModelLabel,
+        vlmModel: final.evalResult?.vlmModel ?? null,
+        promptTokens: final.promptTokens,
+        completionTokens: final.completionTokens,
       });
 
       console.log(
-        `[workbench] prompt=${ctx.promptId} iteration=${iteration} score=${score} status=${approved ? "auto_approved" : "pending"}`,
+        `[workbench] prompt=${ctx.promptId} persisted iteration=${final.iteration} score=${finalScore} status=${finalApproved ? "auto_approved" : "pending"} (best of ${iteration} iterations)`,
       );
 
       return {
         exampleId,
         promptId: ctx.promptId,
-        iteration,
-        code: currentCode,
+        iteration: final.iteration,
+        code: final.code,
         renderStatus: "success",
         renderError: null,
-        evalScore: score,
-        evalIssues: evalResult?.issues ?? null,
-        evalSuggestions: evalResult?.suggestions ?? null,
-        approvalStatus: approved ? "auto_approved" : "pending",
+        evalScore: finalScore,
+        evalIssues: final.evalResult?.issues ?? null,
+        evalSuggestions: final.evalResult?.suggestions ?? null,
+        approvalStatus: finalApproved ? "auto_approved" : "pending",
         llmModel: llmModelLabel,
-        vlmModel: evalResult?.vlmModel ?? null,
+        vlmModel: final.evalResult?.vlmModel ?? null,
       };
     }
 
-    // Score < threshold — loop back for fix
+    // Continue fixing — either below threshold or has issues to address
     console.log(
-      `[workbench] prompt=${ctx.promptId} iteration=${iteration} score=${score} — retrying`,
+      `[workbench] prompt=${ctx.promptId} iteration=${iteration} score=${score} issues=${(evalResult?.issues ?? []).length} — retrying`,
     );
   }
 

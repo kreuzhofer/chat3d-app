@@ -8,6 +8,7 @@
 
 import { pool } from "../db/connection.js";
 import { generateForPrompt, type GenerateResult } from "./workbench-codegen.service.js";
+import { embedAndStorePrompt } from "./workbench-embeddings.service.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -76,6 +77,19 @@ export function getRunningJobForCategory(categoryId: string): BatchJobSummary | 
     }
   }
   return null;
+}
+
+/**
+ * Return all currently running batch jobs (across all categories).
+ */
+export function getRunningJobs(): BatchJobSummary[] {
+  const running: BatchJobSummary[] = [];
+  for (const job of jobs.values()) {
+    if (job.status === "running") {
+      running.push(toSummary(job));
+    }
+  }
+  return running;
 }
 
 /**
@@ -241,6 +255,19 @@ async function runBatchJob(
         approvalStatus: result.approvalStatus,
         error: null,
       });
+
+      // Generate embedding for approved examples so they're available for
+      // few-shot retrieval by subsequent prompts in this batch
+      if (result.approvalStatus === "auto_approved") {
+        try {
+          await embedAndStorePrompt(prompt.id, prompt.prompt);
+        } catch (embedError) {
+          console.error(
+            `[workbench-batch] Failed to embed prompt ${prompt.id}: ${embedError instanceof Error ? embedError.message : String(embedError)}`,
+          );
+          // Non-fatal: embedding failure shouldn't fail the batch prompt
+        }
+      }
     } catch (error) {
       job.failed += 1;
       job.results.push({

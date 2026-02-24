@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Database, Download, FolderOpen, RefreshCw, Sprout } from "lucide-react";
+import { Database, Download, FolderOpen, Loader2, RefreshCw, Sprout } from "lucide-react";
 import {
   backfillEmbeddings,
   getEmbeddingStatus,
   getExportStats,
+  getRunningJobs,
   listCategories,
   seedCategories,
+  type BatchJobSummary,
   type EmbeddingStatus,
   type ExportStats,
   type SeedResult,
@@ -44,6 +46,7 @@ export function WorkbenchPage() {
   const [categories, setCategories] = useState<WorkbenchCategory[]>([]);
   const [stats, setStats] = useState<ExportStats | null>(null);
   const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingStatus | null>(null);
+  const [runningJobs, setRunningJobs] = useState<Map<string, BatchJobSummary>>(new Map());
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [seeding, setSeeding] = useState(false);
@@ -54,14 +57,16 @@ export function WorkbenchPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [cats, exportStats, embedStatus] = await Promise.all([
+      const [cats, exportStats, embedStatus, jobs] = await Promise.all([
         listCategories(token),
         getExportStats(token),
         getEmbeddingStatus(token),
+        getRunningJobs(token),
       ]);
       setCategories(cats);
       setStats(exportStats);
       setEmbeddingStatus(embedStatus);
+      setRunningJobs(new Map(jobs.map((j) => [j.categoryId, j])));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -72,6 +77,24 @@ export function WorkbenchPage() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  // Poll for running job status every 3 seconds
+  useEffect(() => {
+    if (runningJobs.size === 0 || !token) return;
+    const interval = setInterval(async () => {
+      try {
+        const jobs = await getRunningJobs(token);
+        setRunningJobs(new Map(jobs.map((j) => [j.categoryId, j])));
+        // When all jobs finish, refresh full data to update counts
+        if (jobs.length === 0) {
+          void loadData();
+        }
+      } catch {
+        // Silently ignore poll failures
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [runningJobs.size, token, loadData]);
 
   const handleSeed = useCallback(async () => {
     if (!token) return;
@@ -202,40 +225,54 @@ export function WorkbenchPage() {
         </SectionCard>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {categories.map((cat) => (
-            <button
-              key={cat.id}
-              type="button"
-              className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-4 text-left transition hover:border-[hsl(var(--primary)_/_0.5)] hover:shadow-md"
-              onClick={() => navigate(`/workbench/${cat.id}`)}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <FolderOpen className="h-4 w-4 shrink-0 text-[hsl(var(--muted-foreground))]" />
-                  <h3 className="font-medium text-[hsl(var(--foreground))]">{cat.name}</h3>
+          {categories.map((cat) => {
+            const runningJob = runningJobs.get(cat.id);
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-4 text-left transition hover:border-[hsl(var(--primary)_/_0.5)] hover:shadow-md"
+                onClick={() => navigate(`/workbench/${cat.id}`)}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    {runningJob ? (
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[hsl(var(--primary))]" />
+                    ) : (
+                      <FolderOpen className="h-4 w-4 shrink-0 text-[hsl(var(--muted-foreground))]" />
+                    )}
+                    <h3 className="font-medium text-[hsl(var(--foreground))]">{cat.name}</h3>
+                  </div>
+                  <Badge tone={complexityTone(cat.complexity)}>L{cat.complexity}</Badge>
                 </div>
-                <Badge tone={complexityTone(cat.complexity)}>L{cat.complexity}</Badge>
-              </div>
-              <p className="mt-1 line-clamp-2 text-xs text-[hsl(var(--muted-foreground))]">{cat.description}</p>
-              <div className="mt-3">
-                <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))]">
-                  <span>{approvedCount(cat)} / {cat.promptCount} approved</span>
-                  <span>{progressPercent(cat)}%</span>
+                <p className="mt-1 line-clamp-2 text-xs text-[hsl(var(--muted-foreground))]">{cat.description}</p>
+                <div className="mt-3">
+                  <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))]">
+                    <span>{approvedCount(cat)} / {cat.promptCount} approved</span>
+                    <span>{progressPercent(cat)}%</span>
+                  </div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[hsl(var(--muted))]">
+                    <div
+                      className="h-full rounded-full bg-[hsl(var(--success))]"
+                      style={{ width: `${progressPercent(cat)}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[hsl(var(--muted))]">
-                  <div
-                    className="h-full rounded-full bg-[hsl(var(--success))]"
-                    style={{ width: `${progressPercent(cat)}%` }}
-                  />
-                </div>
-              </div>
-              {cat.pendingCount > 0 ? (
-                <div className="mt-2 flex gap-1.5">
-                  <Badge tone="warning">{cat.pendingCount} pending</Badge>
-                </div>
-              ) : null}
-            </button>
-          ))}
+                {runningJob ? (
+                  <div className="mt-2 flex items-center gap-1.5 text-xs text-[hsl(var(--muted-foreground))]">
+                    <span>Batch: {runningJob.completed + runningJob.failed} / {runningJob.total}</span>
+                    {runningJob.failed > 0 ? (
+                      <Badge tone="danger">{runningJob.failed} failed</Badge>
+                    ) : null}
+                  </div>
+                ) : cat.pendingCount > 0 ? (
+                  <div className="mt-2 flex gap-1.5">
+                    <Badge tone="warning">{cat.pendingCount} pending</Badge>
+                  </div>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
       )}
     </section>

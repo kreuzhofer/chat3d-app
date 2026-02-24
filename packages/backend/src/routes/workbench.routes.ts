@@ -33,6 +33,7 @@ import {
   getJobDetails,
   getJobStatus,
   getRunningJobForCategory,
+  getRunningJobs,
   listJobs,
   startBatchJob,
 } from "../services/workbench-batch.service.js";
@@ -288,12 +289,15 @@ workbenchRouter.get("/jobs", async (_req, res) => {
 workbenchRouter.get("/jobs/running", async (req, res) => {
   try {
     const categoryId = req.query.categoryId;
-    if (!categoryId || typeof categoryId !== "string") {
-      res.status(400).json({ error: "categoryId query parameter is required" });
-      return;
+    if (categoryId && typeof categoryId === "string") {
+      // Single category mode (used by category page)
+      const job = getRunningJobForCategory(categoryId);
+      res.status(200).json(job);
+    } else {
+      // All running jobs (used by overview page)
+      const jobs = getRunningJobs();
+      res.status(200).json(jobs);
     }
-    const job = getRunningJobForCategory(categoryId);
-    res.status(200).json(job);
   } catch (error) {
     res.status(500).json({ error: "Failed to check running jobs", detail: String(error) });
   }

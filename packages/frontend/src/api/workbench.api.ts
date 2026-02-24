@@ -205,6 +205,10 @@ export function getRunningJob(token: string, categoryId: string): Promise<BatchJ
   });
 }
 
+export function getRunningJobs(token: string): Promise<BatchJobSummary[]> {
+  return requestJson<BatchJobSummary[]>(token, "/jobs/running", { method: "GET" });
+}
+
 export function cancelJob(token: string, jobId: string): Promise<{ ok: true }> {
   return requestJson<{ ok: true }>(token, `/jobs/${encodeURIComponent(jobId)}/cancel`, {
     method: "POST",
