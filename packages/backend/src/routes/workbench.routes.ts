@@ -2,8 +2,11 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import {
+  activateSystemPrompt,
+  getActiveSystemPrompt,
   listCategories,
   listPromptsForCategory,
+  listSystemPrompts,
   seedFromFiles,
   WorkbenchSeederError,
 } from "../services/workbench-seeder.service.js";
@@ -52,5 +55,42 @@ workbenchRouter.post("/categories/seed", async (_req, res) => {
       return;
     }
     res.status(500).json({ error: "Seeding failed", detail: String(error) });
+  }
+});
+
+// ── System Prompts ────────────────────────────────────────────────────
+
+workbenchRouter.get("/system-prompts", async (_req, res) => {
+  try {
+    const prompts = await listSystemPrompts();
+    res.status(200).json(prompts);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to list system prompts", detail: String(error) });
+  }
+});
+
+workbenchRouter.get("/system-prompts/active", async (_req, res) => {
+  try {
+    const prompt = await getActiveSystemPrompt();
+    res.status(200).json(prompt);
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to get active system prompt", detail: String(error) });
+  }
+});
+
+workbenchRouter.post("/system-prompts/:id/activate", async (req, res) => {
+  try {
+    await activateSystemPrompt(req.params.id);
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to activate system prompt", detail: String(error) });
   }
 });

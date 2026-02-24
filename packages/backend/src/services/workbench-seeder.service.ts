@@ -325,3 +325,79 @@ export async function listPromptsForCategory(categoryId: string) {
     createdAt: row.created_at,
   }));
 }
+
+// ── System prompt CRUD ────────────────────────────────────────────────
+
+interface SystemPromptRow {
+  id: string;
+  version: number;
+  label: string;
+  content: string;
+  is_active: boolean;
+  created_at: Date;
+}
+
+export async function listSystemPrompts() {
+  const result = await pool.query<SystemPromptRow>(
+    "SELECT id, version, label, content, is_active, created_at FROM workbench_system_prompts ORDER BY version DESC",
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    version: row.version,
+    label: row.label,
+    content: row.content,
+    isActive: row.is_active,
+    createdAt: row.created_at,
+  }));
+}
+
+export async function getActiveSystemPrompt() {
+  const result = await pool.query<SystemPromptRow>(
+    "SELECT id, version, label, content, is_active, created_at FROM workbench_system_prompts WHERE is_active = TRUE LIMIT 1",
+  );
+
+  if (result.rows.length === 0) {
+    throw new WorkbenchSeederError("No active system prompt found", 404);
+  }
+
+  const row = result.rows[0];
+  return {
+    id: row.id,
+    version: row.version,
+    label: row.label,
+    content: row.content,
+    isActive: row.is_active,
+    createdAt: row.created_at,
+  };
+}
+
+export async function activateSystemPrompt(promptId: string) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Verify prompt exists
+    const check = await client.query(
+      "SELECT id FROM workbench_system_prompts WHERE id = $1",
+      [promptId],
+    );
+    if (check.rows.length === 0) {
+      throw new WorkbenchSeederError("System prompt not found", 404);
+    }
+
+    // Deactivate all, then activate the target
+    await client.query("UPDATE workbench_system_prompts SET is_active = FALSE");
+    await client.query(
+      "UPDATE workbench_system_prompts SET is_active = TRUE WHERE id = $1",
+      [promptId],
+    );
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
