@@ -67,6 +67,17 @@ function readEventBusMode(): "local" | "redis" {
   return "redis";
 }
 
+function readEvalVlmProvider(): "anthropic" | "openai" {
+  const explicit = process.env.EVAL_VLM_PROVIDER;
+  if (explicit) {
+    if (explicit === "anthropic" || explicit === "openai") {
+      return explicit;
+    }
+    throw new Error("EVAL_VLM_PROVIDER must be either 'anthropic' or 'openai'");
+  }
+  return "anthropic";
+}
+
 function readQueryProviderEnv(name: string, fallback: string): "mock" | "openai" | "anthropic" | "xai" | "ollama" {
   const value = readEnv(name, fallback);
   if (value === "mock" || value === "openai" || value === "anthropic" || value === "xai" || value === "ollama") {
@@ -146,6 +157,11 @@ export const config = {
   },
   workbench: {
     dataDir: readEnv("WORKBENCH_DATA_DIR", "workbench"),
+    evalVlmProvider: readEvalVlmProvider(),
+    evalVlmModel: readEnv(
+      "EVAL_VLM_MODEL",
+      readEvalVlmProvider() === "anthropic" ? "claude-sonnet-4-6" : "gpt-4o",
+    ),
   },
   email: {
     transport: readEmailTransport(),

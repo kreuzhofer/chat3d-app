@@ -88,6 +88,8 @@ services:
       XAI_API_KEY: ${XAI_API_KEY:-}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_TOKEN: ${OLLAMA_TOKEN:-}
+      EVAL_VLM_PROVIDER: ${EVAL_VLM_PROVIDER:-anthropic}
+      EVAL_VLM_MODEL: ${EVAL_VLM_MODEL:-claude-sonnet-4-6}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_SECURE: ${SMTP_SECURE:-false}
