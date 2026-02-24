@@ -499,6 +499,13 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
           );
 
     console.log(`[workbench] LLM prompt length: ${prompt.length} chars`);
+    if (iteration > 1) {
+      const issues = evalResult?.issues ?? [];
+      const suggestions = evalResult?.suggestions ?? [];
+      console.log(`[workbench] fix feedback — issues: ${JSON.stringify(issues)}`);
+      console.log(`[workbench] fix feedback — suggestions: ${JSON.stringify(suggestions)}`);
+      if (renderError) console.log(`[workbench] fix feedback — renderError: ${renderError}`);
+    }
     const codeResult = await generateCode(prompt, providerModel);
     currentCode = codeResult.code;
     totalPromptTokens += codeResult.promptTokens;
@@ -572,20 +579,16 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
       continue;
     }
 
-    // 4. Screenshot via STL rendering service
+    // 4. Screenshot via STL rendering service (STL only — faster, no ZIP decompression)
     const stlFile = findFileByExtension(renderedFiles, ".stl");
-    const threemfFile = findFileByExtension(renderedFiles, ".3mf");
-    console.log(`[workbench] available files: stl=${stlFile?.filename ?? "none"}, 3mf=${threemfFile?.filename ?? "none"}`);
-
-    // Prefer 3MF (preserves color), fall back to STL
-    const modelFile = threemfFile ?? stlFile;
-    if (modelFile) {
-      const format = threemfFile ? "3mf" as const : "stl" as const;
-      console.log(`[workbench] sending ${format} to STL rendering service for screenshots (data length=${modelFile.contentBase64.length})`);
+    if (stlFile) {
+      console.log(`[workbench] sending stl to STL rendering service for screenshots (data length=${stlFile.contentBase64.length})`);
       try {
         const screenshotResult = await renderModelScreenshots({
-          modelData: modelFile.contentBase64,
-          format,
+          modelData: stlFile.contentBase64,
+          format: "stl",
+          width: 256,
+          height: 256,
         });
         screenshots = screenshotResult.images;
         console.log(`[workbench] screenshots received: ${screenshots.map((s) => s.angle).join(", ")}`);
@@ -596,7 +599,7 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
         // Continue with empty screenshots — VLM eval will score low
       }
     } else {
-      console.warn(`[workbench] no STL or 3MF file available — skipping screenshots`);
+      console.warn(`[workbench] no STL file available — skipping screenshots`);
     }
 
     // 5. VLM Evaluate

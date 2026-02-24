@@ -281,6 +281,29 @@ export function activateSystemPrompt(token: string, promptId: string): Promise<{
   });
 }
 
+// ── Embeddings ───────────────────────────────────────────────────────
+
+export interface EmbeddingStatus {
+  total: number;
+  embedded: number;
+  missing: number;
+  stale: number;
+  currentModel: string;
+}
+
+export interface BackfillResult {
+  embedded: number;
+  skipped: number;
+}
+
+export function getEmbeddingStatus(token: string): Promise<EmbeddingStatus> {
+  return requestJson<EmbeddingStatus>(token, "/embeddings/status", { method: "GET" });
+}
+
+export function backfillEmbeddings(token: string): Promise<BackfillResult> {
+  return requestJson<BackfillResult>(token, "/embeddings/backfill", { method: "POST" });
+}
+
 // ── Export ────────────────────────────────────────────────────────────
 
 export function getExportStats(token: string): Promise<ExportStats> {

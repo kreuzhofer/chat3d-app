@@ -162,7 +162,7 @@ export const config = {
     conversationModelName: readEnv("QUERY_CONVERSATION_MODEL", "gpt-4o-mini"),
     codegenModelName: readEnv("QUERY_CODEGEN_MODEL", "gpt-5.2-codex"),
     openAiApiKey: process.env.OPENAI_API_KEY ?? "",
-    openAiBaseUrl: readOptionalEnv("OPENAI_BASE_URL"),
+    openAiBaseUrl: readOptionalEnv("OPENAI_BASE_URL") ?? "https://api.openai.com/v1",
     anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
     xaiApiKey: process.env.XAI_API_KEY ?? "",
     ollamaBaseUrl: readEnv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),

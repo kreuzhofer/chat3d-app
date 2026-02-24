@@ -40,6 +40,13 @@ RUN npm run build
 # Copy HTML template to dist (not handled by tsc)
 RUN cp -r src/templates dist/templates
 
+# Bundle Three.js locally — eliminates CDN dependency at runtime
+RUN mkdir -p dist/templates/vendor/three/build && \
+    mkdir -p dist/templates/vendor/three/examples/jsm && \
+    cp node_modules/three/build/three.module.js dist/templates/vendor/three/build/ && \
+    cp -r node_modules/three/examples/jsm/loaders dist/templates/vendor/three/examples/jsm/loaders && \
+    cp -r node_modules/three/examples/jsm/libs dist/templates/vendor/three/examples/jsm/libs
+
 EXPOSE 3002
 
 CMD ["node", "dist/index.js"]

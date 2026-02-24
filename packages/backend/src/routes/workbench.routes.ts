@@ -342,9 +342,12 @@ workbenchRouter.post("/jobs/:jobId/cancel", async (req, res) => {
 
 workbenchRouter.post("/embeddings/backfill", async (_req, res) => {
   try {
+    console.log("[embeddings] backfill requested");
     const result = await backfillEmbeddings();
+    console.log(`[embeddings] backfill complete: embedded=${result.embedded} skipped=${result.skipped}`);
     res.status(200).json(result);
   } catch (error) {
+    console.error("[embeddings] backfill failed:", error);
     res.status(500).json({ error: "Embedding backfill failed", detail: String(error) });
   }
 });

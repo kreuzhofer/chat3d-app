@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Download, FolderOpen, RefreshCw, Sprout } from "lucide-react";
+import { Database, Download, FolderOpen, RefreshCw, Sprout } from "lucide-react";
 import {
+  backfillEmbeddings,
+  getEmbeddingStatus,
   getExportStats,
   listCategories,
   seedCategories,
+  type EmbeddingStatus,
   type ExportStats,
   type SeedResult,
   type WorkbenchCategory,
@@ -40,21 +43,25 @@ export function WorkbenchPage() {
 
   const [categories, setCategories] = useState<WorkbenchCategory[]>([]);
   const [stats, setStats] = useState<ExportStats | null>(null);
+  const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [seeding, setSeeding] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!token) return;
     setIsLoading(true);
     setError(null);
     try {
-      const [cats, exportStats] = await Promise.all([
+      const [cats, exportStats, embedStatus] = await Promise.all([
         listCategories(token),
         getExportStats(token),
+        getEmbeddingStatus(token),
       ]);
       setCategories(cats);
       setStats(exportStats);
+      setEmbeddingStatus(embedStatus);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -84,6 +91,27 @@ export function WorkbenchPage() {
       setSeeding(false);
     }
   }, [loadData, pushToast, token]);
+
+  const handleBackfill = useCallback(async () => {
+    if (!token) return;
+    setBackfilling(true);
+    setError(null);
+    try {
+      const result = await backfillEmbeddings(token);
+      pushToast({
+        tone: "success",
+        title: "Embedding backfill complete",
+        description: `${result.embedded} prompts embedded.`,
+      });
+      // Refresh embedding status
+      const embedStatus = await getEmbeddingStatus(token);
+      setEmbeddingStatus(embedStatus);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBackfilling(false);
+    }
+  }, [pushToast, token]);
 
   const handleExportJsonl = useCallback(() => {
     if (!token) return;
@@ -127,6 +155,9 @@ export function WorkbenchPage() {
             <Button variant="outline" size="sm" iconLeft={<Sprout className="h-3.5 w-3.5" />} loading={seeding} onClick={() => void handleSeed()}>
               Seed from files
             </Button>
+            <Button variant="outline" size="sm" iconLeft={<Database className="h-3.5 w-3.5" />} loading={backfilling} onClick={() => void handleBackfill()} disabled={!embeddingStatus || (embeddingStatus.missing === 0 && embeddingStatus.stale === 0)}>
+              Backfill Embeddings{embeddingStatus && (embeddingStatus.missing + embeddingStatus.stale) > 0 ? ` (${embeddingStatus.missing + embeddingStatus.stale})` : ""}
+            </Button>
             <Button variant="outline" size="sm" iconLeft={<Download className="h-3.5 w-3.5" />} onClick={handleExportJsonl} disabled={!totals || totals.autoApproved + totals.humanApproved === 0}>
               Export JSONL
             </Button>
@@ -142,6 +173,24 @@ export function WorkbenchPage() {
           <StatCard label="Human-approved" value={totals.humanApproved} tone="info" />
           <StatCard label="Pending" value={totals.pending} tone="warning" />
           <StatCard label="Rejected" value={totals.rejected} tone="danger" />
+        </div>
+      ) : null}
+
+      {embeddingStatus ? (
+        <div className="flex items-center gap-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-4 py-2 text-xs text-[hsl(var(--muted-foreground))]">
+          <Database className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            Embeddings: <strong>{embeddingStatus.embedded}</strong> / {embeddingStatus.total} ({embeddingStatus.currentModel})
+          </span>
+          {embeddingStatus.missing > 0 ? (
+            <Badge tone="warning">{embeddingStatus.missing} missing</Badge>
+          ) : null}
+          {embeddingStatus.stale > 0 ? (
+            <Badge tone="danger">{embeddingStatus.stale} stale</Badge>
+          ) : null}
+          {embeddingStatus.missing === 0 && embeddingStatus.stale === 0 ? (
+            <Badge tone="success">up to date</Badge>
+          ) : null}
         </div>
       ) : null}
 
