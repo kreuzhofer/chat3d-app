@@ -14,6 +14,7 @@ import { publicRouter } from "./routes/public.routes.js";
 import { profileRouter } from "./routes/profile.routes.js";
 import { queryRouter } from "./routes/query.routes.js";
 import { waitlistRouter } from "./routes/waitlist.routes.js";
+import { workbenchRouter } from "./routes/workbench.routes.js";
 
 export function createApp() {
   const app = express();
@@ -48,6 +49,7 @@ export function createApp() {
   app.use("/api/profile", profileRouter);
   app.use("/api/query", queryRouter);
   app.use("/api/waitlist", waitlistRouter);
+  app.use("/api/admin/workbench", workbenchRouter);
 
   app.use((req, res) => {
     res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });

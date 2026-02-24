@@ -144,6 +144,9 @@ export const config = {
   stlRenderingService: {
     url: readEnv("STL_RENDERING_SERVICE_URL", "http://stl-rendering-service:3002"),
   },
+  workbench: {
+    dataDir: readEnv("WORKBENCH_DATA_DIR", "workbench"),
+  },
   email: {
     transport: readEmailTransport(),
     smtpHost: readOptionalEnv("SMTP_HOST"),

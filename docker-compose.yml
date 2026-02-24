@@ -110,6 +110,7 @@ services:
         condition: service_healthy
     volumes:
       - storage:/data/storage
+      - ./workbench:/app/workbench:ro
 
   account-deletion-worker:
     build:
