@@ -275,6 +275,7 @@ interface PromptRow {
   example_count: string;
   best_score: number | null;
   best_approval: string | null;
+  best_example_id: string | null;
   created_at: Date;
 }
 
@@ -309,6 +310,19 @@ export async function listPromptsForCategory(categoryId: string) {
          e2.eval_score DESC NULLS LAST
        LIMIT 1
       ) AS best_approval,
+      (SELECT e3.id
+       FROM workbench_examples e3
+       WHERE e3.prompt_id = p.id
+       ORDER BY
+         CASE e3.approval_status
+           WHEN 'human_approved' THEN 1
+           WHEN 'auto_approved' THEN 2
+           WHEN 'pending' THEN 3
+           WHEN 'rejected' THEN 4
+         END,
+         e3.eval_score DESC NULLS LAST
+       LIMIT 1
+      ) AS best_example_id,
       p.created_at
     FROM workbench_example_prompts p
     LEFT JOIN workbench_examples e ON e.prompt_id = p.id
@@ -325,6 +339,7 @@ export async function listPromptsForCategory(categoryId: string) {
     exampleCount: Number(row.example_count),
     bestScore: row.best_score,
     bestApproval: row.best_approval,
+    bestExampleId: row.best_example_id,
     createdAt: row.created_at,
   }));
 }

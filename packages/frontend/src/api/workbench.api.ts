@@ -48,6 +48,7 @@ export interface WorkbenchPrompt {
   exampleCount: number;
   bestScore: number | null;
   bestApproval: string | null;
+  bestExampleId: string | null;
   createdAt: string;
 }
 
@@ -142,6 +143,7 @@ export interface BatchJobSummary {
   completed: number;
   failed: number;
   skipped: number;
+  currentPromptId: string | null;
   currentPromptText: string | null;
   error: string | null;
   createdAt: string;

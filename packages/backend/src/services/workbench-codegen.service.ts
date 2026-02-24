@@ -601,8 +601,8 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
         const screenshotResult = await renderModelScreenshots({
           modelData: stlFile.contentBase64,
           format: "stl",
-          width: 256,
-          height: 256,
+          width: 512,
+          height: 512,
         });
         screenshots = screenshotResult.images;
         console.log(`[workbench] screenshots received: ${screenshots.map((s) => s.angle).join(", ")}`);

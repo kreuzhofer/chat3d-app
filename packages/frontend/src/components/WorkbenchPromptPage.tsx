@@ -236,7 +236,7 @@ export function WorkbenchPromptPage() {
         breadcrumbs={["Admin", "Workbench", selectedExample?.categoryName ?? "Category", `Prompt ${prompt?.index ?? ""}`]}
         actions={
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" iconLeft={<ArrowLeft className="h-3.5 w-3.5" />} onClick={() => navigate(`/workbench/${categoryId}`)}>
+            <Button variant="outline" size="sm" iconLeft={<ArrowLeft className="h-3.5 w-3.5" />} onClick={() => navigate(-1)}>
               Back
             </Button>
             <Button size="sm" iconLeft={<Play className="h-3.5 w-3.5" />} loading={busy} onClick={() => void handleGenerate()}>

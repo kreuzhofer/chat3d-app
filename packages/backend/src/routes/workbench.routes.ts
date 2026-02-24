@@ -188,6 +188,33 @@ workbenchRouter.get("/examples/:id", async (req, res) => {
   }
 });
 
+workbenchRouter.get("/examples/:id/screenshot/:angle", async (req, res) => {
+  try {
+    const { id, angle } = req.params;
+    if (!["front", "top", "iso"].includes(angle)) {
+      res.status(400).json({ error: "angle must be front, top, or iso" });
+      return;
+    }
+    const example = await getExample(id);
+    const column = angle === "front" ? "screenshotFront" : angle === "top" ? "screenshotTop" : "screenshotIso";
+    const base64 = example[column as keyof typeof example] as string | null;
+    if (!base64) {
+      res.status(404).json({ error: "No screenshot available" });
+      return;
+    }
+    const buffer = Buffer.from(base64, "base64");
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.status(200).send(buffer);
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to get screenshot", detail: String(error) });
+  }
+});
+
 workbenchRouter.patch("/examples/:id/approve", async (req, res) => {
   try {
     await approveExample(req.params.id);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Loader2, Play, Sparkles, Square, Trash2, Zap } from "lucide-react";
 import {
@@ -23,6 +23,36 @@ import { Dialog } from "./ui/dialog";
 import { useToast } from "./ui/toast";
 
 type Filter = "all" | "pending" | "approved" | "no_examples";
+
+/** Tiny component that fetches an image with an Authorization header and displays it as a blob URL. */
+function AuthImage({ src, token, className }: { src: string; token: string; className?: string }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let revoke: string | null = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(src, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok || cancelled) return;
+        const blob = await res.blob();
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        revoke = url;
+        setBlobUrl(url);
+      } catch {
+        // Silently ignore — placeholder will show
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (revoke) URL.revokeObjectURL(revoke);
+    };
+  }, [src, token]);
+
+  if (!blobUrl) return null;
+  return <img src={blobUrl} alt="" className={className} />;
+}
 
 function approvalTone(status: string | null): "success" | "info" | "warning" | "danger" | "neutral" {
   if (status === "auto_approved") return "success";
@@ -54,6 +84,28 @@ export function WorkbenchCategoryPage() {
   const [generatingPromptId, setGeneratingPromptId] = useState<string | null>(null);
   const [batchJob, setBatchJob] = useState<BatchJobSummary | null>(null);
   const [confirmResetCategory, setConfirmResetCategory] = useState(false);
+  const pendingScrollRestore = useRef(false);
+
+  // Restore scroll position after initial data load renders the list
+  const scrollKey = `workbench-scroll-${categoryId}`;
+  useEffect(() => {
+    if (!pendingScrollRestore.current || prompts.length === 0) return;
+    pendingScrollRestore.current = false;
+    const saved = sessionStorage.getItem(scrollKey);
+    if (saved) {
+      // Small delay so the DOM has rendered the prompt rows
+      requestAnimationFrame(() => window.scrollTo(0, Number(saved)));
+      sessionStorage.removeItem(scrollKey);
+    }
+  }, [prompts, scrollKey]);
+
+  const saveScrollAndNavigate = useCallback(
+    (path: string) => {
+      sessionStorage.setItem(scrollKey, String(window.scrollY));
+      navigate(path);
+    },
+    [navigate, scrollKey],
+  );
 
   const loadData = useCallback(async (silent = false) => {
     if (!token || !categoryId) return;
@@ -86,8 +138,12 @@ export function WorkbenchCategoryPage() {
   }, [categoryId, token]);
 
   useEffect(() => {
+    // If there's a saved scroll position, flag that we need to restore after data loads
+    if (sessionStorage.getItem(scrollKey)) {
+      pendingScrollRestore.current = true;
+    }
     void loadData();
-  }, [loadData]);
+  }, [loadData, scrollKey]);
 
   // Poll batch job status
   useEffect(() => {
@@ -202,7 +258,7 @@ export function WorkbenchCategoryPage() {
         breadcrumbs={["Admin", "Workbench", category?.name ?? "..."]}
         actions={
           <>
-            <Button variant="outline" size="sm" iconLeft={<ArrowLeft className="h-3.5 w-3.5" />} onClick={() => navigate("/workbench")}>
+            <Button variant="outline" size="sm" iconLeft={<ArrowLeft className="h-3.5 w-3.5" />} onClick={() => navigate(-1)}>
               Back
             </Button>
             {batchRunning ? (
@@ -290,54 +346,77 @@ export function WorkbenchCategoryPage() {
         <InlineAlert tone="info">Loading prompts...</InlineAlert>
       ) : (
         <div className="space-y-1">
-          {filteredPrompts.map((prompt) => (
-            <div
-              key={prompt.id}
-              className="flex items-center gap-3 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-3 py-2 transition hover:border-[hsl(var(--primary)_/_0.3)]"
-            >
-              <span className="w-8 shrink-0 text-right text-xs font-mono text-[hsl(var(--muted-foreground))]">
-                {prompt.index}
-              </span>
-
-              <button
-                type="button"
-                className="min-w-0 flex-1 truncate text-left text-sm text-[hsl(var(--foreground))] hover:underline"
-                onClick={() => navigate(`/workbench/${categoryId}/${prompt.id}`)}
-                title={prompt.prompt}
+          {filteredPrompts.map((prompt) => {
+            const isBatchCurrent = batchRunning && batchJob?.currentPromptId === prompt.id;
+            const thumbUrl = prompt.bestExampleId
+              ? `/api/admin/workbench/examples/${prompt.bestExampleId}/screenshot/iso`
+              : null;
+            return (
+              <div
+                key={prompt.id}
+                className={`flex h-16 items-center gap-3 rounded-md border px-3 transition ${isBatchCurrent ? "border-[hsl(var(--primary)_/_0.5)] bg-[hsl(var(--primary)_/_0.05)]" : "border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] hover:border-[hsl(var(--primary)_/_0.3)]"}`}
               >
-                {prompt.prompt}
-              </button>
+                {/* Thumbnail — fixed width so text column stays aligned */}
+                <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-[hsl(var(--muted)_/_0.3)]">
+                  {thumbUrl && token ? (
+                    <AuthImage
+                      src={thumbUrl}
+                      token={token}
+                      className="h-full w-full object-contain"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-[10px] text-[hsl(var(--muted-foreground)_/_0.5)]">—</div>
+                  )}
+                </div>
 
-              <div className="flex shrink-0 items-center gap-2">
-                {prompt.bestScore !== null ? (
-                  <span className="text-xs font-mono text-[hsl(var(--muted-foreground))]">
-                    {prompt.bestScore}/10
+                {isBatchCurrent ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[hsl(var(--primary))]" />
+                ) : (
+                  <span className="w-8 shrink-0 text-right text-xs font-mono text-[hsl(var(--muted-foreground))]">
+                    {prompt.index}
                   </span>
-                ) : null}
+                )}
 
-                <Badge tone={approvalTone(prompt.bestApproval)}>
-                  {approvalLabel(prompt.bestApproval)}
-                </Badge>
-
-                {prompt.exampleCount > 0 ? (
-                  <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {prompt.exampleCount}x
-                  </span>
-                ) : null}
-
-                <Button
-                  size="sm"
-                  variant="outline"
-                  iconLeft={generatingPromptId === prompt.id ? <Sparkles className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                  loading={generatingPromptId === prompt.id}
-                  disabled={generatingPromptId !== null || batchRunning}
-                  onClick={() => void handleGenerate(prompt.id)}
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 truncate text-left text-sm text-[hsl(var(--foreground))] hover:underline"
+                  onClick={() => saveScrollAndNavigate(`/workbench/${categoryId}/${prompt.id}`)}
+                  title={prompt.prompt}
                 >
-                  Generate
-                </Button>
+                  {prompt.prompt}
+                </button>
+
+                <div className="flex shrink-0 items-center gap-2">
+                  {prompt.bestScore !== null ? (
+                    <span className="text-xs font-mono text-[hsl(var(--muted-foreground))]">
+                      {prompt.bestScore}/10
+                    </span>
+                  ) : null}
+
+                  <Badge tone={approvalTone(prompt.bestApproval)}>
+                    {approvalLabel(prompt.bestApproval)}
+                  </Badge>
+
+                  {prompt.exampleCount > 0 ? (
+                    <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                      {prompt.exampleCount}x
+                    </span>
+                  ) : null}
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    iconLeft={generatingPromptId === prompt.id ? <Sparkles className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                    loading={generatingPromptId === prompt.id}
+                    disabled={generatingPromptId !== null || batchRunning}
+                    onClick={() => void handleGenerate(prompt.id)}
+                  >
+                    Generate
+                  </Button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

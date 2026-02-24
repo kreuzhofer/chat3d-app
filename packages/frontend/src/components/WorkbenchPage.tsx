@@ -78,23 +78,31 @@ export function WorkbenchPage() {
     void loadData();
   }, [loadData]);
 
-  // Poll for running job status every 3 seconds
+  // Poll for running job status + category data every 3 seconds
   useEffect(() => {
     if (runningJobs.size === 0 || !token) return;
     const interval = setInterval(async () => {
       try {
-        const jobs = await getRunningJobs(token);
+        const [jobs, cats, exportStats, embedStatus] = await Promise.all([
+          getRunningJobs(token),
+          listCategories(token),
+          getExportStats(token),
+          getEmbeddingStatus(token),
+        ]);
         setRunningJobs(new Map(jobs.map((j) => [j.categoryId, j])));
-        // When all jobs finish, refresh full data to update counts
+        setCategories(cats);
+        setStats(exportStats);
+        setEmbeddingStatus(embedStatus);
+        // When all jobs finish, show is already up to date from this poll
         if (jobs.length === 0) {
-          void loadData();
+          // Clear running jobs — effect will stop polling
         }
       } catch {
         // Silently ignore poll failures
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [runningJobs.size, token, loadData]);
+  }, [runningJobs.size, token]);
 
   const handleSeed = useCallback(async () => {
     if (!token) return;

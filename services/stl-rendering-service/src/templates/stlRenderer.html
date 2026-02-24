@@ -87,9 +87,13 @@
         case 'top':
           camera.position.set(0, distance, 0.001);
           break;
-        case 'isometric':
-          camera.position.set(distance, distance, distance);
+        case 'isometric': {
+          // Compensate for diagonal: (d,d,d) is sqrt(3)*d from origin,
+          // so divide by sqrt(3) to keep apparent object size consistent
+          const d = distance / Math.sqrt(3);
+          camera.position.set(d, d + modelCenterY, d);
           break;
+        }
         default:
           camera.position.set(0, modelCenterY, distance);
       }
@@ -207,7 +211,7 @@
       scene.add(result.object);
 
       const maxDim = Math.max(result.size.x, result.size.y, result.size.z);
-      const distance = maxDim * 2.5;
+      const distance = maxDim * 1.25;
       const modelCenterY = result.size.y / 2;
 
       const images = [];

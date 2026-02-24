@@ -48,6 +48,7 @@ export interface BatchJobSummary {
   completed: number;
   failed: number;
   skipped: number;
+  currentPromptId: string | null;
   currentPromptText: string | null;
   error: string | null;
   createdAt: string;
@@ -222,6 +223,7 @@ function toSummary(job: BatchJob): BatchJobSummary {
     completed: job.completed,
     failed: job.failed,
     skipped: job.skipped,
+    currentPromptId: job.currentPromptId,
     currentPromptText: job.currentPromptText,
     error: job.error,
     createdAt: job.createdAt,

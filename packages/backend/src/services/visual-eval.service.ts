@@ -112,15 +112,26 @@ Adjust your expectations to the category complexity level. A complexity-1 primit
 category only needs to demonstrate the basic shape correctly. A complexity-10 PCB case
 must have accurate port cutouts, standoff placement, and structural features.
 
-Our renders are untextured 3D models. Focus on geometric similarity only — not texture,
-color (unless the prompt requests color), or photorealism. Focus on: Does this 3D model
-represent the same type of object? Do the overall shape, proportions, and key features match?
+Our renders are untextured 3D models displayed with flat shading and no anti-aliasing.
+Focus on geometric similarity only — not texture, color (unless the prompt requests color),
+photorealism, or rendering quality. Focus on: Does this 3D model represent the same type
+of object? Do the overall shape, proportions, and key features match?
+
+IMPORTANT — classifying issues vs suggestions:
+- "issues": ONLY real geometric/structural problems — wrong shape, missing features,
+  incorrect proportions, extra geometry, misaligned parts. These are problems in the
+  Build123d code that produces the geometry.
+- "suggestions": rendering artifacts (aliasing, faceting, smoothness), minor cosmetic
+  observations, and code-level improvement ideas. These are NOT geometric errors.
+
+Do NOT put rendering artifacts like "lack of smoothness", "jagged edges", "faceted surface",
+or "aliasing" into issues — these come from the render pipeline, not the model code.
 
 Return JSON only:
 {
   "score": <integer 1–10>,
-  "issues": ["<specific visual problem>", ...],
-  "suggestions": ["<build123d code-level fix>", ...]
+  "issues": ["<geometric/structural problem>", ...],
+  "suggestions": ["<rendering observation or code improvement>", ...]
 }`;
 }
 
