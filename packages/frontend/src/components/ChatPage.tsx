@@ -134,6 +134,9 @@ export function ChatPage() {
   const [streamingAssistantItemId, setStreamingAssistantItemId] = useState<string | null>(null);
 
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
+  /** Tracks whether isStreaming was ever true for the current streamingAssistantItemId.
+   *  Prevents the clearing effect from firing before useStreamingQuery has activated. */
+  const wasStreamingRef = useRef(false);
   const lastHandledNotificationIdRef = useRef(0);
   const prevAssistantItemCountRef = useRef<number | null>(null);
 
@@ -230,17 +233,29 @@ export function ChatPage() {
     assistantItemId: streamingAssistantItemId,
   });
 
-  // Clear streamingAssistantItemId when streaming finishes
+  // Clear streamingAssistantItemId when streaming finishes.
+  // We use wasStreamingRef to avoid a race: in the render where
+  // streamingAssistantItemId is first set, isStreaming is still false
+  // (useStreamingQuery's setIsStreaming(true) hasn't been reflected yet).
+  // Without the guard, this effect would immediately clear the ID.
   useEffect(() => {
-    if (streamingAssistantItemId && !isStreaming) {
+    if (isStreaming) {
+      wasStreamingRef.current = true;
+    }
+    if (streamingAssistantItemId && !isStreaming && wasStreamingRef.current) {
       setStreamingAssistantItemId(null);
+      wasStreamingRef.current = false;
     }
   }, [streamingAssistantItemId, isStreaming]);
 
-  // Show typing indicator when query is active but no streaming text yet
+  // Show typing indicator:
+  // - Before conversation tokens arrive (queued / early conversation)
+  // - During all post-conversation pipeline stages (codegen → rendering → evaluating → fixing → retrying)
+  //   even when conversation text has already been rendered in the MessageBubble.
+  const POST_CONVERSATION_STATES = new Set(["codegen", "rendering", "evaluating", "fixing", "retrying"]);
   const showTypingIndicator = isStreaming
-    && streamingText.length === 0
-    && !streamingError;
+    && !streamingError
+    && (streamingText.length === 0 || (queryState !== null && POST_CONVERSATION_STATES.has(queryState)));
 
   const refreshContexts = useCallback(async () => {
     if (!token) {
