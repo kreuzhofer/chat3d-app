@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Database, Download, FolderOpen, Loader2, RefreshCw, Sprout, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Database, Download, FolderOpen, Loader2, RefreshCw, Sprout, Trash2, Upload } from "lucide-react";
 import {
   backfillEmbeddings,
+  deleteTransferJob,
   getEmbeddingStatus,
   getExportStats,
   getRunningJobs,
@@ -208,6 +209,16 @@ export function WorkbenchPage() {
     }
   }, [pushToast, token]);
 
+  const handleDeleteJob = useCallback(async (jobId: string) => {
+    if (!token) return;
+    try {
+      await deleteTransferJob(token, jobId);
+      setTransferJobs((prev) => prev.filter((j) => j.jobId !== jobId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [token]);
+
   const handleSeed = useCallback(async () => {
     if (!token) return;
     setSeeding(true);
@@ -315,7 +326,7 @@ export function WorkbenchPage() {
       {transferJobs.length > 0 ? (
         <div className="space-y-2">
           {transferJobs.map((tj) => (
-            <TransferJobCard key={tj.jobId} job={tj} onDownload={handleDownloadExport} onRefresh={() => void loadData()} />
+            <TransferJobCard key={tj.jobId} job={tj} onDownload={handleDownloadExport} onRefresh={() => void loadData()} onDelete={handleDeleteJob} />
           ))}
         </div>
       ) : null}
@@ -435,13 +446,16 @@ function TransferJobCard({
   job,
   onDownload,
   onRefresh,
+  onDelete,
 }: {
   job: TransferJob;
   onDownload: (jobId: string) => void;
   onRefresh: () => void;
+  onDelete: (jobId: string) => void;
 }) {
   const isExport = job.type === "export";
   const label = isExport ? "Export" : "Import";
+  const isDone = job.status === "completed" || job.status === "failed";
 
   return (
     <div className="flex items-center gap-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-4 py-2.5 text-sm">
@@ -484,6 +498,10 @@ function TransferJobCard({
       <Badge tone={job.status === "running" ? "info" : job.status === "completed" ? "success" : "danger"}>
         {job.status}
       </Badge>
+
+      {isDone ? (
+        <Button variant="ghost" size="sm" iconLeft={<Trash2 className="h-3.5 w-3.5" />} onClick={() => onDelete(job.jobId)} title="Remove from list" />
+      ) : null}
     </div>
   );
 }

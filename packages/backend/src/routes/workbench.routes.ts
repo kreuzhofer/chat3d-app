@@ -45,6 +45,7 @@ import {
   startSingleJob,
 } from "../services/workbench-batch.service.js";
 import {
+  deleteTransferJob,
   getExportFilePath,
   getTransferJob,
   listTransferJobs,
@@ -574,5 +575,24 @@ workbenchRouter.get("/transfer-jobs/:jobId/download", async (req, res) => {
     createReadStream(filePath).pipe(res);
   } catch (error) {
     res.status(500).json({ error: "Failed to download export", detail: String(error) });
+  }
+});
+
+workbenchRouter.delete("/transfer-jobs/:jobId", async (req, res) => {
+  try {
+    const result = await deleteTransferJob(req.params.jobId);
+    switch (result) {
+      case "deleted":
+        res.status(200).json({ ok: true });
+        return;
+      case "not_found":
+        res.status(404).json({ error: "Transfer job not found" });
+        return;
+      case "still_running":
+        res.status(409).json({ error: "Cannot delete a running job" });
+        return;
+    }
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete transfer job", detail: String(error) });
   }
 });

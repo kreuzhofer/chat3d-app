@@ -186,6 +186,31 @@ export function listTransferJobs(): TransferJob[] {
 }
 
 /**
+ * Delete a completed or failed transfer job. Running jobs cannot be deleted.
+ * If the job has an associated export file on disk, it is also removed.
+ */
+export async function deleteTransferJob(jobId: string): Promise<"deleted" | "not_found" | "still_running"> {
+  const job = jobs.get(jobId);
+  if (!job) return "not_found";
+  if (job.status === "running") return "still_running";
+
+  // Clean up export file if it exists
+  if (job.filePath) {
+    try {
+      await fs.unlink(job.filePath);
+      logger.info({ jobId, filePath: job.filePath }, "deleted export file");
+    } catch (err) {
+      // File may already be gone — log but don't fail
+      logger.debug({ jobId, err }, "export file already removed or inaccessible");
+    }
+  }
+
+  jobs.delete(jobId);
+  logger.info({ jobId, type: job.type }, "transfer job deleted");
+  return "deleted";
+}
+
+/**
  * Get the file path for a completed export job (for download).
  */
 export function getExportFilePath(jobId: string): string | null {

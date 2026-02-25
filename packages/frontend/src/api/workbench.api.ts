@@ -408,3 +408,9 @@ export function getTransferJob(token: string, jobId: string): Promise<TransferJo
 export function listTransferJobs(token: string): Promise<TransferJob[]> {
   return requestJson<TransferJob[]>(token, "/transfer-jobs", { method: "GET" });
 }
+
+export function deleteTransferJob(token: string, jobId: string): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(token, `/transfer-jobs/${encodeURIComponent(jobId)}`, {
+    method: "DELETE",
+  });
+}
