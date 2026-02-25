@@ -73,6 +73,15 @@ Copy `.env.example` to `.env` and configure:
 | `OLLAMA_TOKEN` | Auth bearer token for Ollama server (if required) |
 | `LOG_LEVEL` | Logging level: `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` (default: `info`) |
 | `LOG_FORMAT` | Log output format: `json` (structured, default in Docker) or `pretty` (human-readable) |
+| `SEED_ADMIN_EMAIL` | Admin account email created on first bootstrap (default: `admin@chat3d.local`) |
+| `SEED_ADMIN_PASSWORD` | Admin account password (default: `change-admin-password`) |
+| `SEED_ADMIN_DISPLAY_NAME` | Admin display name (default: `Initial Admin`) |
+
+## Default Admin Credentials
+
+A default admin account is seeded on first bootstrap using values from `.env.example`. Unless overridden in `.env`:
+- **Email:** `admin@chat3d.local`
+- **Password:** `change-admin-password`
 
 ## API Routes
 

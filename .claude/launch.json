@@ -3,9 +3,10 @@
   "configurations": [
     {
       "name": "frontend",
-      "runtimeExecutable": "docker",
-      "runtimeArgs": ["compose", "up", "frontend", "--no-deps"],
-      "port": 80
+      "runtimeExecutable": "echo",
+      "runtimeArgs": ["Frontend already running on port 80"],
+      "port": 80,
+      "autoPort": false
     }
   ]
 }

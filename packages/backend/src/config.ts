@@ -186,6 +186,11 @@ export const config = {
   stlRenderingService: {
     url: readEnv("STL_RENDERING_SERVICE_URL", "http://stl-rendering-service:3002"),
   },
+  screenshotService: {
+    provider: readEnv("SCREENSHOT_SERVICE_PROVIDER", "stl-rendering-service") as
+      | "stl-rendering-service"
+      | "build123d",
+  },
   workbench: {
     dataDir: readEnv("WORKBENCH_DATA_DIR", "workbench"),
     codegenProvider: readWorkbenchCodegenProvider(),

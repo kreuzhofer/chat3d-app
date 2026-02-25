@@ -1,13 +1,19 @@
 import { generateText, streamText } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { createOpenAI } from "@ai-sdk/openai";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { createXai } from "@ai-sdk/xai";
 import { config } from "../config.js";
 import { getBuild123dReference } from "../data/build123d-api-reference.js";
+import {
+  getModelForPurpose,
+  createProviderModel as createProviderModelFromConfig,
+  buildGenerateOptions,
+  calculateCostUsd,
+  type LlmModelConfig,
+} from "./llm-config.service.js";
+import { createLogger } from "../utils/logger.js";
 import type { ConversationHistoryEntry } from "./query.service.js";
 
-type LlmProvider = "mock" | "openai" | "anthropic" | "xai" | "ollama";
+const logger = createLogger("llm");
+
+type LlmProvider = "mock" | "openai" | "anthropic" | "xai" | "deepseek" | "minimax" | "ollama";
 
 export interface LlmModelDefinition {
   id: string;
@@ -84,25 +90,57 @@ export function extractExecutableCode(raw: string): string {
   return raw.trim();
 }
 
-function selectModel(stage: "conversation" | "codegen"): LlmModelDefinition {
+/**
+ * Map stage name to DB purpose name.
+ */
+function stageToPurpose(stage: "conversation" | "codegen"): string {
+  return stage === "conversation" ? "conversation" : "chat_codegen";
+}
+
+/**
+ * Resolve the model for a given stage from the DB-driven config.
+ * Returns both the LlmModelDefinition (for backward compat) and the resolved LlmModelConfig.
+ */
+async function resolveModelForStage(stage: "conversation" | "codegen"): Promise<{ def: LlmModelDefinition; cfg: LlmModelConfig }> {
   if (config.query.llmMode !== "live") {
-    return {
+    const def: LlmModelDefinition = {
       id: `${stage}-mock`,
       provider: "mock",
       stage,
       modelName: stage === "conversation" ? "mock-conversation" : "mock-codegen",
     };
+    // Return a dummy config for mock mode
+    return {
+      def,
+      cfg: {
+        id: "mock",
+        provider: "mock",
+        modelName: def.modelName,
+        displayName: def.modelName,
+        label: `mock/${def.modelName}`,
+        costPer1mInput: 0,
+        costPer1mOutput: 0,
+        maxOutputTokens: null,
+        maxContextTokens: null,
+        supportsThinking: false,
+        thinkingEffort: null,
+        supportsVision: false,
+        supportsEmbeddings: false,
+        endpointUrl: null,
+        apiKey: null,
+      },
+    };
   }
 
-  const provider = stage === "conversation" ? config.query.conversationProvider : config.query.codegenProvider;
-  const modelName = stage === "conversation" ? config.query.conversationModelName : config.query.codegenModelName;
-
-  return {
-    id: `${stage}-${provider}-${modelName}`,
-    provider,
+  const purpose = stageToPurpose(stage);
+  const cfg = await getModelForPurpose(purpose);
+  const def: LlmModelDefinition = {
+    id: `${stage}-${cfg.provider}-${cfg.modelName}`,
+    provider: cfg.provider as LlmProvider,
     stage,
-    modelName,
+    modelName: cfg.modelName,
   };
+  return { def, cfg };
 }
 
 interface ProviderGenerationResult {
@@ -153,31 +191,9 @@ function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(trimmed.length / 4));
 }
 
-function perTokenCostUsd(model: LlmModelDefinition): { inputPerToken: number; outputPerToken: number } {
-  const pricesPer1k: Record<string, { input: number; output: number }> = {
-    "openai:gpt-4o-mini": { input: 0.00015, output: 0.0006 },
-    "openai:gpt-5.2-codex": { input: 0.0015, output: 0.006 },
-    "anthropic:claude-3-5-haiku-latest": { input: 0.0008, output: 0.004 },
-    "xai:grok-2-latest": { input: 0.002, output: 0.01 },
-    "ollama:llama3.1": { input: 0, output: 0 },
-    "mock:mock-conversation": { input: 0, output: 0 },
-    "mock:mock-codegen": { input: 0, output: 0 },
-  };
-
-  const key = `${model.provider}:${model.modelName}`;
-  const entry = pricesPer1k[key] ?? { input: 0, output: 0 };
-  return {
-    inputPerToken: entry.input / 1000,
-    outputPerToken: entry.output / 1000,
-  };
-}
-
-function roundUsd(value: number): number {
-  return Number(value.toFixed(8));
-}
-
 function buildUsageMetadata(input: {
   model: LlmModelDefinition;
+  modelConfig?: LlmModelConfig;
   prompt: string;
   outputText: string;
   providerUsageRaw: unknown;
@@ -192,10 +208,10 @@ function buildUsageMetadata(input: {
   const outputTokens = providerUsage.outputTokens ?? estimatedOutput;
   const totalTokens = providerUsage.totalTokens ?? inputTokens + outputTokens;
 
-  const pricing = perTokenCostUsd(input.model);
-  const estimatedCostUsd = roundUsd(
-    inputTokens * pricing.inputPerToken + outputTokens * pricing.outputPerToken,
-  );
+  // Use DB-driven pricing if config is available, otherwise fall back to 0
+  const estimatedCostUsd = input.modelConfig
+    ? calculateCostUsd(input.modelConfig, inputTokens, outputTokens)
+    : 0;
 
   return {
     source:
@@ -211,154 +227,49 @@ function buildUsageMetadata(input: {
   };
 }
 
-async function generateWithProvider(model: LlmModelDefinition, prompt: string): Promise<ProviderGenerationResult> {
-  if (model.provider === "openai") {
-    if (!config.query.openAiApiKey) {
-      throw new LlmServiceError("OPENAI_API_KEY is required for OpenAI provider", 500);
-    }
+/**
+ * Generate text using the DB-driven model config.
+ * Replaces the old provider-specific generateWithProvider().
+ */
+async function generateWithConfig(
+  cfg: LlmModelConfig,
+  prompt: string,
+): Promise<ProviderGenerationResult> {
+  const providerModel = createProviderModelFromConfig(cfg);
+  const extraOpts = buildGenerateOptions(cfg);
 
-    const openai = createOpenAI({
-      apiKey: config.query.openAiApiKey,
-      baseURL: config.query.openAiBaseUrl,
-    });
+  const result = await generateText({
+    model: providerModel,
+    prompt,
+    ...extraOpts,
+  });
 
-    const result = await generateText({
-      model: openai(model.modelName),
-      prompt,
-    });
-
-    if (!result.text || result.text.trim() === "") {
-      throw new LlmServiceError("LLM returned empty output", 502);
-    }
-
-    return {
-      text: result.text.trim(),
-      usageRaw: result.usage,
-    };
+  if (!result.text || result.text.trim() === "") {
+    throw new LlmServiceError("LLM returned empty output", 502);
   }
 
-  if (model.provider === "anthropic") {
-    if (!config.query.anthropicApiKey) {
-      throw new LlmServiceError("ANTHROPIC_API_KEY is required for Anthropic provider", 500);
-    }
-
-    const anthropic = createAnthropic({
-      apiKey: config.query.anthropicApiKey,
-    });
-
-    const result = await generateText({
-      model: anthropic(model.modelName),
-      prompt,
-    });
-
-    if (!result.text || result.text.trim() === "") {
-      throw new LlmServiceError("LLM returned empty output", 502);
-    }
-
-    return {
-      text: result.text.trim(),
-      usageRaw: result.usage,
-    };
-  }
-
-  if (model.provider === "xai") {
-    if (!config.query.xaiApiKey) {
-      throw new LlmServiceError("XAI_API_KEY is required for xAI provider", 500);
-    }
-
-    const xai = createXai({
-      apiKey: config.query.xaiApiKey,
-    });
-
-    const result = await generateText({
-      model: xai(model.modelName),
-      prompt,
-    });
-
-    if (!result.text || result.text.trim() === "") {
-      throw new LlmServiceError("LLM returned empty output", 502);
-    }
-
-    return {
-      text: result.text.trim(),
-      usageRaw: result.usage,
-    };
-  }
-
-  if (model.provider === "ollama") {
-    const normalizedBaseUrl = config.query.ollamaBaseUrl.replace(/\/+$/, "");
-    const baseUrlWithVersion = normalizedBaseUrl.endsWith("/v1") ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
-    const ollama = createOpenAICompatible({
-      name: "ollama",
-      baseURL: baseUrlWithVersion,
-      apiKey: config.query.ollamaToken.trim() === "" ? undefined : config.query.ollamaToken.trim(),
-    });
-
-    const result = await generateText({
-      model: ollama.chatModel(model.modelName),
-      prompt,
-    });
-
-    if (!result.text || result.text.trim() === "") {
-      throw new LlmServiceError("LLM returned empty output", 502);
-    }
-
-    return {
-      text: result.text.trim(),
-      usageRaw: result.usage,
-    };
-  }
-
-  throw new LlmServiceError(`Unsupported LLM provider: ${model.provider}`, 500);
+  return {
+    text: result.text.trim(),
+    usageRaw: result.usage,
+  };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function resolveProviderModel(model: LlmModelDefinition): any {
-  if (model.provider === "openai") {
-    if (!config.query.openAiApiKey) {
-      throw new LlmServiceError("OPENAI_API_KEY is required for OpenAI provider", 500);
-    }
-    return createOpenAI({ apiKey: config.query.openAiApiKey, baseURL: config.query.openAiBaseUrl })(model.modelName);
-  }
-
-  if (model.provider === "anthropic") {
-    if (!config.query.anthropicApiKey) {
-      throw new LlmServiceError("ANTHROPIC_API_KEY is required for Anthropic provider", 500);
-    }
-    return createAnthropic({ apiKey: config.query.anthropicApiKey })(model.modelName);
-  }
-
-  if (model.provider === "xai") {
-    if (!config.query.xaiApiKey) {
-      throw new LlmServiceError("XAI_API_KEY is required for xAI provider", 500);
-    }
-    return createXai({ apiKey: config.query.xaiApiKey })(model.modelName);
-  }
-
-  if (model.provider === "ollama") {
-    const normalizedBaseUrl = config.query.ollamaBaseUrl.replace(/\/+$/, "");
-    const baseUrlWithVersion = normalizedBaseUrl.endsWith("/v1") ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
-    const ollama = createOpenAICompatible({
-      name: "ollama",
-      baseURL: baseUrlWithVersion,
-      apiKey: config.query.ollamaToken.trim() === "" ? undefined : config.query.ollamaToken.trim(),
-    });
-    return ollama.chatModel(model.modelName);
-  }
-
-  throw new LlmServiceError(`Unsupported LLM provider: ${model.provider}`, 500);
-}
-
-async function streamWithProvider(
-  model: LlmModelDefinition,
+/**
+ * Stream text using the DB-driven model config.
+ * Replaces the old provider-specific streamWithProvider().
+ */
+async function streamWithConfig(
+  cfg: LlmModelConfig,
   prompt: string,
   onToken: (token: string) => void,
 ): Promise<ProviderGenerationResult> {
-  const providerModel = resolveProviderModel(model);
+  const providerModel = createProviderModelFromConfig(cfg);
+  const extraOpts = buildGenerateOptions(cfg);
 
   const result = streamText({
     model: providerModel,
     prompt,
+    ...extraOpts,
   });
 
   let fullText = "";
@@ -380,6 +291,7 @@ async function streamWithProvider(
 }
 
 export function listLlmModels(): LlmModelDefinition[] {
+  // Keep MODEL_REGISTRY for backward compatibility with /api/llm/models endpoint
   const configuredConversation = {
     id: `conversation-${config.query.conversationProvider}-${config.query.conversationModelName}`,
     provider: config.query.conversationProvider,
@@ -443,6 +355,13 @@ const CONVERSATION_SYSTEM_PROMPT = [
   "- [CHAT_ONLY] — if the user is asking a question, making conversation, requesting information, or anything that does NOT require generating a 3D model.",
   "",
   "After the tag, provide your response. Be brief and practical.",
+  "",
+  "CRITICAL RULES:",
+  "- When you respond with [CODEGEN_NEEDED], write ONLY a brief natural-language acknowledgment of what you will generate (1-2 sentences). Do NOT include any code, code blocks, or technical implementation details. A separate code-generation pipeline will produce the code — your job is only to confirm the request.",
+  "  Good example: '[CODEGEN_NEEDED]\\nI'll generate an L-shaped mounting bracket with your specified dimensions and bolt holes.'",
+  "  Bad example: '[CODEGEN_NEEDED]\\nHere is the code: ```python from build123d import * ...```'",
+  "- When you respond with [CHAT_ONLY], provide a helpful conversational response.",
+  "",
   "Examples of [CHAT_ONLY]: greetings, questions about capabilities, requests for tips, feedback on previous results without requesting changes.",
   "Examples of [CODEGEN_NEEDED]: 'design a gear', 'make it taller', 'add a fillet', 'create an enclosure', any request that implies generating or modifying 3D geometry.",
 ].join("\n");
@@ -483,7 +402,7 @@ export async function generateConversationText(input: {
   contextName: string;
   conversationHistory?: ConversationHistoryEntry[];
 }): Promise<ConversationGenerationResult> {
-  const model = selectModel("conversation");
+  const { def: model, cfg: modelCfg } = await resolveModelForStage("conversation");
   const prompt = buildConversationPrompt(input);
 
   if (model.provider === "mock") {
@@ -493,6 +412,7 @@ export async function generateConversationText(input: {
       text,
       usage: buildUsageMetadata({
         model,
+        modelConfig: modelCfg,
         prompt,
         outputText: text,
         providerUsageRaw: null,
@@ -500,13 +420,14 @@ export async function generateConversationText(input: {
     };
   }
 
-  const result = await generateWithProvider(model, prompt);
+  const result = await generateWithConfig(modelCfg, prompt);
 
   return {
     model,
     text: result.text,
     usage: buildUsageMetadata({
       model,
+      modelConfig: modelCfg,
       prompt,
       outputText: result.text,
       providerUsageRaw: result.usageRaw,
@@ -520,7 +441,7 @@ export async function generateConversationTextStream(input: {
   onToken: (token: string) => void;
   conversationHistory?: ConversationHistoryEntry[];
 }): Promise<ConversationGenerationResult> {
-  const model = selectModel("conversation");
+  const { def: model, cfg: modelCfg } = await resolveModelForStage("conversation");
   const prompt = buildConversationPrompt(input);
 
   if (model.provider === "mock") {
@@ -534,6 +455,7 @@ export async function generateConversationTextStream(input: {
       text,
       usage: buildUsageMetadata({
         model,
+        modelConfig: modelCfg,
         prompt,
         outputText: text,
         providerUsageRaw: null,
@@ -541,13 +463,14 @@ export async function generateConversationTextStream(input: {
     };
   }
 
-  const result = await streamWithProvider(model, prompt, input.onToken);
+  const result = await streamWithConfig(modelCfg, prompt, input.onToken);
 
   return {
     model,
     text: result.text,
     usage: buildUsageMetadata({
       model,
+      modelConfig: modelCfg,
       prompt,
       outputText: result.text,
       providerUsageRaw: result.usageRaw,
@@ -620,7 +543,7 @@ export async function generateBuild123dCode(input: {
   conversationText: string;
   conversationHistory?: ConversationHistoryEntry[];
 }): Promise<CodeGenerationResult> {
-  const model = selectModel("codegen");
+  const { def: model, cfg: modelCfg } = await resolveModelForStage("codegen");
   const baseFileName = sanitizeBaseFileName(input.prompt);
 
   if (model.provider === "mock") {
@@ -638,6 +561,7 @@ export_step(model.part, "${baseFileName}.step")
       code,
       usage: buildUsageMetadata({
         model,
+        modelConfig: modelCfg,
         prompt,
         outputText: code,
         providerUsageRaw: null,
@@ -647,7 +571,7 @@ export_step(model.part, "${baseFileName}.step")
 
   const prompt = buildCodegenPrompt(baseFileName, input.prompt, input.conversationText, input.conversationHistory);
 
-  const result = await generateWithProvider(model, prompt);
+  const result = await generateWithConfig(modelCfg, prompt);
   const code = extractExecutableCode(result.text);
 
   return {
@@ -656,6 +580,7 @@ export_step(model.part, "${baseFileName}.step")
     code,
     usage: buildUsageMetadata({
       model,
+      modelConfig: modelCfg,
       prompt,
       outputText: code,
       providerUsageRaw: result.usageRaw,

@@ -8,13 +8,15 @@
  */
 
 import { generateText } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { createOpenAI } from "@ai-sdk/openai";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { createXai } from "@ai-sdk/xai";
-import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
 import { pool } from "../db/connection.js";
+import {
+  getModelForPurpose,
+  createProviderModel as createProviderModelFromConfig,
+  buildGenerateOptions,
+  calculateCostUsd,
+  type LlmModelConfig,
+} from "./llm-config.service.js";
 
 const logger = createLogger("workbench");
 import { extractExecutableCode } from "./llm.service.js";
@@ -28,8 +30,8 @@ import { getActiveSystemPrompt, WorkbenchSeederError } from "./workbench-seeder.
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
 import { validatePrompt } from "./workbench-prompt-validation.service.js";
 
-const MAX_FIX_ITERATIONS = 5;
-const AUTO_APPROVE_THRESHOLD = 8;
+export const MAX_FIX_ITERATIONS = 5;
+export const AUTO_APPROVE_THRESHOLD = 8;
 
 /**
  * Code template that wraps LLM-generated modeling code.
@@ -37,6 +39,7 @@ const AUTO_APPROVE_THRESHOLD = 8;
  * This template adds the import and all export calls around it.
  */
 const CODE_TEMPLATE = `from build123d import *
+import math
 ###CODE###
 export_step(root_part, "###FILENAME###.step")
 exporter = Mesher()
@@ -50,7 +53,7 @@ exporter.write("###FILENAME###.stl")
  * The raw code is stored in the DB for training data; the wrapped version
  * is sent to Build123d for rendering.
  */
-function wrapInTemplate(rawCode: string, baseFileName: string): string {
+export function wrapInTemplate(rawCode: string, baseFileName: string): string {
   return CODE_TEMPLATE
     .replace("###CODE###", rawCode)
     .replaceAll("###FILENAME###", baseFileName);
@@ -81,76 +84,27 @@ interface PromptContext {
   complexity: number;
 }
 
-interface FewShotExample {
+export interface FewShotExample {
   prompt: string;
   code: string;
 }
 
 // ── Provider resolution ──────────────────────────────────────────────
 
-type CodegenProvider = "mock" | "openai" | "anthropic" | "xai" | "ollama";
-
+/**
+ * Resolve the codegen model from the DB-driven llm_purpose_map.
+ * Returns the Vercel AI SDK model instance, label, and full config (for cost calculation).
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function resolveCodegenModel(): { model: any; label: string } {
-  const provider = config.workbench.codegenProvider as CodegenProvider;
-  const modelName = config.workbench.codegenModelName;
-
-  if (provider === "mock") {
-    return { model: null, label: "mock" };
-  }
-
-  if (provider === "openai") {
-    if (!config.query.openAiApiKey) {
-      throw new WorkbenchSeederError("OPENAI_API_KEY is required for codegen", 500);
-    }
-    return {
-      model: createOpenAI({ apiKey: config.query.openAiApiKey, baseURL: config.query.openAiBaseUrl })(modelName),
-      label: `openai/${modelName}`,
-    };
-  }
-
-  if (provider === "anthropic") {
-    if (!config.query.anthropicApiKey) {
-      throw new WorkbenchSeederError("ANTHROPIC_API_KEY is required for codegen", 500);
-    }
-    return {
-      model: createAnthropic({ apiKey: config.query.anthropicApiKey })(modelName),
-      label: `anthropic/${modelName}`,
-    };
-  }
-
-  if (provider === "xai") {
-    if (!config.query.xaiApiKey) {
-      throw new WorkbenchSeederError("XAI_API_KEY is required for codegen", 500);
-    }
-    return {
-      model: createXai({ apiKey: config.query.xaiApiKey })(modelName),
-      label: `xai/${modelName}`,
-    };
-  }
-
-  if (provider === "ollama") {
-    const normalizedBaseUrl = config.query.ollamaBaseUrl.replace(/\/+$/, "");
-    const baseUrlWithVersion = normalizedBaseUrl.endsWith("/v1")
-      ? normalizedBaseUrl
-      : `${normalizedBaseUrl}/v1`;
-    const ollama = createOpenAICompatible({
-      name: "ollama",
-      baseURL: baseUrlWithVersion,
-      apiKey: config.query.ollamaToken.trim() === "" ? undefined : config.query.ollamaToken.trim(),
-    });
-    return {
-      model: ollama.chatModel(modelName),
-      label: `ollama/${modelName}`,
-    };
-  }
-
-  throw new WorkbenchSeederError(`Unsupported codegen provider: ${provider}`, 500);
+export async function resolveCodegenModel(): Promise<{ model: any; label: string; config: LlmModelConfig }> {
+  const cfg = await getModelForPurpose("workbench_codegen");
+  const model = createProviderModelFromConfig(cfg);
+  return { model, label: cfg.label, config: cfg };
 }
 
 // ── Prompt building ──────────────────────────────────────────────────
 
-function buildInitialPrompt(
+export function buildInitialPrompt(
   systemPromptContent: string,
   fewShots: FewShotExample[],
   userPrompt: string,
@@ -172,7 +126,7 @@ function buildInitialPrompt(
 
   sections.push(
     "## Requirements",
-    "- Generate ONLY the Build123d modeling code. Do NOT include imports or exports.",
+    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math`. You may also import `itertools`, `functools`, `copy`, or `numpy`.",
     "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
     "- Use only Build123d classes and functions from the reference above.",
     "",
@@ -182,7 +136,7 @@ function buildInitialPrompt(
   return sections.join("\n");
 }
 
-function buildFixPrompt(
+export function buildFixPrompt(
   systemPromptContent: string,
   fewShots: FewShotExample[],
   userPrompt: string,
@@ -240,7 +194,7 @@ function buildFixPrompt(
     "Return only the corrected Build123d modeling code in a fenced code block.",
     "",
     "## Requirements",
-    "- Generate ONLY the Build123d modeling code. Do NOT include imports or exports.",
+    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math`. You may also import `itertools`, `functools`, `copy`, or `numpy`.",
     "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
     "",
     `## Original request:`,
@@ -391,12 +345,13 @@ async function insertExample(data: {
  * Strip template boilerplate that the LLM might include despite instructions.
  * We want to store only the modeling code (no imports, no exports).
  */
-function stripTemplateBoilerplate(code: string): string {
+export function stripTemplateBoilerplate(code: string): string {
   return code
     .split("\n")
     .filter((line) => {
       const trimmed = line.trim();
       if (trimmed === "from build123d import *") return false;
+      if (trimmed === "import math") return false;
       if (trimmed.startsWith("export_step(")) return false;
       if (trimmed.startsWith("exporter = Mesher(")) return false;
       if (trimmed.startsWith("exporter.add_shape(")) return false;
@@ -411,6 +366,7 @@ async function generateCode(
   prompt: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   providerModel: any,
+  modelConfig?: LlmModelConfig,
 ): Promise<{ code: string; promptTokens: number; completionTokens: number }> {
   if (providerModel === null) {
     // Mock mode — raw modeling code only (no imports/exports)
@@ -424,9 +380,11 @@ root_part = part.part
     return { code, promptTokens: 0, completionTokens: 0 };
   }
 
+  const extraOpts = modelConfig ? buildGenerateOptions(modelConfig) : {};
   const result = await generateText({
     model: providerModel,
     prompt,
+    ...extraOpts,
   });
 
   if (!result.text || result.text.trim() === "") {
@@ -439,8 +397,8 @@ root_part = part.part
 
   return {
     code: cleanCode,
-    promptTokens: result.usage?.promptTokens ?? 0,
-    completionTokens: result.usage?.completionTokens ?? 0,
+    promptTokens: result.usage?.inputTokens ?? 0,
+    completionTokens: result.usage?.outputTokens ?? 0,
   };
 }
 
@@ -468,7 +426,7 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
   const ctx = await loadPromptContext(promptId);
   logger.info({ prompt: ctx.prompt.slice(0, 80), category: ctx.categoryName, complexity: ctx.complexity }, "loaded prompt context");
 
-  const { model: providerModel, label: llmModelLabel } = resolveCodegenModel();
+  const { model: providerModel, label: llmModelLabel, config: codegenConfig } = await resolveCodegenModel();
   logger.info({ model: llmModelLabel }, "codegen model resolved");
 
   // 2. Validate prompt before expensive codegen pipeline
@@ -566,7 +524,7 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
       logger.info({ issues, suggestions }, "fix feedback — issues and suggestions");
       if (renderError) logger.info({ renderError }, "fix feedback — render error");
     }
-    const codeResult = await generateCode(prompt, providerModel);
+    const codeResult = await generateCode(prompt, providerModel, codegenConfig);
     currentCode = codeResult.code;
     totalPromptTokens += codeResult.promptTokens;
     totalCompletionTokens += codeResult.completionTokens;
@@ -637,6 +595,7 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
     }
 
     // 4. Screenshot via STL rendering service (STL only — faster, no ZIP decompression)
+    let screenshotFailed = false;
     const stlFile = findFileByExtension(renderedFiles, ".stl");
     if (stlFile) {
       logger.info({ dataLength: stlFile.contentBase64.length }, "sending STL to rendering service for screenshots");
@@ -650,8 +609,8 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
         screenshots = screenshotResult.images;
         logger.info({ angles: screenshots.map((s) => s.angle) }, "screenshots received");
       } catch (error) {
-        logger.warn({ err: error, promptId: ctx.promptId, iteration }, "screenshot failed");
-        // Continue with empty screenshots — VLM eval will score low
+        logger.warn({ err: error, promptId: ctx.promptId, iteration }, "screenshot failed after retries — this is a service issue, not a code issue");
+        screenshotFailed = true;
       }
     } else {
       logger.warn("no STL file available, skipping screenshots");
@@ -667,12 +626,61 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
         complexity: ctx.complexity,
         images: imageBase64s,
       });
-      logger.info({ score: evalResult.score, looksCorrect: evalResult.looksCorrect }, "VLM evaluation result");
+      // Accumulate VLM eval tokens into the total
+      totalPromptTokens += evalResult.promptTokens;
+      totalCompletionTokens += evalResult.completionTokens;
+      logger.info({ score: evalResult.score, looksCorrect: evalResult.looksCorrect, vlmTokens: evalResult.promptTokens + evalResult.completionTokens }, "VLM evaluation result");
     } else {
       logger.warn("skipping VLM evaluation, no screenshots");
     }
 
     const stepFile = findFileByExtension(renderedFiles, ".step") ?? findFileByExtension(renderedFiles, ".stp");
+
+    // 5b. If screenshots failed due to a service issue (not a code issue), persist
+    // the render-successful result and stop. Retrying with AI regeneration is pointless
+    // because the code rendered fine — only the screenshot service is down.
+    if (screenshotFailed) {
+      logger.info(
+        { promptId: ctx.promptId, iteration },
+        "screenshot service failed — persisting render result without eval (no AI retry)",
+      );
+
+      const exampleId = await insertExample({
+        promptId: ctx.promptId,
+        iteration,
+        code: currentCode,
+        renderStatus: "success",
+        renderError: null,
+        stlPath: stlFile?.filename ?? null,
+        stepPath: stepFile?.filename ?? null,
+        screenshotFront: null,
+        screenshotTop: null,
+        screenshotIso: null,
+        evalScore: null,
+        evalIssues: ["Screenshot service unavailable — evaluation skipped"],
+        evalSuggestions: null,
+        approvalStatus: "pending",
+        llmModel: llmModelLabel,
+        vlmModel: null,
+        promptTokens: totalPromptTokens,
+        completionTokens: totalCompletionTokens,
+      });
+
+      return {
+        exampleId,
+        promptId: ctx.promptId,
+        iteration,
+        code: currentCode,
+        renderStatus: "success",
+        renderError: null,
+        evalScore: null,
+        evalIssues: ["Screenshot service unavailable — evaluation skipped"],
+        evalSuggestions: null,
+        approvalStatus: "pending",
+        llmModel: llmModelLabel,
+        vlmModel: null,
+      };
+    }
 
     // 6. Track best result and decide whether to continue fixing
     const score = evalResult?.score ?? null;
@@ -767,4 +775,172 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
 
   // Should not reach here, but just in case
   throw new Error("Unexpected end of generation pipeline");
+}
+
+// ── Re-render pipeline (no AI codegen, no fix loop) ──────────────────
+
+/**
+ * Re-render an existing example's code without running AI codegen.
+ * Wraps the code in the template, renders via Build123d, takes screenshots,
+ * runs VLM evaluation once (no fix loop), and persists as a new example.
+ * If rendering fails, stops immediately — no AI retry.
+ */
+export async function reRenderForExample(exampleId: string): Promise<GenerateResult> {
+  logger.info({ exampleId }, "starting re-render for example");
+
+  // 1. Load existing example to get the code and prompt context
+  const { getExample: getExampleDetail } = await import("./workbench-examples.service.js");
+  const existingExample = await getExampleDetail(exampleId);
+  const code = existingExample.code;
+
+  if (!code || code.trim() === "") {
+    throw new WorkbenchSeederError("Example has no code to re-render", 400);
+  }
+
+  const ctx = await loadPromptContext(existingExample.promptId);
+  logger.info({ prompt: ctx.prompt.slice(0, 80), category: ctx.categoryName }, "loaded prompt context for re-render");
+
+  // 2. Render with Build123d — wrap raw code in template for execution
+  const baseFileName = `wb-${ctx.promptId.slice(0, 8)}-rerender`;
+  const executableCode = wrapInTemplate(code, baseFileName);
+  logger.debug({ code: executableCode }, "executable code for Build123d re-render");
+
+  let renderedFiles: RenderedFile[] = [];
+  let renderError: string | null = null;
+
+  try {
+    const renderResult = await renderBuild123d({
+      code: executableCode,
+      baseFileName,
+    });
+    renderedFiles = renderResult.files;
+    logger.info({ fileCount: renderedFiles.length, files: renderedFiles.map((f) => f.filename) }, "Build123d re-render success");
+  } catch (error) {
+    renderError = error instanceof Error ? error.message : String(error);
+    logger.warn({ exampleId, renderError }, "re-render failed — stopping (no AI retry)");
+
+    // Persist failure as a new example and return immediately
+    const failedExampleId = await insertExample({
+      promptId: ctx.promptId,
+      iteration: 0,
+      code,
+      renderStatus: "error",
+      renderError,
+      stlPath: null,
+      stepPath: null,
+      screenshotFront: null,
+      screenshotTop: null,
+      screenshotIso: null,
+      evalScore: null,
+      evalIssues: null,
+      evalSuggestions: null,
+      approvalStatus: "pending",
+      llmModel: "manual",
+      vlmModel: null,
+      promptTokens: 0,
+      completionTokens: 0,
+    });
+
+    return {
+      exampleId: failedExampleId,
+      promptId: ctx.promptId,
+      iteration: 0,
+      code,
+      renderStatus: "error",
+      renderError,
+      evalScore: null,
+      evalIssues: null,
+      evalSuggestions: null,
+      approvalStatus: "pending",
+      llmModel: "manual",
+      vlmModel: null,
+    };
+  }
+
+  // 3. Screenshot via STL rendering service
+  let screenshots: RenderedScreenshot[] = [];
+  const stlFile = findFileByExtension(renderedFiles, ".stl");
+  if (stlFile) {
+    logger.info({ dataLength: stlFile.contentBase64.length }, "sending STL to rendering service for screenshots (re-render)");
+    try {
+      const screenshotResult = await renderModelScreenshots({
+        modelData: stlFile.contentBase64,
+        format: "stl",
+        width: 512,
+        height: 512,
+      });
+      screenshots = screenshotResult.images;
+      logger.info({ angles: screenshots.map((s) => s.angle) }, "screenshots received (re-render)");
+    } catch (error) {
+      logger.warn({ err: error, exampleId }, "screenshot failed during re-render");
+    }
+  } else {
+    logger.warn("no STL file available, skipping screenshots (re-render)");
+  }
+
+  // 4. VLM Evaluate — single pass, no loop
+  let evalResult: EvaluationResult | null = null;
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
+  const imageBase64s = screenshots.map((s) => s.base64);
+  if (imageBase64s.length > 0) {
+    logger.info({ imageCount: imageBase64s.length }, "starting VLM evaluation (re-render)");
+    evalResult = await evaluateModel({
+      userPrompt: ctx.prompt,
+      categoryName: ctx.categoryName,
+      complexity: ctx.complexity,
+      images: imageBase64s,
+    });
+    totalPromptTokens = evalResult.promptTokens;
+    totalCompletionTokens = evalResult.completionTokens;
+    logger.info({ score: evalResult.score, looksCorrect: evalResult.looksCorrect }, "VLM evaluation result (re-render)");
+  } else {
+    logger.warn("skipping VLM evaluation, no screenshots (re-render)");
+  }
+
+  // 5. Persist as new example
+  const stepFile = findFileByExtension(renderedFiles, ".step") ?? findFileByExtension(renderedFiles, ".stp");
+  const score = evalResult?.score ?? null;
+  const approved = score !== null && score >= AUTO_APPROVE_THRESHOLD;
+
+  const newExampleId = await insertExample({
+    promptId: ctx.promptId,
+    iteration: 0,
+    code,
+    renderStatus: "success",
+    renderError: null,
+    stlPath: stlFile?.filename ?? null,
+    stepPath: stepFile?.filename ?? null,
+    screenshotFront: findScreenshot(screenshots, "front"),
+    screenshotTop: findScreenshot(screenshots, "top"),
+    screenshotIso: findScreenshot(screenshots, "isometric"),
+    evalScore: score,
+    evalIssues: evalResult?.issues ?? null,
+    evalSuggestions: evalResult?.suggestions ?? null,
+    approvalStatus: approved ? "auto_approved" : "pending",
+    llmModel: "manual",
+    vlmModel: evalResult?.vlmModel ?? null,
+    promptTokens: totalPromptTokens,
+    completionTokens: totalCompletionTokens,
+  });
+
+  logger.info(
+    { exampleId: newExampleId, promptId: ctx.promptId, score, status: approved ? "auto_approved" : "pending" },
+    "re-render example persisted",
+  );
+
+  return {
+    exampleId: newExampleId,
+    promptId: ctx.promptId,
+    iteration: 0,
+    code,
+    renderStatus: "success",
+    renderError: null,
+    evalScore: score,
+    evalIssues: evalResult?.issues ?? null,
+    evalSuggestions: evalResult?.suggestions ?? null,
+    approvalStatus: approved ? "auto_approved" : "pending",
+    llmModel: "manual",
+    vlmModel: evalResult?.vlmModel ?? null,
+  };
 }

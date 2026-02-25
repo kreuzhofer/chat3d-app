@@ -8,6 +8,8 @@ import { migration006SecurityEvents } from "./006_security_events.js";
 import { migration007WorkbenchTables } from "./007_workbench_tables.js";
 import { migration008PgvectorEmbeddings } from "./008_pgvector_embeddings.js";
 import { migration009EmbeddingModelColumn } from "./009_embedding_model_column.js";
+import { migration010LlmModelConfig } from "./010_llm_model_config.js";
+import { migration011LlmProvidersTable } from "./011_llm_api_key_in_db.js";
 
 export const migrations: Migration[] = [
   migration001InitialSchema,
@@ -19,4 +21,6 @@ export const migrations: Migration[] = [
   migration007WorkbenchTables,
   migration008PgvectorEmbeddings,
   migration009EmbeddingModelColumn,
+  migration010LlmModelConfig,
+  migration011LlmProvidersTable,
 ];

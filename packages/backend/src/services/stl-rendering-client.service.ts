@@ -9,7 +9,13 @@ export type ModelFormat = "stl" | "3mf";
 /** Backend-side timeout for the HTTP call to the STL rendering service.
  *  Must be longer than the service's internal render timeout (30s)
  *  to allow for cold-start page creation + rendering. */
-const FETCH_TIMEOUT_MS = 45_000;
+const FETCH_TIMEOUT_MS = 90_000;
+
+/** Number of retry attempts for transient failures (timeouts, network errors). */
+const MAX_RETRIES = 3;
+
+/** Delay between retries (ms). Doubles on each subsequent retry. */
+const RETRY_BASE_DELAY_MS = 2_000;
 
 export interface RenderedScreenshot {
   angle: ViewingAngle;
@@ -33,6 +39,22 @@ export class StlRenderingError extends Error {
 const MOCK_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
+/** Resolve the screenshot service URL based on the configured provider. */
+function resolveScreenshotUrl(): { url: string; provider: string } {
+  const provider = config.screenshotService.provider;
+  if (provider === "build123d") {
+    return {
+      url: `${config.query.build123dUrl.replace(/\/$/, "")}/render-screenshots/`,
+      provider,
+    };
+  }
+  // Default: stl-rendering-service
+  return {
+    url: `${config.stlRenderingService.url.replace(/\/$/, "")}/render`,
+    provider,
+  };
+}
+
 export async function renderModelScreenshots(input: {
   modelData: string;
   format: ModelFormat;
@@ -49,40 +71,64 @@ export async function renderModelScreenshots(input: {
     };
   }
 
-  const url = `${config.stlRenderingService.url.replace(/\/$/, "")}/render`;
+  const { url, provider } = resolveScreenshotUrl();
 
   logger.info(
-    { url, format: input.format, dataLength: input.modelData.length, angles },
-    "POST to STL rendering service",
+    { url, provider, format: input.format, dataLength: input.modelData.length, angles },
+    "POST to screenshot service",
   );
 
-  let response: Response;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        modelData: input.modelData,
-        format: input.format,
-        width: input.width ?? 512,
-        height: input.height ?? 512,
-        angles,
-      }),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-  } catch (fetchError) {
-    const msg = fetchError instanceof Error ? fetchError.message : String(fetchError);
-    const isTimeout = fetchError instanceof Error && fetchError.name === "AbortError";
-    logger.error({ url, err: msg, isTimeout }, "error connecting to STL rendering service");
-    throw new StlRenderingError(
-      isTimeout
-        ? `STL rendering service timeout after ${FETCH_TIMEOUT_MS / 1000}s`
-        : `STL rendering service unreachable: ${msg}`,
-      502,
-    );
+  let response: Response | undefined;
+  let lastError: StlRenderingError | undefined;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          modelData: input.modelData,
+          format: input.format,
+          width: input.width ?? 512,
+          height: input.height ?? 512,
+          angles,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      // Request succeeded (got a response) — break out of retry loop
+      lastError = undefined;
+      break;
+    } catch (fetchError) {
+      const msg = fetchError instanceof Error ? fetchError.message : String(fetchError);
+      const isTimeout = fetchError instanceof Error && fetchError.name === "AbortError";
+      lastError = new StlRenderingError(
+        isTimeout
+          ? `STL rendering service timeout after ${FETCH_TIMEOUT_MS / 1000}s`
+          : `STL rendering service unreachable: ${msg}`,
+        502,
+      );
+
+      if (attempt < MAX_RETRIES) {
+        const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        logger.warn(
+          { url, err: msg, isTimeout, attempt, maxRetries: MAX_RETRIES, retryDelayMs: delay },
+          `STL rendering service failed (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay}ms`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      } else {
+        logger.error(
+          { url, err: msg, isTimeout, attempt, maxRetries: MAX_RETRIES },
+          `STL rendering service failed after ${MAX_RETRIES} attempts`,
+        );
+      }
+    }
+  }
+
+  if (lastError || !response) {
+    throw lastError ?? new StlRenderingError("STL rendering service failed after retries", 502);
   }
 
   logger.info({ status: response.status, statusText: response.statusText }, "STL rendering response received");

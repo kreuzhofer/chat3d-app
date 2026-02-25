@@ -144,3 +144,135 @@ export function updateAdminSettings(token: string, patch: AdminSettingsPatch): P
     body: JSON.stringify(patch),
   });
 }
+
+// ── LLM Provider Configuration ────────────────────────────────────
+
+export interface LlmProviderRow {
+  name: string;
+  display_name: string | null;
+  api_key: string | null; // masked (e.g., "sk-ab****") — never contains full key
+  endpoint_url: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateLlmProviderInput {
+  name: string;
+  displayName?: string;
+  apiKey?: string | null;
+  endpointUrl?: string | null;
+}
+
+export async function listLlmProviders(token: string): Promise<LlmProviderRow[]> {
+  const response = await requestAdminJson<{ providers: LlmProviderRow[] }>(token, "/llm-providers", { method: "GET" });
+  return Array.isArray(response.providers) ? response.providers : [];
+}
+
+export async function createLlmProvider(token: string, input: CreateLlmProviderInput): Promise<LlmProviderRow> {
+  return requestAdminJson<LlmProviderRow>(token, "/llm-providers", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateLlmProvider(token: string, name: string, patch: Record<string, unknown>): Promise<LlmProviderRow> {
+  return requestAdminJson<LlmProviderRow>(token, `/llm-providers/${encodeURIComponent(name)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteLlmProvider(token: string, name: string): Promise<void> {
+  await fetch(`${ADMIN_API_BASE}/llm-providers/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+// ── LLM Model Configuration ────────────────────────────────────────
+
+export interface LlmModelRow {
+  id: string;
+  provider: string;
+  model_name: string;
+  display_name: string | null;
+  cost_per_1m_input: number;
+  cost_per_1m_output: number;
+  max_output_tokens: number | null;
+  max_context_tokens: number | null;
+  supports_thinking: boolean;
+  default_thinking_effort: string | null;
+  supports_vision: boolean;
+  supports_embeddings: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LlmPurposeRow {
+  id: string;
+  purpose: string;
+  modelId: string;
+  modelDisplayName: string;
+  modelProvider: string;
+  modelModelName: string;
+  overrideMaxOutputTokens: number | null;
+  overrideThinkingEffort: string | null;
+}
+
+export interface CreateLlmModelInput {
+  provider: string;
+  modelName: string;
+  displayName?: string;
+  costPer1mInput?: number;
+  costPer1mOutput?: number;
+  maxOutputTokens?: number | null;
+  maxContextTokens?: number | null;
+  supportsThinking?: boolean;
+  defaultThinkingEffort?: string | null;
+  supportsVision?: boolean;
+  supportsEmbeddings?: boolean;
+}
+
+export async function listAdminLlmModels(token: string): Promise<LlmModelRow[]> {
+  const response = await requestAdminJson<{ models: LlmModelRow[] }>(token, "/llm-models", { method: "GET" });
+  return Array.isArray(response.models) ? response.models : [];
+}
+
+export async function createLlmModel(token: string, input: CreateLlmModelInput): Promise<LlmModelRow> {
+  return requestAdminJson<LlmModelRow>(token, "/llm-models", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateLlmModel(token: string, id: string, patch: Record<string, unknown>): Promise<LlmModelRow> {
+  return requestAdminJson<LlmModelRow>(token, `/llm-models/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteLlmModel(token: string, id: string): Promise<void> {
+  await fetch(`${ADMIN_API_BASE}/llm-models/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function listLlmPurposes(token: string): Promise<LlmPurposeRow[]> {
+  const response = await requestAdminJson<{ purposes: LlmPurposeRow[] }>(token, "/llm-purposes", { method: "GET" });
+  return Array.isArray(response.purposes) ? response.purposes : [];
+}
+
+export async function updateLlmPurpose(
+  token: string,
+  purpose: string,
+  patch: { modelId?: string; overrideMaxOutputTokens?: number | null; overrideThinkingEffort?: string | null },
+): Promise<LlmPurposeRow> {
+  return requestAdminJson<LlmPurposeRow>(token, `/llm-purposes/${encodeURIComponent(purpose)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}

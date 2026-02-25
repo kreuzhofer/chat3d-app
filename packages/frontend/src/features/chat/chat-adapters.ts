@@ -1,7 +1,7 @@
 import type { ChatItem } from "../../api/chat.api";
 
 export type ChatMessageState = "pending" | "completed" | "error" | "unknown";
-export type ChatSegmentKind = "message" | "error" | "meta" | "model" | "attachment";
+export type ChatSegmentKind = "message" | "error" | "meta" | "model" | "attachment" | "suggestions" | "code";
 
 export interface ChatFileEntry {
   path: string;
@@ -24,6 +24,7 @@ export interface ChatSegment {
     totalTokens: number;
     estimatedCostUsd: number;
   } | null;
+  suggestions: string[];
   artifact: {
     previewStatus: "ready" | "downgraded";
     detail: string;
@@ -63,6 +64,12 @@ function toSegmentKind(value: unknown): ChatSegmentKind {
   }
   if (value === "meta") {
     return "meta";
+  }
+  if (value === "suggestions") {
+    return "suggestions";
+  }
+  if (value === "code") {
+    return "code";
   }
   return "message";
 }
@@ -155,6 +162,7 @@ function mapSegment(raw: unknown, index: number): ChatSegment {
       attachmentMimeType: "",
       attachmentKind: "file",
       usage: null,
+      suggestions: [],
       artifact: null,
       files: [],
     };
@@ -168,6 +176,10 @@ function mapSegment(raw: unknown, index: number): ChatSegment {
   const attachmentMimeType = typeof message.mimeType === "string" ? message.mimeType : "";
   const attachmentKind = message.attachmentKind === "image" ? "image" : "file";
 
+  const suggestions = Array.isArray(message.suggestions)
+    ? (message.suggestions as unknown[]).filter((s): s is string => typeof s === "string")
+    : [];
+
   return {
     id,
     kind: toSegmentKind(message.itemType),
@@ -179,6 +191,7 @@ function mapSegment(raw: unknown, index: number): ChatSegment {
     attachmentMimeType,
     attachmentKind,
     usage: mapUsage(message.usage),
+    suggestions,
     artifact: mapArtifact(message.artifact),
     files: mapFiles(message.files),
   };

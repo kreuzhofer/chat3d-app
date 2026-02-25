@@ -6,6 +6,7 @@ import { Button } from "../ui/button";
 import { InlineModelViewer } from "./InlineModelViewer";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { DownloadPillGroup } from "./DownloadPill";
+import { SuggestionPills } from "./SuggestionPills";
 import { fileExtension, formatEstimatedCostUsd, uniqueFilesByPath } from "./utils";
 
 export interface MessageBubbleProps {
@@ -24,6 +25,7 @@ export interface MessageBubbleProps {
   onRate: (item: { id: string; rating: -1 | 0 | 1 }, rating: -1 | 1) => void;
   onRegenerate: (assistantItemId: string) => void;
   onDownloadFile: (filePath: string) => void;
+  onSelectSuggestion?: (prompt: string) => void;
 }
 
 export function MessageBubble({
@@ -38,6 +40,7 @@ export function MessageBubble({
   onRate,
   onRegenerate,
   onDownloadFile,
+  onSelectSuggestion,
 }: MessageBubbleProps) {
   const allFiles = uniqueFilesByPath(item.segments.flatMap((segment) => segment.files));
   const hasStreamingContent = isStreaming && typeof streamingText === "string" && streamingText.length > 0;
@@ -50,11 +53,31 @@ export function MessageBubble({
       })
     : undefined;
 
+  // Aggregate usage across all meta segments for inline cost tag
+  const totalUsage = (() => {
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let totalTokens = 0;
+    let estimatedCostUsd = 0;
+    let found = false;
+    for (const seg of item.segments) {
+      if (seg.usage) {
+        inputTokens += seg.usage.inputTokens;
+        outputTokens += seg.usage.outputTokens;
+        totalTokens += seg.usage.totalTokens;
+        estimatedCostUsd += seg.usage.estimatedCostUsd;
+        found = true;
+      }
+    }
+    return found ? { inputTokens, outputTokens, totalTokens, estimatedCostUsd } : null;
+  })();
+
   return (
+    <div className={item.role === "user" ? "pl-[15%]" : "pr-[15%]"}>
     <article
       className={`animate-fade-in rounded-lg border p-3.5 transition ${
         item.role === "user"
-          ? "border-transparent bg-[hsl(var(--surface-2)_/_0.6)]"
+          ? "border-transparent bg-[hsl(var(--primary)_/_0.08)]"
           : isSelected
             ? "border-[hsl(var(--primary)_/_0.5)] bg-[hsl(var(--primary)_/_0.04)] shadow-sm"
             : "border-[hsl(var(--border)_/_0.4)] bg-[hsl(var(--surface-1))] hover:border-[hsl(var(--primary)_/_0.3)]"
@@ -110,6 +133,9 @@ export function MessageBubble({
         {!hasStreamingContent && !(streamingError && streamingText) ? (
           <>
             {item.segments.map((segment) => {
+              // "code" segments are stored for machine use (conversation history, workbench routing), not for display
+              if (segment.kind === "code") return null;
+
               const isAttachment = segment.kind === "attachment";
               const isMeta = segment.kind === "meta";
               const hasFiles = segment.files.length > 0;
@@ -171,6 +197,14 @@ export function MessageBubble({
                     <p className="text-sm text-[hsl(var(--muted-foreground))]">(empty)</p>
                   )}
 
+                  {/* Suggestion pills for clarification responses */}
+                  {segment.kind === "suggestions" && segment.suggestions.length > 0 && onSelectSuggestion ? (
+                    <SuggestionPills
+                      suggestions={segment.suggestions}
+                      onSelectSuggestion={onSelectSuggestion}
+                    />
+                  ) : null}
+
                   {/* Meta details wrapped in CollapsibleSection for progressive disclosure */}
                   {isMeta && (segment.usage || segment.artifact) ? (
                     <CollapsibleSection title="Details" defaultExpanded={false}>
@@ -222,6 +256,13 @@ export function MessageBubble({
         />
       ) : null}
 
+      {/* Inline cost tag */}
+      {item.role === "assistant" && totalUsage && totalUsage.totalTokens > 0 ? (
+        <p className="mt-1 text-[10px] text-[hsl(var(--muted-foreground)_/_0.6)]">
+          {totalUsage.totalTokens.toLocaleString()} tokens · ~${formatEstimatedCostUsd(totalUsage.estimatedCostUsd)}
+        </p>
+      ) : null}
+
       {item.role === "assistant" ? (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <Button
@@ -265,5 +306,6 @@ export function MessageBubble({
         </div>
       ) : null}
     </article>
+    </div>
   );
 }

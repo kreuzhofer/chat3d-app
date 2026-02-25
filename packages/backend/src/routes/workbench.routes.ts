@@ -17,7 +17,7 @@ import {
   updatePromptText,
   WorkbenchSeederError,
 } from "../services/workbench-seeder.service.js";
-import { generateForPrompt } from "../services/workbench-codegen.service.js";
+import { generateForPrompt, reRenderForExample } from "../services/workbench-codegen.service.js";
 import {
   approveExample,
   deleteExample,
@@ -287,6 +287,19 @@ workbenchRouter.post("/examples/:id/retry", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "Retry failed", detail: String(error) });
+  }
+});
+
+workbenchRouter.post("/examples/:id/re-render", async (req, res) => {
+  try {
+    const result = await reRenderForExample(req.params.id);
+    res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Re-render failed", detail: String(error) });
   }
 });
 

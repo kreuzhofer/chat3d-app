@@ -1,5 +1,5 @@
 import express from "express";
-import { renderModelToImages, RenderError } from "./renderer.js";
+import { renderModelToImages, RenderError, warmUp } from "./renderer.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger("server");
@@ -78,4 +78,9 @@ app.post("/render", async (req, res) => {
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
   logger.info({ port: PORT }, "STL Rendering Service started");
+
+  // Pre-warm the browser so the first render request is fast
+  warmUp().catch(() => {
+    // Error already logged inside warmUp()
+  });
 });

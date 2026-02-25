@@ -16,6 +16,18 @@ import {
   rejectWaitlistEntry,
   WaitlistError,
 } from "../services/waitlist.service.js";
+import {
+  listAllModels,
+  createModel,
+  updateModel,
+  deleteModel,
+  listPurposeAssignments,
+  updatePurposeAssignment,
+  listAllProviders,
+  createProvider,
+  updateProvider,
+  deleteProvider,
+} from "../services/llm-config.service.js";
 
 export const adminRouter = Router();
 
@@ -268,3 +280,192 @@ adminRouter.patch("/waitlist/:entryId/approve", handleApproveWaitlist);
 adminRouter.post("/waitlist/:entryId/approve", handleApproveWaitlist);
 adminRouter.patch("/waitlist/:entryId/reject", handleRejectWaitlist);
 adminRouter.post("/waitlist/:entryId/reject", handleRejectWaitlist);
+
+// ── LLM Model Configuration ────────────────────────────────────────
+
+adminRouter.get("/llm-models", async (_req, res) => {
+  try {
+    const models = await listAllModels();
+    res.status(200).json({ models });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to list LLM models");
+  }
+});
+
+adminRouter.post("/llm-models", async (req, res) => {
+  const body = req.body as Record<string, unknown> | undefined;
+  if (!body || typeof body.provider !== "string" || typeof body.modelName !== "string") {
+    res.status(400).json({ error: "provider and modelName are required" });
+    return;
+  }
+
+  try {
+    const model = await createModel({
+      provider: body.provider,
+      modelName: body.modelName,
+      displayName: typeof body.displayName === "string" ? body.displayName : undefined,
+      costPer1mInput: typeof body.costPer1mInput === "number" ? body.costPer1mInput : undefined,
+      costPer1mOutput: typeof body.costPer1mOutput === "number" ? body.costPer1mOutput : undefined,
+      maxOutputTokens: typeof body.maxOutputTokens === "number" ? body.maxOutputTokens : (body.maxOutputTokens === null ? null : undefined),
+      maxContextTokens: typeof body.maxContextTokens === "number" ? body.maxContextTokens : (body.maxContextTokens === null ? null : undefined),
+      supportsThinking: typeof body.supportsThinking === "boolean" ? body.supportsThinking : undefined,
+      defaultThinkingEffort: typeof body.defaultThinkingEffort === "string" ? body.defaultThinkingEffort : (body.defaultThinkingEffort === null ? null : undefined),
+      supportsVision: typeof body.supportsVision === "boolean" ? body.supportsVision : undefined,
+      supportsEmbeddings: typeof body.supportsEmbeddings === "boolean" ? body.supportsEmbeddings : undefined,
+    });
+    res.status(201).json(model);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to create LLM model");
+  }
+});
+
+adminRouter.patch("/llm-models/:id", async (req, res) => {
+  const modelId = readPathParam(req.params.id);
+  if (!modelId) {
+    res.status(400).json({ error: "Invalid model id" });
+    return;
+  }
+
+  try {
+    const updated = await updateModel(modelId, req.body as Record<string, unknown>);
+    if (!updated) {
+      res.status(404).json({ error: "Model not found" });
+      return;
+    }
+    res.status(200).json(updated);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to update LLM model");
+  }
+});
+
+adminRouter.delete("/llm-models/:id", async (req, res) => {
+  const modelId = readPathParam(req.params.id);
+  if (!modelId) {
+    res.status(400).json({ error: "Invalid model id" });
+    return;
+  }
+
+  try {
+    const deleted = await deleteModel(modelId);
+    if (!deleted) {
+      res.status(404).json({ error: "Model not found" });
+      return;
+    }
+    res.status(204).send();
+  } catch (error) {
+    sendKnownError(res, error, "Failed to delete LLM model");
+  }
+});
+
+// ── LLM Purpose Assignments ────────────────────────────────────────
+
+adminRouter.get("/llm-purposes", async (_req, res) => {
+  try {
+    const purposes = await listPurposeAssignments();
+    res.status(200).json({ purposes });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to list LLM purpose assignments");
+  }
+});
+
+adminRouter.patch("/llm-purposes/:purpose", async (req, res) => {
+  const purpose = readPathParam(req.params.purpose);
+  if (!purpose) {
+    res.status(400).json({ error: "Invalid purpose" });
+    return;
+  }
+
+  const body = req.body as Record<string, unknown> | undefined;
+  if (!body) {
+    res.status(400).json({ error: "Request body is required" });
+    return;
+  }
+
+  try {
+    const updated = await updatePurposeAssignment(purpose, {
+      modelId: typeof body.modelId === "string" ? body.modelId : undefined,
+      overrideMaxOutputTokens: body.overrideMaxOutputTokens !== undefined
+        ? (typeof body.overrideMaxOutputTokens === "number" ? body.overrideMaxOutputTokens : null)
+        : undefined,
+      overrideThinkingEffort: body.overrideThinkingEffort !== undefined
+        ? (typeof body.overrideThinkingEffort === "string" ? body.overrideThinkingEffort : null)
+        : undefined,
+    });
+    if (!updated) {
+      res.status(404).json({ error: "Purpose not found" });
+      return;
+    }
+    res.status(200).json(updated);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to update LLM purpose assignment");
+  }
+});
+
+// ── LLM Provider Configuration ──────────────────────────────────────
+
+adminRouter.get("/llm-providers", async (_req, res) => {
+  try {
+    const providers = await listAllProviders();
+    res.status(200).json({ providers });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to list LLM providers");
+  }
+});
+
+adminRouter.post("/llm-providers", async (req, res) => {
+  const body = req.body as Record<string, unknown> | undefined;
+  if (!body || typeof body.name !== "string" || body.name.trim() === "") {
+    res.status(400).json({ error: "name is required" });
+    return;
+  }
+
+  try {
+    const provider = await createProvider({
+      name: body.name.trim().toLowerCase(),
+      displayName: typeof body.displayName === "string" ? body.displayName : undefined,
+      apiKey: typeof body.apiKey === "string" && body.apiKey !== "" ? body.apiKey : null,
+      endpointUrl: typeof body.endpointUrl === "string" && body.endpointUrl !== "" ? body.endpointUrl : null,
+    });
+    res.status(201).json(provider);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to create LLM provider");
+  }
+});
+
+adminRouter.patch("/llm-providers/:name", async (req, res) => {
+  const name = readPathParam(req.params.name);
+  if (!name) {
+    res.status(400).json({ error: "Invalid provider name" });
+    return;
+  }
+
+  try {
+    const updated = await updateProvider(name, req.body as Record<string, unknown>);
+    if (!updated) {
+      res.status(404).json({ error: "Provider not found" });
+      return;
+    }
+    res.status(200).json(updated);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to update LLM provider");
+  }
+});
+
+adminRouter.delete("/llm-providers/:name", async (req, res) => {
+  const name = readPathParam(req.params.name);
+  if (!name) {
+    res.status(400).json({ error: "Invalid provider name" });
+    return;
+  }
+
+  try {
+    const deleted = await deleteProvider(name);
+    if (!deleted) {
+      res.status(404).json({ error: "Provider not found" });
+      return;
+    }
+    res.status(204).send();
+  } catch (error) {
+    sendKnownError(res, error, "Failed to delete LLM provider");
+  }
+});

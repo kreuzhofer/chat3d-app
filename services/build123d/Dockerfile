@@ -5,6 +5,9 @@ WORKDIR /code
 # Install system dependencies for cadquery-ocp (OpenGL, X11 libraries)
 RUN apt-get update && apt-get install -y \
     libgl1-mesa-dev \
+    libglu1-mesa \
+    libosmesa6 \
+    libegl1 \
     libx11-6 \
     libxext6 \
     libxrender1 \
@@ -25,5 +28,8 @@ RUN if pip --help | grep -q -- "--resume-retries"; then \
     fi
 
 COPY ./app /code/app
+
+# pyrender needs EGL for headless offscreen rendering
+ENV PYOPENGL_PLATFORM=egl
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "80"]

@@ -263,6 +263,9 @@ export async function updateChatItem(input: {
   itemId: string;
   messages?: unknown;
   rating?: unknown;
+  promptTokens?: number;
+  completionTokens?: number;
+  estimatedCostUsd?: number;
 }) {
   await getOwnedContext(input.userId, input.contextId);
   const existing = await getOwnedItem(input.userId, input.contextId, input.itemId);
@@ -270,18 +273,42 @@ export async function updateChatItem(input: {
   const nextMessages = input.messages !== undefined ? validateMessages(input.messages) : existing.messages;
   const nextRating = input.rating !== undefined ? validateRating(input.rating) : existing.rating;
 
+  // Build SET clause dynamically — always update messages + rating,
+  // optionally update token columns when provided.
+  const setClauses = [
+    `messages = $4::jsonb`,
+    `rating = $5`,
+    `updated_at = NOW()`,
+  ];
+  const values: unknown[] = [input.itemId, input.contextId, input.userId, JSON.stringify(nextMessages), nextRating];
+  let paramIdx = 6;
+
+  if (input.promptTokens !== undefined) {
+    setClauses.push(`prompt_tokens = $${paramIdx}`);
+    values.push(input.promptTokens);
+    paramIdx++;
+  }
+  if (input.completionTokens !== undefined) {
+    setClauses.push(`completion_tokens = $${paramIdx}`);
+    values.push(input.completionTokens);
+    paramIdx++;
+  }
+  if (input.estimatedCostUsd !== undefined) {
+    setClauses.push(`estimated_cost_usd = $${paramIdx}`);
+    values.push(input.estimatedCostUsd);
+    paramIdx++;
+  }
+
   const result = await query<ChatItemRow>(
     `
     UPDATE chat_items
-    SET messages = $4::jsonb,
-        rating = $5,
-        updated_at = NOW()
+    SET ${setClauses.join(",\n        ")}
     WHERE id = $1
       AND chat_context_id = $2
       AND owner_id = $3
     RETURNING id, chat_context_id, role, messages, rating, owner_id, created_at::text, updated_at::text;
     `,
-    [input.itemId, input.contextId, input.userId, JSON.stringify(nextMessages), nextRating],
+    values,
   );
 
   const item = mapItem(result.rows[0]);

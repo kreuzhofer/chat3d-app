@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Cpu,
   KeyRound,
   LayoutDashboard,
   ListChecks,
+  Plug,
   Settings,
   ShieldOff,
   UserCheck,
@@ -39,6 +41,8 @@ import { DashboardTab } from "./admin/DashboardTab";
 import { UsersTab } from "./admin/UsersTab";
 import { WaitlistTab } from "./admin/WaitlistTab";
 import { SettingsTab } from "./admin/SettingsTab";
+import { ModelsTab } from "./admin/ModelsTab";
+import { ProvidersTab } from "./admin/ProvidersTab";
 import {
   toErrorMessage,
   sortUsersByCreatedDate,
@@ -48,7 +52,7 @@ import {
   type ConfirmState,
 } from "./admin/utils";
 
-type AdminTab = "dashboard" | "users" | "waitlist" | "settings";
+type AdminTab = "dashboard" | "users" | "waitlist" | "settings" | "providers" | "models";
 type UserStatusFilter = "all" | "active" | "deactivated" | "pending_registration";
 
 export function AdminPanel() {
@@ -456,6 +460,8 @@ export function AdminPanel() {
           { id: "users", label: "Users", icon: <Users className="h-4 w-4" /> },
           { id: "waitlist", label: "Waitlist", icon: <ListChecks className="h-4 w-4" /> },
           { id: "settings", label: "Settings", icon: <Settings className="h-4 w-4" /> },
+          { id: "providers", label: "Providers", icon: <Plug className="h-4 w-4" /> },
+          { id: "models", label: "Models", icon: <Cpu className="h-4 w-4" /> },
         ]}
         activeTab={activeTab}
         onChange={(tabId) => setActiveTab(tabId as AdminTab)}
@@ -517,6 +523,10 @@ export function AdminPanel() {
           onOpenConfirm={openConfirm}
         />
       ) : null}
+
+      {activeTab === "providers" && token ? <ProvidersTab token={token} /> : null}
+
+      {activeTab === "models" && token ? <ModelsTab token={token} /> : null}
 
       <Drawer
         open={selectedUser !== null}

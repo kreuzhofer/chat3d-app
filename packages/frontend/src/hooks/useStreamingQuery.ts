@@ -8,6 +8,8 @@ export type QueryState =
   | "conversation"
   | "codegen"
   | "rendering"
+  | "evaluating"
+  | "fixing"
   | "retrying"
   | "completed"
   | "failed";
@@ -46,7 +48,7 @@ export interface UseStreamingQueryResult {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const ACTIVE_STATES = new Set<QueryState>(["queued", "conversation", "codegen", "rendering", "retrying"]);
+const ACTIVE_STATES = new Set<QueryState>(["queued", "conversation", "codegen", "rendering", "evaluating", "fixing", "retrying"]);
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 

@@ -162,6 +162,25 @@ async function killBrowser(): Promise<void> {
   }
 }
 
+// ── Pre-warm ────────────────────────────────────────────────────────
+
+/**
+ * Eagerly launch the browser and load the renderer template so the first
+ * render request doesn't pay cold-start latency.
+ */
+export async function warmUp(width = 512, height = 512): Promise<void> {
+  logger.info("pre-warming browser + page");
+  try {
+    await getReadyPage(width, height);
+    logger.info("browser pre-warm complete");
+  } catch (err) {
+    logger.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "browser pre-warm failed — will retry on first request",
+    );
+  }
+}
+
 // ── Render function ─────────────────────────────────────────────────
 
 export async function renderModelToImages(

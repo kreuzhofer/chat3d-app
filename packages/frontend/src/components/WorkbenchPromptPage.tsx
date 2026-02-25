@@ -10,6 +10,7 @@ import {
   listExamplesForPrompt,
   listPromptsForCategory,
   rejectExample,
+  reRenderExample,
   retryExample,
   updateExampleCode,
   updatePromptText,
@@ -175,6 +176,35 @@ export function WorkbenchPromptPage() {
       setBusy(false);
     }
   }, [codeEditValue, pushToast, selectedExample, token]);
+
+  const handleReRender = useCallback(async () => {
+    if (!token || !selectedExample) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // If code is being edited, save it first
+      if (editingCode) {
+        await updateExampleCode(token, selectedExample.id, codeEditValue);
+      }
+      const result = await reRenderExample(token, selectedExample.id);
+      const example = await getExample(token, result.exampleId);
+      setExamples((prev) => [example, ...prev]);
+      setSelectedExample(example);
+      setEditingCode(false);
+      pushToast({
+        tone: result.renderStatus === "error" ? "error" : result.approvalStatus === "auto_approved" ? "success" : "info",
+        title: result.renderStatus === "error" ? "Render failed" : "Re-render complete",
+        description: result.renderStatus === "error"
+          ? result.renderError ?? "Unknown error"
+          : `Score: ${result.evalScore ?? "N/A"}`,
+      });
+      await loadData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [codeEditValue, editingCode, loadData, pushToast, selectedExample, token]);
 
   const handleSavePrompt = useCallback(async () => {
     if (!token || !promptId) return;
@@ -476,11 +506,19 @@ export function WorkbenchPromptPage() {
                   <Button size="sm" iconLeft={<Check className="h-3 w-3" />} loading={busy} onClick={() => void handleSaveCode()}>
                     Save
                   </Button>
+                  <Button size="sm" variant="outline" iconLeft={<RefreshCw className="h-3 w-3" />} loading={busy} onClick={() => void handleReRender()}>
+                    Save &amp; Re-Render
+                  </Button>
                 </div>
               ) : (
-                <Button size="sm" variant="outline" onClick={() => { setCodeEditValue(selectedExample.code); setEditingCode(true); }}>
-                  Edit
-                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" iconLeft={<RefreshCw className="h-3 w-3" />} loading={busy} onClick={() => void handleReRender()}>
+                    Re-Render
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { setCodeEditValue(selectedExample.code); setEditingCode(true); }}>
+                    Edit
+                  </Button>
+                </div>
               )
             }
           >

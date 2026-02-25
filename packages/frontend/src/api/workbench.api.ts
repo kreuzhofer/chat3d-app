@@ -258,6 +258,12 @@ export function retryExample(token: string, exampleId: string): Promise<Generate
   });
 }
 
+export function reRenderExample(token: string, exampleId: string): Promise<GenerateResult> {
+  return requestJson<GenerateResult>(token, `/examples/${encodeURIComponent(exampleId)}/re-render`, {
+    method: "POST",
+  });
+}
+
 export function deleteExample(token: string, exampleId: string): Promise<{ ok: true }> {
   return requestJson<{ ok: true }>(token, `/examples/${encodeURIComponent(exampleId)}`, {
     method: "DELETE",

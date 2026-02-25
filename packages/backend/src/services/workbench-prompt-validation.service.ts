@@ -85,7 +85,7 @@ function parseValidationResponse(content: string): { valid: boolean; reason: str
 // ── Main validation function ─────────────────────────────────────────
 
 export async function validatePrompt(promptText: string): Promise<ValidationResult> {
-  const { model, label } = resolveCodegenModel();
+  const { model, label } = await resolveCodegenModel();
 
   // Mock provider — skip validation
   if (!model) {
@@ -99,7 +99,7 @@ export async function validatePrompt(promptText: string): Promise<ValidationResu
       model,
       system: VALIDATION_SYSTEM_PROMPT,
       messages: [{ role: "user", content: promptText }],
-      maxTokens: 256,
+      maxOutputTokens: 256,
     });
 
     const parsed = parseValidationResponse(result.text);
@@ -107,8 +107,8 @@ export async function validatePrompt(promptText: string): Promise<ValidationResu
 
     return {
       ...parsed,
-      promptTokens: result.usage?.promptTokens ?? 0,
-      completionTokens: result.usage?.completionTokens ?? 0,
+      promptTokens: result.usage?.inputTokens ?? 0,
+      completionTokens: result.usage?.outputTokens ?? 0,
     };
   } catch (error) {
     // Fail-open: validation errors should never block the pipeline

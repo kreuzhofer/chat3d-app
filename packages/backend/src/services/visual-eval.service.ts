@@ -7,16 +7,15 @@
  */
 
 import { generateText } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { createOpenAI } from "@ai-sdk/openai";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
+import {
+  getModelForPurpose,
+  createProviderModel as createProviderModelFromConfig,
+  type LlmModelConfig,
+} from "./llm-config.service.js";
 
 const logger = createLogger("vlm-eval");
 const EVAL_MAX_RETRIES = 2;
-
-type VlmProvider = "anthropic" | "openai" | "ollama";
 
 // ── Result types ─────────────────────────────────────────────────────
 
@@ -34,57 +33,6 @@ interface ParsedEvaluation {
   score: number;
   issues: string[];
   suggestions: string[];
-}
-
-// ── Provider resolution ──────────────────────────────────────────────
-
-function resolveVlmProvider(): { provider: VlmProvider; modelName: string } {
-  const provider = config.workbench.evalVlmProvider;
-  const modelName = config.workbench.evalVlmModel;
-
-  // Ollama needs no API key — just a running server
-  if (provider === "ollama") {
-    return { provider, modelName };
-  }
-
-  // If Anthropic is configured but key is missing, fall back to OpenAI
-  if (provider === "anthropic" && !config.query.anthropicApiKey) {
-    if (config.query.openAiApiKey) {
-      logger.warn("ANTHROPIC_API_KEY missing, falling back to OpenAI for VLM evaluation");
-      return { provider: "openai", modelName: "gpt-4o" };
-    }
-    throw new Error("No VLM API key available (neither ANTHROPIC_API_KEY nor OPENAI_API_KEY)");
-  }
-
-  if (provider === "openai" && !config.query.openAiApiKey) {
-    if (config.query.anthropicApiKey) {
-      logger.warn("OPENAI_API_KEY missing, falling back to Anthropic for VLM evaluation");
-      return { provider: "anthropic", modelName: "claude-sonnet-4-6" };
-    }
-    throw new Error("No VLM API key available (neither OPENAI_API_KEY nor ANTHROPIC_API_KEY)");
-  }
-
-  return { provider, modelName };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function createProviderModel(provider: VlmProvider, modelName: string): any {
-  if (provider === "anthropic") {
-    return createAnthropic({ apiKey: config.query.anthropicApiKey })(modelName);
-  }
-  if (provider === "ollama") {
-    const normalizedBaseUrl = config.query.ollamaBaseUrl.replace(/\/+$/, "");
-    const baseUrlWithVersion = normalizedBaseUrl.endsWith("/v1")
-      ? normalizedBaseUrl
-      : `${normalizedBaseUrl}/v1`;
-    const ollama = createOpenAICompatible({
-      name: "ollama",
-      baseURL: baseUrlWithVersion,
-      apiKey: config.query.ollamaToken.trim() === "" ? undefined : config.query.ollamaToken.trim(),
-    });
-    return ollama.chatModel(modelName);
-  }
-  return createOpenAI({ apiKey: config.query.openAiApiKey, baseURL: config.query.openAiBaseUrl })(modelName);
 }
 
 // ── Evaluation prompt ────────────────────────────────────────────────
@@ -251,8 +199,8 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
     };
   }
 
-  const { provider, modelName } = resolveVlmProvider();
-  const vlmModelLabel = `${provider}/${modelName}`;
+  const vlmConfig = await getModelForPurpose("vlm_eval");
+  const vlmModelLabel = vlmConfig.label;
   logger.info({ model: vlmModelLabel }, "using VLM model");
 
   const systemPrompt = buildEvaluationSystemPrompt(userPrompt, categoryName, complexity);
@@ -270,14 +218,14 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
   let lastError: Error | null = null;
   for (let attempt = 0; attempt <= EVAL_MAX_RETRIES; attempt++) {
     try {
-      const providerModel = createProviderModel(provider, modelName);
+      const providerModel = createProviderModelFromConfig(vlmConfig);
 
       logger.info({ attempt: attempt + 1, maxAttempts: EVAL_MAX_RETRIES + 1, model: vlmModelLabel }, "calling VLM");
       const result = await generateText({
         model: providerModel,
         system: systemPrompt,
         messages: [{ role: "user", content: userContent }],
-        maxTokens: 1024,
+        maxOutputTokens: 1024, // Eval-specific limit — keep responses concise
       });
 
       const responseText = result.text;
@@ -298,8 +246,8 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
         ...parsed,
         looksCorrect: parsed.score >= 7,
         vlmModel: vlmModelLabel,
-        promptTokens: result.usage?.promptTokens ?? 0,
-        completionTokens: result.usage?.completionTokens ?? 0,
+        promptTokens: result.usage?.inputTokens ?? 0,
+        completionTokens: result.usage?.outputTokens ?? 0,
       };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));

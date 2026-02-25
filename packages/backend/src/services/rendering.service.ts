@@ -3,6 +3,10 @@ import { createLogger } from "../utils/logger.js";
 
 const logger = createLogger("render");
 
+/** HTTP timeout for the Build123d rendering service.
+ *  Code execution + STEP/3MF export can be slow for complex models. */
+const BUILD123D_TIMEOUT_MS = 120_000;
+
 export interface RenderedFile {
   filename: string;
   contentBase64: string;
@@ -54,17 +58,27 @@ export async function renderBuild123d(input: {
 
   let response: Response;
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), BUILD123D_TIMEOUT_MS);
     response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
+    clearTimeout(timer);
   } catch (fetchError) {
     const msg = fetchError instanceof Error ? fetchError.message : String(fetchError);
-    logger.error({ url, err: msg }, "fetch error connecting to Build123d");
-    throw new RenderingServiceError(`Build123d service unreachable: ${msg}`, 502);
+    const isTimeout = fetchError instanceof Error && fetchError.name === "AbortError";
+    logger.error({ url, err: msg, isTimeout }, "fetch error connecting to Build123d");
+    throw new RenderingServiceError(
+      isTimeout
+        ? `Build123d service timeout after ${BUILD123D_TIMEOUT_MS / 1000}s`
+        : `Build123d service unreachable: ${msg}`,
+      502,
+    );
   }
 
   logger.info({ status: response.status, statusText: response.statusText }, "Build123d response received");

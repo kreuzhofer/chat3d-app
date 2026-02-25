@@ -812,6 +812,7 @@ export function ChatPage() {
                     onRate={(rateItem, rating) => void rateItemAction(rateItem, rating)}
                     onRegenerate={(assistantItemId) => void regenerateAction(assistantItemId)}
                     onDownloadFile={(filePath) => void downloadFileAction(filePath)}
+                    onSelectSuggestion={(s) => setPrompt(s)}
                   />
                 );
               })}
@@ -820,28 +821,32 @@ export function ChatPage() {
 
               {optimisticPrompt ? (
                 <>
-                  <article className="animate-fade-in rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] p-3">
-                    <div className="mb-2 flex items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(var(--muted))]">
-                        <User className="h-3.5 w-3.5" />
-                      </span>
-                      <span className="font-semibold uppercase tracking-wide">user</span>
-                    </div>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{optimisticPrompt}</ReactMarkdown>
-                  </article>
-                  <article className="animate-fade-in rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3 text-sm">
-                    <div className="mb-2 flex items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(var(--primary)_/_0.12)] text-[hsl(var(--primary))]">
-                        <Bot className="h-3.5 w-3.5" />
-                      </span>
-                      <span className="font-semibold uppercase tracking-wide">assistant</span>
-                    </div>
-                    <div className="space-y-2" data-testid="optimistic-pending">
-                      <Skeleton className="h-4 w-3/4" />
-                      <Skeleton className="h-4 w-1/2" />
-                      <Skeleton className="h-4 w-2/3" />
-                    </div>
-                  </article>
+                  <div className="pl-[15%]">
+                    <article className="animate-fade-in rounded-lg border border-transparent bg-[hsl(var(--primary)_/_0.08)] p-3">
+                      <div className="mb-2 flex items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(var(--muted))]">
+                          <User className="h-3.5 w-3.5" />
+                        </span>
+                        <span className="font-semibold uppercase tracking-wide">user</span>
+                      </div>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{optimisticPrompt}</ReactMarkdown>
+                    </article>
+                  </div>
+                  <div className="pr-[15%]">
+                    <article className="animate-fade-in rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3 text-sm">
+                      <div className="mb-2 flex items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(var(--primary)_/_0.12)] text-[hsl(var(--primary))]">
+                          <Bot className="h-3.5 w-3.5" />
+                        </span>
+                        <span className="font-semibold uppercase tracking-wide">assistant</span>
+                      </div>
+                      <div className="space-y-2" data-testid="optimistic-pending">
+                        <Skeleton className="h-4 w-3/4" />
+                        <Skeleton className="h-4 w-1/2" />
+                        <Skeleton className="h-4 w-2/3" />
+                      </div>
+                    </article>
+                  </div>
                 </>
               ) : null}
 

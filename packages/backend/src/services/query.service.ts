@@ -1,17 +1,43 @@
+import { generateText } from "ai";
 import { query } from "../db/connection.js";
 import { notificationService } from "./notification.service.js";
 import { sseService } from "./sse.service.js";
 import { createChatItem, updateChatItem, ChatError } from "./chat.service.js";
 import { FileStorageError, readUserFile, writeUserFile } from "./file-storage.service.js";
 import {
-  generateBuild123dCode,
   generateConversationText,
   generateConversationTextStream,
   parseConversationResponse,
+  extractExecutableCode,
   LlmServiceError,
   type LlmUsageMetadata,
 } from "./llm.service.js";
 import { renderBuild123d, RenderingServiceError } from "./rendering.service.js";
+import {
+  renderModelScreenshots,
+  type RenderedScreenshot,
+} from "./stl-rendering-client.service.js";
+import { evaluateModel } from "./visual-eval.service.js";
+import { getActiveSystemPrompt } from "./workbench-seeder.service.js";
+import { findSimilarExamples } from "./workbench-embeddings.service.js";
+import {
+  buildInitialPrompt,
+  buildFixPrompt,
+  wrapInTemplate,
+  stripTemplateBoilerplate,
+  MAX_FIX_ITERATIONS,
+  AUTO_APPROVE_THRESHOLD,
+} from "./workbench-codegen.service.js";
+import {
+  getModelForPurpose,
+  createProviderModel as createProviderModelFromConfig,
+  buildGenerateOptions,
+  calculateCostUsd,
+  type LlmModelConfig,
+} from "./llm-config.service.js";
+import { createLogger } from "../utils/logger.js";
+
+const queryLogger = createLogger("query");
 
 interface ChatContextRow {
   id: string;
@@ -28,7 +54,7 @@ interface UserPromptRow {
   messages: unknown;
 }
 
-export type QueryState = "queued" | "conversation" | "codegen" | "rendering" | "retrying" | "completed" | "failed";
+export type QueryState = "queued" | "conversation" | "codegen" | "rendering" | "evaluating" | "fixing" | "retrying" | "completed" | "failed";
 
 export interface StreamTokenEvent {
   type: "stream-token";
@@ -656,6 +682,7 @@ export async function executeQueryPipeline(input: {
     // Parse conversation response to determine if codegen is needed
     const parsed = parseConversationResponse(conversation.text);
     const conversationText = parsed.text;
+    queryLogger.info({ needsCodegen: parsed.needsCodegen, textLength: conversationText.length, textPreview: conversationText.slice(0, 120) }, "conversation LLM response parsed (streaming pipeline)");
 
     // If the conversation is chat-only (no 3D model requested), skip codegen/rendering
     if (!parsed.needsCodegen) {
@@ -685,140 +712,188 @@ export async function executeQueryPipeline(input: {
       return;
     }
 
-    await publishQueryState({
-      userId: input.userId,
-      contextId: input.contextId,
-      assistantItemId,
-      state: "codegen",
-    });
+    // ── Workbench-style iteration loop: codegen → render → VLM eval → fix ──
 
-    const codegen = await generateBuild123dCode({
-      prompt: `${prompt}${formatAttachmentContext(attachments)}`,
-      conversationText,
-      conversationHistory,
-    });
-
-    await publishQueryState({
-      userId: input.userId,
-      contextId: input.contextId,
-      assistantItemId,
-      state: "rendering",
-    });
-
-    let activeCode = codegen.code;
-    let retryCodegen: typeof codegen | null = null;
-    let rendered: Awaited<ReturnType<typeof renderBuild123d>>;
-
+    let epSystemPromptContent = "";
     try {
-      rendered = await renderBuild123d({
-        code: activeCode,
-        baseFileName: codegen.baseFileName,
-      });
-    } catch (renderError) {
-      if (!(renderError instanceof RenderingServiceError)) {
-        throw renderError;
+      const spRow = await getActiveSystemPrompt();
+      epSystemPromptContent = spRow.content;
+      queryLogger.info({ promptLength: epSystemPromptContent.length }, "loaded active system prompt");
+    } catch (err) { queryLogger.warn({ err: err instanceof Error ? err.message : String(err) }, "no active system prompt found, using empty"); }
+
+    let epFewShots: Array<{ prompt: string; code: string }> = [];
+    try {
+      epFewShots = (await findSimilarExamples(prompt, 6)).map(({ prompt: p, code }) => ({ prompt: p, code }));
+      queryLogger.info({ fewShotCount: epFewShots.length }, "loaded few-shot examples");
+    } catch (err) { queryLogger.warn({ err: err instanceof Error ? err.message : String(err) }, "few-shot retrieval failed in executeQueryPipeline"); }
+
+    const epCodegenConfig = await getModelForPurpose("chat_codegen");
+    const epCodegenModel = createProviderModelFromConfig(epCodegenConfig);
+    const epExtraOpts = buildGenerateOptions(epCodegenConfig);
+    queryLogger.info({ model: epCodegenConfig.label, provider: epCodegenConfig.provider, modelName: epCodegenConfig.modelName, maxOutputTokens: epCodegenConfig.maxOutputTokens }, "resolved chat codegen model");
+
+    let epTotalPromptTokens = 0;
+    let epTotalCompletionTokens = 0;
+    let epTotalCostUsd = 0;
+    let epCurrentCode = "";
+    let epRenderError: string | null = null;
+    interface EpEvalState { score: number; issues: string[]; suggestions: string[]; vlmModel: string; }
+    let epEvalState: EpEvalState | null = null;
+    let epBest: { code: string; score: number | null; evalState: EpEvalState | null; generatedFiles: Array<{ path: string; filename: string }>; screenshots: RenderedScreenshot[]; iteration: number } | null = null;
+
+    for (let iteration = 1; iteration <= MAX_FIX_ITERATIONS; iteration++) {
+      const isFirst = iteration === 1;
+      await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: isFirst ? "codegen" : "fixing", detail: isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${MAX_FIX_ITERATIONS})...` });
+
+      const cgPrompt = isFirst
+        ? buildInitialPrompt(epSystemPromptContent, epFewShots, prompt)
+        : buildFixPrompt(epSystemPromptContent, epFewShots, prompt, epCurrentCode, iteration - 1, epRenderError, epEvalState?.issues ?? null, epEvalState?.suggestions ?? null);
+
+      queryLogger.info({ iteration, maxIterations: MAX_FIX_ITERATIONS, isFirst, promptLength: cgPrompt.length }, "codegen iteration starting");
+      const cgResult = await generateText({ model: epCodegenModel, prompt: cgPrompt, ...epExtraOpts });
+      epCurrentCode = stripTemplateBoilerplate(extractExecutableCode(cgResult.text));
+      const cgPT = cgResult.usage?.inputTokens ?? 0;
+      const cgCT = cgResult.usage?.outputTokens ?? 0;
+      epTotalPromptTokens += cgPT;
+      epTotalCompletionTokens += cgCT;
+      epTotalCostUsd += calculateCostUsd(epCodegenConfig, cgPT, cgCT);
+      queryLogger.info({ iteration, codeLength: epCurrentCode.length, inputTokens: cgPT, outputTokens: cgCT }, "codegen iteration completed");
+
+      epRenderError = null;
+      epEvalState = null;
+
+      await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "rendering", detail: "Rendering 3D model..." });
+
+      const epBaseFileName = `chat-${assistantItemId.slice(0, 8)}-iter${iteration}`;
+      const epExecCode = wrapInTemplate(epCurrentCode, epBaseFileName);
+      let epRenderedFiles: Awaited<ReturnType<typeof renderBuild123d>>["files"] = [];
+
+      try {
+        const rr = await renderBuild123d({ code: epExecCode, baseFileName: epBaseFileName });
+        epRenderedFiles = rr.files;
+        queryLogger.info({ iteration, fileCount: epRenderedFiles.length }, "render succeeded");
+      } catch (error) {
+        epRenderError = error instanceof Error ? error.message : String(error);
+        queryLogger.warn({ iteration, renderError: epRenderError }, "render failed");
+        if (iteration >= MAX_FIX_ITERATIONS) break;
+        continue;
       }
 
-      await publishQueryState({
-        userId: input.userId,
-        contextId: input.contextId,
-        assistantItemId,
-        state: "retrying",
-        detail: "Retrying with error feedback",
-      });
+      // Screenshots + VLM eval
+      let epScreenshots: RenderedScreenshot[] = [];
+      let epScreenshotFailed = false;
+      const epStl = epRenderedFiles.find((f) => f.filename.toLowerCase().endsWith(".stl"));
+      if (epStl) {
+        try {
+          epScreenshots = (await renderModelScreenshots({ modelData: epStl.contentBase64, format: "stl", width: 512, height: 512 })).images;
+        } catch (err) {
+          queryLogger.warn({ iteration, err: err instanceof Error ? err.message : String(err) }, "screenshot service failed after retries — not a code issue");
+          epScreenshotFailed = true;
+        }
+      }
 
-      const errorRecoveryContext = [
-        conversationText,
-        "",
-        "## Error Recovery",
-        "The previously generated code failed to render. Please fix the code based on the error below.",
-        "",
-        "### Failing Code",
-        "```python",
-        activeCode,
-        "```",
-        "",
-        "### Error Message",
-        renderError.message,
-        "",
-        "Generate corrected code that fixes this error. Do NOT repeat the same mistake.",
-      ].join("\n");
+      if (epScreenshots.length > 0) {
+        await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "evaluating", detail: `Evaluating quality (attempt ${iteration}/${MAX_FIX_ITERATIONS})...` });
+        try {
+          const evr = await evaluateModel({ userPrompt: prompt, categoryName: "chat", complexity: 5, images: epScreenshots.map((s) => s.base64) });
+          epTotalPromptTokens += evr.promptTokens;
+          epTotalCompletionTokens += evr.completionTokens;
+          epTotalCostUsd += calculateCostUsd(await getModelForPurpose("vlm_eval"), evr.promptTokens, evr.completionTokens);
+          epEvalState = { score: evr.score, issues: evr.issues, suggestions: evr.suggestions, vlmModel: evr.vlmModel };
+          queryLogger.info({ iteration, score: evr.score, issueCount: evr.issues.length, vlmModel: evr.vlmModel }, "VLM evaluation completed");
+        } catch (err) { queryLogger.warn({ iteration, err: err instanceof Error ? err.message : String(err) }, "VLM evaluation failed, skipping"); }
+      }
 
-      retryCodegen = await generateBuild123dCode({
-        prompt: `${prompt}${formatAttachmentContext(attachments)}`,
-        conversationText: errorRecoveryContext,
-      });
+      const epIterFiles: Array<{ path: string; filename: string }> = [];
+      for (const file of epRenderedFiles) {
+        const ext = mapExtension(file.filename);
+        const rp = `modelcreator/${assistantItemId}.${ext}`;
+        await writeUserFile({ userId: input.userId, relativePath: rp, contentBase64: file.contentBase64 });
+        epIterFiles.push({ path: rp, filename: file.filename });
+      }
 
-      activeCode = retryCodegen.code;
+      const epScore = epEvalState?.score ?? null;
+      if (!epBest || (epScore !== null && (epBest.score === null || epScore > epBest.score))) {
+        epBest = { code: epCurrentCode, score: epScore, evalState: epEvalState, generatedFiles: epIterFiles, screenshots: [...epScreenshots], iteration };
+      }
 
-      await publishQueryState({
-        userId: input.userId,
-        contextId: input.contextId,
-        assistantItemId,
-        state: "rendering",
-      });
+      // If screenshot service failed (not a code issue), stop the loop immediately.
+      // The code rendered fine — retrying with AI regeneration is wasteful.
+      if (epScreenshotFailed) {
+        queryLogger.info({ iteration }, "screenshot service failed — stopping fix loop (render was successful)");
+        break;
+      }
 
-      rendered = await renderBuild123d({
-        code: activeCode,
-        baseFileName: retryCodegen.baseFileName,
-      });
+      const epApproved = epScore !== null && epScore >= AUTO_APPROVE_THRESHOLD;
+      if ((epApproved && (epEvalState?.issues ?? []).length === 0) || iteration >= MAX_FIX_ITERATIONS) break;
     }
 
-    const generatedFiles: Array<{ path: string; filename: string }> = [];
-    for (const file of rendered.files) {
-      const extension = mapExtension(file.filename);
-      const relativePath = `modelcreator/${assistantItemId}.${extension}`;
-      await writeUserFile({
-        userId: input.userId,
-        relativePath,
-        contentBase64: file.contentBase64,
-      });
-      generatedFiles.push({
-        path: relativePath,
-        filename: file.filename,
-      });
+    const epFinalFiles = [...(epBest?.generatedFiles ?? [])];
+    const epFinalCode = epBest?.code ?? epCurrentCode;
+
+    // Save the best code as .b123d file for future workbench routing
+    if (epFinalCode?.trim()) {
+      const codeRelPath = `modelcreator/${assistantItemId}.b123d`;
+      await writeUserFile({ userId: input.userId, relativePath: codeRelPath, contentBase64: Buffer.from(epFinalCode, "utf-8").toString("base64") });
+      epFinalFiles.push({ path: codeRelPath, filename: `${assistantItemId}.b123d` });
     }
 
-    const artifact = summarizeArtifacts(generatedFiles);
-    const usageRecords = [conversation.usage, codegen.usage];
-    if (retryCodegen) {
-      usageRecords.push(retryCodegen.usage);
+    // Save preview screenshots as PNGs for future workbench routing
+    const epScreenshotFiles: Array<{ path: string; filename: string }> = [];
+    for (const ss of epBest?.screenshots ?? []) {
+      const ssPath = `modelcreator/${assistantItemId}-preview-${ss.angle}.png`;
+      await writeUserFile({ userId: input.userId, relativePath: ssPath, contentBase64: ss.base64 });
+      epScreenshotFiles.push({ path: ssPath, filename: `${assistantItemId}-preview-${ss.angle}.png` });
     }
-    const usage = summarizeUsage(usageRecords);
 
-    const assistantMessages = [
-      {
-        itemType: "message",
-        text: conversationText,
-        state: "completed",
-        stateMessage: "",
-      },
-      {
+    const epFinalEval = epBest?.evalState ?? epEvalState;
+    queryLogger.info({
+      bestIteration: epBest?.iteration ?? null,
+      bestScore: epBest?.score ?? null,
+      finalFileCount: epFinalFiles.length,
+      totalPromptTokens: epTotalPromptTokens,
+      totalCompletionTokens: epTotalCompletionTokens,
+      totalCostUsd: Number(epTotalCostUsd.toFixed(6)),
+      lastRenderError: epRenderError,
+    }, "iteration loop completed");
+    const epArtifact = summarizeArtifacts(epFinalFiles);
+    const epUsage: QueryUsageSummary = {
+      inputTokens: epTotalPromptTokens,
+      outputTokens: epTotalCompletionTokens,
+      totalTokens: epTotalPromptTokens + epTotalCompletionTokens,
+      estimatedCostUsd: Number(epTotalCostUsd.toFixed(8)),
+    };
+
+    const epAllFailed = epFinalFiles.length === 0;
+    const epAssistantMessages = [
+      { itemType: "message", text: conversationText, state: "completed", stateMessage: "" },
+      ...(epFinalFiles.length > 0 ? [{
         itemType: "3dmodel",
-        text:
-          artifact.previewStatus === "ready"
-            ? "Generated 3D preview."
-            : `Preview unavailable in-browser. ${artifact.detail}`,
-        attachment: artifact.previewFilePath ?? "",
+        text: epArtifact.previewStatus === "ready" ? "Generated 3D preview." : `Preview unavailable in-browser. ${epArtifact.detail}`,
+        attachment: epArtifact.previewFilePath ?? "",
         state: "completed",
         stateMessage: "",
-        artifact,
-        files: generatedFiles,
-      },
+        artifact: epArtifact,
+        files: [...epFinalFiles, ...epScreenshotFiles],
+        previews: epScreenshotFiles,
+      }] : []),
+      ...(epFinalCode?.trim() ? [{ itemType: "code", text: epFinalCode, state: "completed", stateMessage: "" }] : []),
+      // Show error segment when all iterations failed to produce a renderable model
+      ...(epAllFailed ? [{
+        itemType: "errormessage",
+        text: epRenderError ?? "All code generation attempts failed to produce a valid 3D model.",
+        state: "error",
+        stateMessage: "",
+      }] : []),
       {
         itemType: "meta",
         text: "Generation diagnostics",
         state: "completed",
         stateMessage: "",
-        usage,
-        artifact,
-        llm: {
-          conversationModel: conversation.model.id,
-          codegenModel: (retryCodegen ?? codegen).model.id,
-          conversationUsage: conversation.usage,
-          codegenUsage: (retryCodegen ?? codegen).usage,
-        },
-        files: generatedFiles,
+        usage: epUsage,
+        artifact: epArtifact,
+        llm: { conversationModel: "pipeline", codegenModel: epCodegenConfig.label, vlmModel: epFinalEval?.vlmModel ?? null, evalScore: epFinalEval?.score ?? null, iterations: epBest?.iteration ?? 1 },
+        files: epFinalFiles,
       },
     ];
 
@@ -826,15 +901,13 @@ export async function executeQueryPipeline(input: {
       userId: input.userId,
       contextId: input.contextId,
       itemId: assistantItemId,
-      messages: assistantMessages,
+      messages: epAssistantMessages,
+      promptTokens: epTotalPromptTokens,
+      completionTokens: epTotalCompletionTokens,
+      estimatedCostUsd: Number(epTotalCostUsd.toFixed(8)),
     });
 
-    await publishQueryState({
-      userId: input.userId,
-      contextId: input.contextId,
-      assistantItemId,
-      state: "completed",
-    });
+    await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "completed" });
   } catch (error) {
     await publishQueryState({
       userId: input.userId,
@@ -1012,6 +1085,7 @@ export async function submitQuery(input: {
     // Parse conversation response to determine if codegen is needed
     const parsed = parseConversationResponse(conversation.text);
     const conversationText = parsed.text;
+    queryLogger.info({ needsCodegen: parsed.needsCodegen, textLength: conversationText.length, textPreview: conversationText.slice(0, 120) }, "conversation LLM response parsed (legacy pipeline)");
 
     // If the conversation is chat-only (no 3D model requested), skip codegen/rendering
     if (!parsed.needsCodegen) {
@@ -1052,108 +1126,220 @@ export async function submitQuery(input: {
       };
     }
 
-    await publishQueryState({
-      userId: input.userId,
-      contextId: input.contextId,
-      assistantItemId: assistantItem.id,
-      state: "codegen",
-    });
+    // ── Workbench-style iteration loop: codegen → render → VLM eval → fix ──
 
-    const codegen = await generateBuild123dCode({
-      prompt: `${prompt}${formatAttachmentContext(attachments)}`,
-      conversationText,
-      conversationHistory,
-    });
-
-    await publishQueryState({
-      userId: input.userId,
-      contextId: input.contextId,
-      assistantItemId: assistantItem.id,
-      state: "rendering",
-    });
-
-    let activeCode = codegen.code;
-    let retryCodegen: typeof codegen | null = null;
-    let rendered: Awaited<ReturnType<typeof renderBuild123d>>;
-
+    // Load workbench assets (fail-open for few-shot examples)
+    let systemPromptContent = "";
     try {
-      rendered = await renderBuild123d({
-        code: activeCode,
-        baseFileName: codegen.baseFileName,
-      });
-    } catch (renderError) {
-      if (!(renderError instanceof RenderingServiceError)) {
-        throw renderError;
-      }
+      const systemPromptRow = await getActiveSystemPrompt();
+      systemPromptContent = systemPromptRow.content;
+    } catch {
+      queryLogger.warn("no active system prompt found, using empty");
+    }
 
-      // Error recovery: feed error + failing code back to codegen LLM for one corrective retry
+    let fewShotExamples: Array<{ prompt: string; code: string }> = [];
+    try {
+      fewShotExamples = (await findSimilarExamples(prompt, 6)).map(({ prompt: p, code }) => ({ prompt: p, code }));
+      queryLogger.info({ count: fewShotExamples.length }, "few-shot examples loaded for chat codegen");
+    } catch {
+      queryLogger.warn("few-shot example retrieval failed, proceeding without");
+    }
+
+    // Resolve codegen model from DB config
+    const codegenConfig = await getModelForPurpose("chat_codegen");
+    const codegenProviderModel = createProviderModelFromConfig(codegenConfig);
+    const codegenExtraOpts = buildGenerateOptions(codegenConfig);
+
+    // Track token usage across all LLM calls in the iteration loop
+    let totalPromptTokens = conversation.usage.inputTokens;
+    let totalCompletionTokens = conversation.usage.outputTokens;
+    let totalCostUsd = conversation.usage.estimatedCostUsd;
+
+    let currentCode = "";
+    let renderError: string | null = null;
+    interface EvalState { score: number; issues: string[]; suggestions: string[]; vlmModel: string; }
+    let evalState: EvalState | null = null;
+
+    // Track best result across iterations (never regress)
+    let bestResult: {
+      code: string;
+      score: number | null;
+      evalState: EvalState | null;
+      generatedFiles: Array<{ path: string; filename: string }>;
+      iteration: number;
+    } | null = null;
+
+    for (let iteration = 1; iteration <= MAX_FIX_ITERATIONS; iteration++) {
+      const isFirstIteration = iteration === 1;
+
       await publishQueryState({
         userId: input.userId,
         contextId: input.contextId,
         assistantItemId: assistantItem.id,
-        state: "retrying",
-        detail: "Retrying with error feedback",
+        state: isFirstIteration ? "codegen" : "fixing",
+        detail: isFirstIteration
+          ? "Generating code..."
+          : `Improving model (attempt ${iteration}/${MAX_FIX_ITERATIONS}, score: ${evalState?.score ?? "?"}/10)...`,
       });
 
-      const errorRecoveryContext = [
-        conversationText,
-        "",
-        "## Error Recovery",
-        "The previously generated code failed to render. Please fix the code based on the error below.",
-        "",
-        "### Failing Code",
-        "```python",
-        activeCode,
-        "```",
-        "",
-        "### Error Message",
-        renderError.message,
-        "",
-        "Generate corrected code that fixes this error. Do NOT repeat the same mistake.",
-      ].join("\n");
+      // Build prompt using workbench functions
+      const codegenPrompt = isFirstIteration
+        ? buildInitialPrompt(systemPromptContent, fewShotExamples, prompt)
+        : buildFixPrompt(
+            systemPromptContent,
+            fewShotExamples,
+            prompt,
+            currentCode,
+            iteration - 1,
+            renderError,
+            evalState?.issues ?? null,
+            evalState?.suggestions ?? null,
+          );
 
-      retryCodegen = await generateBuild123dCode({
-        prompt: `${prompt}${formatAttachmentContext(attachments)}`,
-        conversationText: errorRecoveryContext,
+      // Generate code via codegen LLM
+      const codegenResult = await generateText({
+        model: codegenProviderModel,
+        prompt: codegenPrompt,
+        ...codegenExtraOpts,
       });
 
-      activeCode = retryCodegen.code;
+      const rawCode = extractExecutableCode(codegenResult.text);
+      currentCode = stripTemplateBoilerplate(rawCode);
 
+      const codePromptTokens = codegenResult.usage?.inputTokens ?? 0;
+      const codeCompletionTokens = codegenResult.usage?.outputTokens ?? 0;
+      totalPromptTokens += codePromptTokens;
+      totalCompletionTokens += codeCompletionTokens;
+      totalCostUsd += calculateCostUsd(codegenConfig, codePromptTokens, codeCompletionTokens);
+
+      // Reset per-iteration state
+      renderError = null;
+      evalState = null;
+
+      // Render with Build123d
       await publishQueryState({
         userId: input.userId,
         contextId: input.contextId,
         assistantItemId: assistantItem.id,
         state: "rendering",
+        detail: "Rendering 3D model...",
       });
 
-      // Second render attempt — if this also fails, the error propagates to the outer catch
-      rendered = await renderBuild123d({
-        code: activeCode,
-        baseFileName: retryCodegen.baseFileName,
-      });
+      const baseFileName = `chat-${assistantItem.id.slice(0, 8)}-iter${iteration}`;
+      const executableCode = wrapInTemplate(currentCode, baseFileName);
+      let renderedFiles: Awaited<ReturnType<typeof renderBuild123d>>["files"] = [];
+
+      try {
+        const renderResult = await renderBuild123d({ code: executableCode, baseFileName });
+        renderedFiles = renderResult.files;
+      } catch (error) {
+        renderError = error instanceof Error ? error.message : String(error);
+        queryLogger.warn({ iteration, renderError }, "render failed in iteration loop");
+
+        if (iteration >= MAX_FIX_ITERATIONS) break;
+        continue; // try fix on next iteration
+      }
+
+      // Take STL screenshots for VLM evaluation
+      let screenshots: RenderedScreenshot[] = [];
+      const stlFile = renderedFiles.find((f) => f.filename.toLowerCase().endsWith(".stl"));
+      if (stlFile) {
+        try {
+          const screenshotResult = await renderModelScreenshots({
+            modelData: stlFile.contentBase64,
+            format: "stl",
+            width: 512,
+            height: 512,
+          });
+          screenshots = screenshotResult.images;
+        } catch {
+          queryLogger.warn({ iteration }, "screenshot failed, skipping VLM eval");
+        }
+      }
+
+      // VLM evaluate
+      if (screenshots.length > 0) {
+        await publishQueryState({
+          userId: input.userId,
+          contextId: input.contextId,
+          assistantItemId: assistantItem.id,
+          state: "evaluating",
+          detail: `Evaluating quality (attempt ${iteration}/${MAX_FIX_ITERATIONS})...`,
+        });
+
+        try {
+          const evalResult = await evaluateModel({
+            userPrompt: prompt,
+            categoryName: "chat",
+            complexity: 5,
+            images: screenshots.map((s) => s.base64),
+          });
+
+          totalPromptTokens += evalResult.promptTokens;
+          totalCompletionTokens += evalResult.completionTokens;
+          totalCostUsd += calculateCostUsd(
+            await getModelForPurpose("vlm_eval"),
+            evalResult.promptTokens,
+            evalResult.completionTokens,
+          );
+
+          evalState = {
+            score: evalResult.score,
+            issues: evalResult.issues,
+            suggestions: evalResult.suggestions,
+            vlmModel: evalResult.vlmModel,
+          };
+
+          queryLogger.info({ iteration, score: evalResult.score, issues: evalResult.issues.length }, "VLM eval result");
+        } catch {
+          queryLogger.warn({ iteration }, "VLM eval failed, treating as unscored");
+        }
+      }
+
+      // Store generated files for this iteration
+      const iterationFiles: Array<{ path: string; filename: string }> = [];
+      for (const file of renderedFiles) {
+        const extension = mapExtension(file.filename);
+        const relativePath = `modelcreator/${assistantItem.id}.${extension}`;
+        await writeUserFile({
+          userId: input.userId,
+          relativePath,
+          contentBase64: file.contentBase64,
+        });
+        iterationFiles.push({ path: relativePath, filename: file.filename });
+      }
+
+      // Track best result (never regress)
+      const score = evalState?.score ?? null;
+      if (bestResult === null || (score !== null && (bestResult.score === null || score > bestResult.score))) {
+        bestResult = {
+          code: currentCode,
+          score,
+          evalState,
+          generatedFiles: iterationFiles,
+          iteration,
+        };
+      }
+
+      // Stop if: score meets threshold with no issues, or last iteration
+      const approved = score !== null && score >= AUTO_APPROVE_THRESHOLD;
+      const hasIssues = (evalState?.issues ?? []).length > 0;
+      if ((approved && !hasIssues) || iteration >= MAX_FIX_ITERATIONS) {
+        break;
+      }
     }
 
-    const generatedFiles: Array<{ path: string; filename: string }> = [];
-    for (const file of rendered.files) {
-      const extension = mapExtension(file.filename);
-      const relativePath = `modelcreator/${assistantItem.id}.${extension}`;
-      await writeUserFile({
-        userId: input.userId,
-        relativePath,
-        contentBase64: file.contentBase64,
-      });
-      generatedFiles.push({
-        path: relativePath,
-        filename: file.filename,
-      });
-    }
+    // Use best result across all iterations
+    const finalFiles = bestResult?.generatedFiles ?? [];
+    const finalEval = bestResult?.evalState ?? evalState;
 
-    const artifact = summarizeArtifacts(generatedFiles);
-    const usageRecords = [conversation.usage, codegen.usage];
-    if (retryCodegen) {
-      usageRecords.push(retryCodegen.usage);
-    }
-    const usage = summarizeUsage(usageRecords);
+    const artifact = summarizeArtifacts(finalFiles);
+    const usage: QueryUsageSummary = {
+      inputTokens: totalPromptTokens,
+      outputTokens: totalCompletionTokens,
+      totalTokens: totalPromptTokens + totalCompletionTokens,
+      estimatedCostUsd: Number(totalCostUsd.toFixed(8)),
+    };
 
     const assistantMessages = [
       {
@@ -1162,18 +1348,22 @@ export async function submitQuery(input: {
         state: "completed",
         stateMessage: "",
       },
-      {
-        itemType: "3dmodel",
-        text:
-          artifact.previewStatus === "ready"
-            ? "Generated 3D preview."
-            : `Preview unavailable in-browser. ${artifact.detail}`,
-        attachment: artifact.previewFilePath ?? "",
-        state: "completed",
-        stateMessage: "",
-        artifact,
-        files: generatedFiles,
-      },
+      ...(finalFiles.length > 0
+        ? [
+            {
+              itemType: "3dmodel",
+              text:
+                artifact.previewStatus === "ready"
+                  ? "Generated 3D preview."
+                  : `Preview unavailable in-browser. ${artifact.detail}`,
+              attachment: artifact.previewFilePath ?? "",
+              state: "completed",
+              stateMessage: "",
+              artifact,
+              files: finalFiles,
+            },
+          ]
+        : []),
       {
         itemType: "meta",
         text: "Generation diagnostics",
@@ -1183,11 +1373,12 @@ export async function submitQuery(input: {
         artifact,
         llm: {
           conversationModel: conversation.model.id,
-          codegenModel: (retryCodegen ?? codegen).model.id,
-          conversationUsage: conversation.usage,
-          codegenUsage: (retryCodegen ?? codegen).usage,
+          codegenModel: codegenConfig.label,
+          vlmModel: finalEval?.vlmModel ?? null,
+          evalScore: finalEval?.score ?? null,
+          iterations: bestResult?.iteration ?? 1,
         },
-        files: generatedFiles,
+        files: finalFiles,
       },
     ];
 
@@ -1196,6 +1387,9 @@ export async function submitQuery(input: {
       contextId: input.contextId,
       itemId: assistantItem.id,
       messages: assistantMessages,
+      promptTokens: totalPromptTokens,
+      completionTokens: totalCompletionTokens,
+      estimatedCostUsd: Number(totalCostUsd.toFixed(8)),
     });
 
     await publishQueryState({
@@ -1209,14 +1403,14 @@ export async function submitQuery(input: {
       contextId: input.contextId,
       userItemId: userItem.id,
       assistantItem: finalizedAssistantItem,
-      generatedFiles,
+      generatedFiles: finalFiles,
       llm: {
         conversationModel: conversation.model.id,
-        codegenModel: (retryCodegen ?? codegen).model.id,
+        codegenModel: codegenConfig.label,
       },
       artifact,
       usage,
-      renderer: rendered.renderer,
+      renderer: "build123d",
     };
   } catch (error) {
     await publishQueryState({
