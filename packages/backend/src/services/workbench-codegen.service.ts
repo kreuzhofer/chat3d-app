@@ -32,6 +32,13 @@ import { evaluateModel, type EvaluationResult } from "./visual-eval.service.js";
 import { getActiveSystemPrompt, WorkbenchSeederError } from "./workbench-seeder.service.js";
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
 import { validatePrompt } from "./workbench-prompt-validation.service.js";
+import {
+  classifyRenderError,
+  buildEscalatedGuidance,
+  renderWithInfraRetry,
+  type ClassifiedRenderError,
+  type RenderErrorContext,
+} from "../utils/render-errors.js";
 
 export const MAX_FIX_ITERATIONS = 5;
 export const AUTO_APPROVE_THRESHOLD = 8;
@@ -154,6 +161,7 @@ export function buildFixPrompt(
   renderError: string | null,
   evalIssues: string[] | null,
   evalSuggestions: string[] | null,
+  renderErrorContext?: RenderErrorContext | null,
 ): string {
   const sections: string[] = [systemPromptContent, ""];
 
@@ -179,9 +187,20 @@ export function buildFixPrompt(
     "## Problems to fix:",
   );
 
-  if (renderError) {
+  // When classified error context is available, inject category + raw error + guidance
+  if (renderErrorContext) {
+    const { classified, escalationGuidance } = renderErrorContext;
+    sections.push(`- Render error (${classified.category}): ${classified.rawMessage}`);
+    // Inject domain-specific fix guidance
+    const guidance = escalationGuidance ?? classified.fixGuidance;
+    if (guidance) {
+      sections.push("", "## Fix guidance:", guidance);
+    }
+  } else if (renderError) {
+    // Fallback: raw error string (backward compatibility)
     sections.push(`- Render error: ${renderError}`);
   }
+
   if (evalIssues && evalIssues.length > 0) {
     for (const issue of evalIssues) {
       sections.push(`- ${issue}`);
@@ -536,11 +555,15 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
 
   let currentCode = "";
   let renderError: string | null = null;
+  let renderErrorCtx: RenderErrorContext | null = null;
   let evalResult: EvaluationResult | null = null;
   let renderedFiles: RenderedFile[] = [];
   let screenshots: RenderedScreenshot[] = [];
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
+
+  // Track classified render errors across iterations for escalation logic
+  const errorHistory: ClassifiedRenderError[] = [];
 
   // Track best successful result across iterations so we can fall back
   // if a fix attempt regresses the score.
@@ -572,6 +595,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
             renderError,
             evalResult?.issues ?? null,
             evalResult?.suggestions ?? null,
+            renderErrorCtx,
           );
 
     logger.info({ promptChars: prompt.length }, "LLM prompt built");
@@ -579,7 +603,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       const issues = evalResult?.issues ?? [];
       const suggestions = evalResult?.suggestions ?? [];
       logger.info({ issues, suggestions }, "fix feedback — issues and suggestions");
-      if (renderError) logger.info({ renderError }, "fix feedback — render error");
+      if (renderError) logger.info({ renderError, category: renderErrorCtx?.classified.category ?? "none" }, "fix feedback — render error");
     }
     const codeResult = await generateCode(prompt, providerModel, codegenConfig, pipelineSignal);
     currentCode = codeResult.code;
@@ -589,24 +613,43 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
 
     // Reset per-iteration state
     renderError = null;
+    renderErrorCtx = null;
     evalResult = null;
     renderedFiles = [];
     screenshots = [];
 
     // 3. Render with Build123d — wrap raw code in template for execution
+    //    Uses infrastructure retry to avoid wasting iterations on service hiccups.
     const baseFileName = `wb-${ctx.promptId.slice(0, 8)}-iter${iteration}`;
     const executableCode = wrapInTemplate(currentCode, baseFileName);
     logger.debug({ code: executableCode }, "executable code for Build123d");
-    try {
-      const renderResult = await renderBuild123d({
-        code: executableCode,
-        baseFileName,
-      });
-      renderedFiles = renderResult.files;
+
+    const renderOutcome = await renderWithInfraRetry(
+      () => renderBuild123d({ code: executableCode, baseFileName }),
+      {
+        onRetry: (attempt, classified) => {
+          logger.info(
+            { attempt, category: classified.category, promptId: ctx.promptId, iteration },
+            "infrastructure retry for Build123d",
+          );
+        },
+      },
+    );
+
+    if (renderOutcome.ok) {
+      renderedFiles = renderOutcome.result.files;
       logger.info({ fileCount: renderedFiles.length, files: renderedFiles.map((f) => f.filename) }, "Build123d render success");
-    } catch (error) {
-      renderError = error instanceof Error ? error.message : String(error);
-      logger.warn({ promptId: ctx.promptId, iteration, renderError }, "render failed");
+    } else {
+      // Classify and track the render error
+      const classified = renderOutcome.error;
+      errorHistory.push(classified);
+      renderError = classified.rawMessage;
+      const escalation = buildEscalatedGuidance(classified, errorHistory.slice(0, -1));
+      renderErrorCtx = { classified, escalationGuidance: escalation };
+      logger.warn(
+        { promptId: ctx.promptId, iteration, renderError, category: classified.category },
+        "render failed",
+      );
 
       // If this is the last iteration, persist the failure and return
       if (iteration >= MAX_FIX_ITERATIONS) {

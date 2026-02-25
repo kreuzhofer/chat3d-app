@@ -22,6 +22,9 @@ export class RenderingServiceError extends Error {
   constructor(
     message: string,
     public readonly statusCode = 502,
+    /** True when the error is an infrastructure issue (timeout, unreachable)
+     *  rather than a problem with the submitted code. */
+    public readonly isInfrastructure = false,
   ) {
     super(message);
   }
@@ -92,6 +95,7 @@ async function _renderBuild123dInner(input: {
         ? `Build123d service timeout after ${BUILD123D_TIMEOUT_MS / 1000}s`
         : `Build123d service unreachable: ${msg}`,
       502,
+      true, // infrastructure error — code is fine, service is down
     );
   }
 

@@ -17,6 +17,13 @@ import {
 } from "./llm.service.js";
 import { renderBuild123d, RenderingServiceError } from "./rendering.service.js";
 import {
+  classifyRenderError,
+  buildEscalatedGuidance,
+  renderWithInfraRetry,
+  type ClassifiedRenderError,
+  type RenderErrorContext,
+} from "../utils/render-errors.js";
+import {
   renderModelScreenshots,
   type RenderedScreenshot,
 } from "./stl-rendering-client.service.js";
@@ -740,6 +747,8 @@ export async function executeQueryPipeline(input: {
     let epTotalCostUsd = 0;
     let epCurrentCode = "";
     let epRenderError: string | null = null;
+    let epRenderErrorCtx: RenderErrorContext | null = null;
+    const epErrorHistory: ClassifiedRenderError[] = [];
     interface EpEvalState { score: number; issues: string[]; suggestions: string[]; vlmModel: string; }
     let epEvalState: EpEvalState | null = null;
     let epBest: { code: string; score: number | null; evalState: EpEvalState | null; generatedFiles: Array<{ path: string; filename: string }>; screenshots: RenderedScreenshot[]; iteration: number } | null = null;
@@ -750,7 +759,7 @@ export async function executeQueryPipeline(input: {
 
       const cgPrompt = isFirst
         ? buildInitialPrompt(epSystemPromptContent, epFewShots, prompt)
-        : buildFixPrompt(epSystemPromptContent, epFewShots, prompt, epCurrentCode, iteration - 1, epRenderError, epEvalState?.issues ?? null, epEvalState?.suggestions ?? null);
+        : buildFixPrompt(epSystemPromptContent, epFewShots, prompt, epCurrentCode, iteration - 1, epRenderError, epEvalState?.issues ?? null, epEvalState?.suggestions ?? null, epRenderErrorCtx);
 
       queryLogger.info({ iteration, maxIterations: MAX_FIX_ITERATIONS, isFirst, promptLength: cgPrompt.length }, "codegen iteration starting");
       const epLlmSemaphore = getLlmSemaphore(epCodegenConfig.provider, epCodegenConfig.maxConcurrent);
@@ -778,6 +787,7 @@ export async function executeQueryPipeline(input: {
       queryLogger.info({ iteration, codeLength: epCurrentCode.length, inputTokens: cgPT, outputTokens: cgCT }, "codegen iteration completed");
 
       epRenderError = null;
+      epRenderErrorCtx = null;
       epEvalState = null;
 
       await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "rendering", detail: "Rendering 3D model..." });
@@ -786,8 +796,8 @@ export async function executeQueryPipeline(input: {
       const epExecCode = wrapInTemplate(epCurrentCode, epBaseFileName);
       let epRenderedFiles: Awaited<ReturnType<typeof renderBuild123d>>["files"] = [];
 
-      try {
-        const rr = await renderBuild123d(
+      const epRenderOutcome = await renderWithInfraRetry(
+        () => renderBuild123d(
           { code: epExecCode, baseFileName: epBaseFileName },
           {
             onQueuePositionChange: (position, total) => {
@@ -798,12 +808,24 @@ export async function executeQueryPipeline(input: {
               });
             },
           },
-        );
-        epRenderedFiles = rr.files;
+        ),
+        {
+          onRetry: (attempt, classified) => {
+            queryLogger.info({ attempt, category: classified.category, iteration }, "infrastructure retry for Build123d");
+          },
+        },
+      );
+
+      if (epRenderOutcome.ok) {
+        epRenderedFiles = epRenderOutcome.result.files;
         queryLogger.info({ iteration, fileCount: epRenderedFiles.length }, "render succeeded");
-      } catch (error) {
-        epRenderError = error instanceof Error ? error.message : String(error);
-        queryLogger.warn({ iteration, renderError: epRenderError }, "render failed");
+      } else {
+        const classified = epRenderOutcome.error;
+        epErrorHistory.push(classified);
+        epRenderError = classified.rawMessage;
+        const escalation = buildEscalatedGuidance(classified, epErrorHistory.slice(0, -1));
+        epRenderErrorCtx = { classified, escalationGuidance: escalation };
+        queryLogger.warn({ iteration, renderError: epRenderError, category: classified.category }, "render failed");
         if (iteration >= MAX_FIX_ITERATIONS) break;
         continue;
       }
@@ -1202,6 +1224,8 @@ export async function submitQuery(input: {
 
     let currentCode = "";
     let renderError: string | null = null;
+    let renderErrorCtx: RenderErrorContext | null = null;
+    const errorHistory: ClassifiedRenderError[] = [];
     interface EvalState { score: number; issues: string[]; suggestions: string[]; vlmModel: string; }
     let evalState: EvalState | null = null;
 
@@ -1239,6 +1263,7 @@ export async function submitQuery(input: {
             renderError,
             evalState?.issues ?? null,
             evalState?.suggestions ?? null,
+            renderErrorCtx,
           );
 
       // Generate code via codegen LLM (wrapped with per-provider semaphore + retry)
@@ -1270,9 +1295,10 @@ export async function submitQuery(input: {
 
       // Reset per-iteration state
       renderError = null;
+      renderErrorCtx = null;
       evalState = null;
 
-      // Render with Build123d
+      // Render with Build123d (infrastructure retry handles service hiccups)
       await publishQueryState({
         userId: input.userId,
         contextId: input.contextId,
@@ -1285,8 +1311,8 @@ export async function submitQuery(input: {
       const executableCode = wrapInTemplate(currentCode, baseFileName);
       let renderedFiles: Awaited<ReturnType<typeof renderBuild123d>>["files"] = [];
 
-      try {
-        const renderResult = await renderBuild123d(
+      const renderOutcome = await renderWithInfraRetry(
+        () => renderBuild123d(
           { code: executableCode, baseFileName },
           {
             onQueuePositionChange: (position, total) => {
@@ -1297,11 +1323,23 @@ export async function submitQuery(input: {
               });
             },
           },
-        );
-        renderedFiles = renderResult.files;
-      } catch (error) {
-        renderError = error instanceof Error ? error.message : String(error);
-        queryLogger.warn({ iteration, renderError }, "render failed in iteration loop");
+        ),
+        {
+          onRetry: (attempt, classified) => {
+            queryLogger.info({ attempt, category: classified.category, iteration }, "infrastructure retry for Build123d");
+          },
+        },
+      );
+
+      if (renderOutcome.ok) {
+        renderedFiles = renderOutcome.result.files;
+      } else {
+        const classified = renderOutcome.error;
+        errorHistory.push(classified);
+        renderError = classified.rawMessage;
+        const escalation = buildEscalatedGuidance(classified, errorHistory.slice(0, -1));
+        renderErrorCtx = { classified, escalationGuidance: escalation };
+        queryLogger.warn({ iteration, renderError, category: classified.category }, "render failed in iteration loop");
 
         if (iteration >= MAX_FIX_ITERATIONS) break;
         continue; // try fix on next iteration
