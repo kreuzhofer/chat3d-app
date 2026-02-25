@@ -70,6 +70,7 @@ export interface WorkbenchExample {
   screenshotFront: string | null;
   screenshotTop: string | null;
   screenshotIso: string | null;
+  screenshotIsoBack: string | null;
   evalScore: number | null;
   evalIssues: string[];
   evalSuggestions: string[];

@@ -83,6 +83,7 @@ interface ExportExample {
   screenshot_front: string | null;
   screenshot_top: string | null;
   screenshot_iso: string | null;
+  screenshot_iso_back: string | null;
   eval_score: number | null;
   eval_issues: unknown | null;
   eval_suggestions: unknown | null;
@@ -272,7 +273,7 @@ async function runExport(job: TransferJob): Promise<void> {
       `SELECT id, prompt_id, iteration, generation_seed, code,
               render_status, render_error,
               stl_path, step_path, threemf_path,
-              screenshot_front, screenshot_top, screenshot_iso,
+              screenshot_front, screenshot_top, screenshot_iso, screenshot_iso_back,
               eval_score, eval_issues, eval_suggestions,
               approval_status, rejection_note,
               llm_model, vlm_model, prompt_tokens, completion_tokens,
@@ -294,6 +295,7 @@ async function runExport(job: TransferJob): Promise<void> {
       screenshot_front: r.screenshot_front ?? null,
       screenshot_top: r.screenshot_top ?? null,
       screenshot_iso: r.screenshot_iso ?? null,
+      screenshot_iso_back: r.screenshot_iso_back ?? null,
       eval_score: r.eval_score ?? null,
       eval_issues: r.eval_issues ?? null,
       eval_suggestions: r.eval_suggestions ?? null,
@@ -432,7 +434,7 @@ async function runImport(job: TransferJob, filePath: string): Promise<void> {
             id, prompt_id, iteration, generation_seed, code,
             render_status, render_error,
             stl_path, step_path, threemf_path,
-            screenshot_front, screenshot_top, screenshot_iso,
+            screenshot_front, screenshot_top, screenshot_iso, screenshot_iso_back,
             eval_score, eval_issues, eval_suggestions,
             approval_status, rejection_note,
             llm_model, vlm_model, prompt_tokens, completion_tokens,
@@ -441,17 +443,17 @@ async function runImport(job: TransferJob, filePath: string): Promise<void> {
             $1, $2, $3, $4, $5,
             $6, $7,
             $8, $9, $10,
-            $11, $12, $13,
-            $14, $15, $16,
-            $17, $18,
-            $19, $20, $21, $22,
-            $23, $24
+            $11, $12, $13, $14,
+            $15, $16, $17,
+            $18, $19,
+            $20, $21, $22, $23,
+            $24, $25
            )`,
           [
             ex.id, ex.prompt_id, ex.iteration, ex.generation_seed, ex.code,
             ex.render_status, ex.render_error,
             ex.stl_path, ex.step_path, ex.threemf_path,
-            ex.screenshot_front, ex.screenshot_top, ex.screenshot_iso,
+            ex.screenshot_front, ex.screenshot_top, ex.screenshot_iso, ex.screenshot_iso_back ?? null,
             ex.eval_score,
             ex.eval_issues ? JSON.stringify(ex.eval_issues) : null,
             ex.eval_suggestions ? JSON.stringify(ex.eval_suggestions) : null,

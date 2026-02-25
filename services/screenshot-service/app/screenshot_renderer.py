@@ -81,6 +81,14 @@ def _camera_pose_for_angle(
         y = distance * math.sin(elevation)
         z = distance * math.cos(elevation) * math.cos(azimuth)
         eye = centroid + np.array([x, y, z])
+    elif angle == "isometric_back":
+        # Opposite of isometric: 225° around Y (45° + 180°), same 35° elevation
+        azimuth = math.radians(225)
+        elevation = math.radians(35)
+        x = distance * math.cos(elevation) * math.sin(azimuth)
+        y = distance * math.sin(elevation)
+        z = distance * math.cos(elevation) * math.cos(azimuth)
+        eye = centroid + np.array([x, y, z])
     else:
         # Fallback: treat as front
         eye = centroid + np.array([0.0, 0.0, distance])

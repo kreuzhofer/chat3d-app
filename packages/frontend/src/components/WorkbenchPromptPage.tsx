@@ -30,6 +30,7 @@ import { Button } from "./ui/button";
 import { CodeBlock } from "./ui/code-block";
 import { Dialog } from "./ui/dialog";
 import { useToast } from "./ui/toast";
+import { InlineModelViewer } from "./chat/InlineModelViewer";
 
 function approvalTone(status: string): "success" | "info" | "warning" | "danger" | "neutral" {
   if (status === "auto_approved") return "success";
@@ -405,16 +406,16 @@ export function WorkbenchPromptPage() {
       {selectedExample ? (
         <div className="space-y-4">
           {/* Screenshots */}
-          {(selectedExample.screenshotFront || selectedExample.screenshotTop || selectedExample.screenshotIso) ? (
-            <SectionCard title="Screenshots" description="Front, top, and isometric views">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {(selectedExample.screenshotFront || selectedExample.screenshotTop || selectedExample.screenshotIso || selectedExample.screenshotIsoBack || selectedExample.stlPath || selectedExample.threemfPath) ? (
+            <SectionCard title="Model Views" description="Front, top, isometric, isometric back, and interactive 3D viewer">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                 {selectedExample.screenshotFront ? (
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Front</p>
                     <img
                       src={`data:image/png;base64,${selectedExample.screenshotFront}`}
                       alt="Front view"
-                      className="w-full rounded border border-[hsl(var(--border))]"
+                      className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
                     />
                   </div>
                 ) : null}
@@ -424,7 +425,7 @@ export function WorkbenchPromptPage() {
                     <img
                       src={`data:image/png;base64,${selectedExample.screenshotTop}`}
                       alt="Top view"
-                      className="w-full rounded border border-[hsl(var(--border))]"
+                      className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
                     />
                   </div>
                 ) : null}
@@ -434,8 +435,29 @@ export function WorkbenchPromptPage() {
                     <img
                       src={`data:image/png;base64,${selectedExample.screenshotIso}`}
                       alt="Isometric view"
-                      className="w-full rounded border border-[hsl(var(--border))]"
+                      className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
                     />
+                  </div>
+                ) : null}
+                {selectedExample.screenshotIsoBack ? (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Iso Back</p>
+                    <img
+                      src={`data:image/png;base64,${selectedExample.screenshotIsoBack}`}
+                      alt="Isometric back view"
+                      className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
+                    />
+                  </div>
+                ) : null}
+                {(selectedExample.stlPath || selectedExample.threemfPath) ? (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">3D Viewer</p>
+                    <div className="aspect-square w-full overflow-hidden rounded border border-[hsl(var(--border))]">
+                      <InlineModelViewer
+                        token={token}
+                        filePath={(selectedExample.stlPath ?? selectedExample.threemfPath)!}
+                      />
+                    </div>
                   </div>
                 ) : null}
               </div>

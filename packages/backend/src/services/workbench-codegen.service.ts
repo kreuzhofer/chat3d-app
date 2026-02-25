@@ -322,6 +322,7 @@ async function insertExample(data: {
   screenshotFront: string | null;
   screenshotTop: string | null;
   screenshotIso: string | null;
+  screenshotIsoBack: string | null;
   evalScore: number | null;
   evalIssues: string[] | null;
   evalSuggestions: string[] | null;
@@ -336,11 +337,11 @@ async function insertExample(data: {
     `INSERT INTO workbench_examples (
        prompt_id, iteration, code, render_status, render_error,
        stl_path, step_path,
-       screenshot_front, screenshot_top, screenshot_iso,
+       screenshot_front, screenshot_top, screenshot_iso, screenshot_iso_back,
        eval_score, eval_issues, eval_suggestions,
        approval_status, rejection_note, llm_model, vlm_model,
        prompt_tokens, completion_tokens
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
      RETURNING id`,
     [
       data.promptId,
@@ -353,6 +354,7 @@ async function insertExample(data: {
       data.screenshotFront,
       data.screenshotTop,
       data.screenshotIso,
+      data.screenshotIsoBack,
       data.evalScore,
       data.evalIssues ? JSON.stringify(data.evalIssues) : null,
       data.evalSuggestions ? JSON.stringify(data.evalSuggestions) : null,
@@ -469,7 +471,7 @@ root_part = part.part
 
 function findScreenshot(
   images: RenderedScreenshot[],
-  angle: "front" | "top" | "isometric",
+  angle: "front" | "top" | "isometric" | "isometric_back",
 ): string | null {
   return images.find((img) => img.angle === angle)?.base64 ?? null;
 }
@@ -520,6 +522,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       screenshotFront: null,
       screenshotTop: null,
       screenshotIso: null,
+      screenshotIsoBack: null,
       evalScore: null,
       evalIssues: null,
       evalSuggestions: null,
@@ -664,6 +667,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
           screenshotFront: null,
           screenshotTop: null,
           screenshotIso: null,
+          screenshotIsoBack: null,
           evalScore: null,
           evalIssues: null,
           evalSuggestions: null,
@@ -756,6 +760,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         screenshotFront: null,
         screenshotTop: null,
         screenshotIso: null,
+        screenshotIsoBack: null,
         evalScore: null,
         evalIssues: ["Screenshot service unavailable — evaluation skipped"],
         evalSuggestions: null,
@@ -835,6 +840,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         screenshotFront: findScreenshot(final.screenshots, "front"),
         screenshotTop: findScreenshot(final.screenshots, "top"),
         screenshotIso: findScreenshot(final.screenshots, "isometric"),
+        screenshotIsoBack: findScreenshot(final.screenshots, "isometric_back"),
         evalScore: finalScore,
         evalIssues: final.evalResult?.issues ?? null,
         evalSuggestions: final.evalResult?.suggestions ?? null,
@@ -931,6 +937,7 @@ export async function reRenderForExample(exampleId: string): Promise<GenerateRes
       screenshotFront: null,
       screenshotTop: null,
       screenshotIso: null,
+      screenshotIsoBack: null,
       evalScore: null,
       evalIssues: null,
       evalSuggestions: null,
@@ -1014,6 +1021,7 @@ export async function reRenderForExample(exampleId: string): Promise<GenerateRes
     screenshotFront: findScreenshot(screenshots, "front"),
     screenshotTop: findScreenshot(screenshots, "top"),
     screenshotIso: findScreenshot(screenshots, "isometric"),
+    screenshotIsoBack: findScreenshot(screenshots, "isometric_back"),
     evalScore: score,
     evalIssues: evalResult?.issues ?? null,
     evalSuggestions: evalResult?.suggestions ?? null,

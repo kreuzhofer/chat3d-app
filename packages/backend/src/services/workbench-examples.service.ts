@@ -24,6 +24,7 @@ interface ExampleRow {
   screenshot_front: string | null;
   screenshot_top: string | null;
   screenshot_iso: string | null;
+  screenshot_iso_back: string | null;
   eval_score: number | null;
   eval_issues: unknown;
   eval_suggestions: unknown;
@@ -58,6 +59,7 @@ export interface ExampleDetail {
   screenshotFront: string | null;
   screenshotTop: string | null;
   screenshotIso: string | null;
+  screenshotIsoBack: string | null;
   evalScore: number | null;
   evalIssues: string[];
   evalSuggestions: string[];
@@ -118,6 +120,7 @@ export async function listExamplesForPrompt(promptId: string): Promise<ExampleDe
     screenshotFront: row.screenshot_front,
     screenshotTop: row.screenshot_top,
     screenshotIso: row.screenshot_iso,
+    screenshotIsoBack: row.screenshot_iso_back,
     evalScore: row.eval_score,
     evalIssues: parseJsonbArray(row.eval_issues),
     evalSuggestions: parseJsonbArray(row.eval_suggestions),
@@ -170,6 +173,7 @@ export async function getExample(exampleId: string): Promise<ExampleDetail> {
     screenshotFront: row.screenshot_front,
     screenshotTop: row.screenshot_top,
     screenshotIso: row.screenshot_iso,
+    screenshotIsoBack: row.screenshot_iso_back,
     evalScore: row.eval_score,
     evalIssues: parseJsonbArray(row.eval_issues),
     evalSuggestions: parseJsonbArray(row.eval_suggestions),
@@ -246,6 +250,7 @@ export async function updateExampleCode(exampleId: string, newCode: string): Pro
          screenshot_front = NULL,
          screenshot_top = NULL,
          screenshot_iso = NULL,
+         screenshot_iso_back = NULL,
          eval_score = NULL,
          eval_issues = NULL,
          eval_suggestions = NULL,
