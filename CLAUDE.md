@@ -65,10 +65,9 @@ Copy `.env.example` to `.env` and configure:
 | `DB_PASSWORD` | PostgreSQL password |
 | `JWT_SECRET` | Secret key for JWT signing |
 | `BUILD123D_URL` | URL of the Build123d rendering service |
-| `BUILD123D_TOKEN` | Auth token for Build123d service |
-| `OPENAI_API_KEY` | OpenAI API key |
-| `ANTHROPIC_API_KEY` | Anthropic API key |
-| `XAI_API_KEY` | xAI (Grok) API key |
+| `BUILD123D_PORT` | Port for the Build123d service (default: `30222`) |
+| `SCREENSHOT_SERVICE_PROVIDER` | Which service renders STL screenshots for VLM evaluation: `stl-rendering-service` (Puppeteer, default) or `build123d` (pyrender, no extra container needed) |
+| `STL_RENDERING_SERVICE_URL` | URL of the STL rendering service (default: `http://stl-rendering-service:3002`) |
 | `OLLAMA_BASE_URL` | Ollama server URL (default: `http://host.docker.internal:11434`) |
 | `OLLAMA_TOKEN` | Auth bearer token for Ollama server (if required) |
 | `LOG_LEVEL` | Logging level: `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` (default: `info`) |
@@ -76,6 +75,8 @@ Copy `.env.example` to `.env` and configure:
 | `SEED_ADMIN_EMAIL` | Admin account email created on first bootstrap (default: `admin@chat3d.local`) |
 | `SEED_ADMIN_PASSWORD` | Admin account password (default: `change-admin-password`) |
 | `SEED_ADMIN_DISPLAY_NAME` | Admin display name (default: `Initial Admin`) |
+
+> **LLM API Keys:** API keys and endpoint URLs for LLM providers (OpenAI, Anthropic, xAI, etc.) are managed via the **Admin UI → Providers tab**, not environment variables. The `llm_providers` database table stores per-provider `api_key` and `endpoint_url`. Environment variables like `OPENAI_API_KEY` are only used as SDK-level fallbacks when the provider row has no key set.
 
 ## Default Admin Credentials
 
@@ -100,6 +101,16 @@ A default admin account is seeded on first bootstrap using values from `.env.exa
 - `GET /api/files/:path` — Serve stored file
 - `POST /api/files/upload` — Upload file
 - `GET /api/llm/models` — List available LLM configurations
+- `GET /api/admin/llm-providers` — List LLM providers (admin)
+- `POST /api/admin/llm-providers` — Create LLM provider (admin)
+- `PATCH /api/admin/llm-providers/:name` — Update LLM provider (admin)
+- `DELETE /api/admin/llm-providers/:name` — Delete LLM provider (admin)
+- `GET /api/admin/llm-models` — List LLM models (admin)
+- `POST /api/admin/llm-models` — Create LLM model (admin)
+- `PATCH /api/admin/llm-models/:id` — Update LLM model (admin)
+- `DELETE /api/admin/llm-models/:id` — Delete LLM model (admin)
+- `GET /api/admin/llm-purposes` — List LLM purpose assignments (admin)
+- `PATCH /api/admin/llm-purposes/:purpose` — Update purpose assignment (admin)
 
 ## Key Patterns
 
@@ -110,10 +121,13 @@ A default admin account is seeded on first bootstrap using values from `.env.exa
 
 ## Database
 
-PostgreSQL with three tables:
-- `users` — id (UUID), email, password_hash, display_name, timestamps
+PostgreSQL tables:
+- `users` — id (UUID), email, password_hash, display_name, role, timestamps
 - `chat_contexts` — id (UUID), name, model IDs, owner_id (FK→users), timestamps
 - `chat_items` — id (UUID), chat_context_id (FK→chat_contexts), role, messages (JSONB), rating, owner_id, timestamps
+- `llm_providers` — name (PK, VARCHAR), display_name, api_key, endpoint_url, is_active, timestamps
+- `llm_models` — id (UUID), provider (FK→llm_providers.name), model_name, display_name, costs, capabilities, token limits, timestamps
+- `llm_purpose_map` — purpose (PK), model_id (FK→llm_models.id), override settings
 
 ## File Storage Layout
 
