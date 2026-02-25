@@ -395,8 +395,14 @@ export function WorkbenchPage() {
                 </div>
                 {runningJob ? (
                   <div className="mt-2 flex items-center gap-1.5 text-xs text-[hsl(var(--muted-foreground))]">
-                    <span>Batch: {runningJob.completed + runningJob.failed} / {runningJob.total}</span>
-                    {runningJob.failed > 0 ? (
+                    <span>
+                      {runningJob.type === "batch"
+                        ? `Batch: ${runningJob.completed + runningJob.failed} / ${runningJob.total}`
+                        : runningJob.type === "re-render"
+                        ? "Re-rendering..."
+                        : "Generating..."}
+                    </span>
+                    {runningJob.type === "batch" && runningJob.failed > 0 ? (
                       <Badge tone="danger">{runningJob.failed} failed</Badge>
                     ) : null}
                   </div>

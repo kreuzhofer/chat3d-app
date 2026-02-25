@@ -34,6 +34,12 @@ import { validatePrompt } from "./workbench-prompt-validation.service.js";
 export const MAX_FIX_ITERATIONS = 5;
 export const AUTO_APPROVE_THRESHOLD = 8;
 
+/** Timeout for a single LLM generateText call (5 minutes). */
+const LLM_CALL_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** Timeout for the entire per-prompt pipeline including all iterations (15 minutes). */
+const PIPELINE_TIMEOUT_MS = 15 * 60 * 1000;
+
 /**
  * Code template that wraps LLM-generated modeling code.
  * The LLM produces only the Build123d modeling code ending with `root_part = ...`.
@@ -368,6 +374,7 @@ async function generateCode(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   providerModel: any,
   modelConfig?: LlmModelConfig,
+  pipelineSignal?: AbortSignal,
 ): Promise<{ code: string; promptTokens: number; completionTokens: number }> {
   if (providerModel === null) {
     // Mock mode — raw modeling code only (no imports/exports)
@@ -383,17 +390,35 @@ root_part = part.part
 
   const extraOpts = modelConfig ? buildGenerateOptions(modelConfig) : {};
 
+  // Combine per-call timeout with optional pipeline-level signal
+  const callController = new AbortController();
+  const callTimeout = setTimeout(() => callController.abort(), LLM_CALL_TIMEOUT_MS);
+
+  // If the pipeline-level signal fires, abort this call too
+  const onPipelineAbort = () => callController.abort();
+  pipelineSignal?.addEventListener("abort", onPipelineAbort, { once: true });
+
   let result;
   try {
     result = await generateText({
       model: providerModel,
       prompt,
+      abortSignal: callController.signal,
       ...extraOpts,
     });
   } catch (error) {
+    if (callController.signal.aborted) {
+      const reason = pipelineSignal?.aborted
+        ? `Pipeline timeout (${PIPELINE_TIMEOUT_MS / 1000}s)`
+        : `LLM call timeout (${LLM_CALL_TIMEOUT_MS / 1000}s)`;
+      throw new Error(reason);
+    }
     const quotaError = asQuotaError(error, modelConfig?.provider);
     if (quotaError) throw quotaError;
     throw error;
+  } finally {
+    clearTimeout(callTimeout);
+    pipelineSignal?.removeEventListener("abort", onPipelineAbort);
   }
 
   if (!result.text || result.text.trim() === "") {
@@ -430,6 +455,19 @@ function findFileByExtension(files: RenderedFile[], ext: string): RenderedFile |
 
 export async function generateForPrompt(promptId: string): Promise<GenerateResult> {
   logger.info({ promptId }, "starting generation for prompt");
+
+  // Pipeline-level timeout — aborts the entire pipeline if it takes too long
+  const pipelineController = new AbortController();
+  const pipelineTimeout = setTimeout(() => pipelineController.abort(), PIPELINE_TIMEOUT_MS);
+
+  try {
+    return await _generateForPromptInner(promptId, pipelineController.signal);
+  } finally {
+    clearTimeout(pipelineTimeout);
+  }
+}
+
+async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSignal): Promise<GenerateResult> {
 
   // 1. Load context and resolve model
   const ctx = await loadPromptContext(promptId);
@@ -533,7 +571,7 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
       logger.info({ issues, suggestions }, "fix feedback — issues and suggestions");
       if (renderError) logger.info({ renderError }, "fix feedback — render error");
     }
-    const codeResult = await generateCode(prompt, providerModel, codegenConfig);
+    const codeResult = await generateCode(prompt, providerModel, codegenConfig, pipelineSignal);
     currentCode = codeResult.code;
     totalPromptTokens += codeResult.promptTokens;
     totalCompletionTokens += codeResult.completionTokens;

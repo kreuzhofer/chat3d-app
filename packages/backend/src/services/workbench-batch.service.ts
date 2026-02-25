@@ -1,14 +1,17 @@
 /**
- * Workbench Batch Generation Service
+ * Workbench Job Queue Service
  *
- * In-memory job queue for generating examples across an entire category.
- * Jobs run sequentially (one prompt at a time) to avoid overwhelming
- * the Build123d rendering service and LLM APIs.
+ * Unified in-memory job queue for all workbench generation operations:
+ * - Batch generation across an entire category
+ * - Single-prompt generate, retry, and re-render
+ *
+ * All operations share the same job store and status API so the frontend
+ * can use a single polling pattern regardless of how generation was started.
  */
 
 import { pool } from "../db/connection.js";
 import { ProviderQuotaExhaustedError } from "../utils/llm-errors.js";
-import { generateForPrompt, type GenerateResult } from "./workbench-codegen.service.js";
+import { generateForPrompt, reRenderForExample, type GenerateResult } from "./workbench-codegen.service.js";
 import { embedAndStorePrompt } from "./workbench-embeddings.service.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -16,8 +19,11 @@ const logger = createLogger("workbench-batch");
 
 // ── Types ────────────────────────────────────────────────────────────
 
+export type JobType = "batch" | "generate" | "retry" | "re-render";
+
 export interface BatchJob {
   jobId: string;
+  type: JobType;
   categoryId: string;
   categoryName: string;
   status: "running" | "completed" | "failed" | "cancelled";
@@ -27,10 +33,14 @@ export interface BatchJob {
   skipped: number;
   currentPromptId: string | null;
   currentPromptText: string | null;
+  /** For re-render jobs: the example being re-rendered. */
+  exampleId: string | null;
   results: BatchPromptResult[];
   error: string | null;
   createdAt: string;
   finishedAt: string | null;
+  /** Prompt IDs still pending processing (batch jobs only). */
+  pendingPromptIds: Set<string>;
 }
 
 export interface BatchPromptResult {
@@ -45,6 +55,7 @@ export interface BatchPromptResult {
 
 export interface BatchJobSummary {
   jobId: string;
+  type: JobType;
   categoryId: string;
   categoryName: string;
   status: string;
@@ -54,6 +65,7 @@ export interface BatchJobSummary {
   skipped: number;
   currentPromptId: string | null;
   currentPromptText: string | null;
+  exampleId: string | null;
   error: string | null;
   createdAt: string;
   finishedAt: string | null;
@@ -65,20 +77,57 @@ const jobs = new Map<string, BatchJob>();
 
 let jobCounter = 0;
 
-function generateJobId(): string {
+function generateJobId(type: JobType): string {
   jobCounter += 1;
-  return `batch-${Date.now()}-${jobCounter}`;
+  const prefix = type === "batch" ? "batch" : "job";
+  return `${prefix}-${Date.now()}-${jobCounter}`;
+}
+
+/** Evict completed/failed jobs older than 30 minutes. */
+function evictStaleJobs(): void {
+  const threshold = Date.now() - 30 * 60 * 1000;
+  for (const [id, job] of jobs) {
+    if (job.status !== "running" && new Date(job.createdAt).getTime() < threshold) {
+      jobs.delete(id);
+    }
+  }
 }
 
 // ── Public API ───────────────────────────────────────────────────────
 
 /**
  * Return the running batch job for a category, or null if none.
+ * Only considers full-batch jobs (not single-prompt jobs).
  */
 export function getRunningJobForCategory(categoryId: string): BatchJobSummary | null {
   for (const job of jobs.values()) {
-    if (job.categoryId === categoryId && job.status === "running") {
+    if (job.categoryId === categoryId && job.status === "running" && job.type === "batch") {
       return toSummary(job);
+    }
+  }
+  return null;
+}
+
+/**
+ * Return any running job that involves a specific prompt.
+ * Checks:
+ * - Single-prompt jobs (generate/retry/re-render) with matching promptId
+ * - Batch jobs where this prompt is currently being processed or is still pending
+ */
+export function getActiveJobForPrompt(promptId: string): BatchJobSummary | null {
+  for (const job of jobs.values()) {
+    if (job.status !== "running") continue;
+
+    if (job.type !== "batch") {
+      // Single-prompt job — check if it targets this prompt
+      if (job.currentPromptId === promptId) {
+        return toSummary(job);
+      }
+    } else {
+      // Batch job — check if this prompt is current or still pending
+      if (job.currentPromptId === promptId || job.pendingPromptIds.has(promptId)) {
+        return toSummary(job);
+      }
     }
   }
   return null;
@@ -153,9 +202,10 @@ export async function startBatchJob(
 
   const skippedCount = allPrompts.length - promptsToProcess.length;
 
-  const jobId = generateJobId();
+  const jobId = generateJobId("batch");
   const job: BatchJob = {
     jobId,
+    type: "batch",
     categoryId,
     categoryName,
     status: "running",
@@ -165,10 +215,12 @@ export async function startBatchJob(
     skipped: skippedCount,
     currentPromptId: null,
     currentPromptText: null,
+    exampleId: null,
     results: [],
     error: null,
     createdAt: new Date().toISOString(),
     finishedAt: null,
+    pendingPromptIds: new Set(promptsToProcess.map((p) => p.id)),
   };
 
   jobs.set(jobId, job);
@@ -180,7 +232,76 @@ export async function startBatchJob(
 }
 
 /**
- * Get current status of a batch job.
+ * Start a single-prompt job (generate, retry, or re-render).
+ * Creates a "batch of 1" in the unified job store so the same polling
+ * and status APIs work for both batch and single operations.
+ */
+export async function startSingleJob(
+  promptId: string,
+  type: "generate" | "retry" | "re-render",
+  exampleId?: string,
+): Promise<BatchJobSummary> {
+  evictStaleJobs();
+
+  // Check if there's already an active job for this prompt
+  const existing = getActiveJobForPrompt(promptId);
+  if (existing) {
+    // Return existing job rather than starting a duplicate
+    return existing;
+  }
+
+  // Look up the prompt's category
+  const promptResult = await pool.query<{ prompt: string; category_id: string }>(
+    `SELECT prompt, category_id FROM workbench_example_prompts WHERE id = $1`,
+    [promptId],
+  );
+  if (promptResult.rows.length === 0) {
+    throw new Error("Prompt not found");
+  }
+  const { prompt: promptText, category_id: categoryId } = promptResult.rows[0];
+
+  const catResult = await pool.query<{ name: string }>(
+    `SELECT name FROM workbench_categories WHERE id = $1`,
+    [categoryId],
+  );
+  const categoryName = catResult.rows[0]?.name ?? "Unknown";
+
+  const jobId = generateJobId(type);
+  const job: BatchJob = {
+    jobId,
+    type,
+    categoryId,
+    categoryName,
+    status: "running",
+    total: 1,
+    completed: 0,
+    failed: 0,
+    skipped: 0,
+    currentPromptId: promptId,
+    currentPromptText: promptText,
+    exampleId: exampleId ?? null,
+    results: [],
+    error: null,
+    createdAt: new Date().toISOString(),
+    finishedAt: null,
+    pendingPromptIds: new Set(),
+  };
+
+  jobs.set(jobId, job);
+
+  // Run in background — don't await
+  void runSingleJob(job, promptId, promptText, type, exampleId);
+
+  logger.info(
+    { jobId, type, promptId, exampleId },
+    "single-prompt job started",
+  );
+
+  return toSummary(job);
+}
+
+/**
+ * Get current status of a job (batch or single).
  */
 export function getJobStatus(jobId: string): BatchJobSummary | null {
   const job = jobs.get(jobId);
@@ -190,9 +311,13 @@ export function getJobStatus(jobId: string): BatchJobSummary | null {
 
 /**
  * Get full details of a batch job including per-prompt results.
+ * Returns a plain object (omitting non-serializable fields like Sets).
  */
-export function getJobDetails(jobId: string): BatchJob | null {
-  return jobs.get(jobId) ?? null;
+export function getJobDetails(jobId: string): Omit<BatchJob, "pendingPromptIds"> | null {
+  const job = jobs.get(jobId);
+  if (!job) return null;
+  const { pendingPromptIds: _, ...rest } = job;
+  return rest;
 }
 
 /**
@@ -220,6 +345,7 @@ export function listJobs(): BatchJobSummary[] {
 function toSummary(job: BatchJob): BatchJobSummary {
   return {
     jobId: job.jobId,
+    type: job.type,
     categoryId: job.categoryId,
     categoryName: job.categoryName,
     status: job.status,
@@ -229,6 +355,7 @@ function toSummary(job: BatchJob): BatchJobSummary {
     skipped: job.skipped,
     currentPromptId: job.currentPromptId,
     currentPromptText: job.currentPromptText,
+    exampleId: job.exampleId,
     error: job.error,
     createdAt: job.createdAt,
     finishedAt: job.finishedAt,
@@ -247,6 +374,7 @@ async function runBatchJob(
 
     job.currentPromptId = prompt.id;
     job.currentPromptText = prompt.prompt;
+    job.pendingPromptIds.delete(prompt.id);
 
     let result: GenerateResult | null = null;
     try {
@@ -344,4 +472,87 @@ async function runBatchJob(
     { jobId: job.jobId, status: job.status, completed: job.completed, failed: job.failed, skipped: job.skipped },
     "batch job finished",
   );
+}
+
+async function runSingleJob(
+  job: BatchJob,
+  promptId: string,
+  promptText: string,
+  type: "generate" | "retry" | "re-render",
+  exampleId?: string,
+): Promise<void> {
+  try {
+    let result: GenerateResult;
+
+    if (type === "re-render" && exampleId) {
+      result = await reRenderForExample(exampleId);
+    } else {
+      result = await generateForPrompt(promptId);
+    }
+
+    if (result.approvalStatus === "rejected") {
+      job.completed = 1;
+      job.results.push({
+        promptId,
+        promptText,
+        status: "rejected",
+        exampleId: result.exampleId,
+        evalScore: null,
+        approvalStatus: "rejected",
+        error: result.renderError,
+      });
+    } else {
+      job.completed = 1;
+      job.results.push({
+        promptId,
+        promptText,
+        status: "success",
+        exampleId: result.exampleId,
+        evalScore: result.evalScore,
+        approvalStatus: result.approvalStatus,
+        error: null,
+      });
+
+      // Embed approved examples for few-shot retrieval
+      if (type !== "re-render" && result.approvalStatus === "auto_approved") {
+        try {
+          await embedAndStorePrompt(promptId, promptText);
+        } catch (embedError) {
+          logger.error(
+            { err: embedError, promptId },
+            "failed to embed prompt",
+          );
+        }
+      }
+    }
+
+    job.status = "completed";
+  } catch (error) {
+    job.failed = 1;
+    job.results.push({
+      promptId,
+      promptText,
+      status: "error",
+      exampleId: null,
+      evalScore: null,
+      approvalStatus: null,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    job.error = error instanceof Error ? error.message : String(error);
+    job.status = "failed";
+
+    logger.error(
+      { err: error, jobId: job.jobId, type },
+      "single-prompt job failed",
+    );
+  } finally {
+    job.currentPromptId = null;
+    job.currentPromptText = null;
+    job.finishedAt = new Date().toISOString();
+
+    logger.info(
+      { jobId: job.jobId, type, status: job.status, duration: Date.now() - new Date(job.createdAt).getTime() },
+      "single-prompt job finished",
+    );
+  }
 }

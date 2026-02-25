@@ -4,12 +4,12 @@ import { ArrowLeft, Loader2, Play, Sparkles, Square, Trash2, Zap } from "lucide-
 import {
   cancelJob,
   deleteExamplesForCategory,
-  generateForPrompt,
   getJobStatus,
   getRunningJob,
   listCategories,
   listPromptsForCategory,
   startBatchJob,
+  startGenerate,
   type BatchJobSummary,
   type WorkbenchCategory,
   type WorkbenchPrompt,
@@ -81,7 +81,7 @@ export function WorkbenchCategoryPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [generatingPromptId, setGeneratingPromptId] = useState<string | null>(null);
+  const [singleJobs, setSingleJobs] = useState<Map<string, BatchJobSummary>>(new Map());
   const [batchJob, setBatchJob] = useState<BatchJobSummary | null>(null);
   const [confirmResetCategory, setConfirmResetCategory] = useState(false);
   const pendingScrollRestore = useRef(false);
@@ -173,6 +173,43 @@ export function WorkbenchCategoryPage() {
     return () => clearInterval(interval);
   }, [batchJob, loadData, pushToast, token]);
 
+  // Poll single-prompt jobs
+  useEffect(() => {
+    if (singleJobs.size === 0 || !token) return;
+
+    const interval = setInterval(async () => {
+      const updates = new Map(singleJobs);
+      let changed = false;
+
+      for (const [promptId, job] of singleJobs) {
+        if (job.status !== "running") continue;
+        try {
+          const status = await getJobStatus(token, job.jobId);
+          if (status.status !== "running") {
+            updates.delete(promptId);
+            changed = true;
+            pushToast({
+              tone: status.status === "completed" ? "success" : "warning",
+              title: status.status === "completed" ? "Generation complete" : "Generation failed",
+              description: status.error ?? undefined,
+            });
+          } else {
+            updates.set(promptId, status);
+          }
+        } catch {
+          // Ignore polling errors
+        }
+      }
+
+      if (changed) {
+        void loadData(true);
+      }
+      setSingleJobs(updates);
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [singleJobs, loadData, pushToast, token]);
+
   const handleBatchGenerate = useCallback(
     async (skipApproved: boolean) => {
       if (!token || !categoryId) return;
@@ -204,6 +241,7 @@ export function WorkbenchCategoryPage() {
   }, [batchJob, pushToast, token]);
 
   const batchRunning = batchJob?.status === "running";
+  const anySingleRunning = singleJobs.size > 0;
 
   const filteredPrompts = useMemo(() => {
     return prompts.filter((p) => {
@@ -218,23 +256,15 @@ export function WorkbenchCategoryPage() {
   const handleGenerate = useCallback(
     async (promptId: string) => {
       if (!token) return;
-      setGeneratingPromptId(promptId);
       setError(null);
       try {
-        const result = await generateForPrompt(token, promptId);
-        pushToast({
-          tone: result.approvalStatus === "auto_approved" ? "success" : "info",
-          title: result.approvalStatus === "auto_approved" ? "Auto-approved!" : "Generation complete",
-          description: `Score: ${result.evalScore ?? "N/A"}, iteration: ${result.iteration}`,
-        });
-        await loadData(true);
+        const job = await startGenerate(token, promptId);
+        setSingleJobs((prev) => new Map(prev).set(promptId, job));
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setGeneratingPromptId(null);
       }
     },
-    [loadData, pushToast, token],
+    [token],
   );
 
   const handleResetCategory = useCallback(async () => {
@@ -277,7 +307,7 @@ export function WorkbenchCategoryPage() {
                   size="sm"
                   iconLeft={<Zap className="h-3.5 w-3.5" />}
                   onClick={() => void handleBatchGenerate(true)}
-                  disabled={generatingPromptId !== null}
+                  disabled={anySingleRunning}
                 >
                   Generate All
                 </Button>
@@ -285,7 +315,7 @@ export function WorkbenchCategoryPage() {
                   variant="destructive"
                   size="sm"
                   iconLeft={<Trash2 className="h-3.5 w-3.5" />}
-                  disabled={generatingPromptId !== null}
+                  disabled={anySingleRunning}
                   onClick={() => setConfirmResetCategory(true)}
                 >
                   Reset Results
@@ -360,13 +390,15 @@ export function WorkbenchCategoryPage() {
         <div className="space-y-1">
           {filteredPrompts.map((prompt) => {
             const isBatchCurrent = batchRunning && batchJob?.currentPromptId === prompt.id;
+            const isSingleRunning = singleJobs.has(prompt.id);
+            const isGenerating = isBatchCurrent || isSingleRunning;
             const thumbUrl = prompt.bestExampleId
               ? `/api/admin/workbench/examples/${prompt.bestExampleId}/screenshot/iso`
               : null;
             return (
               <div
                 key={prompt.id}
-                className={`flex h-16 items-center gap-3 rounded-md border px-3 transition ${isBatchCurrent ? "border-[hsl(var(--primary)_/_0.5)] bg-[hsl(var(--primary)_/_0.05)]" : "border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] hover:border-[hsl(var(--primary)_/_0.3)]"}`}
+                className={`flex h-16 items-center gap-3 rounded-md border px-3 transition ${isGenerating ? "border-[hsl(var(--primary)_/_0.5)] bg-[hsl(var(--primary)_/_0.05)]" : "border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] hover:border-[hsl(var(--primary)_/_0.3)]"}`}
               >
                 {/* Thumbnail — fixed width so text column stays aligned */}
                 <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-[hsl(var(--muted)_/_0.3)]">
@@ -381,7 +413,7 @@ export function WorkbenchCategoryPage() {
                   )}
                 </div>
 
-                {isBatchCurrent ? (
+                {isGenerating ? (
                   <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[hsl(var(--primary))]" />
                 ) : (
                   <span className="w-8 shrink-0 text-right text-xs font-mono text-[hsl(var(--muted-foreground))]">
@@ -418,9 +450,9 @@ export function WorkbenchCategoryPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    iconLeft={generatingPromptId === prompt.id ? <Sparkles className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                    loading={generatingPromptId === prompt.id}
-                    disabled={generatingPromptId !== null || batchRunning}
+                    iconLeft={isSingleRunning ? <Sparkles className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                    loading={isSingleRunning}
+                    disabled={isGenerating || batchRunning}
                     onClick={() => void handleGenerate(prompt.id)}
                   >
                     Generate

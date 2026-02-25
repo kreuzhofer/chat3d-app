@@ -54,8 +54,8 @@
 
       document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-      // 5-light rig
-      scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+      // 5-light rig — ambient raised so flat faces are always visible
+      scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 
       const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
       keyLight.position.set(100, 150, 100);
@@ -132,9 +132,10 @@
       geometry.rotateX(-Math.PI / 2);
 
       const material = new THREE.MeshStandardMaterial({
-        color: 0x2196f3,
-        metalness: 0.1,
-        roughness: 0.6,
+        color: 0x5B86B8,
+        metalness: 0.0,
+        roughness: 0.85,
+        flatShading: true,
         side: THREE.DoubleSide,
       });
 

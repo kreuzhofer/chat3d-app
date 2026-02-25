@@ -192,10 +192,9 @@ export function InlineModelViewer({ filePath, token }: InlineModelViewerProps) {
         if (ext === ".stl") {
           const buffer = await downloaded.blob.arrayBuffer();
           const geometry = new STLLoader().parse(buffer);
-          geometry.computeVertexNormals();
           meshOrGroup = new THREE.Mesh(
             geometry,
-            new THREE.MeshStandardMaterial({ color: 0x3f72af, metalness: 0.15, roughness: 0.4 }),
+            new THREE.MeshStandardMaterial({ color: 0x3f72af, metalness: 0.0, roughness: 0.85, flatShading: true }),
           );
         } else {
           objectUrl = URL.createObjectURL(downloaded.blob);

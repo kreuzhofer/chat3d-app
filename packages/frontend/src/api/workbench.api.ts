@@ -92,21 +92,6 @@ export interface WorkbenchSystemPrompt {
   createdAt: string;
 }
 
-export interface GenerateResult {
-  exampleId: string;
-  promptId: string;
-  iteration: number;
-  code: string;
-  renderStatus: string;
-  renderError: string | null;
-  evalScore: number | null;
-  evalIssues: string[] | null;
-  evalSuggestions: string[] | null;
-  approvalStatus: string;
-  llmModel: string;
-  vlmModel: string | null;
-}
-
 export interface ExportStats {
   categories: Array<{
     categoryId: string;
@@ -135,8 +120,11 @@ export interface SeedResult {
   systemPromptSeeded: boolean;
 }
 
+export type JobType = "batch" | "generate" | "retry" | "re-render";
+
 export interface BatchJobSummary {
   jobId: string;
+  type: JobType;
   categoryId: string;
   categoryName: string;
   status: "running" | "completed" | "failed" | "cancelled";
@@ -146,9 +134,24 @@ export interface BatchJobSummary {
   skipped: number;
   currentPromptId: string | null;
   currentPromptText: string | null;
+  exampleId: string | null;
   error: string | null;
   createdAt: string;
   finishedAt: string | null;
+}
+
+export interface BatchPromptResult {
+  promptId: string;
+  promptText: string;
+  status: "success" | "error" | "skipped" | "rejected";
+  exampleId: string | null;
+  evalScore: number | null;
+  approvalStatus: string | null;
+  error: string | null;
+}
+
+export interface BatchJobDetail extends BatchJobSummary {
+  results: BatchPromptResult[];
 }
 
 // ── Categories ───────────────────────────────────────────────────────
@@ -174,71 +177,40 @@ export function updatePromptText(token: string, promptId: string, prompt: string
   });
 }
 
-// ── Generation (async job-based) ─────────────────────────────────────
-
-export interface GenerateJobSummary {
-  jobId: string;
-  promptId: string;
-  type: "generate" | "retry" | "re-render";
-  status: "running" | "completed" | "failed";
-  error: string | null;
-  createdAt: string;
-  finishedAt: string | null;
-}
-
-export interface GenerateJobDetail extends GenerateJobSummary {
-  result: GenerateResult | null;
-}
+// ── Generation (fire-and-forget — all operations return a job summary) ───
 
 /**
- * Start a background generation job. Returns immediately with a job summary.
- * Poll `getGenerateJobStatus()` to track progress.
+ * Start a background generation job for a prompt.
+ * Returns immediately with a job summary; poll via `getJobStatus()`.
  */
-export function startGenerate(token: string, promptId: string): Promise<GenerateJobSummary> {
-  return requestJson<GenerateJobSummary>(token, "/generate", {
+export function startGenerate(token: string, promptId: string): Promise<BatchJobSummary> {
+  return requestJson<BatchJobSummary>(token, "/generate", {
     method: "POST",
     body: JSON.stringify({ promptId }),
   });
 }
 
-/** Get the full status of a generation job, including the result when completed. */
-export function getGenerateJobStatus(token: string, jobId: string): Promise<GenerateJobDetail> {
-  return requestJson<GenerateJobDetail>(token, `/generate/jobs/${encodeURIComponent(jobId)}`, {
-    method: "GET",
+/**
+ * Start a retry (re-generate) job for an existing example.
+ * Returns immediately with a job summary; poll via `getJobStatus()`.
+ */
+export function startRetry(token: string, exampleId: string): Promise<BatchJobSummary> {
+  return requestJson<BatchJobSummary>(token, `/examples/${encodeURIComponent(exampleId)}/retry`, {
+    method: "POST",
   });
 }
 
 /**
- * High-level helper: start a generation job and poll until it completes.
- * Returns the final GenerateResult on success, throws on failure.
+ * Start a re-render job for an existing example.
+ * Returns immediately with a job summary; poll via `getJobStatus()`.
  */
-export async function generateForPrompt(token: string, promptId: string): Promise<GenerateResult> {
-  const job = await startGenerate(token, promptId);
-  return pollGenerateJob(token, job.jobId);
+export function startReRender(token: string, exampleId: string): Promise<BatchJobSummary> {
+  return requestJson<BatchJobSummary>(token, `/examples/${encodeURIComponent(exampleId)}/re-render`, {
+    method: "POST",
+  });
 }
 
-async function pollGenerateJob(token: string, jobId: string): Promise<GenerateResult> {
-  const POLL_INTERVAL = 3000;
-  const MAX_POLL_TIME = 30 * 60 * 1000; // 30 minutes
-  const start = Date.now();
-
-  while (Date.now() - start < MAX_POLL_TIME) {
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL));
-    const detail = await getGenerateJobStatus(token, jobId);
-
-    if (detail.status === "completed" && detail.result) {
-      return detail.result;
-    }
-    if (detail.status === "failed") {
-      throw new Error(detail.error ?? "Generation job failed");
-    }
-    // Still running — continue polling
-  }
-
-  throw new Error("Generation timed out after 30 minutes");
-}
-
-// ── Batch Generation ────────────────────────────────────────────────
+// ── Job Management (unified for batch and single-prompt jobs) ────────
 
 export function startBatchJob(
   token: string,
@@ -257,8 +229,21 @@ export function getJobStatus(token: string, jobId: string): Promise<BatchJobSumm
   });
 }
 
+export function getJobDetails(token: string, jobId: string): Promise<BatchJobDetail> {
+  return requestJson<BatchJobDetail>(token, `/jobs/${encodeURIComponent(jobId)}/details`, {
+    method: "GET",
+  });
+}
+
 export function getRunningJob(token: string, categoryId: string): Promise<BatchJobSummary | null> {
   return requestJson<BatchJobSummary | null>(token, `/jobs/running?categoryId=${encodeURIComponent(categoryId)}`, {
+    method: "GET",
+  });
+}
+
+/** Get the active job (if any) for a specific prompt — works for batch and single-prompt jobs. */
+export function getActiveJobForPrompt(token: string, promptId: string): Promise<BatchJobSummary | null> {
+  return requestJson<BatchJobSummary | null>(token, `/jobs/running?promptId=${encodeURIComponent(promptId)}`, {
     method: "GET",
   });
 }
@@ -305,20 +290,6 @@ export function updateExampleCode(token: string, exampleId: string, code: string
     method: "PATCH",
     body: JSON.stringify({ code }),
   });
-}
-
-export async function retryExample(token: string, exampleId: string): Promise<GenerateResult> {
-  const job = await requestJson<GenerateJobSummary>(token, `/examples/${encodeURIComponent(exampleId)}/retry`, {
-    method: "POST",
-  });
-  return pollGenerateJob(token, job.jobId);
-}
-
-export async function reRenderExample(token: string, exampleId: string): Promise<GenerateResult> {
-  const job = await requestJson<GenerateJobSummary>(token, `/examples/${encodeURIComponent(exampleId)}/re-render`, {
-    method: "POST",
-  });
-  return pollGenerateJob(token, job.jobId);
 }
 
 export function deleteExample(token: string, exampleId: string): Promise<{ ok: true }> {

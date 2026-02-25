@@ -17,14 +17,6 @@ import {
   updatePromptText,
   WorkbenchSeederError,
 } from "../services/workbench-seeder.service.js";
-import { generateForPrompt, reRenderForExample } from "../services/workbench-codegen.service.js";
-import {
-  getGenerateJob,
-  getRunningJobForPrompt,
-  startGenerateJob,
-  startReRenderJob,
-  startRetryJob,
-} from "../services/workbench-generate-job.service.js";
 import {
   approveExample,
   deleteExample,
@@ -43,12 +35,14 @@ import {
 } from "../services/workbench-embeddings.service.js";
 import {
   cancelJob,
+  getActiveJobForPrompt,
   getJobDetails,
   getJobStatus,
   getRunningJobForCategory,
   getRunningJobs,
   listJobs,
   startBatchJob,
+  startSingleJob,
 } from "../services/workbench-batch.service.js";
 import {
   getExportFilePath,
@@ -171,13 +165,7 @@ workbenchRouter.post("/generate", async (req, res) => {
       res.status(400).json({ error: "promptId is required" });
       return;
     }
-    // Prevent double-starts
-    const running = getRunningJobForPrompt(promptId);
-    if (running) {
-      res.status(202).json(running);
-      return;
-    }
-    const job = startGenerateJob(promptId);
+    const job = await startSingleJob(promptId, "generate");
     res.status(202).json(job);
   } catch (error) {
     if (error instanceof WorkbenchSeederError) {
@@ -190,7 +178,8 @@ workbenchRouter.post("/generate", async (req, res) => {
 
 workbenchRouter.get("/generate/jobs/:jobId", async (req, res) => {
   try {
-    const job = getGenerateJob(req.params.jobId);
+    // Unified: all jobs (batch and single) are in the same store
+    const job = getJobStatus(req.params.jobId);
     if (!job) {
       res.status(404).json({ error: "Job not found" });
       return;
@@ -303,14 +292,8 @@ workbenchRouter.patch("/examples/:id/code", async (req, res) => {
 
 workbenchRouter.post("/examples/:id/retry", async (req, res) => {
   try {
-    // Look up the prompt_id for this example, then start async re-generation
     const example = await getExample(req.params.id);
-    const running = getRunningJobForPrompt(example.promptId);
-    if (running) {
-      res.status(202).json(running);
-      return;
-    }
-    const job = startRetryJob(example.promptId);
+    const job = await startSingleJob(example.promptId, "retry");
     res.status(202).json(job);
   } catch (error) {
     if (error instanceof WorkbenchSeederError) {
@@ -324,12 +307,7 @@ workbenchRouter.post("/examples/:id/retry", async (req, res) => {
 workbenchRouter.post("/examples/:id/re-render", async (req, res) => {
   try {
     const example = await getExample(req.params.id);
-    const running = getRunningJobForPrompt(example.promptId);
-    if (running) {
-      res.status(202).json(running);
-      return;
-    }
-    const job = startReRenderJob(req.params.id, example.promptId);
+    const job = await startSingleJob(example.promptId, "re-render", req.params.id);
     res.status(202).json(job);
   } catch (error) {
     if (error instanceof WorkbenchSeederError) {
@@ -381,8 +359,14 @@ workbenchRouter.get("/jobs", async (_req, res) => {
 workbenchRouter.get("/jobs/running", async (req, res) => {
   try {
     const categoryId = req.query.categoryId;
-    if (categoryId && typeof categoryId === "string") {
-      // Single category mode (used by category page)
+    const promptId = req.query.promptId;
+
+    if (promptId && typeof promptId === "string") {
+      // Single prompt mode — find any running job involving this prompt
+      const job = getActiveJobForPrompt(promptId);
+      res.status(200).json(job);
+    } else if (categoryId && typeof categoryId === "string") {
+      // Single category mode (used by category page — batch jobs only)
       const job = getRunningJobForCategory(categoryId);
       res.status(200).json(job);
     } else {

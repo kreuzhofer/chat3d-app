@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Check, Pencil, Play, RefreshCw, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
+import { ArrowLeft, Check, Loader2, Pencil, Play, RefreshCw, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 import {
   approveExample,
   deleteExample as apiDeleteExample,
   deleteExamplesForPrompt as apiDeleteExamplesForPrompt,
-  generateForPrompt,
+  getActiveJobForPrompt,
   getExample,
+  getJobDetails,
+  getJobStatus,
   listExamplesForPrompt,
   listPromptsForCategory,
   rejectExample,
-  reRenderExample,
-  retryExample,
+  startGenerate,
+  startReRender,
+  startRetry,
   updateExampleCode,
   updatePromptText,
-  type GenerateResult,
+  type BatchJobSummary,
   type WorkbenchExample,
   type WorkbenchPrompt,
 } from "../api/workbench.api";
@@ -47,7 +50,8 @@ export function WorkbenchPromptPage() {
   const [selectedExample, setSelectedExample] = useState<WorkbenchExample | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [activeJob, setActiveJob] = useState<BatchJobSummary | null>(null);
   const [editingCode, setEditingCode] = useState(false);
   const [codeEditValue, setCodeEditValue] = useState("");
   const [editingPrompt, setEditingPrompt] = useState(false);
@@ -55,24 +59,40 @@ export function WorkbenchPromptPage() {
   const [confirmDeleteExampleId, setConfirmDeleteExampleId] = useState<string | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
-  const loadData = useCallback(async () => {
+  // Derive busy from either an active generation job or a quick action in progress
+  const busy = actionBusy || (activeJob?.status === "running");
+
+  const loadData = useCallback(async (silent = false) => {
     if (!token || !categoryId || !promptId) return;
-    setIsLoading(true);
-    setError(null);
+    if (!silent) {
+      setIsLoading(true);
+      setError(null);
+    }
     try {
-      const [promptList, exampleList] = await Promise.all([
+      const fetches: [Promise<WorkbenchPrompt[]>, Promise<WorkbenchExample[]>, Promise<BatchJobSummary | null>?] = [
         listPromptsForCategory(token, categoryId),
         listExamplesForPrompt(token, promptId),
-      ]);
+      ];
+      // On initial load, check if there's already a running job for this prompt
+      if (!silent) {
+        fetches.push(getActiveJobForPrompt(token, promptId));
+      }
+      const [promptList, exampleList, runningJob] = await Promise.all(fetches);
       const p = promptList.find((pp) => pp.id === promptId) ?? null;
       setPrompt(p);
       setExamples(exampleList);
       // Auto-select the first (most recent) example
-      setSelectedExample(exampleList.length > 0 ? exampleList[0] : null);
+      if (!silent) {
+        setSelectedExample(exampleList.length > 0 ? exampleList[0] : null);
+      }
+      // Reconnect to a running job (e.g. started from category page or batch)
+      if (!silent && runningJob && runningJob.status === "running") {
+        setActiveJob(runningJob);
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (!silent) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   }, [categoryId, promptId, token]);
 
@@ -80,54 +100,81 @@ export function WorkbenchPromptPage() {
     void loadData();
   }, [loadData]);
 
+  // Poll active job status
+  useEffect(() => {
+    if (!activeJob || !token || activeJob.status !== "running") return;
+
+    const interval = setInterval(async () => {
+      try {
+        const status = await getJobStatus(token, activeJob.jobId);
+        setActiveJob(status);
+
+        if (status.status !== "running") {
+          // Job finished — fetch result and update UI
+          if (status.status === "completed" || status.status === "failed") {
+            try {
+              const details = await getJobDetails(token, status.jobId);
+              const result = details.results[0];
+              if (result && result.exampleId) {
+                const example = await getExample(token, result.exampleId);
+                setExamples((prev) => [example, ...prev]);
+                setSelectedExample(example);
+                pushToast({
+                  tone: result.approvalStatus === "auto_approved" ? "success"
+                    : result.status === "error" ? "error"
+                    : "info",
+                  title: result.status === "error" ? "Generation failed"
+                    : result.approvalStatus === "auto_approved" ? "Auto-approved!"
+                    : status.type === "re-render" ? "Re-render complete"
+                    : status.type === "retry" ? "Retry complete"
+                    : "Generation complete",
+                  description: result.status === "error"
+                    ? result.error ?? "Unknown error"
+                    : `Score: ${result.evalScore ?? "N/A"}`,
+                });
+              } else if (status.error) {
+                setError(status.error);
+              }
+            } catch {
+              // Details fetch failed — just refresh
+            }
+          }
+          void loadData(true);
+          setActiveJob(null);
+        }
+      } catch {
+        // Ignore polling errors — will retry on next tick
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [activeJob, loadData, pushToast, token]);
+
   const handleGenerate = useCallback(async () => {
     if (!token || !promptId) return;
-    setBusy(true);
     setError(null);
     try {
-      const result: GenerateResult = await generateForPrompt(token, promptId);
-      pushToast({
-        tone: result.approvalStatus === "auto_approved" ? "success" : "info",
-        title: result.approvalStatus === "auto_approved" ? "Auto-approved!" : "Generation complete",
-        description: `Score: ${result.evalScore ?? "N/A"}, iteration: ${result.iteration}`,
-      });
-      // Load the full example
-      const example = await getExample(token, result.exampleId);
-      setExamples((prev) => [example, ...prev]);
-      setSelectedExample(example);
-      await loadData();
+      const job = await startGenerate(token, promptId);
+      setActiveJob(job);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
     }
-  }, [loadData, promptId, pushToast, token]);
+  }, [promptId, token]);
 
   const handleRetry = useCallback(async () => {
     if (!token || !selectedExample) return;
-    setBusy(true);
     setError(null);
     try {
-      const result = await retryExample(token, selectedExample.id);
-      const example = await getExample(token, result.exampleId);
-      setExamples((prev) => [example, ...prev]);
-      setSelectedExample(example);
-      pushToast({
-        tone: result.approvalStatus === "auto_approved" ? "success" : "info",
-        title: "Retry complete",
-        description: `Score: ${result.evalScore ?? "N/A"}`,
-      });
-      await loadData();
+      const job = await startRetry(token, selectedExample.id);
+      setActiveJob(job);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
     }
-  }, [loadData, pushToast, selectedExample, token]);
+  }, [selectedExample, token]);
 
   const handleApprove = useCallback(async () => {
     if (!token || !selectedExample) return;
-    setBusy(true);
+    setActionBusy(true);
     setError(null);
     try {
       await approveExample(token, selectedExample.id);
@@ -138,13 +185,13 @@ export function WorkbenchPromptPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setActionBusy(false);
     }
   }, [pushToast, selectedExample, token]);
 
   const handleReject = useCallback(async () => {
     if (!token || !selectedExample) return;
-    setBusy(true);
+    setActionBusy(true);
     setError(null);
     try {
       await rejectExample(token, selectedExample.id);
@@ -155,13 +202,13 @@ export function WorkbenchPromptPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setActionBusy(false);
     }
   }, [pushToast, selectedExample, token]);
 
   const handleSaveCode = useCallback(async () => {
     if (!token || !selectedExample) return;
-    setBusy(true);
+    setActionBusy(true);
     setError(null);
     try {
       await updateExampleCode(token, selectedExample.id, codeEditValue);
@@ -173,42 +220,29 @@ export function WorkbenchPromptPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setActionBusy(false);
     }
   }, [codeEditValue, pushToast, selectedExample, token]);
 
   const handleReRender = useCallback(async () => {
     if (!token || !selectedExample) return;
-    setBusy(true);
     setError(null);
     try {
       // If code is being edited, save it first
       if (editingCode) {
         await updateExampleCode(token, selectedExample.id, codeEditValue);
       }
-      const result = await reRenderExample(token, selectedExample.id);
-      const example = await getExample(token, result.exampleId);
-      setExamples((prev) => [example, ...prev]);
-      setSelectedExample(example);
+      const job = await startReRender(token, selectedExample.id);
+      setActiveJob(job);
       setEditingCode(false);
-      pushToast({
-        tone: result.renderStatus === "error" ? "error" : result.approvalStatus === "auto_approved" ? "success" : "info",
-        title: result.renderStatus === "error" ? "Render failed" : "Re-render complete",
-        description: result.renderStatus === "error"
-          ? result.renderError ?? "Unknown error"
-          : `Score: ${result.evalScore ?? "N/A"}`,
-      });
-      await loadData();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
     }
-  }, [codeEditValue, editingCode, loadData, pushToast, selectedExample, token]);
+  }, [codeEditValue, editingCode, selectedExample, token]);
 
   const handleSavePrompt = useCallback(async () => {
     if (!token || !promptId) return;
-    setBusy(true);
+    setActionBusy(true);
     setError(null);
     try {
       await updatePromptText(token, promptId, promptEditValue);
@@ -218,13 +252,13 @@ export function WorkbenchPromptPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setActionBusy(false);
     }
   }, [loadData, promptEditValue, promptId, pushToast, token]);
 
   const handleDeleteExample = useCallback(async (exampleId: string) => {
     if (!token) return;
-    setBusy(true);
+    setActionBusy(true);
     setError(null);
     try {
       await apiDeleteExample(token, exampleId);
@@ -238,13 +272,13 @@ export function WorkbenchPromptPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setActionBusy(false);
     }
   }, [loadData, pushToast, selectedExample, token]);
 
   const handleDeleteAllExamples = useCallback(async () => {
     if (!token || !promptId) return;
-    setBusy(true);
+    setActionBusy(true);
     setError(null);
     try {
       const result = await apiDeleteExamplesForPrompt(token, promptId);
@@ -255,7 +289,7 @@ export function WorkbenchPromptPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setActionBusy(false);
     }
   }, [loadData, promptId, pushToast, token]);
 
@@ -269,7 +303,7 @@ export function WorkbenchPromptPage() {
             <Button variant="outline" size="sm" iconLeft={<ArrowLeft className="h-3.5 w-3.5" />} onClick={() => navigate(-1)}>
               Back
             </Button>
-            <Button size="sm" iconLeft={<Play className="h-3.5 w-3.5" />} loading={busy} onClick={() => void handleGenerate()}>
+            <Button size="sm" iconLeft={<Play className="h-3.5 w-3.5" />} loading={activeJob?.status === "running"} disabled={busy} onClick={() => void handleGenerate()}>
               Generate
             </Button>
             {examples.length > 0 ? (
@@ -326,6 +360,20 @@ export function WorkbenchPromptPage() {
 
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
       {isLoading ? <InlineAlert tone="info">Loading...</InlineAlert> : null}
+
+      {activeJob?.status === "running" ? (
+        <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3">
+          <div className="flex items-center gap-2 text-sm">
+            <Loader2 className="h-4 w-4 animate-spin text-[hsl(var(--primary))]" />
+            <span className="font-medium">
+              {activeJob.type === "batch" ? "Batch processing this prompt..." :
+               activeJob.type === "re-render" ? "Re-rendering..." :
+               activeJob.type === "retry" ? "Retrying generation..." :
+               "Generating..."}
+            </span>
+          </div>
+        </div>
+      ) : null}
 
       {/* Example history */}
       {examples.length > 0 ? (

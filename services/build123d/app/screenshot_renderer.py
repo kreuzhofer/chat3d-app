@@ -146,13 +146,13 @@ def render_screenshots(
     # Distance so model fills ~70% of frame with 60° FOV
     distance = extent / (2 * math.tan(math.radians(30))) * 1.4
 
-    # Create pyrender mesh (with a neutral material)
+    # Create pyrender mesh — medium blue-gray for clear contrast on white bg
     material = pyrender.MetallicRoughnessMaterial(
-        baseColorFactor=[0.7, 0.75, 0.8, 1.0],
-        metallicFactor=0.3,
-        roughnessFactor=0.6,
+        baseColorFactor=[0.35, 0.45, 0.58, 1.0],
+        metallicFactor=0.0,
+        roughnessFactor=0.85,
     )
-    pr_mesh = pyrender.Mesh.from_trimesh(tmesh, material=material)
+    pr_mesh = pyrender.Mesh.from_trimesh(tmesh, material=material, smooth=False)
 
     renderer = _get_renderer(width, height)
     results: List[dict] = []
@@ -161,7 +161,7 @@ def render_screenshots(
         # Build a fresh scene per angle
         scene = pyrender.Scene(
             bg_color=[255, 255, 255, 255],
-            ambient_light=[0.3, 0.3, 0.3],
+            ambient_light=[0.45, 0.45, 0.45],
         )
         scene.add(pr_mesh)
 
