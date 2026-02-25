@@ -222,6 +222,7 @@ export function ChatPage() {
   const {
     streamingText,
     queryState,
+    queryStateDetail,
     isStreaming,
     error: streamingError,
   } = useStreamingQuery({
@@ -817,7 +818,7 @@ export function ChatPage() {
                 );
               })}
 
-              {showTypingIndicator ? <TypingIndicator queryState={queryState} /> : null}
+              {showTypingIndicator ? <TypingIndicator queryState={queryState} detail={queryStateDetail} /> : null}
 
               {optimisticPrompt ? (
                 <>

@@ -40,6 +40,8 @@ export interface UseStreamingQueryResult {
   streamingText: string;
   /** Current query pipeline state. */
   queryState: QueryState | null;
+  /** Detail message from the backend for the current state (e.g. "Improving model (attempt 2/5, score: 3/10)..."). */
+  queryStateDetail: string | null;
   /** True while the streaming connection is active and not yet completed/failed. */
   isStreaming: boolean;
   /** Error message if the stream was interrupted or the query failed. */
@@ -66,6 +68,7 @@ export function useStreamingQuery({
 }: UseStreamingQueryOptions): UseStreamingQueryResult {
   const [streamingText, setStreamingText] = useState("");
   const [queryState, setQueryState] = useState<QueryState | null>(null);
+  const [queryStateDetail, setQueryStateDetail] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,6 +97,7 @@ export function useStreamingQuery({
 
       const state = payload.state;
       setQueryState(state);
+      setQueryStateDetail(payload.detail ?? null);
 
       if (state === "completed") {
         setIsStreaming(false);
@@ -108,6 +112,7 @@ export function useStreamingQuery({
     // Reset state when assistantItemId changes
     setStreamingText("");
     setQueryState(null);
+    setQueryStateDetail(null);
     setIsStreaming(false);
     setError(null);
 
@@ -121,5 +126,5 @@ export function useStreamingQuery({
     return unsubscribe;
   }, [token, assistantItemId, subscribe, handleMessage]);
 
-  return { streamingText, queryState, isStreaming, error };
+  return { streamingText, queryState, queryStateDetail, isStreaming, error };
 }

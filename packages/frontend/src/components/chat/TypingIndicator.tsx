@@ -2,13 +2,18 @@ import type { QueryState } from "../../hooks/useStreamingQuery";
 
 export interface TypingIndicatorProps {
   queryState: QueryState | null;
+  /** Optional detail from the backend SSE event (e.g. "Improving model (attempt 2/5, score: 3/10)..."). */
+  detail?: string | null;
 }
 
+/** Fallback labels when the backend doesn't send a detail string. */
 const STATE_LABELS: Partial<Record<QueryState, string>> = {
   queued: "Queued...",
   conversation: "Thinking...",
   codegen: "Generating code...",
   rendering: "Rendering model...",
+  evaluating: "Evaluating quality...",
+  fixing: "Improving model...",
   retrying: "Retrying with error feedback...",
 };
 
@@ -17,21 +22,24 @@ const VISIBLE_STATES = new Set<QueryState>([
   "conversation",
   "codegen",
   "rendering",
+  "evaluating",
+  "fixing",
   "retrying",
 ]);
 
 /**
  * Animated typing indicator displayed in the Chat_Thread while the backend
  * is processing a query. Shows state-aware labels and animated dots.
+ * Prefers the backend-provided detail message over static fallback labels.
  *
  * Validates: Requirements 2.1, 2.2, 2.3, 2.4
  */
-export function TypingIndicator({ queryState }: TypingIndicatorProps) {
+export function TypingIndicator({ queryState, detail }: TypingIndicatorProps) {
   if (!queryState || !VISIBLE_STATES.has(queryState)) {
     return null;
   }
 
-  const label = STATE_LABELS[queryState] ?? "Processing...";
+  const label = detail || STATE_LABELS[queryState] || "Processing...";
 
   return (
     <div
