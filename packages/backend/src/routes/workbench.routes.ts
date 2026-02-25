@@ -1,6 +1,11 @@
 import { Router } from "express";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
+import path from "node:path";
+import multer from "multer";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
+import { config } from "../config.js";
 import {
   activateSystemPrompt,
   getActiveSystemPrompt,
@@ -37,6 +42,13 @@ import {
   listJobs,
   startBatchJob,
 } from "../services/workbench-batch.service.js";
+import {
+  getExportFilePath,
+  getTransferJob,
+  listTransferJobs,
+  startExport,
+  startImport,
+} from "../services/workbench-data-transfer.service.js";
 
 export const workbenchRouter = Router();
 
@@ -456,5 +468,74 @@ workbenchRouter.get("/export/jsonl", async (_req, res) => {
       return;
     }
     res.status(500).json({ error: "Export failed", detail: String(error) });
+  }
+});
+
+// ── Data Transfer (Full Export / Import) ─────────────────────────────
+
+const importUpload = multer({
+  dest: path.join(config.storage.rootDir, "workbench-exports"),
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB
+});
+
+workbenchRouter.post("/export/full", async (_req, res) => {
+  try {
+    const job = startExport();
+    res.status(202).json(job);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to start export", detail: String(error) });
+  }
+});
+
+workbenchRouter.post("/import/full", importUpload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ error: "file is required" });
+      return;
+    }
+    const job = startImport(req.file.path);
+    res.status(202).json(job);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to start import", detail: String(error) });
+  }
+});
+
+workbenchRouter.get("/transfer-jobs", async (_req, res) => {
+  try {
+    const jobs = listTransferJobs();
+    res.status(200).json(jobs);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to list transfer jobs", detail: String(error) });
+  }
+});
+
+workbenchRouter.get("/transfer-jobs/:jobId", async (req, res) => {
+  try {
+    const job = getTransferJob(req.params.jobId);
+    if (!job) {
+      res.status(404).json({ error: "Transfer job not found" });
+      return;
+    }
+    res.status(200).json(job);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to get transfer job", detail: String(error) });
+  }
+});
+
+workbenchRouter.get("/transfer-jobs/:jobId/download", async (req, res) => {
+  try {
+    const filePath = getExportFilePath(req.params.jobId);
+    if (!filePath) {
+      res.status(404).json({ error: "Export file not found or job not completed" });
+      return;
+    }
+    const fileStat = await stat(filePath);
+    const fileName = path.basename(filePath);
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
+    res.setHeader("Content-Length", fileStat.size);
+    createReadStream(filePath).pipe(res);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to download export", detail: String(error) });
   }
 });

@@ -1,17 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Database, Download, FolderOpen, Loader2, RefreshCw, Sprout } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Database, Download, FolderOpen, Loader2, RefreshCw, Sprout, Upload } from "lucide-react";
 import {
   backfillEmbeddings,
   getEmbeddingStatus,
   getExportStats,
   getRunningJobs,
+  getTransferJob,
   listCategories,
+  listTransferJobs,
   seedCategories,
+  startFullExport,
+  uploadAndImport,
   type BatchJobSummary,
   type EmbeddingStatus,
   type ExportStats,
   type SeedResult,
+  type TransferJob,
   type WorkbenchCategory,
 } from "../api/workbench.api";
 import { useAuth } from "../hooks/useAuth";
@@ -51,22 +56,28 @@ export function WorkbenchPage() {
   const [error, setError] = useState<string | null>(null);
   const [seeding, setSeeding] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
+  const [transferJobs, setTransferJobs] = useState<TransferJob[]>([]);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   const loadData = useCallback(async () => {
     if (!token) return;
     setIsLoading(true);
     setError(null);
     try {
-      const [cats, exportStats, embedStatus, jobs] = await Promise.all([
+      const [cats, exportStats, embedStatus, jobs, tJobs] = await Promise.all([
         listCategories(token),
         getExportStats(token),
         getEmbeddingStatus(token),
         getRunningJobs(token),
+        listTransferJobs(token),
       ]);
       setCategories(cats);
       setStats(exportStats);
       setEmbeddingStatus(embedStatus);
       setRunningJobs(new Map(jobs.map((j) => [j.categoryId, j])));
+      setTransferJobs(tJobs);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -103,6 +114,99 @@ export function WorkbenchPage() {
     }, 3000);
     return () => clearInterval(interval);
   }, [runningJobs.size, token]);
+
+  // Poll for active transfer jobs every 2 seconds
+  const hasRunningTransfer = transferJobs.some((j) => j.status === "running");
+  useEffect(() => {
+    if (!hasRunningTransfer || !token) return;
+    const interval = setInterval(async () => {
+      try {
+        const tJobs = await listTransferJobs(token);
+        setTransferJobs(tJobs);
+        // If a transfer just completed, refresh everything
+        const wasRunning = hasRunningTransfer;
+        const nowRunning = tJobs.some((j) => j.status === "running");
+        if (wasRunning && !nowRunning) {
+          const [cats, exportStats, embedStatus] = await Promise.all([
+            listCategories(token),
+            getExportStats(token),
+            getEmbeddingStatus(token),
+          ]);
+          setCategories(cats);
+          setStats(exportStats);
+          setEmbeddingStatus(embedStatus);
+        }
+      } catch {
+        // Silently ignore poll failures
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [hasRunningTransfer, token]);
+
+  const handleExportFull = useCallback(async () => {
+    if (!token) return;
+    setExporting(true);
+    setError(null);
+    try {
+      const job = await startFullExport(token);
+      setTransferJobs((prev) => [job, ...prev]);
+      pushToast({ tone: "info", title: "Export started", description: "Background export running…" });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExporting(false);
+    }
+  }, [pushToast, token]);
+
+  const handleImportClick = useCallback(() => {
+    importFileRef.current?.click();
+  }, []);
+
+  const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !token) return;
+    // Reset file input so the same file can be re-selected
+    e.target.value = "";
+
+    if (!window.confirm(
+      "⚠️ This will REPLACE ALL existing workbench data (categories, prompts, examples, system prompts). This action cannot be undone.\n\nContinue?",
+    )) {
+      return;
+    }
+
+    setImporting(true);
+    setError(null);
+    try {
+      const job = await uploadAndImport(token, file);
+      setTransferJobs((prev) => [job, ...prev]);
+      pushToast({ tone: "info", title: "Import started", description: "Background import running…" });
+    } catch (e2) {
+      setError(e2 instanceof Error ? e2.message : String(e2));
+    } finally {
+      setImporting(false);
+    }
+  }, [pushToast, token]);
+
+  const handleDownloadExport = useCallback(async (jobId: string) => {
+    if (!token) return;
+    try {
+      const url = `/api/admin/workbench/transfer-jobs/${encodeURIComponent(jobId)}/download`;
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error("Download failed");
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = `workbench-export.json`;
+      link.click();
+      URL.revokeObjectURL(blobUrl);
+      pushToast({ tone: "success", title: "Export downloaded" });
+    } catch (e3) {
+      setError(e3 instanceof Error ? e3.message : String(e3));
+    }
+  }, [pushToast, token]);
 
   const handleSeed = useCallback(async () => {
     if (!token) return;
@@ -192,11 +296,29 @@ export function WorkbenchPage() {
             <Button variant="outline" size="sm" iconLeft={<Download className="h-3.5 w-3.5" />} onClick={handleExportJsonl} disabled={!totals || totals.autoApproved + totals.humanApproved === 0}>
               Export JSONL
             </Button>
+            <Button variant="outline" size="sm" iconLeft={<Download className="h-3.5 w-3.5" />} loading={exporting} onClick={() => void handleExportFull()}>
+              Export Full
+            </Button>
+            <Button variant="outline" size="sm" iconLeft={<Upload className="h-3.5 w-3.5" />} loading={importing} onClick={handleImportClick}>
+              Import Full
+            </Button>
           </>
         }
       />
 
+      {/* Hidden file input for import */}
+      <input ref={importFileRef} type="file" accept=".json" className="hidden" onChange={(e) => void handleImportFile(e)} />
+
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
+
+      {/* Transfer job status */}
+      {transferJobs.length > 0 ? (
+        <div className="space-y-2">
+          {transferJobs.map((tj) => (
+            <TransferJobCard key={tj.jobId} job={tj} onDownload={handleDownloadExport} onRefresh={() => void loadData()} />
+          ))}
+        </div>
+      ) : null}
 
       {totals ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -294,6 +416,63 @@ function StatCard({ label, value, tone }: { label: string; value: number; tone: 
       <p className="mt-1 text-2xl font-semibold">
         <Badge tone={tone} className="text-lg">{value}</Badge>
       </p>
+    </div>
+  );
+}
+
+function TransferJobCard({
+  job,
+  onDownload,
+  onRefresh,
+}: {
+  job: TransferJob;
+  onDownload: (jobId: string) => void;
+  onRefresh: () => void;
+}) {
+  const isExport = job.type === "export";
+  const label = isExport ? "Export" : "Import";
+
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-4 py-2.5 text-sm">
+      {job.status === "running" ? (
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[hsl(var(--primary))]" />
+      ) : job.status === "completed" ? (
+        <CheckCircle2 className="h-4 w-4 shrink-0 text-[hsl(var(--success))]" />
+      ) : (
+        <AlertTriangle className="h-4 w-4 shrink-0 text-[hsl(var(--danger))]" />
+      )}
+
+      <div className="flex-1 min-w-0">
+        <span className="font-medium">{label}</span>
+        {job.status === "running" ? (
+          <span className="ml-2 text-[hsl(var(--muted-foreground))]">
+            {job.progress.phase}
+            {job.progress.detail ? ` — ${job.progress.detail}` : ""}
+          </span>
+        ) : job.status === "completed" && job.counts ? (
+          <span className="ml-2 text-[hsl(var(--muted-foreground))]">
+            {job.counts.categories} categories, {job.counts.prompts} prompts, {job.counts.examples} examples, {job.counts.systemPrompts} system prompts
+          </span>
+        ) : job.status === "failed" ? (
+          <span className="ml-2 text-[hsl(var(--danger))]">{job.error}</span>
+        ) : null}
+      </div>
+
+      {job.status === "completed" && isExport ? (
+        <Button variant="outline" size="sm" iconLeft={<Download className="h-3.5 w-3.5" />} onClick={() => onDownload(job.jobId)}>
+          Download
+        </Button>
+      ) : null}
+
+      {job.status === "completed" && !isExport ? (
+        <Button variant="outline" size="sm" iconLeft={<RefreshCw className="h-3.5 w-3.5" />} onClick={onRefresh}>
+          Refresh
+        </Button>
+      ) : null}
+
+      <Badge tone={job.status === "running" ? "info" : job.status === "completed" ? "success" : "danger"}>
+        {job.status}
+      </Badge>
     </div>
   );
 }

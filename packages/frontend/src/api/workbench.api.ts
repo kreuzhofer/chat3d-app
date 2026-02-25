@@ -319,3 +319,57 @@ export function getExportStats(token: string): Promise<ExportStats> {
 export function getExportJsonlUrl(token: string): string {
   return `${WORKBENCH_API_BASE}/export/jsonl?token=${encodeURIComponent(token)}`;
 }
+
+// ── Data Transfer (Full Export / Import) ─────────────────────────────
+
+export interface TransferCounts {
+  categories: number;
+  prompts: number;
+  examples: number;
+  systemPrompts: number;
+}
+
+export interface TransferJob {
+  jobId: string;
+  type: "export" | "import";
+  status: "running" | "completed" | "failed";
+  progress: { phase: string; detail?: string };
+  counts: TransferCounts | null;
+  filePath: string | null;
+  error: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export function startFullExport(token: string): Promise<TransferJob> {
+  return requestJson<TransferJob>(token, "/export/full", { method: "POST" });
+}
+
+export async function uploadAndImport(token: string, file: File): Promise<TransferJob> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${WORKBENCH_API_BASE}/import/full`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = typeof body?.error === "string" ? body.error : "Import upload failed";
+    throw new Error(message);
+  }
+
+  return body as TransferJob;
+}
+
+export function getTransferJob(token: string, jobId: string): Promise<TransferJob> {
+  return requestJson<TransferJob>(token, `/transfer-jobs/${encodeURIComponent(jobId)}`, {
+    method: "GET",
+  });
+}
+
+export function listTransferJobs(token: string): Promise<TransferJob[]> {
+  return requestJson<TransferJob[]>(token, "/transfer-jobs", { method: "GET" });
+}

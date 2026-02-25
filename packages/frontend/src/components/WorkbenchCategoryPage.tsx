@@ -362,7 +362,7 @@ export function WorkbenchCategoryPage() {
                     <AuthImage
                       src={thumbUrl}
                       token={token}
-                      className="h-full w-full object-contain"
+                      className="h-full w-full scale-150 object-cover"
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-[10px] text-[hsl(var(--muted-foreground)_/_0.5)]">—</div>
