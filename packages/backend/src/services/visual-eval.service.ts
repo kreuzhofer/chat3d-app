@@ -11,7 +11,9 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { config } from "../config.js";
+import { createLogger } from "../utils/logger.js";
 
+const logger = createLogger("vlm-eval");
 const EVAL_MAX_RETRIES = 2;
 
 type VlmProvider = "anthropic" | "openai" | "ollama";
@@ -48,7 +50,7 @@ function resolveVlmProvider(): { provider: VlmProvider; modelName: string } {
   // If Anthropic is configured but key is missing, fall back to OpenAI
   if (provider === "anthropic" && !config.query.anthropicApiKey) {
     if (config.query.openAiApiKey) {
-      console.warn("ANTHROPIC_API_KEY missing, falling back to OpenAI for VLM evaluation");
+      logger.warn("ANTHROPIC_API_KEY missing, falling back to OpenAI for VLM evaluation");
       return { provider: "openai", modelName: "gpt-4o" };
     }
     throw new Error("No VLM API key available (neither ANTHROPIC_API_KEY nor OPENAI_API_KEY)");
@@ -56,7 +58,7 @@ function resolveVlmProvider(): { provider: VlmProvider; modelName: string } {
 
   if (provider === "openai" && !config.query.openAiApiKey) {
     if (config.query.anthropicApiKey) {
-      console.warn("OPENAI_API_KEY missing, falling back to Anthropic for VLM evaluation");
+      logger.warn("OPENAI_API_KEY missing, falling back to Anthropic for VLM evaluation");
       return { provider: "anthropic", modelName: "claude-sonnet-4-6" };
     }
     throw new Error("No VLM API key available (neither OPENAI_API_KEY nor ANTHROPIC_API_KEY)");
@@ -231,12 +233,13 @@ export interface EvaluateModelInput {
 export async function evaluateModel(input: EvaluateModelInput): Promise<EvaluationResult> {
   const { userPrompt, categoryName, complexity, images } = input;
 
-  console.log(
-    `[vlm-eval] starting evaluation: prompt="${userPrompt.slice(0, 80)}…", category=${categoryName}, complexity=${complexity}, images=${images.length}`,
+  logger.info(
+    { prompt: userPrompt.slice(0, 80), category: categoryName, complexity, imageCount: images.length },
+    "starting evaluation",
   );
 
   if (!images || images.length === 0) {
-    console.warn("[vlm-eval] no images provided — returning score 1");
+    logger.warn("no images provided, returning score 1");
     return {
       score: 1,
       issues: ["No images provided for evaluation"],
@@ -250,7 +253,7 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
 
   const { provider, modelName } = resolveVlmProvider();
   const vlmModelLabel = `${provider}/${modelName}`;
-  console.log(`[vlm-eval] using ${vlmModelLabel}`);
+  logger.info({ model: vlmModelLabel }, "using VLM model");
 
   const systemPrompt = buildEvaluationSystemPrompt(userPrompt, categoryName, complexity);
 
@@ -269,7 +272,7 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
     try {
       const providerModel = createProviderModel(provider, modelName);
 
-      console.log(`[vlm-eval] attempt ${attempt + 1}/${EVAL_MAX_RETRIES + 1} — calling ${vlmModelLabel}`);
+      logger.info({ attempt: attempt + 1, maxAttempts: EVAL_MAX_RETRIES + 1, model: vlmModelLabel }, "calling VLM");
       const result = await generateText({
         model: providerModel,
         system: systemPrompt,
@@ -282,12 +285,13 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
         throw new Error("Empty response from VLM");
       }
 
-      console.log(`[vlm-eval] raw response (first 300 chars): ${responseText.slice(0, 300)}`);
+      logger.debug({ response: responseText.slice(0, 300) }, "raw VLM response");
 
       const parsed = parseEvaluationResponse(responseText);
 
-      console.log(
-        `[vlm-eval] score=${parsed.score}, issues=${parsed.issues.length}, suggestions=${parsed.suggestions.length}`,
+      logger.info(
+        { score: parsed.score, issueCount: parsed.issues.length, suggestionCount: parsed.suggestions.length },
+        "evaluation parsed",
       );
 
       return {
@@ -300,8 +304,9 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       if (attempt < EVAL_MAX_RETRIES) {
-        console.warn(
-          `[vlm-eval] attempt ${attempt + 1} failed, retrying: ${lastError.message}`,
+        logger.warn(
+          { attempt: attempt + 1, err: lastError },
+          "attempt failed, retrying",
         );
         // Brief delay before retry
         await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
@@ -309,7 +314,7 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
     }
   }
 
-  console.error(`[vlm-eval] failed after ${EVAL_MAX_RETRIES + 1} attempts: ${lastError?.message}`);
+  logger.error({ err: lastError, attempts: EVAL_MAX_RETRIES + 1 }, "evaluation failed after all attempts");
   return {
     score: 1,
     issues: [`Evaluation failed: ${lastError?.message ?? "Unknown error"}`],

@@ -6,6 +6,7 @@ import multer from "multer";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { config } from "../config.js";
+import { createLogger } from "../utils/logger.js";
 import {
   activateSystemPrompt,
   getActiveSystemPrompt,
@@ -49,6 +50,8 @@ import {
   startExport,
   startImport,
 } from "../services/workbench-data-transfer.service.js";
+
+const logger = createLogger("workbench-routes");
 
 export const workbenchRouter = Router();
 
@@ -385,12 +388,12 @@ workbenchRouter.post("/jobs/:jobId/cancel", async (req, res) => {
 
 workbenchRouter.post("/embeddings/backfill", async (_req, res) => {
   try {
-    console.log("[embeddings] backfill requested");
+    logger.info("backfill requested");
     const result = await backfillEmbeddings();
-    console.log(`[embeddings] backfill complete: embedded=${result.embedded} skipped=${result.skipped}`);
+    logger.info("backfill complete: embedded=%d skipped=%d", result.embedded, result.skipped);
     res.status(200).json(result);
   } catch (error) {
-    console.error("[embeddings] backfill failed:", error);
+    logger.error({ err: error }, "backfill failed");
     res.status(500).json({ error: "Embedding backfill failed", detail: String(error) });
   }
 });

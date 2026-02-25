@@ -1,6 +1,9 @@
 import { createClient, type RedisClientType } from "redis";
 import { config } from "../config.js";
 import type { PersistedNotificationEvent } from "./sse.service.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("notification-bus");
 
 type NotificationHandler = (event: PersistedNotificationEvent) => void;
 
@@ -60,11 +63,11 @@ export class NotificationBusService {
       });
 
       this.publisher.on("error", (error: unknown) => {
-        console.error("[notification-bus] publisher error", error);
+        logger.error({ err: error }, "publisher error");
       });
 
       this.subscriber.on("error", (error: unknown) => {
-        console.error("[notification-bus] subscriber error", error);
+        logger.error({ err: error }, "subscriber error");
       });
 
       await this.publisher.connect();
@@ -74,7 +77,7 @@ export class NotificationBusService {
         this.handlePayload(payload);
       });
       this.started = true;
-      console.log(`[notification-bus] subscribed channel=${this.channel}`);
+      logger.info({ channel: this.channel }, "subscribed to channel");
     })();
 
     try {

@@ -1,5 +1,8 @@
 import { fileURLToPath } from "node:url";
 import { pool, query } from "../db/connection.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("account-deletion");
 
 interface DeletedUserRow {
   id: string;
@@ -44,9 +47,9 @@ async function runAsScript() {
     const parsedLimit = limitRaw ? Number(limitRaw) : undefined;
     const limit = Number.isFinite(parsedLimit) ? Number(parsedLimit) : undefined;
     const result = await runAccountDeletionSweep(limit);
-    console.log(`[account-deletion-worker] deleted=${result.deletedCount}`);
+    logger.info("deleted=%d", result.deletedCount);
   } catch (error) {
-    console.error("[account-deletion-worker] failed", error);
+    logger.error({ err: error }, "failed");
     process.exitCode = 1;
   } finally {
     await pool.end();

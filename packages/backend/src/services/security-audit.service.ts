@@ -1,4 +1,7 @@
 import { query } from "../db/connection.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("security-audit");
 
 export async function recordSecurityEvent(input: {
   eventType: string;
@@ -22,6 +25,6 @@ export async function recordSecurityEvent(input: {
       ],
     );
   } catch (error) {
-    console.error("[security-audit] failed to record event", error);
+    logger.error({ err: error }, "failed to record event");
   }
 }

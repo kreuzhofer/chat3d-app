@@ -1,7 +1,15 @@
 import { config } from "../config.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("stl-render");
 
 export type ViewingAngle = "front" | "top" | "isometric";
 export type ModelFormat = "stl" | "3mf";
+
+/** Backend-side timeout for the HTTP call to the STL rendering service.
+ *  Must be longer than the service's internal render timeout (30s)
+ *  to allow for cold-start page creation + rendering. */
+const FETCH_TIMEOUT_MS = 45_000;
 
 export interface RenderedScreenshot {
   angle: ViewingAngle;
@@ -35,7 +43,7 @@ export async function renderModelScreenshots(input: {
   const angles = input.angles ?? ["front", "top", "isometric"];
 
   if (config.query.renderMode === "mock") {
-    console.log(`[stl-render] mock mode — returning ${angles.length} mock screenshots`);
+    logger.info({ angleCount: angles.length }, "mock mode, returning mock screenshots");
     return {
       images: angles.map((angle) => ({ angle, base64: MOCK_PNG_BASE64 })),
     };
@@ -43,12 +51,15 @@ export async function renderModelScreenshots(input: {
 
   const url = `${config.stlRenderingService.url.replace(/\/$/, "")}/render`;
 
-  console.log(
-    `[stl-render] POST ${url} (format=${input.format}, data length=${input.modelData.length}, angles=${angles.join(",")})`,
+  logger.info(
+    { url, format: input.format, dataLength: input.modelData.length, angles },
+    "POST to STL rendering service",
   );
 
   let response: Response;
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -59,14 +70,22 @@ export async function renderModelScreenshots(input: {
         height: input.height ?? 512,
         angles,
       }),
+      signal: controller.signal,
     });
+    clearTimeout(timer);
   } catch (fetchError) {
     const msg = fetchError instanceof Error ? fetchError.message : String(fetchError);
-    console.error(`[stl-render] fetch error connecting to ${url}: ${msg}`);
-    throw new StlRenderingError(`STL rendering service unreachable: ${msg}`, 502);
+    const isTimeout = fetchError instanceof Error && fetchError.name === "AbortError";
+    logger.error({ url, err: msg, isTimeout }, "error connecting to STL rendering service");
+    throw new StlRenderingError(
+      isTimeout
+        ? `STL rendering service timeout after ${FETCH_TIMEOUT_MS / 1000}s`
+        : `STL rendering service unreachable: ${msg}`,
+      502,
+    );
   }
 
-  console.log(`[stl-render] response status=${response.status} ${response.statusText}`);
+  logger.info({ status: response.status, statusText: response.statusText }, "STL rendering response received");
 
   const body = await response.json().catch(() => ({}));
 
@@ -78,13 +97,13 @@ export async function renderModelScreenshots(input: {
     const errorType = (body as { type?: unknown }).type;
     const statusCode =
       errorType === "client" ? 400 : response.status >= 400 ? response.status : 502;
-    console.error(`[stl-render] error: ${message} (type=${String(errorType)}, status=${statusCode})`);
+    logger.error({ message, errorType: String(errorType), statusCode }, "STL rendering error");
     throw new StlRenderingError(message, statusCode);
   }
 
   const images = (body as { images?: unknown[] }).images;
   if (!Array.isArray(images) || images.length === 0) {
-    console.error(`[stl-render] no images in response, keys=${Object.keys(body as object).join(",")}`);
+    logger.error({ bodyKeys: Object.keys(body as object) }, "no images in response");
     throw new StlRenderingError("STL rendering service returned no images", 502);
   }
 
@@ -100,10 +119,10 @@ export async function renderModelScreenshots(input: {
   }
 
   if (result.length === 0) {
-    console.error(`[stl-render] images array had ${images.length} entries but none valid`);
+    logger.error({ imageCount: images.length }, "images array had entries but none valid");
     throw new StlRenderingError("STL rendering service returned no valid images", 502);
   }
 
-  console.log(`[stl-render] success — ${result.length} screenshots rendered`);
+  logger.info({ screenshotCount: result.length }, "STL rendering success");
   return { images: result };
 }

@@ -11,6 +11,9 @@
 
 import { generateText } from "ai";
 import { resolveCodegenModel } from "./workbench-codegen.service.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("prompt-validation");
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -89,7 +92,7 @@ export async function validatePrompt(promptText: string): Promise<ValidationResu
     return { valid: true, reason: null, promptTokens: 0, completionTokens: 0 };
   }
 
-  console.log(`[prompt-validation] validating: "${promptText.slice(0, 80)}…" via ${label}`);
+  logger.info({ prompt: promptText.slice(0, 80), model: label }, "validating prompt");
 
   try {
     const result = await generateText({
@@ -100,7 +103,7 @@ export async function validatePrompt(promptText: string): Promise<ValidationResu
     });
 
     const parsed = parseValidationResponse(result.text);
-    console.log(`[prompt-validation] result: valid=${parsed.valid}${parsed.reason ? `, reason="${parsed.reason}"` : ""}`);
+    logger.info({ valid: parsed.valid, reason: parsed.reason }, "validation result");
 
     return {
       ...parsed,
@@ -109,8 +112,9 @@ export async function validatePrompt(promptText: string): Promise<ValidationResu
     };
   } catch (error) {
     // Fail-open: validation errors should never block the pipeline
-    console.warn(
-      `[prompt-validation] LLM call failed, passing prompt through: ${error instanceof Error ? error.message : String(error)}`,
+    logger.warn(
+      { err: error },
+      "LLM call failed, passing prompt through",
     );
     return { valid: true, reason: null, promptTokens: 0, completionTokens: 0 };
   }

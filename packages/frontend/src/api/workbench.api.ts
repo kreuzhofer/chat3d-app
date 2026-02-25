@@ -36,6 +36,7 @@ export interface WorkbenchCategory {
   humanApprovedCount: number;
   pendingCount: number;
   rejectedCount: number;
+  avgRating: number | null;
   createdAt: string;
   updatedAt: string;
 }

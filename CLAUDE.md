@@ -71,6 +71,8 @@ Copy `.env.example` to `.env` and configure:
 | `XAI_API_KEY` | xAI (Grok) API key |
 | `OLLAMA_BASE_URL` | Ollama server URL (default: `http://host.docker.internal:11434`) |
 | `OLLAMA_TOKEN` | Auth bearer token for Ollama server (if required) |
+| `LOG_LEVEL` | Logging level: `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` (default: `info`) |
+| `LOG_FORMAT` | Log output format: `json` (structured, default in Docker) or `pretty` (human-readable) |
 
 ## API Routes
 
@@ -156,6 +158,39 @@ Do not consider a change complete until the Docker build succeeds.
 - Frontend auth state managed via React Context (`AuthContext`)
 - Frontend real-time updates via polling hooks (not WebSockets)
 - All architecture diagrams must use Mermaid notation
+
+### Logging — MANDATORY
+
+**NEVER use `console.log`, `console.warn`, `console.error`, or any `console.*` method in backend or service code.** All logging MUST use the pino-based structured logger.
+
+**Backend (`packages/backend/`):**
+```typescript
+import { createLogger } from "../utils/logger.js";
+const logger = createLogger("module-tag");
+
+logger.info("simple message");
+logger.info({ key: value, otherKey: otherValue }, "message with structured data");
+logger.warn({ count }, "warning message");
+logger.error({ err: error }, "error message");
+logger.debug({ payload }, "verbose debug info");
+```
+
+**STL Rendering Service (`services/stl-rendering-service/`):**
+```typescript
+import { createLogger } from "./logger.js";
+const logger = createLogger("module-tag");
+// Same API as above
+```
+
+**Rules:**
+- One `createLogger("tag")` per file, at module scope
+- Use short, descriptive tags matching the module purpose (e.g., `"workbench"`, `"render"`, `"seed"`, `"email"`)
+- Pass structured data as the first argument object, message as the second string
+- Use `{ err: error }` for error objects (pino serializes them properly)
+- Use `logger.debug()` for verbose/development-only output (hidden at `info` level in production)
+- Log levels: `fatal` > `error` > `warn` > `info` > `debug` > `trace`
+- Controlled via `LOG_LEVEL` env var (default: `info` in production, `debug` in development)
+- Output format via `LOG_FORMAT` env var: `json` (default in Docker) or `pretty` (human-readable for local dev)
 
 ## Development Principles
 

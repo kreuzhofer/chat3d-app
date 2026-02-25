@@ -15,6 +15,9 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { pool } from "../db/connection.js";
 import { config } from "../config.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("data-transfer");
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -324,14 +327,15 @@ async function runExport(job: TransferJob): Promise<void> {
     job.finishedAt = new Date().toISOString();
     job.progress = { phase: "done" };
 
-    console.log(
-      `[data-transfer] Export ${job.jobId} completed: ${categories.length} categories, ${prompts.length} prompts, ${examples.length} examples, ${systemPrompts.length} system prompts → ${filePath}`,
+    logger.info(
+      { jobId: job.jobId, categories: categories.length, prompts: prompts.length, examples: examples.length, systemPrompts: systemPrompts.length, filePath },
+      "export completed",
     );
   } catch (error) {
     job.status = "failed";
     job.error = error instanceof Error ? error.message : String(error);
     job.finishedAt = new Date().toISOString();
-    console.error(`[data-transfer] Export ${job.jobId} failed: ${job.error}`);
+    logger.error({ jobId: job.jobId, err: job.error }, "export failed");
   }
 }
 
@@ -355,8 +359,9 @@ async function runImport(job: TransferJob, filePath: string): Promise<void> {
       throw new Error("Invalid export file: missing required arrays");
     }
 
-    console.log(
-      `[data-transfer] Import ${job.jobId}: ${data.categories.length} categories, ${data.prompts.length} prompts, ${data.examples.length} examples, ${data.systemPrompts.length} system prompts`,
+    logger.info(
+      { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length, systemPrompts: data.systemPrompts.length },
+      "import started",
     );
 
     // 3. Run destructive import in a single transaction
@@ -461,8 +466,9 @@ async function runImport(job: TransferJob, filePath: string): Promise<void> {
     job.finishedAt = new Date().toISOString();
     job.progress = { phase: "done" };
 
-    console.log(
-      `[data-transfer] Import ${job.jobId} completed: ${data.categories.length} categories, ${data.prompts.length} prompts, ${data.examples.length} examples, ${data.systemPrompts.length} system prompts`,
+    logger.info(
+      { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length, systemPrompts: data.systemPrompts.length },
+      "import completed",
     );
 
     // Clean up uploaded file
@@ -475,6 +481,6 @@ async function runImport(job: TransferJob, filePath: string): Promise<void> {
     job.status = "failed";
     job.error = error instanceof Error ? error.message : String(error);
     job.finishedAt = new Date().toISOString();
-    console.error(`[data-transfer] Import ${job.jobId} failed: ${job.error}`);
+    logger.error({ jobId: job.jobId, err: job.error }, "import failed");
   }
 }

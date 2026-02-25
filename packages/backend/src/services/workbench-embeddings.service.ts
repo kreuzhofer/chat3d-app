@@ -11,6 +11,9 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { config } from "../config.js";
 import { pool } from "../db/connection.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("embeddings");
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -106,7 +109,7 @@ export async function embedAndStorePrompt(promptId: string, promptText: string):
  */
 export async function backfillEmbeddings(): Promise<BackfillResult> {
   const currentModel = config.workbench.embeddingModel;
-  console.log(`[embeddings] resolving model: provider=${config.workbench.embeddingProvider} model=${currentModel}`);
+  logger.info({ provider: config.workbench.embeddingProvider, model: currentModel }, "resolving embedding model");
 
   const result = await pool.query<{ id: string; prompt: string }>(
     `SELECT DISTINCT p.id, p.prompt
@@ -121,11 +124,11 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
   );
 
   if (result.rows.length === 0) {
-    console.log("[embeddings] nothing to backfill — all up to date");
+    logger.info("nothing to backfill — all up to date");
     return { embedded: 0, skipped: 0 };
   }
 
-  console.log(`[embeddings] backfilling ${result.rows.length} prompts with model=${currentModel}`);
+  logger.info({ count: result.rows.length, model: currentModel }, "backfilling prompts");
   const model = resolveEmbeddingModel();
   const BATCH_SIZE = 100;
   let embedded = 0;
@@ -134,7 +137,7 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
     const batch = result.rows.slice(i, i + BATCH_SIZE);
     const texts = batch.map((row) => row.prompt);
 
-    console.log(`[embeddings] embedding batch ${i / BATCH_SIZE + 1} (${batch.length} texts)`);
+    logger.info({ batch: i / BATCH_SIZE + 1, size: batch.length }, "embedding batch");
     let embedResult;
     try {
       embedResult = await embedMany({
@@ -143,7 +146,7 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
         providerOptions: { openai: { dimensions: EMBEDDING_DIMENSIONS } },
       });
     } catch (error) {
-      console.error(`[embeddings] embedMany failed on batch ${i / BATCH_SIZE + 1}:`, error);
+      logger.error({ err: error, batch: i / BATCH_SIZE + 1 }, "embedMany failed");
       throw error;
     }
 
@@ -162,10 +165,10 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
       }
       await client.query("COMMIT");
       embedded += batch.length;
-      console.log(`[embeddings] backfilled ${embedded}/${result.rows.length} prompts`);
+      logger.info({ embedded, total: result.rows.length }, "backfill progress");
     } catch (error) {
       await client.query("ROLLBACK");
-      console.error(`[embeddings] DB store failed on batch ${i / BATCH_SIZE + 1}:`, error);
+      logger.error({ err: error, batch: i / BATCH_SIZE + 1 }, "DB store failed");
       throw error;
     } finally {
       client.release();

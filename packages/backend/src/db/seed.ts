@@ -1,6 +1,9 @@
 import bcrypt from "bcryptjs";
 import { config } from "../config.js";
 import { pool } from "./connection.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("seed");
 
 async function seed() {
   const passwordHash = await bcrypt.hash(config.auth.seedAdminPassword, 12);
@@ -46,8 +49,8 @@ async function seed() {
     [adminId],
   );
 
-  console.log(`[seed] Admin user seeded: ${config.auth.seedAdminEmail}`);
-  console.log("[seed] Default app settings seeded");
+  logger.info("Admin user seeded: %s", config.auth.seedAdminEmail);
+  logger.info("Default app settings seeded");
 }
 
 seed()
@@ -55,7 +58,7 @@ seed()
     await pool.end();
   })
   .catch(async (error) => {
-    console.error("[seed] Seed failed", error);
+    logger.error({ err: error }, "Seed failed");
     await pool.end();
     process.exit(1);
   });

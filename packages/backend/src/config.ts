@@ -101,6 +101,21 @@ function readQueryProviderEnv(name: string, fallback: string): "mock" | "openai"
   throw new Error(`${name} must be one of: mock, openai, anthropic, xai, ollama`);
 }
 
+function readLogLevel(): "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent" {
+  const value = process.env.LOG_LEVEL;
+  if (!value) return process.env.NODE_ENV === "production" ? "info" : "debug";
+  const valid = ["fatal", "error", "warn", "info", "debug", "trace", "silent"] as const;
+  if ((valid as readonly string[]).includes(value)) return value as (typeof valid)[number];
+  throw new Error(`LOG_LEVEL must be one of: ${valid.join(", ")}`);
+}
+
+function readLogFormat(): "json" | "pretty" {
+  const value = process.env.LOG_FORMAT;
+  if (!value) return process.env.NODE_ENV === "production" ? "json" : "pretty";
+  if (value === "json" || value === "pretty") return value;
+  throw new Error("LOG_FORMAT must be 'json' or 'pretty'");
+}
+
 export const config = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: readNumber("PORT", "3001"),
@@ -187,6 +202,10 @@ export const config = {
     ),
     embeddingProvider: readEnv("EMBEDDING_PROVIDER", "openai"),
     embeddingModel: readEnv("EMBEDDING_MODEL", "text-embedding-3-large"),
+  },
+  logging: {
+    level: readLogLevel(),
+    format: readLogFormat(),
   },
   email: {
     transport: readEmailTransport(),

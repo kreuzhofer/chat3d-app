@@ -2,6 +2,9 @@ import puppeteer, { Browser, Page } from "puppeteer";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { existsSync } from "fs";
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("renderer");
 
 export type ViewingAngle = "front" | "top" | "isometric";
 
@@ -32,8 +35,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const TEMPLATE_PATH = join(__dirname, "templates", "stlRenderer.html");
-const RENDER_TIMEOUT_MS = 120_000;
+const RENDER_TIMEOUT_MS = 30_000;
 const PUPPETEER_LAUNCH_TIMEOUT_MS = 10_000;
+const BROWSER_KILL_GRACE_MS = 2_000;
 
 // ── Shared browser + page ───────────────────────────────────────────
 
@@ -62,7 +66,7 @@ async function getBrowser(): Promise<Browser> {
     sharedPage = null;
   }
 
-  console.log("[renderer] launching shared browser");
+  logger.info("launching shared browser");
   sharedBrowser = await puppeteer.launch({
     headless: true,
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
@@ -71,7 +75,7 @@ async function getBrowser(): Promise<Browser> {
   });
 
   sharedBrowser.on("disconnected", () => {
-    console.warn("[renderer] browser disconnected — will relaunch on next request");
+    logger.warn("browser disconnected — will relaunch on next request");
     sharedBrowser = null;
     sharedPage = null;
   });
@@ -97,7 +101,7 @@ async function getReadyPage(width: number, height: number): Promise<Page> {
     sharedPage = null;
   }
 
-  console.log("[renderer] creating new page + loading template");
+  logger.info("creating new page + loading template");
   const page = await browser.newPage();
   await page.setViewport({ width, height });
 
@@ -121,13 +125,50 @@ function invalidateSharedPage() {
   }
 }
 
+/**
+ * Force-kill the entire Chromium process.
+ * Used when the browser is deadlocked (e.g. SwiftShader hang, WebGL context
+ * loss) and DevTools protocol messages like page.close() won't get through.
+ * Tries graceful close first, then SIGKILL after BROWSER_KILL_GRACE_MS.
+ */
+async function killBrowser(): Promise<void> {
+  sharedPage = null;
+  const browser = sharedBrowser;
+  sharedBrowser = null;
+
+  if (!browser) return;
+
+  const pid = browser.process()?.pid;
+  logger.warn({ pid: pid ?? "unknown" }, "killing browser");
+
+  try {
+    // Attempt graceful close with a short deadline
+    await Promise.race([
+      browser.close(),
+      new Promise((resolve) => setTimeout(resolve, BROWSER_KILL_GRACE_MS)),
+    ]);
+  } catch {
+    // Ignore — browser may already be unresponsive
+  }
+
+  // If the process is still alive, SIGKILL it
+  if (pid) {
+    try {
+      process.kill(pid, "SIGKILL");
+      logger.warn({ pid }, "sent SIGKILL to browser");
+    } catch {
+      // Already dead — good
+    }
+  }
+}
+
 // ── Render function ─────────────────────────────────────────────────
 
 export async function renderModelToImages(
   request: RenderRequest,
 ): Promise<RenderedImage[]> {
   if (!existsSync(TEMPLATE_PATH)) {
-    console.error("HTML template not found at", TEMPLATE_PATH);
+    logger.error({ path: TEMPLATE_PATH }, "HTML template not found");
     throw new RenderError("Renderer unavailable", "server");
   }
 
@@ -174,8 +215,9 @@ export async function renderModelToImages(
     ])) as Array<{ angle: string; dataUrl: string }>;
 
     const tRender = Date.now();
-    console.log(
-      `[renderer] done — page=${tPage - t0}ms render=${tRender - tPage}ms total=${tRender - t0}ms`,
+    logger.info(
+      { pageMs: tPage - t0, renderMs: tRender - tPage, totalMs: tRender - t0 },
+      "render complete",
     );
 
     const renderedImages: RenderedImage[] = [];
@@ -192,13 +234,18 @@ export async function renderModelToImages(
 
     return renderedImages;
   } catch (error) {
-    // After any error, invalidate the shared page so next request starts clean
-    invalidateSharedPage();
     usedPage = null;
 
-    if (error instanceof RenderError) throw error;
+    // Re-throw known client errors WITHOUT invalidating the shared page —
+    // the page is healthy, only the input data was bad.
+    if (error instanceof RenderError) {
+      if (error.type === "server") invalidateSharedPage();
+      throw error;
+    }
 
+    // Classify unknown errors and decide whether page should be invalidated
     if (error instanceof Error) {
+      // Browser/launch failures — page is unusable
       if (
         error.message.includes("Failed to launch") ||
         error.message.includes("Browser") ||
@@ -207,19 +254,23 @@ export async function renderModelToImages(
         error.message.includes("Chromium") ||
         error.message.includes("executablePath")
       ) {
-        console.error("Puppeteer launch failed:", error.message);
+        logger.error({ err: error.message }, "Puppeteer launch failed");
+        invalidateSharedPage();
         throw new RenderError("Renderer unavailable", "server");
       }
 
+      // Timeouts — browser is likely deadlocked, force-kill it
       if (
         error.message.includes("timeout") ||
         error.message.includes("Timeout") ||
         error.message === "Render timeout exceeded"
       ) {
-        console.error("Render timeout exceeded");
+        logger.error("render timeout exceeded — killing browser");
+        killBrowser().catch(() => {});
         throw new RenderError("Render timeout exceeded", "server");
       }
 
+      // Parse/loader errors — bad model data, page is fine
       if (
         error.message.includes("Loader") ||
         error.message.includes("parse") ||
@@ -233,7 +284,9 @@ export async function renderModelToImages(
       }
     }
 
-    console.error("Renderer error:", error);
+    // Unknown error — invalidate as a precaution
+    logger.error({ err: error }, "unexpected renderer error");
+    invalidateSharedPage();
     throw new RenderError("Renderer unavailable", "server");
   }
   // Note: we do NOT close the page here — it's reused for subsequent requests

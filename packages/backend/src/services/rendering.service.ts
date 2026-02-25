@@ -1,4 +1,7 @@
 import { config } from "../config.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("render");
 
 export interface RenderedFile {
   filename: string;
@@ -34,7 +37,7 @@ export async function renderBuild123d(input: {
   baseFileName: string;
 }): Promise<Build123dRenderResult> {
   if (config.query.renderMode === "mock") {
-    console.log(`[render] mock mode — returning mock files for ${input.baseFileName}`);
+    logger.info({ baseFileName: input.baseFileName }, "mock mode, returning mock files");
     return {
       files: mockRenderedFiles(input.baseFileName),
       renderer: "mock",
@@ -47,7 +50,7 @@ export async function renderBuild123d(input: {
     filename: `${input.baseFileName}.step`,
   };
 
-  console.log(`[render] POST ${url} (code length=${input.code.length}, filename=${payload.filename})`);
+  logger.info({ url, codeLength: input.code.length, filename: payload.filename }, "POST to Build123d");
 
   let response: Response;
   try {
@@ -60,37 +63,35 @@ export async function renderBuild123d(input: {
     });
   } catch (fetchError) {
     const msg = fetchError instanceof Error ? fetchError.message : String(fetchError);
-    console.error(`[render] fetch error connecting to ${url}: ${msg}`);
+    logger.error({ url, err: msg }, "fetch error connecting to Build123d");
     throw new RenderingServiceError(`Build123d service unreachable: ${msg}`, 502);
   }
 
-  console.log(`[render] response status=${response.status} ${response.statusText}`);
+  logger.info({ status: response.status, statusText: response.statusText }, "Build123d response received");
 
   const body = await response.json().catch(() => ({}));
   const files = Array.isArray((body as { files?: unknown[] }).files)
     ? ((body as { files: Array<{ filename?: unknown; content?: unknown }> }).files ?? [])
     : [];
 
-  console.log(
-    `[render] response body keys=${Object.keys(body as object).join(",")}, files count=${files.length}`,
-  );
+  logger.info({ bodyKeys: Object.keys(body as object), fileCount: files.length }, "Build123d response body parsed");
 
   if (!response.ok || files.length === 0) {
     const message =
       typeof (body as { message?: unknown }).message === "string"
         ? (body as { message: string }).message
         : "Rendering request failed";
-    console.error(`[render] render error: ${message} (status=${response.status})`);
+    logger.error({ message, status: response.status }, "render error");
     throw new RenderingServiceError(message, response.status >= 400 ? response.status : 502);
   }
 
   const mappedFiles: RenderedFile[] = [];
   for (const file of files) {
     if (typeof file.filename !== "string" || typeof file.content !== "string") {
-      console.warn(`[render] skipping invalid file entry: ${JSON.stringify(file).slice(0, 200)}`);
+      logger.warn({ file: JSON.stringify(file).slice(0, 200) }, "skipping invalid file entry");
       continue;
     }
-    console.log(`[render] received file: ${file.filename} (content length=${file.content.length})`);
+    logger.info({ filename: file.filename, contentLength: file.content.length }, "received file");
     mappedFiles.push({
       filename: file.filename,
       contentBase64: file.content,
@@ -101,7 +102,7 @@ export async function renderBuild123d(input: {
     throw new RenderingServiceError("Rendering service returned no valid files", 502);
   }
 
-  console.log(`[render] success — ${mappedFiles.length} files for ${input.baseFileName}`);
+  logger.info({ fileCount: mappedFiles.length, baseFileName: input.baseFileName }, "render success");
   return {
     files: mappedFiles,
     renderer: "build123d",

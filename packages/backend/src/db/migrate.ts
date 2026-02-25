@@ -1,5 +1,8 @@
 import { pool } from "./connection.js";
 import { migrations } from "./migrations/index.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("migrate");
 
 async function ensureMigrationsTable() {
   await pool.query(`
@@ -24,7 +27,7 @@ async function applyMigration(id: string, statements: string[]) {
     }
     await client.query(`INSERT INTO schema_migrations (id) VALUES ($1);`, [id]);
     await client.query("COMMIT");
-    console.log(`[migrate] Applied ${id}`);
+    logger.info("Applied %s", id);
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -41,7 +44,7 @@ async function migrate() {
     if (!applied.has(migration.id)) {
       await applyMigration(migration.id, migration.up);
     } else {
-      console.log(`[migrate] Skipped ${migration.id} (already applied)`);
+      logger.info("Skipped %s (already applied)", migration.id);
     }
   }
 }
@@ -51,7 +54,7 @@ migrate()
     await pool.end();
   })
   .catch(async (error) => {
-    console.error("[migrate] Migration failed", error);
+    logger.error({ err: error }, "Migration failed");
     await pool.end();
     process.exit(1);
   });

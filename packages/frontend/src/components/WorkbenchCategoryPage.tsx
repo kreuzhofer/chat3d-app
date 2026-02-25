@@ -296,6 +296,18 @@ export function WorkbenchCategoryPage() {
         }
       />
 
+      {category ? (
+        <div className="flex items-center gap-4 text-sm text-[hsl(var(--muted-foreground))]">
+          <span>{category.autoApprovedCount + category.humanApprovedCount} / {category.promptCount} approved</span>
+          {category.avgRating !== null ? (
+            <span className="font-medium" title="Average eval score across all examples">Avg rating: {category.avgRating.toFixed(1)}</span>
+          ) : null}
+          {category.pendingCount > 0 ? (
+            <Badge tone="warning">{category.pendingCount} pending</Badge>
+          ) : null}
+        </div>
+      ) : null}
+
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
 
       {batchJob && batchJob.status === "running" ? (

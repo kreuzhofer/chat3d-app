@@ -9,6 +9,9 @@
 import { pool } from "../db/connection.js";
 import { generateForPrompt, type GenerateResult } from "./workbench-codegen.service.js";
 import { embedAndStorePrompt } from "./workbench-embeddings.service.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("workbench-batch");
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -260,8 +263,9 @@ async function runBatchJob(
           approvalStatus: "rejected",
           error: result.renderError,
         });
-        console.log(
-          `[workbench-batch] Prompt ${prompt.id} rejected by validation: ${result.renderError}`,
+        logger.info(
+          { promptId: prompt.id, reason: result.renderError },
+          "prompt rejected by validation",
         );
       } else {
         job.completed += 1;
@@ -281,8 +285,9 @@ async function runBatchJob(
           try {
             await embedAndStorePrompt(prompt.id, prompt.prompt);
           } catch (embedError) {
-            console.error(
-              `[workbench-batch] Failed to embed prompt ${prompt.id}: ${embedError instanceof Error ? embedError.message : String(embedError)}`,
+            logger.error(
+              { err: embedError, promptId: prompt.id },
+              "failed to embed prompt",
             );
             // Non-fatal: embedding failure shouldn't fail the batch prompt
           }
@@ -299,8 +304,9 @@ async function runBatchJob(
         approvalStatus: null,
         error: error instanceof Error ? error.message : String(error),
       });
-      console.error(
-        `[workbench-batch] Failed prompt ${prompt.id}: ${error instanceof Error ? error.message : String(error)}`,
+      logger.error(
+        { err: error, promptId: prompt.id },
+        "prompt generation failed",
       );
     }
   }
@@ -312,7 +318,8 @@ async function runBatchJob(
   }
   job.finishedAt = new Date().toISOString();
 
-  console.log(
-    `[workbench-batch] Job ${job.jobId} ${job.status}: ${job.completed} completed, ${job.failed} failed, ${job.skipped} skipped`,
+  logger.info(
+    { jobId: job.jobId, status: job.status, completed: job.completed, failed: job.failed, skipped: job.skipped },
+    "batch job finished",
   );
 }

@@ -1,5 +1,8 @@
 import express from "express";
 import { renderModelToImages, RenderError } from "./renderer.js";
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("server");
 
 type ViewingAngle = "front" | "top" | "isometric";
 
@@ -67,12 +70,12 @@ app.post("/render", async (req, res) => {
       return;
     }
 
-    console.error("Unexpected error:", error);
+    logger.error({ err: error }, "unexpected error");
     res.status(500).json({ error: "Renderer unavailable", type: "server" });
   }
 });
 
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
-  console.log(`STL Rendering Service listening on port ${PORT}`);
+  logger.info({ port: PORT }, "STL Rendering Service started");
 });

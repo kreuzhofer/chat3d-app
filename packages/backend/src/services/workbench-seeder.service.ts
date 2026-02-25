@@ -3,6 +3,9 @@ import { join } from "path";
 import { pool } from "../db/connection.js";
 import { config } from "../config.js";
 import { embedAndStorePrompt } from "./workbench-embeddings.service.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("seed");
 
 export class WorkbenchSeederError extends Error {
   constructor(
@@ -178,8 +181,9 @@ export async function seedFromFiles(): Promise<SeedResult> {
       }
 
       totalPrompts += prompts.length;
-      console.log(
-        `  Category ${frontmatter.rank}: ${frontmatter.name} — ${prompts.length} prompts (${changed} new/updated, ${prompts.length - changed} unchanged) (${filename})`,
+      logger.info(
+        { rank: frontmatter.rank, name: frontmatter.name, prompts: prompts.length, changed, unchanged: prompts.length - changed, filename },
+        "seeded category",
       );
     }
 
@@ -197,7 +201,7 @@ export async function seedFromFiles(): Promise<SeedResult> {
           ["Initial system prompt", content],
         );
         systemPromptSeeded = true;
-        console.log("  Seeded system prompt v1 (active)");
+        logger.info("seeded system prompt v1 (active)");
       }
     }
 
@@ -229,6 +233,7 @@ interface CategoryRow {
   human_approved_count: string;
   pending_count: string;
   rejected_count: string;
+  avg_rating: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -248,6 +253,7 @@ export async function listCategories() {
       COUNT(DISTINCT CASE WHEN e.approval_status = 'human_approved' THEN p.id END)::text AS human_approved_count,
       COUNT(DISTINCT CASE WHEN e.approval_status = 'pending' THEN p.id END)::text AS pending_count,
       COUNT(DISTINCT CASE WHEN e.approval_status = 'rejected' THEN p.id END)::text AS rejected_count,
+      ROUND(AVG(e.eval_score) FILTER (WHERE e.eval_score IS NOT NULL), 1)::text AS avg_rating,
       c.created_at,
       c.updated_at
     FROM workbench_categories c
@@ -268,6 +274,7 @@ export async function listCategories() {
     humanApprovedCount: Number(row.human_approved_count),
     pendingCount: Number(row.pending_count),
     rejectedCount: Number(row.rejected_count),
+    avgRating: row.avg_rating !== null ? Number(row.avg_rating) : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -369,7 +376,7 @@ export async function updatePromptText(promptId: string, newText: string): Promi
 
   // Re-embed asynchronously
   void embedAndStorePrompt(promptId, trimmed).catch((err) =>
-    console.warn(`[workbench] failed to re-embed prompt ${promptId}: ${err}`),
+    logger.warn({ err, promptId }, "failed to re-embed prompt"),
   );
 }
 

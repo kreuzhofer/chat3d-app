@@ -50,6 +50,8 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3002
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:3002/health"]
       interval: 10s
@@ -108,6 +110,8 @@ services:
       EMAIL_RETRY_DELAY_MS: ${EMAIL_RETRY_DELAY_MS:-250}
       EMAIL_CONNECTION_TIMEOUT_MS: ${EMAIL_CONNECTION_TIMEOUT_MS:-10000}
       EMAIL_SOCKET_TIMEOUT_MS: ${EMAIL_SOCKET_TIMEOUT_MS:-20000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
     ports:
       - "3001:3001"
     depends_on:
@@ -135,6 +139,8 @@ services:
       DB_NAME: ${DB_NAME:-chat3d}
       ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS: ${ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS:-3600}
       ACCOUNT_DELETION_SWEEP_LIMIT: ${ACCOUNT_DELETION_SWEEP_LIMIT:-100}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
     command:
       [
         "sh",

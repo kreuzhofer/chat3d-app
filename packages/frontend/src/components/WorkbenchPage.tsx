@@ -379,7 +379,12 @@ export function WorkbenchPage() {
                 <div className="mt-3">
                   <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))]">
                     <span>{approvedCount(cat)} / {cat.promptCount} approved</span>
-                    <span>{progressPercent(cat)}%</span>
+                    <div className="flex items-center gap-2">
+                      {cat.avgRating !== null ? (
+                        <span className="font-medium" title="Average eval score">⌀ {cat.avgRating.toFixed(1)}</span>
+                      ) : null}
+                      <span>{progressPercent(cat)}%</span>
+                    </div>
                   </div>
                   <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[hsl(var(--muted))]">
                     <div

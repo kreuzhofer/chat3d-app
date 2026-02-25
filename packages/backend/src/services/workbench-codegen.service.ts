@@ -13,7 +13,10 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createXai } from "@ai-sdk/xai";
 import { config } from "../config.js";
+import { createLogger } from "../utils/logger.js";
 import { pool } from "../db/connection.js";
+
+const logger = createLogger("workbench");
 import { extractExecutableCode } from "./llm.service.js";
 import { renderBuild123d, type RenderedFile } from "./rendering.service.js";
 import {
@@ -279,15 +282,15 @@ async function fetchFewShotExamples(
   try {
     const results = await findSimilarExamples(promptText, limit);
     if (results.length > 0) {
-      console.log(
-        `[workbench] vector search returned ${results.length} examples ` +
-        `(similarity: ${results[results.length - 1].similarity.toFixed(3)}–${results[0].similarity.toFixed(3)})`,
+      logger.info(
+        { count: results.length, similarityMin: results[results.length - 1].similarity.toFixed(3), similarityMax: results[0].similarity.toFixed(3) },
+        "vector search returned examples",
       );
       return results.map(({ prompt, code }) => ({ prompt, code }));
     }
-    console.log(`[workbench] vector search returned 0 results, falling back to category query`);
+    logger.info("vector search returned 0 results, falling back to category query");
   } catch (error) {
-    console.warn(`[workbench] vector search failed, falling back to category query: ${error}`);
+    logger.warn({ err: error }, "vector search failed, falling back to category query");
   }
 
   return fetchFewShotExamplesByCategory(categoryId, limit);
@@ -459,20 +462,19 @@ function findFileByExtension(files: RenderedFile[], ext: string): RenderedFile |
 // ── Main pipeline ────────────────────────────────────────────────────
 
 export async function generateForPrompt(promptId: string): Promise<GenerateResult> {
-  console.log(`[workbench] ═══════════════════════════════════════════════════`);
-  console.log(`[workbench] Starting generation for prompt ${promptId}`);
+  logger.info({ promptId }, "starting generation for prompt");
 
   // 1. Load context and resolve model
   const ctx = await loadPromptContext(promptId);
-  console.log(`[workbench] prompt="${ctx.prompt.slice(0, 80)}…" category=${ctx.categoryName} complexity=${ctx.complexity}`);
+  logger.info({ prompt: ctx.prompt.slice(0, 80), category: ctx.categoryName, complexity: ctx.complexity }, "loaded prompt context");
 
   const { model: providerModel, label: llmModelLabel } = resolveCodegenModel();
-  console.log(`[workbench] codegen model: ${llmModelLabel}`);
+  logger.info({ model: llmModelLabel }, "codegen model resolved");
 
   // 2. Validate prompt before expensive codegen pipeline
   const validation = await validatePrompt(ctx.prompt);
   if (!validation.valid) {
-    console.log(`[workbench] ✗ prompt REJECTED: ${validation.reason}`);
+    logger.info({ reason: validation.reason }, "prompt rejected by validation");
     const exampleId = await insertExample({
       promptId: ctx.promptId,
       iteration: 0,
@@ -512,10 +514,10 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
 
   // 3. Load system prompt and few-shot examples
   const systemPromptRow = await getActiveSystemPrompt();
-  console.log(`[workbench] system prompt loaded (${systemPromptRow.content.length} chars)`);
+  logger.info({ chars: systemPromptRow.content.length }, "system prompt loaded");
 
   const fewShots = await fetchFewShotExamples(ctx.prompt, ctx.categoryId);
-  console.log(`[workbench] few-shot examples: ${fewShots.length}`);
+  logger.info({ count: fewShots.length }, "few-shot examples loaded");
 
   let currentCode = "";
   let renderError: string | null = null;
@@ -540,7 +542,7 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
   } | null = null;
 
   for (let iteration = 1; iteration <= MAX_FIX_ITERATIONS; iteration++) {
-    console.log(`[workbench] ── iteration ${iteration}/${MAX_FIX_ITERATIONS} ──`);
+    logger.info({ iteration, maxIterations: MAX_FIX_ITERATIONS }, "starting iteration");
 
     // 2. Generate code
     const prompt =
@@ -557,19 +559,18 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
             evalResult?.suggestions ?? null,
           );
 
-    console.log(`[workbench] LLM prompt length: ${prompt.length} chars`);
+    logger.info({ promptChars: prompt.length }, "LLM prompt built");
     if (iteration > 1) {
       const issues = evalResult?.issues ?? [];
       const suggestions = evalResult?.suggestions ?? [];
-      console.log(`[workbench] fix feedback — issues: ${JSON.stringify(issues)}`);
-      console.log(`[workbench] fix feedback — suggestions: ${JSON.stringify(suggestions)}`);
-      if (renderError) console.log(`[workbench] fix feedback — renderError: ${renderError}`);
+      logger.info({ issues, suggestions }, "fix feedback — issues and suggestions");
+      if (renderError) logger.info({ renderError }, "fix feedback — render error");
     }
     const codeResult = await generateCode(prompt, providerModel);
     currentCode = codeResult.code;
     totalPromptTokens += codeResult.promptTokens;
     totalCompletionTokens += codeResult.completionTokens;
-    console.log(`[workbench] LLM returned code (${currentCode.length} chars, tokens: prompt=${codeResult.promptTokens} completion=${codeResult.completionTokens})`);
+    logger.info({ codeChars: currentCode.length, promptTokens: codeResult.promptTokens, completionTokens: codeResult.completionTokens }, "LLM returned code");
 
     // Reset per-iteration state
     renderError = null;
@@ -580,20 +581,17 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
     // 3. Render with Build123d — wrap raw code in template for execution
     const baseFileName = `wb-${ctx.promptId.slice(0, 8)}-iter${iteration}`;
     const executableCode = wrapInTemplate(currentCode, baseFileName);
-    console.log(`[workbench] wrapped code for Build123d (${executableCode.length} chars):`);
-    console.log(executableCode);
+    logger.debug({ code: executableCode }, "executable code for Build123d");
     try {
       const renderResult = await renderBuild123d({
         code: executableCode,
         baseFileName,
       });
       renderedFiles = renderResult.files;
-      console.log(`[workbench] Build123d render success — ${renderedFiles.length} files: ${renderedFiles.map((f) => f.filename).join(", ")}`);
+      logger.info({ fileCount: renderedFiles.length, files: renderedFiles.map((f) => f.filename) }, "Build123d render success");
     } catch (error) {
       renderError = error instanceof Error ? error.message : String(error);
-      console.warn(
-        `[workbench] Render FAILED for prompt ${ctx.promptId} iteration ${iteration}: ${renderError}`,
-      );
+      logger.warn({ promptId: ctx.promptId, iteration, renderError }, "render failed");
 
       // If this is the last iteration, persist the failure and return
       if (iteration >= MAX_FIX_ITERATIONS) {
@@ -641,7 +639,7 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
     // 4. Screenshot via STL rendering service (STL only — faster, no ZIP decompression)
     const stlFile = findFileByExtension(renderedFiles, ".stl");
     if (stlFile) {
-      console.log(`[workbench] sending stl to STL rendering service for screenshots (data length=${stlFile.contentBase64.length})`);
+      logger.info({ dataLength: stlFile.contentBase64.length }, "sending STL to rendering service for screenshots");
       try {
         const screenshotResult = await renderModelScreenshots({
           modelData: stlFile.contentBase64,
@@ -650,20 +648,18 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
           height: 512,
         });
         screenshots = screenshotResult.images;
-        console.log(`[workbench] screenshots received: ${screenshots.map((s) => s.angle).join(", ")}`);
+        logger.info({ angles: screenshots.map((s) => s.angle) }, "screenshots received");
       } catch (error) {
-        console.warn(
-          `[workbench] Screenshot FAILED for prompt ${ctx.promptId} iteration ${iteration}: ${error}`,
-        );
+        logger.warn({ err: error, promptId: ctx.promptId, iteration }, "screenshot failed");
         // Continue with empty screenshots — VLM eval will score low
       }
     } else {
-      console.warn(`[workbench] no STL file available — skipping screenshots`);
+      logger.warn("no STL file available, skipping screenshots");
     }
 
     // 5. VLM Evaluate
     const imageBase64s = screenshots.map((s) => s.base64);
-    console.log(`[workbench] VLM evaluation: ${imageBase64s.length} images to evaluate`);
+    logger.info({ imageCount: imageBase64s.length }, "starting VLM evaluation");
     if (imageBase64s.length > 0) {
       evalResult = await evaluateModel({
         userPrompt: ctx.prompt,
@@ -671,9 +667,9 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
         complexity: ctx.complexity,
         images: imageBase64s,
       });
-      console.log(`[workbench] VLM result: score=${evalResult.score} looksCorrect=${evalResult.looksCorrect}`);
+      logger.info({ score: evalResult.score, looksCorrect: evalResult.looksCorrect }, "VLM evaluation result");
     } else {
-      console.warn(`[workbench] skipping VLM evaluation — no screenshots`);
+      logger.warn("skipping VLM evaluation, no screenshots");
     }
 
     const stepFile = findFileByExtension(renderedFiles, ".step") ?? findFileByExtension(renderedFiles, ".stp");
@@ -682,7 +678,7 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
     const score = evalResult?.score ?? null;
     const approved = score !== null && score >= AUTO_APPROVE_THRESHOLD;
     const hasIssues = (evalResult?.issues ?? []).length > 0;
-    console.log(`[workbench] score=${score} threshold=${AUTO_APPROVE_THRESHOLD} approved=${approved} hasIssues=${hasIssues} lastIteration=${iteration >= MAX_FIX_ITERATIONS}`);
+    logger.info({ score, threshold: AUTO_APPROVE_THRESHOLD, approved, hasIssues, lastIteration: iteration >= MAX_FIX_ITERATIONS }, "iteration evaluation summary");
 
     // Track the best successful result so we never regress
     if (score !== null && (best === null || score > best.score)) {
@@ -697,7 +693,7 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
         promptTokens: totalPromptTokens,
         completionTokens: totalCompletionTokens,
       };
-      console.log(`[workbench] new best: score=${score} iteration=${iteration}`);
+      logger.info({ score, iteration }, "new best result");
     }
 
     // Stop if: perfect score with no issues, or last iteration
@@ -741,8 +737,9 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
         completionTokens: final.completionTokens,
       });
 
-      console.log(
-        `[workbench] prompt=${ctx.promptId} persisted iteration=${final.iteration} score=${finalScore} status=${finalApproved ? "auto_approved" : "pending"} (best of ${iteration} iterations)`,
+      logger.info(
+        { promptId: ctx.promptId, iteration: final.iteration, score: finalScore, status: finalApproved ? "auto_approved" : "pending", totalIterations: iteration },
+        "example persisted",
       );
 
       return {
@@ -762,8 +759,9 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
     }
 
     // Continue fixing — either below threshold or has issues to address
-    console.log(
-      `[workbench] prompt=${ctx.promptId} iteration=${iteration} score=${score} issues=${(evalResult?.issues ?? []).length} — retrying`,
+    logger.info(
+      { promptId: ctx.promptId, iteration, score, issueCount: (evalResult?.issues ?? []).length },
+      "retrying with fix attempt",
     );
   }
 

@@ -1,5 +1,8 @@
 import nodemailer from "nodemailer";
 import { config } from "../config.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("email");
 
 export interface EmailMessage {
   to: string;
@@ -68,7 +71,7 @@ export class EmailService {
   async sendTransactionalEmail(message: EmailMessage): Promise<void> {
     if (this.options.mode === "memory") {
       this.sentEmails.push(message);
-      console.log(`[email] to=${message.to} subject=${message.subject}`);
+      logger.info({ to: message.to, subject: message.subject }, "email sent (memory mode)");
       return;
     }
 
@@ -88,7 +91,7 @@ export class EmailService {
           subject: message.subject,
           text: message.text,
         });
-        console.log(`[email] to=${message.to} subject=${message.subject} transport=smtp`);
+        logger.info({ to: message.to, subject: message.subject, transport: "smtp" }, "email sent");
         return;
       } catch (error) {
         if (attempt >= this.options.retryCount) {
