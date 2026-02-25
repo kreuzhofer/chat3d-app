@@ -7,6 +7,7 @@
  */
 
 import { generateText } from "ai";
+import { asQuotaError } from "../utils/llm-errors.js";
 import { createLogger } from "../utils/logger.js";
 import {
   getModelForPurpose,
@@ -250,6 +251,10 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
         completionTokens: result.usage?.outputTokens ?? 0,
       };
     } catch (error) {
+      // Never retry quota/credit exhaustion errors — abort immediately
+      const quotaError = asQuotaError(error, vlmConfig.provider);
+      if (quotaError) throw quotaError;
+
       lastError = error instanceof Error ? error : new Error(String(error));
       if (attempt < EVAL_MAX_RETRIES) {
         logger.warn(

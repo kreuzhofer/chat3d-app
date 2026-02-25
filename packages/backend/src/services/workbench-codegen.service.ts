@@ -8,6 +8,7 @@
  */
 
 import { generateText } from "ai";
+import { asQuotaError } from "../utils/llm-errors.js";
 import { createLogger } from "../utils/logger.js";
 import { pool } from "../db/connection.js";
 import {
@@ -381,11 +382,19 @@ root_part = part.part
   }
 
   const extraOpts = modelConfig ? buildGenerateOptions(modelConfig) : {};
-  const result = await generateText({
-    model: providerModel,
-    prompt,
-    ...extraOpts,
-  });
+
+  let result;
+  try {
+    result = await generateText({
+      model: providerModel,
+      prompt,
+      ...extraOpts,
+    });
+  } catch (error) {
+    const quotaError = asQuotaError(error, modelConfig?.provider);
+    if (quotaError) throw quotaError;
+    throw error;
+  }
 
   if (!result.text || result.text.trim() === "") {
     throw new Error("LLM returned empty output");

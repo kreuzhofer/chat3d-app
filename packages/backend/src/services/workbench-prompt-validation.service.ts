@@ -10,6 +10,7 @@
  */
 
 import { generateText } from "ai";
+import { isProviderQuotaError } from "../utils/llm-errors.js";
 import { resolveCodegenModel } from "./workbench-codegen.service.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -111,7 +112,13 @@ export async function validatePrompt(promptText: string): Promise<ValidationResu
       completionTokens: result.usage?.outputTokens ?? 0,
     };
   } catch (error) {
-    // Fail-open: validation errors should never block the pipeline
+    // Quota exhaustion is NOT transient — abort the pipeline
+    if (isProviderQuotaError(error)) {
+      logger.error({ err: error }, "provider quota exhausted during validation");
+      throw error;
+    }
+
+    // Fail-open: transient validation errors should never block the pipeline
     logger.warn(
       { err: error },
       "LLM call failed, passing prompt through",

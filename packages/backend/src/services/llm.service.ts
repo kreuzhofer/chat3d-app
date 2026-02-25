@@ -1,4 +1,5 @@
 import { generateText, streamText } from "ai";
+import { asQuotaError } from "../utils/llm-errors.js";
 import { config } from "../config.js";
 import { getBuild123dReference } from "../data/build123d-api-reference.js";
 import {
@@ -238,20 +239,26 @@ async function generateWithConfig(
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
 
-  const result = await generateText({
-    model: providerModel,
-    prompt,
-    ...extraOpts,
-  });
+  try {
+    const result = await generateText({
+      model: providerModel,
+      prompt,
+      ...extraOpts,
+    });
 
-  if (!result.text || result.text.trim() === "") {
-    throw new LlmServiceError("LLM returned empty output", 502);
+    if (!result.text || result.text.trim() === "") {
+      throw new LlmServiceError("LLM returned empty output", 502);
+    }
+
+    return {
+      text: result.text.trim(),
+      usageRaw: result.usage,
+    };
+  } catch (error) {
+    const quotaError = asQuotaError(error, cfg.provider);
+    if (quotaError) throw quotaError;
+    throw error;
   }
-
-  return {
-    text: result.text.trim(),
-    usageRaw: result.usage,
-  };
 }
 
 /**
@@ -266,28 +273,34 @@ async function streamWithConfig(
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
 
-  const result = streamText({
-    model: providerModel,
-    prompt,
-    ...extraOpts,
-  });
+  try {
+    const result = streamText({
+      model: providerModel,
+      prompt,
+      ...extraOpts,
+    });
 
-  let fullText = "";
-  for await (const chunk of result.textStream) {
-    fullText += chunk;
-    onToken(chunk);
+    let fullText = "";
+    for await (const chunk of result.textStream) {
+      fullText += chunk;
+      onToken(chunk);
+    }
+
+    const finalResult = await result;
+
+    if (fullText.trim() === "") {
+      throw new LlmServiceError("LLM returned empty output", 502);
+    }
+
+    return {
+      text: fullText.trim(),
+      usageRaw: finalResult.usage,
+    };
+  } catch (error) {
+    const quotaError = asQuotaError(error, cfg.provider);
+    if (quotaError) throw quotaError;
+    throw error;
   }
-
-  const finalResult = await result;
-
-  if (fullText.trim() === "") {
-    throw new LlmServiceError("LLM returned empty output", 502);
-  }
-
-  return {
-    text: fullText.trim(),
-    usageRaw: finalResult.usage,
-  };
 }
 
 export function listLlmModels(): LlmModelDefinition[] {

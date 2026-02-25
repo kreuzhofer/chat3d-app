@@ -1,4 +1,5 @@
 import { generateText } from "ai";
+import { ProviderQuotaExhaustedError } from "../utils/llm-errors.js";
 import { query } from "../db/connection.js";
 import { notificationService } from "./notification.service.js";
 import { sseService } from "./sse.service.js";
@@ -909,12 +910,17 @@ export async function executeQueryPipeline(input: {
 
     await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "completed" });
   } catch (error) {
+    const isQuota = error instanceof ProviderQuotaExhaustedError;
+    const errorMessage = isQuota
+      ? "LLM provider credits exhausted. Please check your API billing or switch to a different provider in Admin → Providers."
+      : (error instanceof Error ? error.message : String(error));
+
     await publishQueryState({
       userId: input.userId,
       contextId: input.contextId,
       assistantItemId,
       state: "failed",
-      detail: error instanceof Error ? error.message : String(error),
+      detail: errorMessage,
     });
 
     await updateChatItem({
@@ -924,7 +930,7 @@ export async function executeQueryPipeline(input: {
       messages: [
         {
           itemType: "errormessage",
-          text: error instanceof Error ? error.message : "Query failed",
+          text: errorMessage,
           state: "error",
           stateMessage: "",
         },
@@ -1413,12 +1419,17 @@ export async function submitQuery(input: {
       renderer: "build123d",
     };
   } catch (error) {
+    const isQuota = error instanceof ProviderQuotaExhaustedError;
+    const errorMessage = isQuota
+      ? "LLM provider credits exhausted. Please check your API billing or switch to a different provider in Admin → Providers."
+      : (error instanceof Error ? error.message : String(error));
+
     await publishQueryState({
       userId: input.userId,
       contextId: input.contextId,
       assistantItemId: assistantItem.id,
       state: "failed",
-      detail: error instanceof Error ? error.message : String(error),
+      detail: errorMessage,
     });
 
     await updateChatItem({
@@ -1428,13 +1439,16 @@ export async function submitQuery(input: {
       messages: [
         {
           itemType: "errormessage",
-          text: error instanceof Error ? error.message : "Query failed",
+          text: errorMessage,
           state: "error",
           stateMessage: "",
         },
       ],
     });
 
+    if (error instanceof ProviderQuotaExhaustedError) {
+      throw new QueryServiceError(errorMessage, 429);
+    }
     if (error instanceof QueryServiceError || error instanceof ChatError || error instanceof LlmServiceError) {
       throw error;
     }

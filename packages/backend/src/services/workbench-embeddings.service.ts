@@ -7,6 +7,7 @@
  */
 
 import { embed, embedMany } from "ai";
+import { asQuotaError } from "../utils/llm-errors.js";
 import { pool } from "../db/connection.js";
 import { createLogger } from "../utils/logger.js";
 import {
@@ -61,13 +62,19 @@ async function resolveEmbeddingConfig(): Promise<{ model: ReturnType<typeof crea
  * Embed a single text string into a vector.
  */
 export async function embedPromptText(text: string): Promise<number[]> {
-  const { model } = await resolveEmbeddingConfig();
-  const result = await embed({
-    model,
-    value: text,
-    providerOptions: { openai: { dimensions: EMBEDDING_DIMENSIONS } },
-  });
-  return result.embedding;
+  const { model, config: cfg } = await resolveEmbeddingConfig();
+  try {
+    const result = await embed({
+      model,
+      value: text,
+      providerOptions: { openai: { dimensions: EMBEDDING_DIMENSIONS } },
+    });
+    return result.embedding;
+  } catch (error) {
+    const quotaError = asQuotaError(error, cfg.provider);
+    if (quotaError) throw quotaError;
+    throw error;
+  }
 }
 
 /**
@@ -130,6 +137,11 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
         providerOptions: { openai: { dimensions: EMBEDDING_DIMENSIONS } },
       });
     } catch (error) {
+      const quotaError = asQuotaError(error, embeddingCfg.provider);
+      if (quotaError) {
+        logger.error({ err: quotaError, batch: i / BATCH_SIZE + 1 }, "provider quota exhausted — aborting backfill");
+        throw quotaError;
+      }
       logger.error({ err: error, batch: i / BATCH_SIZE + 1 }, "embedMany failed");
       throw error;
     }

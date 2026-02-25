@@ -7,6 +7,7 @@
  */
 
 import { pool } from "../db/connection.js";
+import { ProviderQuotaExhaustedError } from "../utils/llm-errors.js";
 import { generateForPrompt, type GenerateResult } from "./workbench-codegen.service.js";
 import { embedAndStorePrompt } from "./workbench-embeddings.service.js";
 import { createLogger } from "../utils/logger.js";
@@ -294,6 +295,27 @@ async function runBatchJob(
         }
       }
     } catch (error) {
+      // Quota exhaustion → abort entire batch (no point continuing)
+      if (error instanceof ProviderQuotaExhaustedError) {
+        job.failed += 1;
+        job.results.push({
+          promptId: prompt.id,
+          promptText: prompt.prompt,
+          status: "error",
+          exampleId: null,
+          evalScore: null,
+          approvalStatus: null,
+          error: error.message,
+        });
+        job.error = error.message;
+        job.status = "failed";
+        job.finishedAt = new Date().toISOString();
+        job.currentPromptId = null;
+        job.currentPromptText = null;
+        logger.error({ err: error, jobId: job.jobId }, "batch aborted — provider quota exhausted");
+        return;
+      }
+
       job.failed += 1;
       job.results.push({
         promptId: prompt.id,

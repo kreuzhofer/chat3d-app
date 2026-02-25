@@ -272,7 +272,7 @@ export function createEmbeddingModel(cfg: LlmModelConfig): any {
       baseURL: baseUrlWithVersion,
       apiKey: apiKey && apiKey.trim() !== "" ? apiKey.trim() : undefined,
     });
-    return ollama.textEmbeddingModel(modelName);
+    return ollama.embeddingModel(modelName);
   }
 
   throw new Error(`Unsupported embedding provider: ${provider}`);
