@@ -42,18 +42,17 @@ services:
       timeout: 5s
       retries: 20
 
-  stl-rendering-service:
+  screenshot-service:
+    platform: linux/amd64
+    image: chat3d-screenshot-service:local
     build:
-      context: ./services/stl-rendering-service
+      context: ./services/screenshot-service
       dockerfile: Dockerfile
-    container_name: chat3d-stl-renderer
-    environment:
-      NODE_ENV: development
-      PORT: 3002
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      LOG_FORMAT: ${LOG_FORMAT:-json}
+    restart: unless-stopped
+    deploy:
+      replicas: 2
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3002/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:80/').read()"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -80,8 +79,7 @@ services:
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-change-admin-password}
       SEED_ADMIN_DISPLAY_NAME: ${SEED_ADMIN_DISPLAY_NAME:-Initial Admin}
       BUILD123D_URL: ${BUILD123D_URL:-http://build123d:80}
-      STL_RENDERING_SERVICE_URL: ${STL_RENDERING_SERVICE_URL:-http://stl-rendering-service:3002}
-      SCREENSHOT_SERVICE_PROVIDER: ${SCREENSHOT_SERVICE_PROVIDER:-stl-rendering-service}
+      SCREENSHOT_SERVICE_URL: ${SCREENSHOT_SERVICE_URL:-http://screenshot-service:80}
       QUERY_RENDER_MODE: ${QUERY_RENDER_MODE:-live}
       QUERY_LLM_MODE: ${QUERY_LLM_MODE:-live}
       QUERY_CONVERSATION_PROVIDER: ${QUERY_CONVERSATION_PROVIDER:-openai}
@@ -121,6 +119,8 @@ services:
       redis:
         condition: service_healthy
       build123d:
+        condition: service_healthy
+      screenshot-service:
         condition: service_healthy
     volumes:
       - storage:/data/storage

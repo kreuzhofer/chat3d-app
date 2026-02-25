@@ -10,6 +10,7 @@ import { migration008PgvectorEmbeddings } from "./008_pgvector_embeddings.js";
 import { migration009EmbeddingModelColumn } from "./009_embedding_model_column.js";
 import { migration010LlmModelConfig } from "./010_llm_model_config.js";
 import { migration011LlmProvidersTable } from "./011_llm_api_key_in_db.js";
+import { migration012ProviderMaxConcurrent } from "./012_provider_max_concurrent.js";
 
 export const migrations: Migration[] = [
   migration001InitialSchema,
@@ -23,4 +24,5 @@ export const migrations: Migration[] = [
   migration009EmbeddingModelColumn,
   migration010LlmModelConfig,
   migration011LlmProvidersTable,
+  migration012ProviderMaxConcurrent,
 ];

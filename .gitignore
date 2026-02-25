@@ -32,3 +32,6 @@ amplify_outputs*
 amplifyconfiguration*
 .env
 packages/backend/.chat3d-storage/
+
+# Database backups
+backups/

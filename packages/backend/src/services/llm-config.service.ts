@@ -27,6 +27,7 @@ export interface LlmProviderRow {
   display_name: string | null;
   api_key: string | null;
   endpoint_url: string | null;
+  max_concurrent: number | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -79,6 +80,8 @@ export interface LlmModelConfig {
   supportsEmbeddings: boolean;
   endpointUrl: string | null;
   apiKey: string | null;
+  /** Per-provider concurrency limit from DB (null = use global default). */
+  maxConcurrent: number | null;
 }
 
 /** Purpose assignment joined with model details (for admin API) */
@@ -129,6 +132,7 @@ export async function getModelForPurpose(purpose: string): Promise<LlmModelConfi
     LlmModelRow & LlmPurposeRow & {
       provider_api_key: string | null;
       provider_endpoint_url: string | null;
+      provider_max_concurrent: number | null;
     }
   >(
     `SELECT
@@ -136,7 +140,8 @@ export async function getModelForPurpose(purpose: string): Promise<LlmModelConfi
        p.override_max_output_tokens,
        p.override_thinking_effort,
        prov.api_key AS provider_api_key,
-       prov.endpoint_url AS provider_endpoint_url
+       prov.endpoint_url AS provider_endpoint_url,
+       prov.max_concurrent AS provider_max_concurrent
      FROM llm_purpose_map p
      JOIN llm_models m ON m.id = p.model_id
      JOIN llm_providers prov ON prov.name = m.provider
@@ -174,6 +179,7 @@ export async function getModelForPurpose(purpose: string): Promise<LlmModelConfi
     supportsEmbeddings: row.supports_embeddings,
     endpointUrl: row.provider_endpoint_url,
     apiKey,
+    maxConcurrent: row.provider_max_concurrent ?? null,
   };
 }
 
@@ -373,6 +379,7 @@ export async function updateProvider(
     displayName: "display_name",
     apiKey: "api_key",
     endpointUrl: "endpoint_url",
+    maxConcurrent: "max_concurrent",
     isActive: "is_active",
   };
 

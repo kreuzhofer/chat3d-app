@@ -7,7 +7,8 @@
  */
 
 import { generateText } from "ai";
-import { asQuotaError } from "../utils/llm-errors.js";
+import { isQuotaExhaustion, asQuotaError, isRateLimitError } from "../utils/llm-errors.js";
+import { getLlmSemaphore } from "../utils/resource-limits.js";
 import { createLogger } from "../utils/logger.js";
 import {
   getModelForPurpose,
@@ -215,66 +216,75 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
     userContent.push({ type: "image", image: base64Image });
   }
 
-  // Retry loop
-  let lastError: Error | null = null;
-  for (let attempt = 0; attempt <= EVAL_MAX_RETRIES; attempt++) {
-    try {
-      const providerModel = createProviderModelFromConfig(vlmConfig);
+  // Wrap entire evaluation (including retries) with per-provider semaphore
+  const semaphore = getLlmSemaphore(vlmConfig.provider, vlmConfig.maxConcurrent);
+  return semaphore.run(async () => {
+    // Retry loop for transient errors (including rate limits)
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt <= EVAL_MAX_RETRIES; attempt++) {
+      try {
+        const providerModel = createProviderModelFromConfig(vlmConfig);
 
-      logger.info({ attempt: attempt + 1, maxAttempts: EVAL_MAX_RETRIES + 1, model: vlmModelLabel }, "calling VLM");
-      const result = await generateText({
-        model: providerModel,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userContent }],
-        maxOutputTokens: 1024, // Eval-specific limit — keep responses concise
-      });
+        logger.info({ attempt: attempt + 1, maxAttempts: EVAL_MAX_RETRIES + 1, model: vlmModelLabel }, "calling VLM");
+        const result = await generateText({
+          model: providerModel,
+          system: systemPrompt,
+          messages: [{ role: "user", content: userContent }],
+          maxOutputTokens: 1024, // Eval-specific limit — keep responses concise
+        });
 
-      const responseText = result.text;
-      if (!responseText) {
-        throw new Error("Empty response from VLM");
-      }
+        const responseText = result.text;
+        if (!responseText) {
+          throw new Error("Empty response from VLM");
+        }
 
-      logger.debug({ response: responseText.slice(0, 300) }, "raw VLM response");
+        logger.debug({ response: responseText.slice(0, 300) }, "raw VLM response");
 
-      const parsed = parseEvaluationResponse(responseText);
+        const parsed = parseEvaluationResponse(responseText);
 
-      logger.info(
-        { score: parsed.score, issueCount: parsed.issues.length, suggestionCount: parsed.suggestions.length },
-        "evaluation parsed",
-      );
-
-      return {
-        ...parsed,
-        looksCorrect: parsed.score >= 7,
-        vlmModel: vlmModelLabel,
-        promptTokens: result.usage?.inputTokens ?? 0,
-        completionTokens: result.usage?.outputTokens ?? 0,
-      };
-    } catch (error) {
-      // Never retry quota/credit exhaustion errors — abort immediately
-      const quotaError = asQuotaError(error, vlmConfig.provider);
-      if (quotaError) throw quotaError;
-
-      lastError = error instanceof Error ? error : new Error(String(error));
-      if (attempt < EVAL_MAX_RETRIES) {
-        logger.warn(
-          { attempt: attempt + 1, err: lastError },
-          "attempt failed, retrying",
+        logger.info(
+          { score: parsed.score, issueCount: parsed.issues.length, suggestionCount: parsed.suggestions.length },
+          "evaluation parsed",
         );
-        // Brief delay before retry
-        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+
+        return {
+          ...parsed,
+          looksCorrect: parsed.score >= 7,
+          vlmModel: vlmModelLabel,
+          promptTokens: result.usage?.inputTokens ?? 0,
+          completionTokens: result.usage?.outputTokens ?? 0,
+        };
+      } catch (error) {
+        // Never retry quota/credit exhaustion errors — abort immediately
+        if (isQuotaExhaustion(error)) {
+          throw asQuotaError(error, vlmConfig.provider) ?? error;
+        }
+
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (attempt < EVAL_MAX_RETRIES) {
+          // Rate limit errors get longer backoff; other transient errors use shorter delay
+          const isRateLimit = isRateLimitError(error);
+          const delay = isRateLimit
+            ? Math.min(2000 * Math.pow(2, attempt), 60000)
+            : 1000 * (attempt + 1);
+          logger.warn(
+            { attempt: attempt + 1, err: lastError, isRateLimit, delayMs: delay },
+            "attempt failed, retrying",
+          );
+          await new Promise((r) => setTimeout(r, delay));
+        }
       }
     }
-  }
 
-  logger.error({ err: lastError, attempts: EVAL_MAX_RETRIES + 1 }, "evaluation failed after all attempts");
-  return {
-    score: 1,
-    issues: [`Evaluation failed: ${lastError?.message ?? "Unknown error"}`],
-    suggestions: [],
-    looksCorrect: false,
-    vlmModel: vlmModelLabel,
-    promptTokens: 0,
-    completionTokens: 0,
-  };
+    logger.error({ err: lastError, attempts: EVAL_MAX_RETRIES + 1 }, "evaluation failed after all attempts");
+    return {
+      score: 1,
+      issues: [`Evaluation failed: ${lastError?.message ?? "Unknown error"}`],
+      suggestions: [],
+      looksCorrect: false,
+      vlmModel: vlmModelLabel,
+      promptTokens: 0,
+      completionTokens: 0,
+    };
+  });
 }

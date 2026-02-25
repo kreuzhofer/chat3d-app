@@ -1,5 +1,7 @@
 import { generateText } from "ai";
 import { ProviderQuotaExhaustedError } from "../utils/llm-errors.js";
+import { getLlmSemaphore } from "../utils/resource-limits.js";
+import { withLlmRetry } from "../utils/llm-retry.js";
 import { query } from "../db/connection.js";
 import { notificationService } from "./notification.service.js";
 import { sseService } from "./sse.service.js";
@@ -751,7 +753,22 @@ export async function executeQueryPipeline(input: {
         : buildFixPrompt(epSystemPromptContent, epFewShots, prompt, epCurrentCode, iteration - 1, epRenderError, epEvalState?.issues ?? null, epEvalState?.suggestions ?? null);
 
       queryLogger.info({ iteration, maxIterations: MAX_FIX_ITERATIONS, isFirst, promptLength: cgPrompt.length }, "codegen iteration starting");
-      const cgResult = await generateText({ model: epCodegenModel, prompt: cgPrompt, ...epExtraOpts });
+      const epLlmSemaphore = getLlmSemaphore(epCodegenConfig.provider, epCodegenConfig.maxConcurrent);
+      const cgResult = await epLlmSemaphore.run(
+        () => withLlmRetry(
+          () => generateText({ model: epCodegenModel, prompt: cgPrompt, ...epExtraOpts }),
+          { provider: epCodegenConfig.provider },
+        ),
+        {
+          onQueuePositionChange: (position, total) => {
+            void publishQueryState({
+              userId: input.userId, contextId: input.contextId, assistantItemId,
+              state: "queued",
+              detail: `Waiting for LLM slot (${position}/${total} in queue)`,
+            });
+          },
+        },
+      );
       epCurrentCode = stripTemplateBoilerplate(extractExecutableCode(cgResult.text));
       const cgPT = cgResult.usage?.inputTokens ?? 0;
       const cgCT = cgResult.usage?.outputTokens ?? 0;
@@ -770,7 +787,18 @@ export async function executeQueryPipeline(input: {
       let epRenderedFiles: Awaited<ReturnType<typeof renderBuild123d>>["files"] = [];
 
       try {
-        const rr = await renderBuild123d({ code: epExecCode, baseFileName: epBaseFileName });
+        const rr = await renderBuild123d(
+          { code: epExecCode, baseFileName: epBaseFileName },
+          {
+            onQueuePositionChange: (position, total) => {
+              void publishQueryState({
+                userId: input.userId, contextId: input.contextId, assistantItemId,
+                state: "queued",
+                detail: `Waiting for rendering slot (${position}/${total} in queue)`,
+              });
+            },
+          },
+        );
         epRenderedFiles = rr.files;
         queryLogger.info({ iteration, fileCount: epRenderedFiles.length }, "render succeeded");
       } catch (error) {
@@ -786,7 +814,18 @@ export async function executeQueryPipeline(input: {
       const epStl = epRenderedFiles.find((f) => f.filename.toLowerCase().endsWith(".stl"));
       if (epStl) {
         try {
-          epScreenshots = (await renderModelScreenshots({ modelData: epStl.contentBase64, format: "stl", width: 512, height: 512 })).images;
+          epScreenshots = (await renderModelScreenshots(
+            { modelData: epStl.contentBase64, format: "stl", width: 512, height: 512 },
+            {
+              onQueuePositionChange: (position, total) => {
+                void publishQueryState({
+                  userId: input.userId, contextId: input.contextId, assistantItemId,
+                  state: "queued",
+                  detail: `Waiting for screenshot slot (${position}/${total} in queue)`,
+                });
+              },
+            },
+          )).images;
         } catch (err) {
           queryLogger.warn({ iteration, err: err instanceof Error ? err.message : String(err) }, "screenshot service failed after retries — not a code issue");
           epScreenshotFailed = true;
@@ -1202,12 +1241,23 @@ export async function submitQuery(input: {
             evalState?.suggestions ?? null,
           );
 
-      // Generate code via codegen LLM
-      const codegenResult = await generateText({
-        model: codegenProviderModel,
-        prompt: codegenPrompt,
-        ...codegenExtraOpts,
-      });
+      // Generate code via codegen LLM (wrapped with per-provider semaphore + retry)
+      const codegenSemaphore = getLlmSemaphore(codegenConfig.provider, codegenConfig.maxConcurrent);
+      const codegenResult = await codegenSemaphore.run(
+        () => withLlmRetry(
+          () => generateText({ model: codegenProviderModel, prompt: codegenPrompt, ...codegenExtraOpts }),
+          { provider: codegenConfig.provider },
+        ),
+        {
+          onQueuePositionChange: (position, total) => {
+            void publishQueryState({
+              userId: input.userId, contextId: input.contextId, assistantItemId: assistantItem.id,
+              state: "queued",
+              detail: `Waiting for LLM slot (${position}/${total} in queue)`,
+            });
+          },
+        },
+      );
 
       const rawCode = extractExecutableCode(codegenResult.text);
       currentCode = stripTemplateBoilerplate(rawCode);
@@ -1236,7 +1286,18 @@ export async function submitQuery(input: {
       let renderedFiles: Awaited<ReturnType<typeof renderBuild123d>>["files"] = [];
 
       try {
-        const renderResult = await renderBuild123d({ code: executableCode, baseFileName });
+        const renderResult = await renderBuild123d(
+          { code: executableCode, baseFileName },
+          {
+            onQueuePositionChange: (position, total) => {
+              void publishQueryState({
+                userId: input.userId, contextId: input.contextId, assistantItemId: assistantItem.id,
+                state: "queued",
+                detail: `Waiting for rendering slot (${position}/${total} in queue)`,
+              });
+            },
+          },
+        );
         renderedFiles = renderResult.files;
       } catch (error) {
         renderError = error instanceof Error ? error.message : String(error);
@@ -1251,12 +1312,18 @@ export async function submitQuery(input: {
       const stlFile = renderedFiles.find((f) => f.filename.toLowerCase().endsWith(".stl"));
       if (stlFile) {
         try {
-          const screenshotResult = await renderModelScreenshots({
-            modelData: stlFile.contentBase64,
-            format: "stl",
-            width: 512,
-            height: 512,
-          });
+          const screenshotResult = await renderModelScreenshots(
+            { modelData: stlFile.contentBase64, format: "stl", width: 512, height: 512 },
+            {
+              onQueuePositionChange: (position, total) => {
+                void publishQueryState({
+                  userId: input.userId, contextId: input.contextId, assistantItemId: assistantItem.id,
+                  state: "queued",
+                  detail: `Waiting for screenshot slot (${position}/${total} in queue)`,
+                });
+              },
+            },
+          );
           screenshots = screenshotResult.images;
         } catch {
           queryLogger.warn({ iteration }, "screenshot failed, skipping VLM eval");

@@ -1,5 +1,7 @@
 import { generateText, streamText } from "ai";
 import { asQuotaError } from "../utils/llm-errors.js";
+import { getLlmSemaphore } from "../utils/resource-limits.js";
+import { withLlmRetry } from "../utils/llm-retry.js";
 import { config } from "../config.js";
 import { getBuild123dReference } from "../data/build123d-api-reference.js";
 import {
@@ -129,6 +131,7 @@ async function resolveModelForStage(stage: "conversation" | "codegen"): Promise<
         supportsEmbeddings: false,
         endpointUrl: null,
         apiKey: null,
+        maxConcurrent: null,
       },
     };
   }
@@ -230,7 +233,7 @@ function buildUsageMetadata(input: {
 
 /**
  * Generate text using the DB-driven model config.
- * Replaces the old provider-specific generateWithProvider().
+ * Wrapped with per-provider semaphore (concurrency limit) and retry (rate limit backoff).
  */
 async function generateWithConfig(
   cfg: LlmModelConfig,
@@ -239,31 +242,32 @@ async function generateWithConfig(
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
 
-  try {
-    const result = await generateText({
-      model: providerModel,
-      prompt,
-      ...extraOpts,
-    });
+  const semaphore = getLlmSemaphore(cfg.provider, cfg.maxConcurrent);
+  return semaphore.run(() =>
+    withLlmRetry(async () => {
+      const result = await generateText({
+        model: providerModel,
+        prompt,
+        ...extraOpts,
+      });
 
-    if (!result.text || result.text.trim() === "") {
-      throw new LlmServiceError("LLM returned empty output", 502);
-    }
+      if (!result.text || result.text.trim() === "") {
+        throw new LlmServiceError("LLM returned empty output", 502);
+      }
 
-    return {
-      text: result.text.trim(),
-      usageRaw: result.usage,
-    };
-  } catch (error) {
-    const quotaError = asQuotaError(error, cfg.provider);
-    if (quotaError) throw quotaError;
-    throw error;
-  }
+      return {
+        text: result.text.trim(),
+        usageRaw: result.usage,
+      };
+    }, { provider: cfg.provider }),
+  );
 }
 
 /**
  * Stream text using the DB-driven model config.
- * Replaces the old provider-specific streamWithProvider().
+ * Wrapped with per-provider semaphore (concurrency limit).
+ * No retry for streaming — rate limit errors are returned before tokens flow,
+ * and mid-stream errors are not safely retryable.
  */
 async function streamWithConfig(
   cfg: LlmModelConfig,
@@ -273,34 +277,37 @@ async function streamWithConfig(
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
 
-  try {
-    const result = streamText({
-      model: providerModel,
-      prompt,
-      ...extraOpts,
-    });
+  const semaphore = getLlmSemaphore(cfg.provider, cfg.maxConcurrent);
+  return semaphore.run(async () => {
+    try {
+      const result = streamText({
+        model: providerModel,
+        prompt,
+        ...extraOpts,
+      });
 
-    let fullText = "";
-    for await (const chunk of result.textStream) {
-      fullText += chunk;
-      onToken(chunk);
+      let fullText = "";
+      for await (const chunk of result.textStream) {
+        fullText += chunk;
+        onToken(chunk);
+      }
+
+      const finalResult = await result;
+
+      if (fullText.trim() === "") {
+        throw new LlmServiceError("LLM returned empty output", 502);
+      }
+
+      return {
+        text: fullText.trim(),
+        usageRaw: finalResult.usage,
+      };
+    } catch (error) {
+      const quotaError = asQuotaError(error, cfg.provider);
+      if (quotaError) throw quotaError;
+      throw error;
     }
-
-    const finalResult = await result;
-
-    if (fullText.trim() === "") {
-      throw new LlmServiceError("LLM returned empty output", 502);
-    }
-
-    return {
-      text: fullText.trim(),
-      usageRaw: finalResult.usage,
-    };
-  } catch (error) {
-    const quotaError = asQuotaError(error, cfg.provider);
-    if (quotaError) throw quotaError;
-    throw error;
-  }
+  });
 }
 
 export function listLlmModels(): LlmModelDefinition[] {

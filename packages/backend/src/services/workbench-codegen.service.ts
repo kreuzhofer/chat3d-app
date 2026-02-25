@@ -9,6 +9,8 @@
 
 import { generateText } from "ai";
 import { asQuotaError } from "../utils/llm-errors.js";
+import { getLlmSemaphore } from "../utils/resource-limits.js";
+import { withLlmRetry } from "../utils/llm-retry.js";
 import { createLogger } from "../utils/logger.js";
 import { pool } from "../db/connection.js";
 import {
@@ -390,36 +392,44 @@ root_part = part.part
 
   const extraOpts = modelConfig ? buildGenerateOptions(modelConfig) : {};
 
-  // Combine per-call timeout with optional pipeline-level signal
-  const callController = new AbortController();
-  const callTimeout = setTimeout(() => callController.abort(), LLM_CALL_TIMEOUT_MS);
+  // Wrap with per-provider semaphore + rate limit retry
+  const doGenerate = () =>
+    withLlmRetry(async () => {
+      // Combine per-call timeout with optional pipeline-level signal
+      const callController = new AbortController();
+      const callTimeout = setTimeout(() => callController.abort(), LLM_CALL_TIMEOUT_MS);
 
-  // If the pipeline-level signal fires, abort this call too
-  const onPipelineAbort = () => callController.abort();
-  pipelineSignal?.addEventListener("abort", onPipelineAbort, { once: true });
+      // If the pipeline-level signal fires, abort this call too
+      const onPipelineAbort = () => callController.abort();
+      pipelineSignal?.addEventListener("abort", onPipelineAbort, { once: true });
 
-  let result;
-  try {
-    result = await generateText({
-      model: providerModel,
-      prompt,
-      abortSignal: callController.signal,
-      ...extraOpts,
-    });
-  } catch (error) {
-    if (callController.signal.aborted) {
-      const reason = pipelineSignal?.aborted
-        ? `Pipeline timeout (${PIPELINE_TIMEOUT_MS / 1000}s)`
-        : `LLM call timeout (${LLM_CALL_TIMEOUT_MS / 1000}s)`;
-      throw new Error(reason);
-    }
-    const quotaError = asQuotaError(error, modelConfig?.provider);
-    if (quotaError) throw quotaError;
-    throw error;
-  } finally {
-    clearTimeout(callTimeout);
-    pipelineSignal?.removeEventListener("abort", onPipelineAbort);
-  }
+      try {
+        return await generateText({
+          model: providerModel,
+          prompt,
+          abortSignal: callController.signal,
+          ...extraOpts,
+        });
+      } catch (error) {
+        if (callController.signal.aborted) {
+          const reason = pipelineSignal?.aborted
+            ? `Pipeline timeout (${PIPELINE_TIMEOUT_MS / 1000}s)`
+            : `LLM call timeout (${LLM_CALL_TIMEOUT_MS / 1000}s)`;
+          throw new Error(reason);
+        }
+        throw error;
+      } finally {
+        clearTimeout(callTimeout);
+        pipelineSignal?.removeEventListener("abort", onPipelineAbort);
+      }
+    }, { provider: modelConfig?.provider });
+
+  const semaphore = modelConfig
+    ? getLlmSemaphore(modelConfig.provider, modelConfig.maxConcurrent)
+    : null;
+  const result = semaphore
+    ? await semaphore.run(doGenerate)
+    : await doGenerate();
 
   if (!result.text || result.text.trim() === "") {
     throw new Error("LLM returned empty output");

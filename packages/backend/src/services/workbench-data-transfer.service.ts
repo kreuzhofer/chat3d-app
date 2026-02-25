@@ -222,11 +222,11 @@ async function runExport(job: TransferJob): Promise<void> {
       updated_at: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at),
     }));
 
-    // 2. Query prompts (cast embedding to float[] for JSON serialization)
+    // 2. Query prompts (cast embedding to text for JSON serialization — pgvector can't cast to float[])
     job.progress = { phase: "querying prompts", detail: `${categories.length} categories found` };
     const promptResult = await pool.query(
       `SELECT id, category_id, index, prompt,
-              embedding::float[] AS embedding, embedding_model,
+              embedding::text AS embedding, embedding_model,
               created_at
        FROM workbench_example_prompts
        ORDER BY category_id, index ASC`,
@@ -236,7 +236,7 @@ async function runExport(job: TransferJob): Promise<void> {
       category_id: r.category_id,
       index: r.index,
       prompt: r.prompt,
-      embedding: r.embedding ?? null,
+      embedding: r.embedding ? JSON.parse(r.embedding) : null,
       embedding_model: r.embedding_model ?? null,
       created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     }));

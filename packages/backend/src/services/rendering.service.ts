@@ -1,5 +1,6 @@
 import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
+import { build123dSemaphore } from "../utils/resource-limits.js";
 
 const logger = createLogger("render");
 
@@ -36,10 +37,13 @@ function mockRenderedFiles(baseFileName: string): RenderedFile[] {
   ];
 }
 
-export async function renderBuild123d(input: {
-  code: string;
-  baseFileName: string;
-}): Promise<Build123dRenderResult> {
+export async function renderBuild123d(
+  input: {
+    code: string;
+    baseFileName: string;
+  },
+  opts?: { onQueuePositionChange?: (position: number, total: number) => void },
+): Promise<Build123dRenderResult> {
   if (config.query.renderMode === "mock") {
     logger.info({ baseFileName: input.baseFileName }, "mock mode, returning mock files");
     return {
@@ -48,6 +52,16 @@ export async function renderBuild123d(input: {
     };
   }
 
+  return build123dSemaphore.run(
+    () => _renderBuild123dInner(input),
+    { onQueuePositionChange: opts?.onQueuePositionChange },
+  );
+}
+
+async function _renderBuild123dInner(input: {
+  code: string;
+  baseFileName: string;
+}): Promise<Build123dRenderResult> {
   const url = `${config.query.build123dUrl.replace(/\/$/, "")}/render/`;
   const payload = {
     code: input.code,

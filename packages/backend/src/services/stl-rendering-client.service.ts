@@ -1,5 +1,6 @@
 import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
+import { screenshotSemaphore } from "../utils/resource-limits.js";
 
 const logger = createLogger("stl-render");
 
@@ -39,29 +40,21 @@ export class StlRenderingError extends Error {
 const MOCK_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
-/** Resolve the screenshot service URL based on the configured provider. */
-function resolveScreenshotUrl(): { url: string; provider: string } {
-  const provider = config.screenshotService.provider;
-  if (provider === "build123d") {
-    return {
-      url: `${config.query.build123dUrl.replace(/\/$/, "")}/render-screenshots/`,
-      provider,
-    };
-  }
-  // Default: stl-rendering-service
-  return {
-    url: `${config.stlRenderingService.url.replace(/\/$/, "")}/render`,
-    provider,
-  };
+/** Resolve the screenshot service URL. */
+function resolveScreenshotUrl(): string {
+  return `${config.screenshotService.url.replace(/\/$/, "")}/render-screenshots/`;
 }
 
-export async function renderModelScreenshots(input: {
-  modelData: string;
-  format: ModelFormat;
-  width?: number;
-  height?: number;
-  angles?: ViewingAngle[];
-}): Promise<StlRenderResult> {
+export async function renderModelScreenshots(
+  input: {
+    modelData: string;
+    format: ModelFormat;
+    width?: number;
+    height?: number;
+    angles?: ViewingAngle[];
+  },
+  opts?: { onQueuePositionChange?: (position: number, total: number) => void },
+): Promise<StlRenderResult> {
   const angles = input.angles ?? ["front", "top", "isometric"];
 
   if (config.query.renderMode === "mock") {
@@ -71,10 +64,26 @@ export async function renderModelScreenshots(input: {
     };
   }
 
-  const { url, provider } = resolveScreenshotUrl();
+  return screenshotSemaphore.run(
+    () => _renderModelScreenshotsInner(input, angles),
+    { onQueuePositionChange: opts?.onQueuePositionChange },
+  );
+}
+
+async function _renderModelScreenshotsInner(
+  input: {
+    modelData: string;
+    format: ModelFormat;
+    width?: number;
+    height?: number;
+    angles?: ViewingAngle[];
+  },
+  angles: ViewingAngle[],
+): Promise<StlRenderResult> {
+  const url = resolveScreenshotUrl();
 
   logger.info(
-    { url, provider, format: input.format, dataLength: input.modelData.length, angles },
+    { url, format: input.format, dataLength: input.modelData.length, angles },
     "POST to screenshot service",
   );
 

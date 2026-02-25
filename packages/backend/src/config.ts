@@ -183,13 +183,19 @@ export const config = {
     ollamaBaseUrl: readEnv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
     ollamaToken: process.env.OLLAMA_TOKEN ?? "",
   },
-  stlRenderingService: {
-    url: readEnv("STL_RENDERING_SERVICE_URL", "http://stl-rendering-service:3002"),
-  },
   screenshotService: {
-    provider: readEnv("SCREENSHOT_SERVICE_PROVIDER", "stl-rendering-service") as
-      | "stl-rendering-service"
-      | "build123d",
+    url: readEnv("SCREENSHOT_SERVICE_URL", "http://screenshot-service:80"),
+  },
+  concurrency: {
+    build123dMaxConcurrent: readNumber("BUILD123D_MAX_CONCURRENT", "2"),
+    build123dQueueTimeoutMs: readNumber("BUILD123D_QUEUE_TIMEOUT_MS", "180000"),
+    screenshotMaxConcurrent: readNumber("SCREENSHOT_MAX_CONCURRENT", "2"),
+    screenshotQueueTimeoutMs: readNumber("SCREENSHOT_QUEUE_TIMEOUT_MS", "60000"),
+    llmMaxConcurrent: readNumber("LLM_MAX_CONCURRENT", "5"),
+    llmQueueTimeoutMs: readNumber("LLM_QUEUE_TIMEOUT_MS", "120000"),
+    llmRetryMaxAttempts: readNumber("LLM_RETRY_MAX_ATTEMPTS", "3"),
+    llmRetryBaseDelayMs: readNumber("LLM_RETRY_BASE_DELAY_MS", "2000"),
+    llmRetryMaxDelayMs: readNumber("LLM_RETRY_MAX_DELAY_MS", "60000"),
   },
   workbench: {
     dataDir: readEnv("WORKBENCH_DATA_DIR", "workbench"),

@@ -1,0 +1,8 @@
+fastapi[standard]==0.129.0
+pydantic==2.12.5
+# pyrender-based screenshot rendering (EGL offscreen)
+trimesh>=4.0
+pyrender>=0.1.45
+pyglet<2
+Pillow>=10.0
+PyOpenGL>=3.1
