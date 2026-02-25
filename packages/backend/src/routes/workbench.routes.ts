@@ -19,6 +19,13 @@ import {
 } from "../services/workbench-seeder.service.js";
 import { generateForPrompt, reRenderForExample } from "../services/workbench-codegen.service.js";
 import {
+  getGenerateJob,
+  getRunningJobForPrompt,
+  startGenerateJob,
+  startReRenderJob,
+  startRetryJob,
+} from "../services/workbench-generate-job.service.js";
+import {
   approveExample,
   deleteExample,
   deleteExamplesForCategory,
@@ -155,7 +162,7 @@ workbenchRouter.post("/system-prompts/:id/activate", async (req, res) => {
   }
 });
 
-// ── Generation ───────────────────────────────────────────────────────
+// ── Generation (async — fire-and-forget with polling) ────────────────
 
 workbenchRouter.post("/generate", async (req, res) => {
   try {
@@ -164,14 +171,33 @@ workbenchRouter.post("/generate", async (req, res) => {
       res.status(400).json({ error: "promptId is required" });
       return;
     }
-    const result = await generateForPrompt(promptId);
-    res.status(200).json(result);
+    // Prevent double-starts
+    const running = getRunningJobForPrompt(promptId);
+    if (running) {
+      res.status(202).json(running);
+      return;
+    }
+    const job = startGenerateJob(promptId);
+    res.status(202).json(job);
   } catch (error) {
     if (error instanceof WorkbenchSeederError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
     res.status(500).json({ error: "Generation failed", detail: String(error) });
+  }
+});
+
+workbenchRouter.get("/generate/jobs/:jobId", async (req, res) => {
+  try {
+    const job = getGenerateJob(req.params.jobId);
+    if (!job) {
+      res.status(404).json({ error: "Job not found" });
+      return;
+    }
+    res.status(200).json(job);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to get job status", detail: String(error) });
   }
 });
 
@@ -277,10 +303,15 @@ workbenchRouter.patch("/examples/:id/code", async (req, res) => {
 
 workbenchRouter.post("/examples/:id/retry", async (req, res) => {
   try {
-    // Look up the prompt_id for this example, then re-run generation
+    // Look up the prompt_id for this example, then start async re-generation
     const example = await getExample(req.params.id);
-    const result = await generateForPrompt(example.promptId);
-    res.status(200).json(result);
+    const running = getRunningJobForPrompt(example.promptId);
+    if (running) {
+      res.status(202).json(running);
+      return;
+    }
+    const job = startRetryJob(example.promptId);
+    res.status(202).json(job);
   } catch (error) {
     if (error instanceof WorkbenchSeederError) {
       res.status(error.statusCode).json({ error: error.message });
@@ -292,8 +323,14 @@ workbenchRouter.post("/examples/:id/retry", async (req, res) => {
 
 workbenchRouter.post("/examples/:id/re-render", async (req, res) => {
   try {
-    const result = await reRenderForExample(req.params.id);
-    res.status(200).json(result);
+    const example = await getExample(req.params.id);
+    const running = getRunningJobForPrompt(example.promptId);
+    if (running) {
+      res.status(202).json(running);
+      return;
+    }
+    const job = startReRenderJob(req.params.id, example.promptId);
+    res.status(202).json(job);
   } catch (error) {
     if (error instanceof WorkbenchSeederError) {
       res.status(error.statusCode).json({ error: error.message });

@@ -174,13 +174,68 @@ export function updatePromptText(token: string, promptId: string, prompt: string
   });
 }
 
-// ── Generation ───────────────────────────────────────────────────────
+// ── Generation (async job-based) ─────────────────────────────────────
 
-export function generateForPrompt(token: string, promptId: string): Promise<GenerateResult> {
-  return requestJson<GenerateResult>(token, "/generate", {
+export interface GenerateJobSummary {
+  jobId: string;
+  promptId: string;
+  type: "generate" | "retry" | "re-render";
+  status: "running" | "completed" | "failed";
+  error: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export interface GenerateJobDetail extends GenerateJobSummary {
+  result: GenerateResult | null;
+}
+
+/**
+ * Start a background generation job. Returns immediately with a job summary.
+ * Poll `getGenerateJobStatus()` to track progress.
+ */
+export function startGenerate(token: string, promptId: string): Promise<GenerateJobSummary> {
+  return requestJson<GenerateJobSummary>(token, "/generate", {
     method: "POST",
     body: JSON.stringify({ promptId }),
   });
+}
+
+/** Get the full status of a generation job, including the result when completed. */
+export function getGenerateJobStatus(token: string, jobId: string): Promise<GenerateJobDetail> {
+  return requestJson<GenerateJobDetail>(token, `/generate/jobs/${encodeURIComponent(jobId)}`, {
+    method: "GET",
+  });
+}
+
+/**
+ * High-level helper: start a generation job and poll until it completes.
+ * Returns the final GenerateResult on success, throws on failure.
+ */
+export async function generateForPrompt(token: string, promptId: string): Promise<GenerateResult> {
+  const job = await startGenerate(token, promptId);
+  return pollGenerateJob(token, job.jobId);
+}
+
+async function pollGenerateJob(token: string, jobId: string): Promise<GenerateResult> {
+  const POLL_INTERVAL = 3000;
+  const MAX_POLL_TIME = 30 * 60 * 1000; // 30 minutes
+  const start = Date.now();
+
+  while (Date.now() - start < MAX_POLL_TIME) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+    const detail = await getGenerateJobStatus(token, jobId);
+
+    if (detail.status === "completed" && detail.result) {
+      return detail.result;
+    }
+    if (detail.status === "failed") {
+      throw new Error(detail.error ?? "Generation job failed");
+    }
+    // Still running — continue polling
+  }
+
+  throw new Error("Generation timed out after 30 minutes");
 }
 
 // ── Batch Generation ────────────────────────────────────────────────
@@ -252,16 +307,18 @@ export function updateExampleCode(token: string, exampleId: string, code: string
   });
 }
 
-export function retryExample(token: string, exampleId: string): Promise<GenerateResult> {
-  return requestJson<GenerateResult>(token, `/examples/${encodeURIComponent(exampleId)}/retry`, {
+export async function retryExample(token: string, exampleId: string): Promise<GenerateResult> {
+  const job = await requestJson<GenerateJobSummary>(token, `/examples/${encodeURIComponent(exampleId)}/retry`, {
     method: "POST",
   });
+  return pollGenerateJob(token, job.jobId);
 }
 
-export function reRenderExample(token: string, exampleId: string): Promise<GenerateResult> {
-  return requestJson<GenerateResult>(token, `/examples/${encodeURIComponent(exampleId)}/re-render`, {
+export async function reRenderExample(token: string, exampleId: string): Promise<GenerateResult> {
+  const job = await requestJson<GenerateJobSummary>(token, `/examples/${encodeURIComponent(exampleId)}/re-render`, {
     method: "POST",
   });
+  return pollGenerateJob(token, job.jobId);
 }
 
 export function deleteExample(token: string, exampleId: string): Promise<{ ok: true }> {
