@@ -16,6 +16,7 @@ import path from "node:path";
 import { pool } from "../db/connection.js";
 import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
+import { readStorageFile, writeStorageFile } from "./file-storage.service.js";
 
 const logger = createLogger("data-transfer");
 
@@ -222,6 +223,51 @@ export function getExportFilePath(jobId: string): string | null {
   return job.filePath;
 }
 
+// ── Screenshot file helpers ──────────────────────────────────────────
+
+/**
+ * Resolve a screenshot column value for export.
+ * If the value is a file path (starts with "workbench/"), read the file
+ * from disk and return its base64 content so the export JSON is self-contained.
+ * If the value is already base64 (legacy) or null, return as-is.
+ */
+async function resolveScreenshotForExport(value: string | null | undefined): Promise<string | null> {
+  if (!value) return null;
+  if (value.startsWith("workbench/")) {
+    try {
+      const buffer = await readStorageFile({ relativePath: value });
+      return buffer.toString("base64");
+    } catch (err) {
+      logger.warn({ path: value, err }, "could not read screenshot file for export, skipping");
+      return null;
+    }
+  }
+  // Legacy base64 — pass through
+  return value;
+}
+
+/**
+ * Write a screenshot base64 string to disk during v2 import.
+ * Returns the relative file path stored in the DB column.
+ * If the base64 is null/empty, returns null (no file to write).
+ */
+async function writeScreenshotOnImport(
+  categoryId: string,
+  exampleId: string,
+  angle: string,
+  base64Value: string | null,
+): Promise<string | null> {
+  if (!base64Value) return null;
+  const relativePath = `workbench/${categoryId}/${exampleId}-screenshot-${angle}.png`;
+  try {
+    await writeStorageFile({ relativePath, contentBase64: base64Value });
+    return relativePath;
+  } catch (err) {
+    logger.warn({ relativePath, err }, "could not write screenshot file during import, storing base64 in DB");
+    return base64Value;
+  }
+}
+
 // ── Export logic ─────────────────────────────────────────────────────
 
 async function runExport(job: TransferJob): Promise<void> {
@@ -267,7 +313,7 @@ async function runExport(job: TransferJob): Promise<void> {
       created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     }));
 
-    // 3. Query examples (largest table — includes base64 screenshots)
+    // 3. Query examples (largest table)
     job.progress = { phase: "querying examples", detail: `${prompts.length} prompts found` };
     const exampleResult = await pool.query(
       `SELECT id, prompt_id, iteration, generation_seed, code,
@@ -281,33 +327,41 @@ async function runExport(job: TransferJob): Promise<void> {
        FROM workbench_examples
        ORDER BY prompt_id, iteration ASC`,
     );
-    const examples: ExportExample[] = exampleResult.rows.map((r) => ({
-      id: r.id,
-      prompt_id: r.prompt_id,
-      iteration: r.iteration,
-      generation_seed: r.generation_seed ?? null,
-      code: r.code,
-      render_status: r.render_status,
-      render_error: r.render_error ?? null,
-      stl_path: r.stl_path ?? null,
-      step_path: r.step_path ?? null,
-      threemf_path: r.threemf_path ?? null,
-      screenshot_front: r.screenshot_front ?? null,
-      screenshot_top: r.screenshot_top ?? null,
-      screenshot_iso: r.screenshot_iso ?? null,
-      screenshot_iso_back: r.screenshot_iso_back ?? null,
-      eval_score: r.eval_score ?? null,
-      eval_issues: r.eval_issues ?? null,
-      eval_suggestions: r.eval_suggestions ?? null,
-      approval_status: r.approval_status,
-      rejection_note: r.rejection_note ?? null,
-      llm_model: r.llm_model ?? null,
-      vlm_model: r.vlm_model ?? null,
-      prompt_tokens: r.prompt_tokens ?? null,
-      completion_tokens: r.completion_tokens ?? null,
-      created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
-      updated_at: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at),
-    }));
+
+    // Resolve screenshot values: if they are file paths (start with "workbench/"),
+    // read the file from disk and export as base64 so the export is self-contained.
+    job.progress = { phase: "resolving screenshot files", detail: `${exampleResult.rows.length} examples` };
+    const examples: ExportExample[] = [];
+    for (const r of exampleResult.rows) {
+      const ex: ExportExample = {
+        id: r.id,
+        prompt_id: r.prompt_id,
+        iteration: r.iteration,
+        generation_seed: r.generation_seed ?? null,
+        code: r.code,
+        render_status: r.render_status,
+        render_error: r.render_error ?? null,
+        stl_path: r.stl_path ?? null,
+        step_path: r.step_path ?? null,
+        threemf_path: r.threemf_path ?? null,
+        screenshot_front: await resolveScreenshotForExport(r.screenshot_front),
+        screenshot_top: await resolveScreenshotForExport(r.screenshot_top),
+        screenshot_iso: await resolveScreenshotForExport(r.screenshot_iso),
+        screenshot_iso_back: await resolveScreenshotForExport(r.screenshot_iso_back),
+        eval_score: r.eval_score ?? null,
+        eval_issues: r.eval_issues ?? null,
+        eval_suggestions: r.eval_suggestions ?? null,
+        approval_status: r.approval_status,
+        rejection_note: r.rejection_note ?? null,
+        llm_model: r.llm_model ?? null,
+        vlm_model: r.vlm_model ?? null,
+        prompt_tokens: r.prompt_tokens ?? null,
+        completion_tokens: r.completion_tokens ?? null,
+        created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+        updated_at: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at),
+      };
+      examples.push(ex);
+    }
 
     // 4. Query system prompts
     job.progress = { phase: "querying system prompts", detail: `${examples.length} examples found` };
@@ -328,7 +382,7 @@ async function runExport(job: TransferJob): Promise<void> {
     // 5. Build and write JSON
     job.progress = { phase: "writing file" };
     const exportData: WorkbenchExportData = {
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       categories,
       prompts,
@@ -378,9 +432,10 @@ async function runImport(job: TransferJob, filePath: string): Promise<void> {
     const data = JSON.parse(raw) as WorkbenchExportData;
 
     // 2. Validate structure
-    if (!data.version || data.version !== 1) {
+    if (!data.version || (data.version !== 1 && data.version !== 2)) {
       throw new Error(`Unsupported export version: ${data.version}`);
     }
+    const isV2 = data.version === 2;
     if (!Array.isArray(data.categories) || !Array.isArray(data.prompts) ||
         !Array.isArray(data.examples) || !Array.isArray(data.systemPrompts)) {
       throw new Error("Invalid export file: missing required arrays");
@@ -427,8 +482,29 @@ async function runImport(job: TransferJob, filePath: string): Promise<void> {
       }
 
       // Insert examples
+      // Build prompt→category lookup so we can construct file paths for v2 imports
+      const promptCategoryMap = new Map<string, string>();
+      for (const p of data.prompts) {
+        promptCategoryMap.set(p.id, p.category_id);
+      }
+
       job.progress = { phase: "inserting examples", detail: `${data.examples.length} rows` };
       for (const ex of data.examples) {
+        // For v2 imports: write screenshot base64 to disk and store file paths in DB.
+        // For v1 imports: insert base64 directly (legacy — user can run migrate:screenshots later).
+        let ssFront = ex.screenshot_front;
+        let ssTop = ex.screenshot_top;
+        let ssIso = ex.screenshot_iso;
+        let ssIsoBack = ex.screenshot_iso_back ?? null;
+
+        if (isV2 && promptCategoryMap.has(ex.prompt_id)) {
+          const categoryId = promptCategoryMap.get(ex.prompt_id)!;
+          ssFront = await writeScreenshotOnImport(categoryId, ex.id, "front", ssFront);
+          ssTop = await writeScreenshotOnImport(categoryId, ex.id, "top", ssTop);
+          ssIso = await writeScreenshotOnImport(categoryId, ex.id, "iso", ssIso);
+          ssIsoBack = await writeScreenshotOnImport(categoryId, ex.id, "iso-back", ssIsoBack);
+        }
+
         await client.query(
           `INSERT INTO workbench_examples (
             id, prompt_id, iteration, generation_seed, code,
@@ -453,7 +529,7 @@ async function runImport(job: TransferJob, filePath: string): Promise<void> {
             ex.id, ex.prompt_id, ex.iteration, ex.generation_seed, ex.code,
             ex.render_status, ex.render_error,
             ex.stl_path, ex.step_path, ex.threemf_path,
-            ex.screenshot_front, ex.screenshot_top, ex.screenshot_iso, ex.screenshot_iso_back ?? null,
+            ssFront, ssTop, ssIso, ssIsoBack,
             ex.eval_score,
             ex.eval_issues ? JSON.stringify(ex.eval_issues) : null,
             ex.eval_suggestions ? JSON.stringify(ex.eval_suggestions) : null,

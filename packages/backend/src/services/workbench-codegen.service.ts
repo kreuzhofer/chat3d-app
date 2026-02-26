@@ -39,6 +39,8 @@ import {
   type ClassifiedRenderError,
   type RenderErrorContext,
 } from "../utils/render-errors.js";
+import { writeStorageFile } from "./file-storage.service.js";
+import crypto from "node:crypto";
 
 export const MAX_FIX_ITERATIONS = 5;
 export const AUTO_APPROVE_THRESHOLD = 8;
@@ -312,6 +314,7 @@ async function loadPromptContext(promptId: string): Promise<PromptContext> {
 // ── DB persistence ───────────────────────────────────────────────────
 
 async function insertExample(data: {
+  id: string;
   promptId: string;
   iteration: number;
   code: string;
@@ -319,6 +322,7 @@ async function insertExample(data: {
   renderError: string | null;
   stlPath: string | null;
   stepPath: string | null;
+  threemfPath: string | null;
   screenshotFront: string | null;
   screenshotTop: string | null;
   screenshotIso: string | null;
@@ -335,15 +339,16 @@ async function insertExample(data: {
 }): Promise<string> {
   const result = await pool.query<{ id: string }>(
     `INSERT INTO workbench_examples (
-       prompt_id, iteration, code, render_status, render_error,
-       stl_path, step_path,
+       id, prompt_id, iteration, code, render_status, render_error,
+       stl_path, step_path, threemf_path,
        screenshot_front, screenshot_top, screenshot_iso, screenshot_iso_back,
        eval_score, eval_issues, eval_suggestions,
        approval_status, rejection_note, llm_model, vlm_model,
        prompt_tokens, completion_tokens
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
      RETURNING id`,
     [
+      data.id,
       data.promptId,
       data.iteration,
       data.code,
@@ -351,6 +356,7 @@ async function insertExample(data: {
       data.renderError,
       data.stlPath,
       data.stepPath,
+      data.threemfPath,
       data.screenshotFront,
       data.screenshotTop,
       data.screenshotIso,
@@ -482,6 +488,83 @@ function findFileByExtension(files: RenderedFile[], ext: string): RenderedFile |
   return files.find((f) => f.filename.toLowerCase().endsWith(ext));
 }
 
+function mapExtension(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".stl")) return "stl";
+  if (lower.endsWith(".step") || lower.endsWith(".stp")) return "step";
+  if (lower.endsWith(".3mf")) return "3mf";
+  if (lower.endsWith(".b123d")) return "b123d";
+  return "bin";
+}
+
+/**
+ * Persist rendered files and screenshots to domain-scoped storage.
+ * Returns the relative paths stored in the workbench directory.
+ */
+async function persistWorkbenchFiles(opts: {
+  categoryId: string;
+  exampleId: string;
+  renderedFiles: RenderedFile[];
+  code: string;
+  screenshots: RenderedScreenshot[];
+}): Promise<{
+  stlPath: string | null;
+  stepPath: string | null;
+  threemfPath: string | null;
+  screenshotFrontPath: string | null;
+  screenshotTopPath: string | null;
+  screenshotIsoPath: string | null;
+  screenshotIsoBackPath: string | null;
+}> {
+  const prefix = `workbench/${opts.categoryId}/${opts.exampleId}`;
+
+  // Persist rendered 3D files
+  let stlPath: string | null = null;
+  let stepPath: string | null = null;
+  let threemfPath: string | null = null;
+
+  for (const file of opts.renderedFiles) {
+    const ext = mapExtension(file.filename);
+    const relativePath = `${prefix}.${ext}`;
+    await writeStorageFile({ relativePath, contentBase64: file.contentBase64 });
+    if (ext === "stl") stlPath = relativePath;
+    else if (ext === "step") stepPath = relativePath;
+    else if (ext === "3mf") threemfPath = relativePath;
+  }
+
+  // Persist code as .b123d
+  if (opts.code.trim()) {
+    await writeStorageFile({
+      relativePath: `${prefix}.b123d`,
+      contentBase64: Buffer.from(opts.code, "utf-8").toString("base64"),
+    });
+  }
+
+  // Persist screenshots
+  const angleMap: Record<string, "front" | "top" | "isometric" | "isometric_back"> = {
+    front: "front",
+    top: "top",
+    isometric: "isometric",
+    isometric_back: "isometric_back",
+  };
+
+  let screenshotFrontPath: string | null = null;
+  let screenshotTopPath: string | null = null;
+  let screenshotIsoPath: string | null = null;
+  let screenshotIsoBackPath: string | null = null;
+
+  for (const ss of opts.screenshots) {
+    const ssPath = `${prefix}-screenshot-${ss.angle}.png`;
+    await writeStorageFile({ relativePath: ssPath, contentBase64: ss.base64 });
+    if (ss.angle === "front") screenshotFrontPath = ssPath;
+    else if (ss.angle === "top") screenshotTopPath = ssPath;
+    else if (ss.angle === "isometric") screenshotIsoPath = ssPath;
+    else if (ss.angle === "isometric_back") screenshotIsoBackPath = ssPath;
+  }
+
+  return { stlPath, stepPath, threemfPath, screenshotFrontPath, screenshotTopPath, screenshotIsoPath, screenshotIsoBackPath };
+}
+
 // ── Main pipeline ────────────────────────────────────────────────────
 
 export async function generateForPrompt(promptId: string): Promise<GenerateResult> {
@@ -511,7 +594,9 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
   const validation = await validatePrompt(ctx.prompt);
   if (!validation.valid) {
     logger.info({ reason: validation.reason }, "prompt rejected by validation");
-    const exampleId = await insertExample({
+    const exampleId = crypto.randomUUID();
+    await insertExample({
+      id: exampleId,
       promptId: ctx.promptId,
       iteration: 0,
       code: "-- PROMPT VALIDATION REJECTED --",
@@ -519,6 +604,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       renderError: `Prompt validation failed: ${validation.reason}`,
       stlPath: null,
       stepPath: null,
+      threemfPath: null,
       screenshotFront: null,
       screenshotTop: null,
       screenshotIso: null,
@@ -574,8 +660,6 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     code: string;
     score: number;
     evalResult: EvaluationResult | null;
-    stlFilename: string | null;
-    stepFilename: string | null;
     screenshots: RenderedScreenshot[];
     iteration: number;
     promptTokens: number;
@@ -656,7 +740,9 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
 
       // If this is the last iteration, persist the failure and return
       if (iteration >= MAX_FIX_ITERATIONS) {
-        const exampleId = await insertExample({
+        const exampleId = crypto.randomUUID();
+        await insertExample({
+          id: exampleId,
           promptId: ctx.promptId,
           iteration,
           code: currentCode,
@@ -664,6 +750,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
           renderError,
           stlPath: null,
           stepPath: null,
+          threemfPath: null,
           screenshotFront: null,
           screenshotTop: null,
           screenshotIso: null,
@@ -738,8 +825,6 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       logger.warn("skipping VLM evaluation, no screenshots");
     }
 
-    const stepFile = findFileByExtension(renderedFiles, ".step") ?? findFileByExtension(renderedFiles, ".stp");
-
     // 5b. If screenshots failed due to a service issue (not a code issue), persist
     // the render-successful result and stop. Retrying with AI regeneration is pointless
     // because the code rendered fine — only the screenshot service is down.
@@ -749,14 +834,26 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         "screenshot service failed — persisting render result without eval (no AI retry)",
       );
 
-      const exampleId = await insertExample({
+      const exampleId = crypto.randomUUID();
+      // Persist rendered files to disk (no screenshots since service failed)
+      const filePaths = await persistWorkbenchFiles({
+        categoryId: ctx.categoryId,
+        exampleId,
+        renderedFiles,
+        code: currentCode,
+        screenshots: [],
+      });
+
+      await insertExample({
+        id: exampleId,
         promptId: ctx.promptId,
         iteration,
         code: currentCode,
         renderStatus: "success",
         renderError: null,
-        stlPath: stlFile?.filename ?? null,
-        stepPath: stepFile?.filename ?? null,
+        stlPath: filePaths.stlPath,
+        stepPath: filePaths.stepPath,
+        threemfPath: filePaths.threemfPath,
         screenshotFront: null,
         screenshotTop: null,
         screenshotIso: null,
@@ -799,8 +896,6 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         code: currentCode,
         score,
         evalResult,
-        stlFilename: stlFile?.filename ?? null,
-        stepFilename: stepFile?.filename ?? null,
         screenshots: [...screenshots],
         iteration,
         promptTokens: totalPromptTokens,
@@ -819,8 +914,6 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         code: currentCode,
         score,
         evalResult,
-        stlFilename: stlFile?.filename ?? null,
-        stepFilename: stepFile?.filename ?? null,
         screenshots,
         iteration,
         promptTokens: totalPromptTokens,
@@ -829,18 +922,30 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       const finalScore = final.score;
       const finalApproved = finalScore !== null && finalScore >= AUTO_APPROVE_THRESHOLD;
 
-      const exampleId = await insertExample({
+      const exampleId = crypto.randomUUID();
+      // Persist rendered files and screenshots to disk
+      const filePaths = await persistWorkbenchFiles({
+        categoryId: ctx.categoryId,
+        exampleId,
+        renderedFiles,
+        code: final.code,
+        screenshots: final.screenshots,
+      });
+
+      await insertExample({
+        id: exampleId,
         promptId: ctx.promptId,
         iteration: final.iteration,
         code: final.code,
         renderStatus: "success",
         renderError: null,
-        stlPath: final.stlFilename,
-        stepPath: final.stepFilename,
-        screenshotFront: findScreenshot(final.screenshots, "front"),
-        screenshotTop: findScreenshot(final.screenshots, "top"),
-        screenshotIso: findScreenshot(final.screenshots, "isometric"),
-        screenshotIsoBack: findScreenshot(final.screenshots, "isometric_back"),
+        stlPath: filePaths.stlPath,
+        stepPath: filePaths.stepPath,
+        threemfPath: filePaths.threemfPath,
+        screenshotFront: filePaths.screenshotFrontPath,
+        screenshotTop: filePaths.screenshotTopPath,
+        screenshotIso: filePaths.screenshotIsoPath,
+        screenshotIsoBack: filePaths.screenshotIsoBackPath,
         evalScore: finalScore,
         evalIssues: final.evalResult?.issues ?? null,
         evalSuggestions: final.evalResult?.suggestions ?? null,
@@ -926,7 +1031,9 @@ export async function reRenderForExample(exampleId: string): Promise<GenerateRes
     logger.warn({ exampleId, renderError }, "re-render failed — stopping (no AI retry)");
 
     // Persist failure as a new example and return immediately
-    const failedExampleId = await insertExample({
+    const failedExampleId = crypto.randomUUID();
+    await insertExample({
+      id: failedExampleId,
       promptId: ctx.promptId,
       iteration: 0,
       code,
@@ -934,6 +1041,7 @@ export async function reRenderForExample(exampleId: string): Promise<GenerateRes
       renderError,
       stlPath: null,
       stepPath: null,
+      threemfPath: null,
       screenshotFront: null,
       screenshotTop: null,
       screenshotIso: null,
@@ -1005,23 +1113,33 @@ export async function reRenderForExample(exampleId: string): Promise<GenerateRes
     logger.warn("skipping VLM evaluation, no screenshots (re-render)");
   }
 
-  // 5. Persist as new example
-  const stepFile = findFileByExtension(renderedFiles, ".step") ?? findFileByExtension(renderedFiles, ".stp");
+  // 5. Persist files to disk and create new example
   const score = evalResult?.score ?? null;
   const approved = score !== null && score >= AUTO_APPROVE_THRESHOLD;
 
-  const newExampleId = await insertExample({
+  const newExampleId = crypto.randomUUID();
+  const filePaths = await persistWorkbenchFiles({
+    categoryId: ctx.categoryId,
+    exampleId: newExampleId,
+    renderedFiles,
+    code,
+    screenshots,
+  });
+
+  await insertExample({
+    id: newExampleId,
     promptId: ctx.promptId,
     iteration: 0,
     code,
     renderStatus: "success",
     renderError: null,
-    stlPath: stlFile?.filename ?? null,
-    stepPath: stepFile?.filename ?? null,
-    screenshotFront: findScreenshot(screenshots, "front"),
-    screenshotTop: findScreenshot(screenshots, "top"),
-    screenshotIso: findScreenshot(screenshots, "isometric"),
-    screenshotIsoBack: findScreenshot(screenshots, "isometric_back"),
+    stlPath: filePaths.stlPath,
+    stepPath: filePaths.stepPath,
+    threemfPath: filePaths.threemfPath,
+    screenshotFront: filePaths.screenshotFrontPath,
+    screenshotTop: filePaths.screenshotTopPath,
+    screenshotIso: filePaths.screenshotIsoPath,
+    screenshotIsoBack: filePaths.screenshotIsoBackPath,
     evalScore: score,
     evalIssues: evalResult?.issues ?? null,
     evalSuggestions: evalResult?.suggestions ?? null,

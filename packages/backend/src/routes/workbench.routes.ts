@@ -7,6 +7,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
+import { FileStorageError, readStorageFile } from "../services/file-storage.service.js";
 import {
   activateSystemPrompt,
   getActiveSystemPrompt,
@@ -42,6 +43,7 @@ import {
   getRunningJobs,
   listJobs,
   startBatchJob,
+  startBatchReRender,
   startSingleJob,
 } from "../services/workbench-batch.service.js";
 import {
@@ -234,17 +236,31 @@ workbenchRouter.get("/examples/:id/screenshot/:angle", async (req, res) => {
       iso_back: "screenshotIsoBack",
     };
     const column = columnMap[angle] ?? "screenshotFront";
-    const base64 = example[column as keyof typeof example] as string | null;
-    if (!base64) {
+    const screenshotValue = example[column as keyof typeof example] as string | null;
+    if (!screenshotValue) {
       res.status(404).json({ error: "No screenshot available" });
       return;
     }
-    const buffer = Buffer.from(base64, "base64");
+
+    // Column may contain a file path (new format) or base64 (legacy pre-migration)
+    let buffer: Buffer;
+    if (screenshotValue.startsWith("workbench/")) {
+      // File path — read from storage
+      buffer = await readStorageFile({ relativePath: screenshotValue });
+    } else {
+      // Legacy base64 (pre-migration data)
+      buffer = Buffer.from(screenshotValue, "base64");
+    }
+
     res.setHeader("Content-Type", "image/png");
     res.setHeader("Cache-Control", "public, max-age=3600");
     res.status(200).send(buffer);
   } catch (error) {
     if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    if (error instanceof FileStorageError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -350,6 +366,29 @@ workbenchRouter.post("/generate/batch", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "Batch generation failed", detail: String(error) });
+  }
+});
+
+workbenchRouter.post("/re-render/batch", async (req, res) => {
+  try {
+    const { categoryId } = req.body as { categoryId?: string };
+    if (!categoryId || typeof categoryId !== "string") {
+      res.status(400).json({ error: "categoryId is required" });
+      return;
+    }
+    const job = await startBatchReRender(categoryId);
+    res.status(202).json(job);
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (statusCode && statusCode >= 400 && statusCode < 600) {
+      res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    res.status(500).json({ error: "Batch re-render failed", detail: String(error) });
   }
 });
 

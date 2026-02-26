@@ -19,7 +19,7 @@ const logger = createLogger("workbench-batch");
 
 // ── Types ────────────────────────────────────────────────────────────
 
-export type JobType = "batch" | "generate" | "retry" | "re-render";
+export type JobType = "batch" | "batch-re-render" | "generate" | "retry" | "re-render";
 
 export interface BatchJob {
   jobId: string;
@@ -101,7 +101,7 @@ function evictStaleJobs(): void {
  */
 export function getRunningJobForCategory(categoryId: string): BatchJobSummary | null {
   for (const job of jobs.values()) {
-    if (job.categoryId === categoryId && job.status === "running" && job.type === "batch") {
+    if (job.categoryId === categoryId && job.status === "running" && (job.type === "batch" || job.type === "batch-re-render")) {
       return toSummary(job);
     }
   }
@@ -227,6 +227,83 @@ export async function startBatchJob(
 
   // Run in background — don't await
   void runBatchJob(job, promptsToProcess);
+
+  return toSummary(job);
+}
+
+/**
+ * Start a batch re-render job for a category.
+ * Re-renders all examples that have code and a successful render, using
+ * the existing `reRenderForExample()` pipeline (no AI, no token cost).
+ * Useful for backfilling files after a storage migration.
+ */
+export async function startBatchReRender(categoryId: string): Promise<BatchJobSummary> {
+  // Prevent double-starts (reuse same guard as batch generate)
+  const existing = getRunningJobForCategory(categoryId);
+  if (existing) {
+    const err = new Error("A batch job is already running for this category");
+    (err as Error & { statusCode: number }).statusCode = 409;
+    throw err;
+  }
+
+  // Verify category exists
+  const catResult = await pool.query<{ name: string }>(
+    `SELECT name FROM workbench_categories WHERE id = $1`,
+    [categoryId],
+  );
+  if (catResult.rows.length === 0) {
+    throw new Error("Category not found");
+  }
+  const categoryName = catResult.rows[0].name;
+
+  // Fetch all examples with renderable code in this category
+  const exampleResult = await pool.query<{ id: string; prompt_id: string; prompt_text: string }>(
+    `SELECT e.id, e.prompt_id, p.prompt AS prompt_text
+     FROM workbench_examples e
+     JOIN workbench_example_prompts p ON p.id = e.prompt_id
+     WHERE p.category_id = $1
+       AND e.code IS NOT NULL
+       AND e.code != ''
+       AND e.render_status = 'success'
+     ORDER BY p.index ASC, e.iteration ASC`,
+    [categoryId],
+  );
+
+  const examples = exampleResult.rows;
+  if (examples.length === 0) {
+    throw new Error("No renderable examples found for this category");
+  }
+
+  const jobId = generateJobId("batch-re-render");
+  const job: BatchJob = {
+    jobId,
+    type: "batch-re-render",
+    categoryId,
+    categoryName,
+    status: "running",
+    total: examples.length,
+    completed: 0,
+    failed: 0,
+    skipped: 0,
+    currentPromptId: null,
+    currentPromptText: null,
+    exampleId: null,
+    results: [],
+    error: null,
+    createdAt: new Date().toISOString(),
+    finishedAt: null,
+    pendingPromptIds: new Set(),
+  };
+
+  jobs.set(jobId, job);
+
+  // Run in background — don't await
+  void runBatchReRender(job, examples);
+
+  logger.info(
+    { jobId, categoryId, total: examples.length },
+    "batch re-render started",
+  );
 
   return toSummary(job);
 }
@@ -555,4 +632,63 @@ async function runSingleJob(
       "single-prompt job finished",
     );
   }
+}
+
+async function runBatchReRender(
+  job: BatchJob,
+  examples: Array<{ id: string; prompt_id: string; prompt_text: string }>,
+): Promise<void> {
+  for (const example of examples) {
+    // Check for cancellation before starting next example
+    if (job.status === "cancelled") {
+      break;
+    }
+
+    job.currentPromptId = example.prompt_id;
+    job.currentPromptText = example.prompt_text;
+    job.exampleId = example.id;
+
+    try {
+      const result = await reRenderForExample(example.id);
+
+      job.completed += 1;
+      job.results.push({
+        promptId: example.prompt_id,
+        promptText: example.prompt_text,
+        status: result.approvalStatus === "rejected" ? "rejected" : "success",
+        exampleId: result.exampleId,
+        evalScore: result.evalScore,
+        approvalStatus: result.approvalStatus,
+        error: result.renderError ?? null,
+      });
+    } catch (error) {
+      job.failed += 1;
+      job.results.push({
+        promptId: example.prompt_id,
+        promptText: example.prompt_text,
+        status: "error",
+        exampleId: null,
+        evalScore: null,
+        approvalStatus: null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      logger.error(
+        { err: error, exampleId: example.id },
+        "batch re-render failed for example",
+      );
+    }
+  }
+
+  job.currentPromptId = null;
+  job.currentPromptText = null;
+  job.exampleId = null;
+  if (job.status === "running") {
+    job.status = "completed";
+  }
+  job.finishedAt = new Date().toISOString();
+
+  logger.info(
+    { jobId: job.jobId, status: job.status, completed: job.completed, failed: job.failed },
+    "batch re-render finished",
+  );
 }

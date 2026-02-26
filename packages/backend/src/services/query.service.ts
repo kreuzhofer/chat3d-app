@@ -6,7 +6,7 @@ import { query } from "../db/connection.js";
 import { notificationService } from "./notification.service.js";
 import { sseService } from "./sse.service.js";
 import { createChatItem, updateChatItem, ChatError } from "./chat.service.js";
-import { FileStorageError, readUserFile, writeUserFile } from "./file-storage.service.js";
+import { FileStorageError, readStorageFile, writeStorageFile } from "./file-storage.service.js";
 import {
   generateConversationText,
   generateConversationTextStream,
@@ -367,12 +367,9 @@ function formatAttachmentContext(attachments: QueryAttachmentInput[]): string {
   return `\n\nAttached user files:\n${lines.join("\n")}`;
 }
 
-async function assertAttachmentsAccessible(userId: string, attachments: QueryAttachmentInput[]) {
+async function assertAttachmentsAccessible(_userId: string, attachments: QueryAttachmentInput[]) {
   for (const attachment of attachments) {
-    await readUserFile({
-      userId,
-      relativePath: attachment.path,
-    });
+    await readStorageFile({ relativePath: attachment.path });
   }
 }
 
@@ -869,8 +866,8 @@ export async function executeQueryPipeline(input: {
       const epIterFiles: Array<{ path: string; filename: string }> = [];
       for (const file of epRenderedFiles) {
         const ext = mapExtension(file.filename);
-        const rp = `modelcreator/${assistantItemId}.${ext}`;
-        await writeUserFile({ userId: input.userId, relativePath: rp, contentBase64: file.contentBase64 });
+        const rp = `chat/${input.contextId}/${assistantItemId}.${ext}`;
+        await writeStorageFile({ relativePath: rp, contentBase64: file.contentBase64 });
         epIterFiles.push({ path: rp, filename: file.filename });
       }
 
@@ -895,17 +892,17 @@ export async function executeQueryPipeline(input: {
 
     // Save the best code as .b123d file for future workbench routing
     if (epFinalCode?.trim()) {
-      const codeRelPath = `modelcreator/${assistantItemId}.b123d`;
-      await writeUserFile({ userId: input.userId, relativePath: codeRelPath, contentBase64: Buffer.from(epFinalCode, "utf-8").toString("base64") });
+      const codeRelPath = `chat/${input.contextId}/${assistantItemId}.b123d`;
+      await writeStorageFile({ relativePath: codeRelPath, contentBase64: Buffer.from(epFinalCode, "utf-8").toString("base64") });
       epFinalFiles.push({ path: codeRelPath, filename: `${assistantItemId}.b123d` });
     }
 
     // Save preview screenshots as PNGs for future workbench routing
     const epScreenshotFiles: Array<{ path: string; filename: string }> = [];
     for (const ss of epBest?.screenshots ?? []) {
-      const ssPath = `modelcreator/${assistantItemId}-preview-${ss.angle}.png`;
-      await writeUserFile({ userId: input.userId, relativePath: ssPath, contentBase64: ss.base64 });
-      epScreenshotFiles.push({ path: ssPath, filename: `${assistantItemId}-preview-${ss.angle}.png` });
+      const ssPath = `chat/${input.contextId}/${assistantItemId}-screenshot-${ss.angle}.png`;
+      await writeStorageFile({ relativePath: ssPath, contentBase64: ss.base64 });
+      epScreenshotFiles.push({ path: ssPath, filename: `${assistantItemId}-screenshot-${ss.angle}.png` });
     }
 
     const epFinalEval = epBest?.evalState ?? epEvalState;
@@ -1411,12 +1408,8 @@ export async function submitQuery(input: {
       const iterationFiles: Array<{ path: string; filename: string }> = [];
       for (const file of renderedFiles) {
         const extension = mapExtension(file.filename);
-        const relativePath = `modelcreator/${assistantItem.id}.${extension}`;
-        await writeUserFile({
-          userId: input.userId,
-          relativePath,
-          contentBase64: file.contentBase64,
-        });
+        const relativePath = `chat/${input.contextId}/${assistantItem.id}.${extension}`;
+        await writeStorageFile({ relativePath, contentBase64: file.contentBase64 });
         iterationFiles.push({ path: relativePath, filename: file.filename });
       }
 

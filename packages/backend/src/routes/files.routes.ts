@@ -1,6 +1,15 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
-import { deleteUserFile, FileStorageError, readUserFile, writeUserFile } from "../services/file-storage.service.js";
+import {
+  deleteStorageFile,
+  FileStorageError,
+  readStorageFile,
+  writeStorageFile,
+} from "../services/file-storage.service.js";
+import { getOwnedContext } from "../services/chat.service.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("files");
 
 export const filesRouter = Router();
 
@@ -48,6 +57,28 @@ function basename(relativePath: string): string {
   return segments[segments.length - 1] ?? "download.bin";
 }
 
+/**
+ * Parse domain-scoped path and extract the authorization context.
+ *
+ *   "chat/{contextId}/..."   → { domain: "chat", scope: contextId }
+ *   "workbench/..."          → { domain: "workbench" }
+ *
+ * Returns null if the path doesn't match any known domain prefix.
+ */
+function parseDomainPath(relativePath: string): { domain: "chat"; scope: string } | { domain: "workbench" } | null {
+  const segments = relativePath.replace(/\\/g, "/").split("/");
+
+  if (segments[0] === "chat" && segments.length >= 3 && segments[1]) {
+    return { domain: "chat", scope: segments[1] };
+  }
+
+  if (segments[0] === "workbench" && segments.length >= 2) {
+    return { domain: "workbench" };
+  }
+
+  return null;
+}
+
 filesRouter.post("/upload", async (req, res) => {
   const authUser = req.authUser;
   if (!authUser) {
@@ -62,12 +93,22 @@ filesRouter.post("/upload", async (req, res) => {
     return;
   }
 
+  // Validate domain-scoped path and authorize
+  const domainInfo = parseDomainPath(relativePath);
+  if (!domainInfo) {
+    res.status(403).json({ error: "Path must start with chat/{contextId}/ or workbench/" });
+    return;
+  }
+
   try {
-    const file = await writeUserFile({
-      userId: authUser.id,
-      relativePath,
-      contentBase64,
-    });
+    if (domainInfo.domain === "chat") {
+      await getOwnedContext(authUser.id, domainInfo.scope);
+    } else if (authUser.role !== "admin") {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+
+    const file = await writeStorageFile({ relativePath, contentBase64 });
     res.status(201).json(file);
   } catch (error) {
     sendKnownError(res, error, "Failed to upload file");
@@ -87,11 +128,22 @@ filesRouter.get("/download", async (req, res) => {
     return;
   }
 
+  // Validate domain-scoped path and authorize
+  const domainInfo = parseDomainPath(relativePath);
+  if (!domainInfo) {
+    res.status(403).json({ error: "Path must start with chat/{contextId}/ or workbench/" });
+    return;
+  }
+
   try {
-    const content = await readUserFile({
-      userId: authUser.id,
-      relativePath,
-    });
+    if (domainInfo.domain === "chat") {
+      await getOwnedContext(authUser.id, domainInfo.scope);
+    } else if (authUser.role !== "admin") {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+
+    const content = await readStorageFile({ relativePath });
 
     const contentType = inferContentType(relativePath);
     res.setHeader("Content-Type", contentType);
@@ -121,11 +173,22 @@ filesRouter.delete("/delete", async (req, res) => {
     return;
   }
 
+  // Validate domain-scoped path and authorize
+  const domainInfo = parseDomainPath(relativePath);
+  if (!domainInfo) {
+    res.status(403).json({ error: "Path must start with chat/{contextId}/ or workbench/" });
+    return;
+  }
+
   try {
-    await deleteUserFile({
-      userId: authUser.id,
-      relativePath,
-    });
+    if (domainInfo.domain === "chat") {
+      await getOwnedContext(authUser.id, domainInfo.scope);
+    } else if (authUser.role !== "admin") {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+
+    await deleteStorageFile({ relativePath });
     res.status(204).send();
   } catch (error) {
     sendKnownError(res, error, "Failed to delete file");

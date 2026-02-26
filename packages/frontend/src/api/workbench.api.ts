@@ -121,7 +121,7 @@ export interface SeedResult {
   systemPromptSeeded: boolean;
 }
 
-export type JobType = "batch" | "generate" | "retry" | "re-render";
+export type JobType = "batch" | "batch-re-render" | "generate" | "retry" | "re-render";
 
 export interface BatchJobSummary {
   jobId: string;
@@ -221,6 +221,16 @@ export function startBatchJob(
   return requestJson<BatchJobSummary>(token, "/generate/batch", {
     method: "POST",
     body: JSON.stringify({ categoryId, skipApproved }),
+  });
+}
+
+export function startBatchReRender(
+  token: string,
+  categoryId: string,
+): Promise<BatchJobSummary> {
+  return requestJson<BatchJobSummary>(token, "/re-render/batch", {
+    method: "POST",
+    body: JSON.stringify({ categoryId }),
   });
 }
 

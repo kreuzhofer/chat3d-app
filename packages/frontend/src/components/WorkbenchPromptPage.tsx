@@ -32,6 +32,35 @@ import { Dialog } from "./ui/dialog";
 import { useToast } from "./ui/toast";
 import { InlineModelViewer } from "./chat/InlineModelViewer";
 
+function AuthImage({ src, token, className }: { src: string; token: string; className?: string }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let revoke: string | null = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(src, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok || cancelled) return;
+        const blob = await res.blob();
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        revoke = url;
+        setBlobUrl(url);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (revoke) URL.revokeObjectURL(revoke);
+    };
+  }, [src, token]);
+
+  if (!blobUrl) return <div className={className} />;
+  return <img src={blobUrl} className={className} alt="" />;
+}
+
 function approvalTone(status: string): "success" | "info" | "warning" | "danger" | "neutral" {
   if (status === "auto_approved") return "success";
   if (status === "human_approved") return "info";
@@ -412,9 +441,9 @@ export function WorkbenchPromptPage() {
                 {selectedExample.screenshotFront ? (
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Front</p>
-                    <img
-                      src={`data:image/png;base64,${selectedExample.screenshotFront}`}
-                      alt="Front view"
+                    <AuthImage
+                      src={`/api/admin/workbench/examples/${selectedExample.id}/screenshot/front`}
+                      token={token}
                       className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
                     />
                   </div>
@@ -422,9 +451,9 @@ export function WorkbenchPromptPage() {
                 {selectedExample.screenshotTop ? (
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Top</p>
-                    <img
-                      src={`data:image/png;base64,${selectedExample.screenshotTop}`}
-                      alt="Top view"
+                    <AuthImage
+                      src={`/api/admin/workbench/examples/${selectedExample.id}/screenshot/top`}
+                      token={token}
                       className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
                     />
                   </div>
@@ -432,9 +461,9 @@ export function WorkbenchPromptPage() {
                 {selectedExample.screenshotIso ? (
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Isometric</p>
-                    <img
-                      src={`data:image/png;base64,${selectedExample.screenshotIso}`}
-                      alt="Isometric view"
+                    <AuthImage
+                      src={`/api/admin/workbench/examples/${selectedExample.id}/screenshot/iso`}
+                      token={token}
                       className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
                     />
                   </div>
@@ -442,9 +471,9 @@ export function WorkbenchPromptPage() {
                 {selectedExample.screenshotIsoBack ? (
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Iso Back</p>
-                    <img
-                      src={`data:image/png;base64,${selectedExample.screenshotIsoBack}`}
-                      alt="Isometric back view"
+                    <AuthImage
+                      src={`/api/admin/workbench/examples/${selectedExample.id}/screenshot/iso_back`}
+                      token={token}
                       className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
                     />
                   </div>

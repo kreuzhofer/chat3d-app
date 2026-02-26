@@ -95,7 +95,7 @@ export async function createChatContext(input: {
   return mapContext(result.rows[0]);
 }
 
-async function getOwnedContext(userId: string, contextId: string): Promise<ChatContextRow> {
+export async function getOwnedContext(userId: string, contextId: string): Promise<ChatContextRow> {
   const result = await query<ChatContextRow>(
     `
     SELECT id, name, conversation_model_id, chat_3d_model_id, owner_id, created_at::text, updated_at::text

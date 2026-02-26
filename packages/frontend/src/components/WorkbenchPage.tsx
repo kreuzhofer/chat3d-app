@@ -409,11 +409,13 @@ export function WorkbenchPage() {
                     <span>
                       {runningJob.type === "batch"
                         ? `Batch: ${runningJob.completed + runningJob.failed} / ${runningJob.total}`
+                        : runningJob.type === "batch-re-render"
+                        ? `Re-rendering: ${runningJob.completed + runningJob.failed} / ${runningJob.total}`
                         : runningJob.type === "re-render"
                         ? "Re-rendering..."
                         : "Generating..."}
                     </span>
-                    {runningJob.type === "batch" && runningJob.failed > 0 ? (
+                    {(runningJob.type === "batch" || runningJob.type === "batch-re-render") && runningJob.failed > 0 ? (
                       <Badge tone="danger">{runningJob.failed} failed</Badge>
                     ) : null}
                   </div>

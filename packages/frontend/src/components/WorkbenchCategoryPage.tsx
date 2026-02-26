@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Loader2, Play, Sparkles, Square, Trash2, Zap } from "lucide-react";
+import { ArrowLeft, Loader2, Play, RotateCcw, Sparkles, Square, Trash2, Zap } from "lucide-react";
 import {
   cancelJob,
   deleteExamplesForCategory,
@@ -9,6 +9,7 @@ import {
   listCategories,
   listPromptsForCategory,
   startBatchJob,
+  startBatchReRender,
   startGenerate,
   type BatchJobSummary,
   type WorkbenchCategory,
@@ -229,6 +230,25 @@ export function WorkbenchCategoryPage() {
     [categoryId, pushToast, token],
   );
 
+  const handleBatchReRender = useCallback(
+    async () => {
+      if (!token || !categoryId) return;
+      setError(null);
+      try {
+        const job = await startBatchReRender(token, categoryId);
+        setBatchJob(job);
+        pushToast({
+          tone: "info",
+          title: "Batch re-render started",
+          description: `Re-rendering ${job.total} examples...`,
+        });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [categoryId, pushToast, token],
+  );
+
   const handleCancelBatch = useCallback(async () => {
     if (!token || !batchJob) return;
     try {
@@ -312,6 +332,15 @@ export function WorkbenchCategoryPage() {
                   Generate All
                 </Button>
                 <Button
+                  variant="outline"
+                  size="sm"
+                  iconLeft={<RotateCcw className="h-3.5 w-3.5" />}
+                  onClick={() => void handleBatchReRender()}
+                  disabled={anySingleRunning}
+                >
+                  Re-Render All
+                </Button>
+                <Button
                   variant="destructive"
                   size="sm"
                   iconLeft={<Trash2 className="h-3.5 w-3.5" />}
@@ -345,7 +374,7 @@ export function WorkbenchCategoryPage() {
           <div className="flex items-center gap-2 text-sm">
             <Loader2 className="h-4 w-4 animate-spin text-[hsl(var(--primary))]" />
             <span className="font-medium">
-              Batch: {batchJob.completed + batchJob.failed} / {batchJob.total}
+              {batchJob.type === "batch-re-render" ? "Re-Render" : "Batch"}: {batchJob.completed + batchJob.failed} / {batchJob.total}
             </span>
             {batchJob.failed > 0 ? (
               <Badge tone="danger">{batchJob.failed} failed</Badge>
