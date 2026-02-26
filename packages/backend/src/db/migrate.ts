@@ -36,25 +36,34 @@ async function applyMigration(id: string, statements: string[]) {
   }
 }
 
-async function migrate() {
+/**
+ * Run all pending migrations. Idempotent — already-applied migrations are skipped.
+ * Does NOT close the pool, so it can be called from the server process.
+ */
+export async function runMigrations(): Promise<void> {
   await ensureMigrationsTable();
   const applied = await getAppliedMigrations();
 
   for (const migration of migrations) {
     if (!applied.has(migration.id)) {
       await applyMigration(migration.id, migration.up);
-    } else {
-      logger.info("Skipped %s (already applied)", migration.id);
     }
   }
 }
 
-migrate()
-  .then(async () => {
-    await pool.end();
-  })
-  .catch(async (error) => {
-    logger.error({ err: error }, "Migration failed");
-    await pool.end();
-    process.exit(1);
-  });
+// ── Standalone CLI entry point (`npm run db:migrate`) ────────────────
+// When executed directly (not imported), run migrations then close the pool.
+const isDirectExecution =
+  typeof process.argv[1] === "string" && process.argv[1].includes("migrate");
+
+if (isDirectExecution) {
+  runMigrations()
+    .then(async () => {
+      await pool.end();
+    })
+    .catch(async (error) => {
+      logger.error({ err: error }, "Migration failed");
+      await pool.end();
+      process.exit(1);
+    });
+}
