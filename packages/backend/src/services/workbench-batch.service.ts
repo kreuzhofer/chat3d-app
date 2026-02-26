@@ -638,6 +638,10 @@ async function runBatchReRender(
   job: BatchJob,
   examples: Array<{ id: string; prompt_id: string; prompt_text: string }>,
 ): Promise<void> {
+  // Track original example IDs that were successfully re-rendered so we can
+  // delete them at the end (the new examples replace them).
+  const originalIdsToDelete: string[] = [];
+
   for (const example of examples) {
     // Check for cancellation before starting next example
     if (job.status === "cancelled") {
@@ -661,6 +665,9 @@ async function runBatchReRender(
         approvalStatus: result.approvalStatus,
         error: result.renderError ?? null,
       });
+
+      // Mark the original for deletion (new example replaces it)
+      originalIdsToDelete.push(example.id);
     } catch (error) {
       job.failed += 1;
       job.results.push({
@@ -679,6 +686,25 @@ async function runBatchReRender(
     }
   }
 
+  // Delete original examples that were successfully replaced
+  if (originalIdsToDelete.length > 0) {
+    try {
+      const deleteResult = await pool.query(
+        `DELETE FROM workbench_examples WHERE id = ANY($1::uuid[])`,
+        [originalIdsToDelete],
+      );
+      logger.info(
+        { deleted: deleteResult.rowCount, total: originalIdsToDelete.length },
+        "deleted original examples after batch re-render",
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, count: originalIdsToDelete.length },
+        "failed to delete original examples after batch re-render",
+      );
+    }
+  }
+
   job.currentPromptId = null;
   job.currentPromptText = null;
   job.exampleId = null;
@@ -688,7 +714,7 @@ async function runBatchReRender(
   job.finishedAt = new Date().toISOString();
 
   logger.info(
-    { jobId: job.jobId, status: job.status, completed: job.completed, failed: job.failed },
+    { jobId: job.jobId, status: job.status, completed: job.completed, failed: job.failed, deletedOriginals: originalIdsToDelete.length },
     "batch re-render finished",
   );
 }
