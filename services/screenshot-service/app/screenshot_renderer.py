@@ -151,8 +151,9 @@ def render_screenshots(
     extent = np.max(bounds[1] - bounds[0])
     if extent < 1e-10:
         raise ValueError("Model has zero extent (degenerate geometry)")
-    # Distance so model fills ~70% of frame with 60° FOV
-    distance = extent / (2 * math.tan(math.radians(30))) * 1.4
+    # Distance so model fills ~45% of frame with 75° FOV (more breathing room
+    # for VLM evaluation — matches the old ThreeJS renderer's framing)
+    distance = extent / (2 * math.tan(math.radians(37.5))) * 2.5
 
     # Create pyrender mesh — medium blue-gray for clear contrast on white bg
     material = pyrender.MetallicRoughnessMaterial(
@@ -174,7 +175,7 @@ def render_screenshots(
         scene.add(pr_mesh)
 
         # Camera
-        camera = pyrender.PerspectiveCamera(yfov=math.radians(60), aspectRatio=width / height)
+        camera = pyrender.PerspectiveCamera(yfov=math.radians(75), aspectRatio=width / height)
         cam_pose = _camera_pose_for_angle(angle, centroid, distance)
         scene.add(camera, pose=cam_pose)
 

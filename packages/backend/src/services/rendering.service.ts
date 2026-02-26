@@ -8,6 +8,14 @@ const logger = createLogger("render");
  *  Code execution + STEP/3MF export can be slow for complex models. */
 const BUILD123D_TIMEOUT_MS = 120_000;
 
+/** Number of retry attempts for transient failures (timeouts, unreachable).
+ *  5 attempts allows enough time for container restarts to complete. */
+const MAX_RETRIES = 5;
+
+/** Base delay between retries (ms). Doubles on each subsequent retry.
+ *  5 attempts: 2s, 4s, 8s, 16s, then fail = ~30s total wait. */
+const RETRY_BASE_DELAY_MS = 2_000;
+
 export interface RenderedFile {
   filename: string;
   contentBase64: string;
@@ -73,30 +81,54 @@ async function _renderBuild123dInner(input: {
 
   logger.info({ url, codeLength: input.code.length, filename: payload.filename }, "POST to Build123d");
 
-  let response: Response;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), BUILD123D_TIMEOUT_MS);
-    response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-  } catch (fetchError) {
-    const msg = fetchError instanceof Error ? fetchError.message : String(fetchError);
-    const isTimeout = fetchError instanceof Error && fetchError.name === "AbortError";
-    logger.error({ url, err: msg, isTimeout }, "fetch error connecting to Build123d");
-    throw new RenderingServiceError(
-      isTimeout
-        ? `Build123d service timeout after ${BUILD123D_TIMEOUT_MS / 1000}s`
-        : `Build123d service unreachable: ${msg}`,
-      502,
-      true, // infrastructure error — code is fine, service is down
-    );
+  let response: Response | undefined;
+  let lastError: RenderingServiceError | undefined;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), BUILD123D_TIMEOUT_MS);
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      // Got a response — break out of retry loop
+      lastError = undefined;
+      break;
+    } catch (fetchError) {
+      const msg = fetchError instanceof Error ? fetchError.message : String(fetchError);
+      const isTimeout = fetchError instanceof Error && fetchError.name === "AbortError";
+      lastError = new RenderingServiceError(
+        isTimeout
+          ? `Build123d service timeout after ${BUILD123D_TIMEOUT_MS / 1000}s`
+          : `Build123d service unreachable: ${msg}`,
+        502,
+        true, // infrastructure error — code is fine, service is down
+      );
+
+      if (attempt < MAX_RETRIES) {
+        const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        logger.warn(
+          { url, err: msg, isTimeout, attempt, maxRetries: MAX_RETRIES, retryDelayMs: delay },
+          `Build123d service failed (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay}ms`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      } else {
+        logger.error(
+          { url, err: msg, isTimeout, attempt, maxRetries: MAX_RETRIES },
+          `Build123d service failed after ${MAX_RETRIES} attempts`,
+        );
+      }
+    }
+  }
+
+  if (lastError || !response) {
+    throw lastError ?? new RenderingServiceError("Build123d service failed after retries", 502, true);
   }
 
   logger.info({ status: response.status, statusText: response.statusText }, "Build123d response received");

@@ -12,10 +12,12 @@ export type ModelFormat = "stl" | "3mf";
  *  to allow for cold-start page creation + rendering. */
 const FETCH_TIMEOUT_MS = 90_000;
 
-/** Number of retry attempts for transient failures (timeouts, network errors). */
-const MAX_RETRIES = 3;
+/** Number of retry attempts for transient failures (timeouts, network errors).
+ *  5 attempts allows enough time for container restarts to complete. */
+const MAX_RETRIES = 5;
 
-/** Delay between retries (ms). Doubles on each subsequent retry. */
+/** Base delay between retries (ms). Doubles on each subsequent retry.
+ *  5 attempts: 2s, 4s, 8s, 16s, then fail = ~30s total wait. */
 const RETRY_BASE_DELAY_MS = 2_000;
 
 export interface RenderedScreenshot {

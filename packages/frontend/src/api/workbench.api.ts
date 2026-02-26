@@ -246,8 +246,9 @@ export function getJobDetails(token: string, jobId: string): Promise<BatchJobDet
   });
 }
 
-export function getRunningJob(token: string, categoryId: string): Promise<BatchJobSummary | null> {
-  return requestJson<BatchJobSummary | null>(token, `/jobs/running?categoryId=${encodeURIComponent(categoryId)}`, {
+/** Get ALL running jobs for a category (batch + single-prompt). */
+export function getRunningJobsForCategory(token: string, categoryId: string): Promise<BatchJobSummary[]> {
+  return requestJson<BatchJobSummary[]>(token, `/jobs/running?categoryId=${encodeURIComponent(categoryId)}`, {
     method: "GET",
   });
 }

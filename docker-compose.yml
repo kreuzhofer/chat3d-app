@@ -37,10 +37,15 @@ services:
     deploy:
       replicas: 2
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:80/').read()"]
+      # Health check hits a dedicated lightweight HTTP server on port 8080
+      # (separate thread from the main uvicorn worker on port 80).
+      # This responds instantly even while exec() renders block the main worker,
+      # preventing the 100+ container restarts caused by the old port-80 health check.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/').read()"]
       interval: 10s
       timeout: 5s
-      retries: 20
+      retries: 3
+      start_period: 30s
 
   screenshot-service:
     platform: linux/amd64
@@ -52,10 +57,13 @@ services:
     deploy:
       replicas: 2
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:80/').read()"]
+      # Health check hits a dedicated lightweight HTTP server on port 8080
+      # (separate thread from the main uvicorn worker on port 80).
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/').read()"]
       interval: 10s
       timeout: 5s
-      retries: 20
+      retries: 3
+      start_period: 30s
 
   backend:
     build:

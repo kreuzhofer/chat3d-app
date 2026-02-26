@@ -37,9 +37,9 @@ import {
 import {
   cancelJob,
   getActiveJobForPrompt,
+  getAllRunningJobsForCategory,
   getJobDetails,
   getJobStatus,
-  getRunningJobForCategory,
   getRunningJobs,
   listJobs,
   startBatchJob,
@@ -412,9 +412,10 @@ workbenchRouter.get("/jobs/running", async (req, res) => {
       const job = getActiveJobForPrompt(promptId);
       res.status(200).json(job);
     } else if (categoryId && typeof categoryId === "string") {
-      // Single category mode (used by category page — batch jobs only)
-      const job = getRunningJobForCategory(categoryId);
-      res.status(200).json(job);
+      // Category mode — return ALL running jobs (batch + single-prompt)
+      // so the category page can reconnect to jobs started from the prompt detail page
+      const categoryJobs = getAllRunningJobsForCategory(categoryId);
+      res.status(200).json(categoryJobs);
     } else {
       // All running jobs (used by overview page)
       const jobs = getRunningJobs();

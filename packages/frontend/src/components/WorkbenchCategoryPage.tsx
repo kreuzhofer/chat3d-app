@@ -5,7 +5,7 @@ import {
   cancelJob,
   deleteExamplesForCategory,
   getJobStatus,
-  getRunningJob,
+  getRunningJobsForCategory,
   listCategories,
   listPromptsForCategory,
   startBatchJob,
@@ -115,21 +115,33 @@ export function WorkbenchCategoryPage() {
       setError(null);
     }
     try {
-      const fetches: [Promise<WorkbenchCategory[]>, Promise<WorkbenchPrompt[]>, Promise<BatchJobSummary | null>?] = [
+      const fetches: [Promise<WorkbenchCategory[]>, Promise<WorkbenchPrompt[]>, Promise<BatchJobSummary[]>?] = [
         listCategories(token),
         listPromptsForCategory(token, categoryId),
       ];
-      // On initial load, check if there's already a running batch job for this category
+      // On initial load, check for any running jobs (batch + single) for this category
       if (!silent) {
-        fetches.push(getRunningJob(token, categoryId));
+        fetches.push(getRunningJobsForCategory(token, categoryId));
       }
-      const [cats, promptList, runningJob] = await Promise.all(fetches);
+      const [cats, promptList, runningJobs] = await Promise.all(fetches);
       const cat = cats.find((c) => c.id === categoryId) ?? null;
       setCategory(cat);
       setPrompts(promptList);
-      // Reconnect to a running batch job (e.g. after page refresh)
-      if (!silent && runningJob && runningJob.status === "running") {
-        setBatchJob(runningJob);
+      // Reconnect to running jobs (e.g. after navigating back from prompt detail page)
+      if (!silent && runningJobs && runningJobs.length > 0) {
+        for (const job of runningJobs) {
+          if (job.status !== "running") continue;
+          if (job.type === "batch" || job.type === "batch-re-render") {
+            setBatchJob(job);
+          } else if (job.currentPromptId) {
+            // Single-prompt job (generate/retry/re-render) — add to singleJobs map
+            setSingleJobs((prev) => {
+              const next = new Map(prev);
+              next.set(job.currentPromptId!, job);
+              return next;
+            });
+          }
+        }
       }
     } catch (e) {
       if (!silent) setError(e instanceof Error ? e.message : String(e));

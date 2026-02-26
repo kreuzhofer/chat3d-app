@@ -3,6 +3,8 @@ import traceback
 import logging
 import base64
 import time
+import multiprocessing
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
@@ -11,6 +13,44 @@ from pydantic import BaseModel
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ── Lightweight health check server (separate PROCESS, port 8080) ────
+# The main uvicorn worker (port 80) blocks during pyrender rendering, and
+# Python's GIL prevents even a separate thread from responding during
+# CPU-bound operations.
+#
+# A separate process has its own GIL, so it always responds.
+# It's a daemon process — if the main process dies, this dies too,
+# so Docker detects the failure and restarts the container.
+
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    """Minimal handler — returns 200 OK."""
+
+    def do_GET(self):
+        body = b'{"status":"ok"}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        pass  # Suppress request logs
+
+
+def _run_health_server():
+    """Run the health check HTTP server (blocking — runs in subprocess)."""
+    server = HTTPServer(("0.0.0.0", 8080), _HealthHandler)
+    server.serve_forever()
+
+
+# Start health server in a daemon subprocess — has its own GIL
+_health_proc = multiprocessing.Process(target=_run_health_server, daemon=True)
+_health_proc.start()
+logger.info("Health check server started (pid=%d) on port 8080", _health_proc.pid)
+
+# ── FastAPI app ──────────────────────────────────────────────────────
 
 app = FastAPI()
 

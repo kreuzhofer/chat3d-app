@@ -98,6 +98,7 @@ function evictStaleJobs(): void {
 /**
  * Return the running batch job for a category, or null if none.
  * Only considers full-batch jobs (not single-prompt jobs).
+ * Used internally for double-start prevention.
  */
 export function getRunningJobForCategory(categoryId: string): BatchJobSummary | null {
   for (const job of jobs.values()) {
@@ -106,6 +107,21 @@ export function getRunningJobForCategory(categoryId: string): BatchJobSummary | 
     }
   }
   return null;
+}
+
+/**
+ * Return ALL running jobs for a category (batch + single-prompt).
+ * Used by the category page to reconnect to jobs started elsewhere
+ * (e.g. single-prompt generate/retry/re-render from the prompt detail page).
+ */
+export function getAllRunningJobsForCategory(categoryId: string): BatchJobSummary[] {
+  const result: BatchJobSummary[] = [];
+  for (const job of jobs.values()) {
+    if (job.categoryId === categoryId && job.status === "running") {
+      result.push(toSummary(job));
+    }
+  }
+  return result;
 }
 
 /**
