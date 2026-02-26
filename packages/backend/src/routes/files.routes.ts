@@ -149,6 +149,11 @@ filesRouter.get("/download", async (req, res) => {
     res.setHeader("Content-Type", contentType);
     res.setHeader("Content-Disposition", `attachment; filename="${basename(relativePath)}"`);
 
+    // Files at a given path can be overwritten between iterations
+    // (e.g. chat/{contextId}/{messageId}.stl).  Force the browser to
+    // revalidate on every request so viewers never show stale models.
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+
     if (contentType.startsWith("text/") || contentType.startsWith("application/json")) {
       res.status(200).send(content.toString("utf8"));
       return;

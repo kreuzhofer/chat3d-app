@@ -145,9 +145,26 @@ def render_screenshots(
     if tmesh.bounds is None or len(tmesh.vertices) == 0:
         raise ValueError("Model contains no geometry (empty mesh)")
 
-    # Compute bounds for camera positioning
+    # Fix normals to ensure consistent outward-facing orientation.
+    # Without this, trimesh's force="mesh" concatenation can produce
+    # inverted normals on some faces (e.g. a bowl's flat base), causing
+    # pyrender to cull them as back-faces.
+    tmesh.fix_normals()
+
+    # Build123d uses Z-up (CAD convention); pyrender uses Y-up (OpenGL).
+    # Rotate -90° around X to match — same transform the old Three.js
+    # renderer applied via geometry.rotateX(-Math.PI / 2).
+    rot = trimesh.transformations.rotation_matrix(-math.pi / 2, [1, 0, 0])
+    tmesh.apply_transform(rot)
+
+    # Compute bounds for camera positioning.
+    # Use bounding box center (not centroid/center-of-mass) so the camera
+    # aims at the geometric middle of the model.  For asymmetric shapes
+    # like bowls the centroid is biased toward the denser hemisphere,
+    # which shifts the camera target and can push the opposite side out
+    # of frame.
     bounds = tmesh.bounds  # (2, 3) array: min, max
-    centroid = tmesh.centroid
+    center = (bounds[0] + bounds[1]) / 2.0
     extent = np.max(bounds[1] - bounds[0])
     if extent < 1e-10:
         raise ValueError("Model has zero extent (degenerate geometry)")
@@ -155,11 +172,18 @@ def render_screenshots(
     # for VLM evaluation — matches the old ThreeJS renderer's framing)
     distance = extent / (2 * math.tan(math.radians(37.5))) * 2.5
 
-    # Create pyrender mesh — medium blue-gray for clear contrast on white bg
+    # Adaptive clipping planes based on model size (mirrors the Three.js viewer).
+    znear = max(distance / 100.0, 0.01)
+    zfar = distance * 100.0
+
+    # Create pyrender mesh — medium blue-gray for clear contrast on white bg.
+    # doubleSided=True ensures faces are visible regardless of winding order,
+    # preventing missing geometry from inconsistent normals.
     material = pyrender.MetallicRoughnessMaterial(
         baseColorFactor=[0.35, 0.45, 0.58, 1.0],
         metallicFactor=0.0,
         roughnessFactor=0.85,
+        doubleSided=True,
     )
     pr_mesh = pyrender.Mesh.from_trimesh(tmesh, material=material, smooth=False)
 
@@ -174,20 +198,23 @@ def render_screenshots(
         )
         scene.add(pr_mesh)
 
-        # Camera
-        camera = pyrender.PerspectiveCamera(yfov=math.radians(75), aspectRatio=width / height)
-        cam_pose = _camera_pose_for_angle(angle, centroid, distance)
+        # Camera — explicit znear/zfar prevent clipping at any model scale
+        camera = pyrender.PerspectiveCamera(
+            yfov=math.radians(75), aspectRatio=width / height,
+            znear=znear, zfar=zfar,
+        )
+        cam_pose = _camera_pose_for_angle(angle, center, distance)
         scene.add(camera, pose=cam_pose)
 
         # Lights: key light + fill light
         key_light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0], intensity=3.0)
-        key_pose = _camera_pose_for_angle(angle, centroid, distance * 1.2)
+        key_pose = _camera_pose_for_angle(angle, center, distance * 1.2)
         scene.add(key_light, pose=key_pose)
 
         fill_light = pyrender.DirectionalLight(color=[0.8, 0.85, 0.9], intensity=1.5)
         fill_pose = _look_at(
-            centroid + np.array([-distance * 0.5, distance * 0.3, distance * 0.3]),
-            centroid,
+            center + np.array([-distance * 0.5, distance * 0.3, distance * 0.3]),
+            center,
             np.array([0.0, 1.0, 0.0]),
         )
         scene.add(fill_light, pose=fill_pose)
