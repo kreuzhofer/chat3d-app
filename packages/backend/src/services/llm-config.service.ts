@@ -7,6 +7,7 @@
  * Models reference their provider via the provider column (FK to llm_providers.name).
  */
 
+import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -242,6 +243,16 @@ export function createProviderModel(cfg: LlmModelConfig): any {
     return ollama.chatModel(modelName);
   }
 
+  if (provider === "bedrock") {
+    if (!apiKey) {
+      throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
+    }
+    return createAmazonBedrock({
+      apiKey,
+      region: endpointUrl || undefined,
+    })(modelName);
+  }
+
   throw new Error(`Unsupported provider: ${provider}`);
 }
 
@@ -279,6 +290,16 @@ export function createEmbeddingModel(cfg: LlmModelConfig): any {
       apiKey: apiKey && apiKey.trim() !== "" ? apiKey.trim() : undefined,
     });
     return ollama.embeddingModel(modelName);
+  }
+
+  if (provider === "bedrock") {
+    if (!apiKey) {
+      throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
+    }
+    return createAmazonBedrock({
+      apiKey,
+      region: endpointUrl || undefined,
+    }).embedding(modelName);
   }
 
   throw new Error(`Unsupported embedding provider: ${provider}`);
