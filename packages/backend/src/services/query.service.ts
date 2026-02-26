@@ -748,7 +748,7 @@ export async function executeQueryPipeline(input: {
     const epErrorHistory: ClassifiedRenderError[] = [];
     interface EpEvalState { score: number; issues: string[]; suggestions: string[]; vlmModel: string; }
     let epEvalState: EpEvalState | null = null;
-    let epBest: { code: string; score: number | null; evalState: EpEvalState | null; generatedFiles: Array<{ path: string; filename: string }>; screenshots: RenderedScreenshot[]; iteration: number } | null = null;
+    let epBest: { code: string; score: number | null; evalState: EpEvalState | null; renderedFiles: Array<{ filename: string; contentBase64: string }>; screenshots: RenderedScreenshot[]; iteration: number } | null = null;
 
     for (let iteration = 1; iteration <= MAX_FIX_ITERATIONS; iteration++) {
       const isFirst = iteration === 1;
@@ -863,17 +863,9 @@ export async function executeQueryPipeline(input: {
         } catch (err) { queryLogger.warn({ iteration, err: err instanceof Error ? err.message : String(err) }, "VLM evaluation failed, skipping"); }
       }
 
-      const epIterFiles: Array<{ path: string; filename: string }> = [];
-      for (const file of epRenderedFiles) {
-        const ext = mapExtension(file.filename);
-        const rp = `chat/${input.contextId}/${assistantItemId}.${ext}`;
-        await writeStorageFile({ relativePath: rp, contentBase64: file.contentBase64 });
-        epIterFiles.push({ path: rp, filename: file.filename });
-      }
-
       const epScore = epEvalState?.score ?? null;
       if (!epBest || (epScore !== null && (epBest.score === null || epScore > epBest.score))) {
-        epBest = { code: epCurrentCode, score: epScore, evalState: epEvalState, generatedFiles: epIterFiles, screenshots: [...epScreenshots], iteration };
+        epBest = { code: epCurrentCode, score: epScore, evalState: epEvalState, renderedFiles: epRenderedFiles.map((f) => ({ filename: f.filename, contentBase64: f.contentBase64 })), screenshots: [...epScreenshots], iteration };
       }
 
       // If screenshot service failed (not a code issue), stop the loop immediately.
@@ -887,8 +879,17 @@ export async function executeQueryPipeline(input: {
       if ((epApproved && (epEvalState?.issues ?? []).length === 0) || iteration >= MAX_FIX_ITERATIONS) break;
     }
 
-    const epFinalFiles = [...(epBest?.generatedFiles ?? [])];
+    // Persist only the best iteration's files to disk.
+    const epFinalFiles: Array<{ path: string; filename: string }> = [];
     const epFinalCode = epBest?.code ?? epCurrentCode;
+
+    // Save rendered model files (STL, STEP, 3MF)
+    for (const file of epBest?.renderedFiles ?? []) {
+      const ext = mapExtension(file.filename);
+      const rp = `chat/${input.contextId}/${assistantItemId}.${ext}`;
+      await writeStorageFile({ relativePath: rp, contentBase64: file.contentBase64 });
+      epFinalFiles.push({ path: rp, filename: file.filename });
+    }
 
     // Save the best code as .b123d file for future workbench routing
     if (epFinalCode?.trim()) {
@@ -1226,12 +1227,15 @@ export async function submitQuery(input: {
     interface EvalState { score: number; issues: string[]; suggestions: string[]; vlmModel: string; }
     let evalState: EvalState | null = null;
 
-    // Track best result across iterations (never regress)
+    // Track best result across iterations (never regress).
+    // Files are NOT written to disk during the loop — only the winning
+    // iteration's files are persisted after the loop completes.
     let bestResult: {
       code: string;
       score: number | null;
       evalState: EvalState | null;
-      generatedFiles: Array<{ path: string; filename: string }>;
+      renderedFiles: Array<{ filename: string; contentBase64: string }>;
+      screenshots: RenderedScreenshot[];
       iteration: number;
     } | null = null;
 
@@ -1404,23 +1408,16 @@ export async function submitQuery(input: {
         }
       }
 
-      // Store generated files for this iteration
-      const iterationFiles: Array<{ path: string; filename: string }> = [];
-      for (const file of renderedFiles) {
-        const extension = mapExtension(file.filename);
-        const relativePath = `chat/${input.contextId}/${assistantItem.id}.${extension}`;
-        await writeStorageFile({ relativePath, contentBase64: file.contentBase64 });
-        iterationFiles.push({ path: relativePath, filename: file.filename });
-      }
-
-      // Track best result (never regress)
+      // Track best result (never regress) — keep file contents in memory;
+      // only the winning iteration is persisted to disk after the loop.
       const score = evalState?.score ?? null;
       if (bestResult === null || (score !== null && (bestResult.score === null || score > bestResult.score))) {
         bestResult = {
           code: currentCode,
           score,
           evalState,
-          generatedFiles: iterationFiles,
+          renderedFiles: renderedFiles.map((f) => ({ filename: f.filename, contentBase64: f.contentBase64 })),
+          screenshots: [...screenshots],
           iteration,
         };
       }
@@ -1433,8 +1430,30 @@ export async function submitQuery(input: {
       }
     }
 
-    // Use best result across all iterations
-    const finalFiles = bestResult?.generatedFiles ?? [];
+    // Persist only the best iteration's files to disk.
+    const finalFiles: Array<{ path: string; filename: string }> = [];
+
+    if (bestResult) {
+      // Save rendered model files (STL, STEP, 3MF)
+      for (const file of bestResult.renderedFiles) {
+        const extension = mapExtension(file.filename);
+        const relativePath = `chat/${input.contextId}/${assistantItem.id}.${extension}`;
+        await writeStorageFile({ relativePath, contentBase64: file.contentBase64 });
+        finalFiles.push({ path: relativePath, filename: file.filename });
+      }
+      // Save the best code as .b123d file
+      if (bestResult.code?.trim()) {
+        const codeRelPath = `chat/${input.contextId}/${assistantItem.id}.b123d`;
+        await writeStorageFile({ relativePath: codeRelPath, contentBase64: Buffer.from(bestResult.code, "utf-8").toString("base64") });
+        finalFiles.push({ path: codeRelPath, filename: `${assistantItem.id}.b123d` });
+      }
+      // Save the best screenshots as PNGs
+      for (const ss of bestResult.screenshots) {
+        const ssPath = `chat/${input.contextId}/${assistantItem.id}-screenshot-${ss.angle}.png`;
+        await writeStorageFile({ relativePath: ssPath, contentBase64: ss.base64 });
+        finalFiles.push({ path: ssPath, filename: `${assistantItem.id}-screenshot-${ss.angle}.png` });
+      }
+    }
     const finalEval = bestResult?.evalState ?? evalState;
 
     const artifact = summarizeArtifacts(finalFiles);

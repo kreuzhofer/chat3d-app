@@ -435,9 +435,9 @@ export function WorkbenchPromptPage() {
       {selectedExample ? (
         <div className="space-y-4">
           {/* Screenshots */}
-          {(selectedExample.screenshotFront || selectedExample.screenshotTop || selectedExample.screenshotIso || selectedExample.screenshotIsoBack || selectedExample.stlPath || selectedExample.threemfPath) ? (
-            <SectionCard title="Model Views" description="Front, top, isometric, isometric back, and interactive 3D viewer">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {(selectedExample.screenshotFront || selectedExample.screenshotTop || selectedExample.screenshotIso || selectedExample.screenshotIsoBack || selectedExample.screenshotBottom || selectedExample.stlPath || selectedExample.threemfPath) ? (
+            <SectionCard title="Model Views" description="Front, top, bottom, isometric, isometric back, and interactive 3D viewer">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
                 {selectedExample.screenshotFront ? (
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Front</p>
@@ -473,6 +473,16 @@ export function WorkbenchPromptPage() {
                     <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Iso Back</p>
                     <AuthImage
                       src={`/api/admin/workbench/examples/${selectedExample.id}/screenshot/iso_back`}
+                      token={token}
+                      className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
+                    />
+                  </div>
+                ) : null}
+                {selectedExample.screenshotBottom ? (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Bottom</p>
+                    <AuthImage
+                      src={`/api/admin/workbench/examples/${selectedExample.id}/screenshot/bottom`}
                       token={token}
                       className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
                     />

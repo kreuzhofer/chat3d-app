@@ -224,8 +224,8 @@ workbenchRouter.get("/examples/:id", async (req, res) => {
 workbenchRouter.get("/examples/:id/screenshot/:angle", async (req, res) => {
   try {
     const { id, angle } = req.params;
-    if (!["front", "top", "iso", "iso_back"].includes(angle)) {
-      res.status(400).json({ error: "angle must be front, top, iso, or iso_back" });
+    if (!["front", "top", "iso", "iso_back", "bottom"].includes(angle)) {
+      res.status(400).json({ error: "angle must be front, top, iso, iso_back, or bottom" });
       return;
     }
     const example = await getExample(id);
@@ -234,6 +234,7 @@ workbenchRouter.get("/examples/:id/screenshot/:angle", async (req, res) => {
       top: "screenshotTop",
       iso: "screenshotIso",
       iso_back: "screenshotIsoBack",
+      bottom: "screenshotBottom",
     };
     const column = columnMap[angle] ?? "screenshotFront";
     const screenshotValue = example[column as keyof typeof example] as string | null;

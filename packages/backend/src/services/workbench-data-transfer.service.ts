@@ -85,6 +85,7 @@ interface ExportExample {
   screenshot_top: string | null;
   screenshot_iso: string | null;
   screenshot_iso_back: string | null;
+  screenshot_bottom: string | null;
   eval_score: number | null;
   eval_issues: unknown | null;
   eval_suggestions: unknown | null;
@@ -319,7 +320,7 @@ async function runExport(job: TransferJob): Promise<void> {
       `SELECT id, prompt_id, iteration, generation_seed, code,
               render_status, render_error,
               stl_path, step_path, threemf_path,
-              screenshot_front, screenshot_top, screenshot_iso, screenshot_iso_back,
+              screenshot_front, screenshot_top, screenshot_iso, screenshot_iso_back, screenshot_bottom,
               eval_score, eval_issues, eval_suggestions,
               approval_status, rejection_note,
               llm_model, vlm_model, prompt_tokens, completion_tokens,
@@ -348,6 +349,7 @@ async function runExport(job: TransferJob): Promise<void> {
         screenshot_top: await resolveScreenshotForExport(r.screenshot_top),
         screenshot_iso: await resolveScreenshotForExport(r.screenshot_iso),
         screenshot_iso_back: await resolveScreenshotForExport(r.screenshot_iso_back),
+        screenshot_bottom: await resolveScreenshotForExport(r.screenshot_bottom),
         eval_score: r.eval_score ?? null,
         eval_issues: r.eval_issues ?? null,
         eval_suggestions: r.eval_suggestions ?? null,
@@ -496,6 +498,7 @@ async function runImport(job: TransferJob, filePath: string): Promise<void> {
         let ssTop = ex.screenshot_top;
         let ssIso = ex.screenshot_iso;
         let ssIsoBack = ex.screenshot_iso_back ?? null;
+        let ssBottom = ex.screenshot_bottom ?? null;
 
         if (isV2 && promptCategoryMap.has(ex.prompt_id)) {
           const categoryId = promptCategoryMap.get(ex.prompt_id)!;
@@ -503,6 +506,7 @@ async function runImport(job: TransferJob, filePath: string): Promise<void> {
           ssTop = await writeScreenshotOnImport(categoryId, ex.id, "top", ssTop);
           ssIso = await writeScreenshotOnImport(categoryId, ex.id, "iso", ssIso);
           ssIsoBack = await writeScreenshotOnImport(categoryId, ex.id, "iso-back", ssIsoBack);
+          ssBottom = await writeScreenshotOnImport(categoryId, ex.id, "bottom", ssBottom);
         }
 
         await client.query(
@@ -510,7 +514,7 @@ async function runImport(job: TransferJob, filePath: string): Promise<void> {
             id, prompt_id, iteration, generation_seed, code,
             render_status, render_error,
             stl_path, step_path, threemf_path,
-            screenshot_front, screenshot_top, screenshot_iso, screenshot_iso_back,
+            screenshot_front, screenshot_top, screenshot_iso, screenshot_iso_back, screenshot_bottom,
             eval_score, eval_issues, eval_suggestions,
             approval_status, rejection_note,
             llm_model, vlm_model, prompt_tokens, completion_tokens,
@@ -519,17 +523,17 @@ async function runImport(job: TransferJob, filePath: string): Promise<void> {
             $1, $2, $3, $4, $5,
             $6, $7,
             $8, $9, $10,
-            $11, $12, $13, $14,
-            $15, $16, $17,
-            $18, $19,
-            $20, $21, $22, $23,
-            $24, $25
+            $11, $12, $13, $14, $15,
+            $16, $17, $18,
+            $19, $20,
+            $21, $22, $23, $24,
+            $25, $26
            )`,
           [
             ex.id, ex.prompt_id, ex.iteration, ex.generation_seed, ex.code,
             ex.render_status, ex.render_error,
             ex.stl_path, ex.step_path, ex.threemf_path,
-            ssFront, ssTop, ssIso, ssIsoBack,
+            ssFront, ssTop, ssIso, ssIsoBack, ssBottom,
             ex.eval_score,
             ex.eval_issues ? JSON.stringify(ex.eval_issues) : null,
             ex.eval_suggestions ? JSON.stringify(ex.eval_suggestions) : null,

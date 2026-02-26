@@ -89,6 +89,9 @@ def _camera_pose_for_angle(
         y = distance * math.sin(elevation)
         z = distance * math.cos(elevation) * math.cos(azimuth)
         eye = centroid + np.array([x, y, z])
+    elif angle == "bottom":
+        eye = centroid + np.array([0.0, -distance, 0.0])
+        up = np.array([0.0, 0.0, 1.0])  # look up, Z toward viewer
     else:
         # Fallback: treat as front
         eye = centroid + np.array([0.0, 0.0, distance])

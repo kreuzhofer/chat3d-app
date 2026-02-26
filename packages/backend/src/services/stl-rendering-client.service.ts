@@ -4,7 +4,7 @@ import { screenshotSemaphore } from "../utils/resource-limits.js";
 
 const logger = createLogger("stl-render");
 
-export type ViewingAngle = "front" | "top" | "isometric" | "isometric_back";
+export type ViewingAngle = "front" | "top" | "isometric" | "isometric_back" | "bottom";
 export type ModelFormat = "stl" | "3mf";
 
 /** Backend-side timeout for the HTTP call to the STL rendering service.
@@ -57,7 +57,7 @@ export async function renderModelScreenshots(
   },
   opts?: { onQueuePositionChange?: (position: number, total: number) => void },
 ): Promise<StlRenderResult> {
-  const angles = input.angles ?? ["front", "top", "isometric", "isometric_back"];
+  const angles = input.angles ?? ["front", "top", "isometric", "isometric_back", "bottom"];
 
   if (config.query.renderMode === "mock") {
     logger.info({ angleCount: angles.length }, "mock mode, returning mock screenshots");

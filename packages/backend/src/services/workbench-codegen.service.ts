@@ -327,6 +327,7 @@ async function insertExample(data: {
   screenshotTop: string | null;
   screenshotIso: string | null;
   screenshotIsoBack: string | null;
+  screenshotBottom: string | null;
   evalScore: number | null;
   evalIssues: string[] | null;
   evalSuggestions: string[] | null;
@@ -341,11 +342,11 @@ async function insertExample(data: {
     `INSERT INTO workbench_examples (
        id, prompt_id, iteration, code, render_status, render_error,
        stl_path, step_path, threemf_path,
-       screenshot_front, screenshot_top, screenshot_iso, screenshot_iso_back,
+       screenshot_front, screenshot_top, screenshot_iso, screenshot_iso_back, screenshot_bottom,
        eval_score, eval_issues, eval_suggestions,
        approval_status, rejection_note, llm_model, vlm_model,
        prompt_tokens, completion_tokens
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
      RETURNING id`,
     [
       data.id,
@@ -361,6 +362,7 @@ async function insertExample(data: {
       data.screenshotTop,
       data.screenshotIso,
       data.screenshotIsoBack,
+      data.screenshotBottom,
       data.evalScore,
       data.evalIssues ? JSON.stringify(data.evalIssues) : null,
       data.evalSuggestions ? JSON.stringify(data.evalSuggestions) : null,
@@ -477,7 +479,7 @@ root_part = part.part
 
 function findScreenshot(
   images: RenderedScreenshot[],
-  angle: "front" | "top" | "isometric" | "isometric_back",
+  angle: "front" | "top" | "isometric" | "isometric_back" | "bottom",
 ): string | null {
   return images.find((img) => img.angle === angle)?.base64 ?? null;
 }
@@ -515,6 +517,7 @@ async function persistWorkbenchFiles(opts: {
   screenshotTopPath: string | null;
   screenshotIsoPath: string | null;
   screenshotIsoBackPath: string | null;
+  screenshotBottomPath: string | null;
 }> {
   const prefix = `workbench/${opts.categoryId}/${opts.exampleId}`;
 
@@ -541,17 +544,19 @@ async function persistWorkbenchFiles(opts: {
   }
 
   // Persist screenshots
-  const angleMap: Record<string, "front" | "top" | "isometric" | "isometric_back"> = {
+  const angleMap: Record<string, "front" | "top" | "isometric" | "isometric_back" | "bottom"> = {
     front: "front",
     top: "top",
     isometric: "isometric",
     isometric_back: "isometric_back",
+    bottom: "bottom",
   };
 
   let screenshotFrontPath: string | null = null;
   let screenshotTopPath: string | null = null;
   let screenshotIsoPath: string | null = null;
   let screenshotIsoBackPath: string | null = null;
+  let screenshotBottomPath: string | null = null;
 
   for (const ss of opts.screenshots) {
     const ssPath = `${prefix}-screenshot-${ss.angle}.png`;
@@ -560,9 +565,10 @@ async function persistWorkbenchFiles(opts: {
     else if (ss.angle === "top") screenshotTopPath = ssPath;
     else if (ss.angle === "isometric") screenshotIsoPath = ssPath;
     else if (ss.angle === "isometric_back") screenshotIsoBackPath = ssPath;
+    else if (ss.angle === "bottom") screenshotBottomPath = ssPath;
   }
 
-  return { stlPath, stepPath, threemfPath, screenshotFrontPath, screenshotTopPath, screenshotIsoPath, screenshotIsoBackPath };
+  return { stlPath, stepPath, threemfPath, screenshotFrontPath, screenshotTopPath, screenshotIsoPath, screenshotIsoBackPath, screenshotBottomPath };
 }
 
 // ── Main pipeline ────────────────────────────────────────────────────
@@ -609,6 +615,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       screenshotTop: null,
       screenshotIso: null,
       screenshotIsoBack: null,
+      screenshotBottom: null,
       evalScore: null,
       evalIssues: null,
       evalSuggestions: null,
@@ -755,6 +762,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
           screenshotTop: null,
           screenshotIso: null,
           screenshotIsoBack: null,
+          screenshotBottom: null,
           evalScore: null,
           evalIssues: null,
           evalSuggestions: null,
@@ -858,6 +866,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         screenshotTop: null,
         screenshotIso: null,
         screenshotIsoBack: null,
+        screenshotBottom: null,
         evalScore: null,
         evalIssues: ["Screenshot service unavailable — evaluation skipped"],
         evalSuggestions: null,
@@ -946,6 +955,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         screenshotTop: filePaths.screenshotTopPath,
         screenshotIso: filePaths.screenshotIsoPath,
         screenshotIsoBack: filePaths.screenshotIsoBackPath,
+        screenshotBottom: filePaths.screenshotBottomPath,
         evalScore: finalScore,
         evalIssues: final.evalResult?.issues ?? null,
         evalSuggestions: final.evalResult?.suggestions ?? null,
@@ -1046,6 +1056,7 @@ export async function reRenderForExample(exampleId: string): Promise<GenerateRes
       screenshotTop: null,
       screenshotIso: null,
       screenshotIsoBack: null,
+      screenshotBottom: null,
       evalScore: null,
       evalIssues: null,
       evalSuggestions: null,
@@ -1140,6 +1151,7 @@ export async function reRenderForExample(exampleId: string): Promise<GenerateRes
     screenshotTop: filePaths.screenshotTopPath,
     screenshotIso: filePaths.screenshotIsoPath,
     screenshotIsoBack: filePaths.screenshotIsoBackPath,
+    screenshotBottom: filePaths.screenshotBottomPath,
     evalScore: score,
     evalIssues: evalResult?.issues ?? null,
     evalSuggestions: evalResult?.suggestions ?? null,

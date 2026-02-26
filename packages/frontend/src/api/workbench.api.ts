@@ -71,6 +71,7 @@ export interface WorkbenchExample {
   screenshotTop: string | null;
   screenshotIso: string | null;
   screenshotIsoBack: string | null;
+  screenshotBottom: string | null;
   evalScore: number | null;
   evalIssues: string[];
   evalSuggestions: string[];
