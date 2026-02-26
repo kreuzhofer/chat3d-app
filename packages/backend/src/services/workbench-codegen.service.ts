@@ -421,6 +421,13 @@ root_part = part.part
 
   const extraOpts = modelConfig ? buildGenerateOptions(modelConfig) : {};
 
+  if (modelConfig) {
+    logger.info(
+      { provider: modelConfig.provider, model: modelConfig.modelName, thinkingEffort: modelConfig.thinkingEffort, supportsThinking: modelConfig.supportsThinking, extraOpts },
+      "workbench generateText call options",
+    );
+  }
+
   // Wrap with per-provider semaphore + rate limit retry
   const doGenerate = () =>
     withLlmRetry(async () => {
@@ -459,6 +466,17 @@ root_part = part.part
   const result = semaphore
     ? await semaphore.run(doGenerate)
     : await doGenerate();
+
+  if (result.reasoning) {
+    logger.info(
+      { provider: modelConfig?.provider, model: modelConfig?.modelName, reasoningLength: result.reasoning.length },
+      "workbench thinking output received",
+    );
+    logger.trace(
+      { provider: modelConfig?.provider, model: modelConfig?.modelName, reasoning: result.reasoning },
+      "workbench thinking output content",
+    );
+  }
 
   if (!result.text || result.text.trim() === "") {
     throw new Error("LLM returned empty output");

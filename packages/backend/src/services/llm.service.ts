@@ -242,6 +242,11 @@ async function generateWithConfig(
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
 
+  logger.info(
+    { provider: cfg.provider, model: cfg.modelName, thinkingEffort: cfg.thinkingEffort, supportsThinking: cfg.supportsThinking, extraOpts },
+    "generateText call options",
+  );
+
   const semaphore = getLlmSemaphore(cfg.provider, cfg.maxConcurrent);
   return semaphore.run(() =>
     withLlmRetry(async () => {
@@ -250,6 +255,17 @@ async function generateWithConfig(
         prompt,
         ...extraOpts,
       });
+
+      if (result.reasoning) {
+        logger.info(
+          { provider: cfg.provider, model: cfg.modelName, reasoningLength: result.reasoning.length },
+          "thinking output received",
+        );
+        logger.trace(
+          { provider: cfg.provider, model: cfg.modelName, reasoning: result.reasoning },
+          "thinking output content",
+        );
+      }
 
       if (!result.text || result.text.trim() === "") {
         throw new LlmServiceError("LLM returned empty output", 502);
@@ -277,6 +293,11 @@ async function streamWithConfig(
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
 
+  logger.info(
+    { provider: cfg.provider, model: cfg.modelName, thinkingEffort: cfg.thinkingEffort, supportsThinking: cfg.supportsThinking, extraOpts },
+    "streamText call options",
+  );
+
   const semaphore = getLlmSemaphore(cfg.provider, cfg.maxConcurrent);
   return semaphore.run(async () => {
     try {
@@ -293,6 +314,17 @@ async function streamWithConfig(
       }
 
       const finalResult = await result;
+
+      if (finalResult.reasoning) {
+        logger.info(
+          { provider: cfg.provider, model: cfg.modelName, reasoningLength: finalResult.reasoning.length },
+          "thinking output received",
+        );
+        logger.trace(
+          { provider: cfg.provider, model: cfg.modelName, reasoning: finalResult.reasoning },
+          "thinking output content",
+        );
+      }
 
       if (fullText.trim() === "") {
         throw new LlmServiceError("LLM returned empty output", 502);

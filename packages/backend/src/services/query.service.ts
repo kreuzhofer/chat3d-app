@@ -737,7 +737,7 @@ export async function executeQueryPipeline(input: {
     const epCodegenConfig = await getModelForPurpose("chat_codegen");
     const epCodegenModel = createProviderModelFromConfig(epCodegenConfig);
     const epExtraOpts = buildGenerateOptions(epCodegenConfig);
-    queryLogger.info({ model: epCodegenConfig.label, provider: epCodegenConfig.provider, modelName: epCodegenConfig.modelName, maxOutputTokens: epCodegenConfig.maxOutputTokens }, "resolved chat codegen model");
+    queryLogger.info({ model: epCodegenConfig.label, provider: epCodegenConfig.provider, modelName: epCodegenConfig.modelName, maxOutputTokens: epCodegenConfig.maxOutputTokens, thinkingEffort: epCodegenConfig.thinkingEffort, supportsThinking: epCodegenConfig.supportsThinking }, "resolved chat codegen model");
 
     let epTotalPromptTokens = 0;
     let epTotalCompletionTokens = 0;
@@ -775,6 +775,16 @@ export async function executeQueryPipeline(input: {
           },
         },
       );
+      if (cgResult.reasoning) {
+        queryLogger.info(
+          { iteration, provider: epCodegenConfig.provider, model: epCodegenConfig.modelName, reasoningLength: cgResult.reasoning.length },
+          "chat codegen thinking output received",
+        );
+        queryLogger.trace(
+          { iteration, reasoning: cgResult.reasoning },
+          "chat codegen thinking output content",
+        );
+      }
       epCurrentCode = stripTemplateBoilerplate(extractExecutableCode(cgResult.text));
       const cgPT = cgResult.usage?.inputTokens ?? 0;
       const cgCT = cgResult.usage?.outputTokens ?? 0;
@@ -1284,6 +1294,17 @@ export async function submitQuery(input: {
           },
         },
       );
+
+      if (codegenResult.reasoning) {
+        queryLogger.info(
+          { iteration, provider: codegenConfig.provider, model: codegenConfig.modelName, reasoningLength: codegenResult.reasoning.length },
+          "codegen thinking output received",
+        );
+        queryLogger.trace(
+          { iteration, reasoning: codegenResult.reasoning },
+          "codegen thinking output content",
+        );
+      }
 
       const rawCode = extractExecutableCode(codegenResult.text);
       currentCode = stripTemplateBoilerplate(rawCode);
