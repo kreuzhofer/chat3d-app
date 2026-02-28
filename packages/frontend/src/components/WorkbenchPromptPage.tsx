@@ -314,9 +314,9 @@ export function WorkbenchPromptPage() {
     setEditingPrompt(true);
     setImproveDialogOpen(false);
     setImproveVariations([]);
-    // Scroll to the prompt editor so the user sees it immediately
+    // Scroll to the very top of the page so the user sees the prompt editor
     setTimeout(() => {
-      promptSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }, 50);
   }, [improveVariations, selectedVariation]);
 
