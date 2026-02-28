@@ -6,7 +6,8 @@
       "runtimeExecutable": "echo",
       "runtimeArgs": ["Frontend running via Docker on port 80"],
       "port": 80,
-      "autoPort": false
+      "autoPort": false,
+      "urlOverride": "http://localhost:80"
     }
   ]
 }

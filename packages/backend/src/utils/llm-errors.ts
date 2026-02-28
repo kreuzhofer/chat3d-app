@@ -205,3 +205,40 @@ export function asRateLimitError(
     },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Transient error detection (retryable — timeouts, 5xx, network errors)
+// ---------------------------------------------------------------------------
+
+/** Keywords in error messages that indicate a timeout. */
+const TIMEOUT_KEYWORDS = /timeout|timed out|aborted|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket hang up/i;
+
+/** HTTP status codes that indicate transient server-side issues. */
+const TRANSIENT_STATUS_CODES = new Set([500, 502, 503, 504, 529]);
+
+/**
+ * Returns `true` when `error` is a transient infrastructure error that is
+ * safe to retry: timeouts, network errors, or server-side 5xx errors.
+ *
+ * Excludes rate limits (429) and quota errors (402) — those have their own
+ * detection via `isRateLimitError()` and `isQuotaExhaustion()`.
+ */
+export function isTransientError(error: unknown): boolean {
+  // Check for transient HTTP status codes (5xx, 529)
+  const statusCode = getStatusCode(error);
+  if (statusCode !== undefined && TRANSIENT_STATUS_CODES.has(statusCode)) {
+    return true;
+  }
+
+  // Check for timeout / network error keywords in message or name
+  const msg = error instanceof Error ? error.message : String(error);
+  const name = error instanceof Error ? error.name : "";
+  if (TIMEOUT_KEYWORDS.test(msg) || TIMEOUT_KEYWORDS.test(name)) {
+    return true;
+  }
+
+  // AbortError from AbortController.abort()
+  if (name === "AbortError") return true;
+
+  return false;
+}

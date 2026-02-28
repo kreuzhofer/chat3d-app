@@ -23,7 +23,7 @@ The UI is organized into three persistent panes so you never lose context:
 - **Conversational modeling** -- Describe parts in natural language. The LLM pipeline handles intent detection, code generation, and rendering automatically.
 - **Multi-format export** -- Download models as STL, STEP, 3MF, or raw Build123d Python source.
 - **In-browser 3D preview** -- Inspect generated geometry with Three.js without leaving the app.
-- **Multi-provider LLM support** -- Use OpenAI, Anthropic, xAI (Grok), or a local Ollama instance. Configure conversation and code-generation models independently.
+- **Multi-provider LLM support** -- Use OpenAI, Anthropic, xAI (Grok), DeepSeek, Amazon Bedrock, or a local Ollama instance. Configure conversation and code-generation models independently via the Admin UI.
 - **Self-hosted** -- Runs entirely on your own infrastructure via Docker Compose. No data leaves your network unless you choose a cloud LLM provider.
 - **Admin & governance** -- Waitlist mode, invitation controls, user management, and policy-based administration built in.
 - **Real-time updates** -- Server-Sent Events (SSE) push notifications and model generation progress to the browser.
@@ -43,7 +43,7 @@ Express API Server
     |-- LLM providers (OpenAI / Anthropic / xAI / Ollama)
     |
     v
-Build123d Rendering Service (Python, linux/amd64)
+Build123d Rendering Service (Python)
     |
     v
 STL / STEP / 3MF files
@@ -53,9 +53,9 @@ STL / STEP / 3MF files
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React 18, TypeScript, Vite, Tailwind CSS, Three.js |
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS 4, shadcn/ui, Three.js |
 | Backend | Express, TypeScript, Knex (PostgreSQL) |
-| LLM abstraction | Vercel AI SDK (OpenAI, Anthropic, xAI, Ollama) |
+| LLM abstraction | Vercel AI SDK (OpenAI, Anthropic, xAI, DeepSeek, Amazon Bedrock, Ollama) |
 | 3D rendering | Build123d (Python, containerized) |
 | Real-time | Server-Sent Events via Redis pub/sub |
 | Auth | JWT + bcrypt |
@@ -111,9 +111,6 @@ Copy `.env.example` to `.env` and configure:
 |----------|---------|
 | `DB_PASSWORD` | PostgreSQL password |
 | `JWT_SECRET` | Secret key for JWT signing |
-| `OPENAI_API_KEY` | OpenAI API key |
-| `ANTHROPIC_API_KEY` | Anthropic API key |
-| `XAI_API_KEY` | xAI (Grok) API key |
 | `OLLAMA_BASE_URL` | Ollama server URL (default: `http://host.docker.internal:11434`) |
 | `QUERY_CONVERSATION_PROVIDER` | LLM provider for conversation (`openai`, `anthropic`, `xai`, `ollama`) |
 | `QUERY_CONVERSATION_MODEL` | Model name for conversation (e.g. `gpt-4o-mini`) |
@@ -122,16 +119,22 @@ Copy `.env.example` to `.env` and configure:
 | `SEED_ADMIN_EMAIL` | Admin account email created on first bootstrap |
 | `SEED_ADMIN_PASSWORD` | Admin account password |
 | `BUILD123D_URL` | Build123d service URL (default: `http://build123d:80`) |
+| `SCREENSHOT_SERVICE_URL` | Screenshot service URL (default: `http://screenshot-service:80`) |
+| `LOG_LEVEL` | Logging level: `fatal`, `error`, `warn`, `info` (default), `debug`, `trace`, `silent` |
+| `LOG_FORMAT` | Log output format: `json` (default in Docker) or `pretty` (human-readable) |
 
-See `.env.example` for the full list including SMTP, Redis, and worker configuration.
+> **LLM API Keys:** API keys for LLM providers (OpenAI, Anthropic, xAI, etc.) are managed via the **Admin UI → Providers tab**, not environment variables.
+
+See `.env.example` for the full list including SMTP, Redis, concurrency, security, and worker configuration.
 
 ## Docker Services
 
 | Service | Purpose | Port |
 |---------|---------|------|
-| `postgres` | PostgreSQL 16 database | 5432 |
+| `postgres` | PostgreSQL 16 database (pgvector) | 5432 |
 | `redis` | SSE event bus | 6379 |
-| `build123d` | Build123d Python rendering service | internal |
+| `build123d` | Build123d Python rendering service (2 replicas) | internal |
+| `screenshot-service` | Pyrender STL screenshot service (2 replicas) | internal |
 | `backend` | Express API server | 3001 |
 | `frontend` | React SPA served via nginx | 80 |
 | `account-deletion-worker` | Scheduled cleanup of deactivated accounts | -- |
@@ -170,11 +173,12 @@ docker compose build backend && docker compose up -d backend
 ```
 chat3d-app/
   packages/
-    shared/        # Shared TypeScript types
-    backend/       # Express API server
-    frontend/      # React SPA (Vite + Tailwind)
+    shared/              # Shared TypeScript types
+    backend/             # Express API server
+    frontend/            # React SPA (Vite + Tailwind)
   services/
-    build123d/     # Build123d rendering container
+    build123d/           # Build123d rendering container
+    screenshot-service/  # Pyrender STL screenshot container
   docker-compose.yml
 ```
 
@@ -189,11 +193,18 @@ All routes (except auth) require `Authorization: Bearer <token>`.
 | `GET` | `/api/auth/me` | Current user profile |
 | `GET` | `/api/chat/contexts` | List chat contexts |
 | `POST` | `/api/chat/contexts` | Create chat context |
+| `PATCH` | `/api/chat/contexts/:id` | Update chat context |
 | `DELETE` | `/api/chat/contexts/:id` | Delete context + items + files |
 | `GET` | `/api/chat/contexts/:id/items` | Get chat items for a context |
 | `POST` | `/api/query/submit` | Submit a modeling query (async) |
+| `POST` | `/api/query/regenerate` | Regenerate a previous response |
+| `GET` | `/api/events/stream` | SSE event stream (real-time updates) |
 | `GET` | `/api/files/:path` | Download a generated file |
+| `POST` | `/api/files/upload` | Upload a file |
+| `POST` | `/api/profile/*` | Account management (password, email, delete, export) |
 | `GET` | `/api/llm/models` | List available LLM models |
+| `GET` | `/api/admin/*` | Admin: users, providers, models, purposes, workbench |
+| `GET` | `/api/public/config` | Public app configuration |
 | `GET` | `/health` | Health check |
 | `GET` | `/ready` | Readiness check |
 

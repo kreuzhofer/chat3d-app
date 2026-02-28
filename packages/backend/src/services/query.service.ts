@@ -775,14 +775,19 @@ export async function executeQueryPipeline(input: {
           },
         },
       );
-      if (cgResult.reasoning) {
+      if (cgResult.reasoningText) {
         queryLogger.info(
-          { iteration, provider: epCodegenConfig.provider, model: epCodegenConfig.modelName, reasoningLength: cgResult.reasoning.length },
+          { iteration, provider: epCodegenConfig.provider, model: epCodegenConfig.modelName, reasoningLength: cgResult.reasoningText.length },
           "chat codegen thinking output received",
         );
         queryLogger.trace(
-          { iteration, reasoning: cgResult.reasoning },
+          { iteration, reasoning: cgResult.reasoningText },
           "chat codegen thinking output content",
+        );
+      } else {
+        queryLogger.debug(
+          { iteration, provider: epCodegenConfig.provider, model: epCodegenConfig.modelName, reasoningBlocks: cgResult.reasoning?.length ?? 0 },
+          "no thinking output in chat codegen response",
         );
       }
       epCurrentCode = stripTemplateBoilerplate(extractExecutableCode(cgResult.text));
@@ -864,7 +869,7 @@ export async function executeQueryPipeline(input: {
       if (epScreenshots.length > 0) {
         await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "evaluating", detail: `Evaluating quality (attempt ${iteration}/${MAX_FIX_ITERATIONS})...` });
         try {
-          const evr = await evaluateModel({ userPrompt: prompt, categoryName: "chat", complexity: 5, images: epScreenshots.map((s) => s.base64) });
+          const evr = await evaluateModel({ userPrompt: prompt, categoryName: "chat", complexity: 5, images: epScreenshots.filter((s) => s.angle !== "isometric").map((s) => ({ angle: s.angle, base64: s.base64 })) });
           epTotalPromptTokens += evr.promptTokens;
           epTotalCompletionTokens += evr.completionTokens;
           epTotalCostUsd += calculateCostUsd(await getModelForPurpose("vlm_eval"), evr.promptTokens, evr.completionTokens);
@@ -1295,14 +1300,19 @@ export async function submitQuery(input: {
         },
       );
 
-      if (codegenResult.reasoning) {
+      if (codegenResult.reasoningText) {
         queryLogger.info(
-          { iteration, provider: codegenConfig.provider, model: codegenConfig.modelName, reasoningLength: codegenResult.reasoning.length },
+          { iteration, provider: codegenConfig.provider, model: codegenConfig.modelName, reasoningLength: codegenResult.reasoningText.length },
           "codegen thinking output received",
         );
         queryLogger.trace(
-          { iteration, reasoning: codegenResult.reasoning },
+          { iteration, reasoning: codegenResult.reasoningText },
           "codegen thinking output content",
+        );
+      } else {
+        queryLogger.debug(
+          { iteration, provider: codegenConfig.provider, model: codegenConfig.modelName, reasoningBlocks: codegenResult.reasoning?.length ?? 0 },
+          "no thinking output in codegen response",
         );
       }
 
@@ -1405,7 +1415,7 @@ export async function submitQuery(input: {
             userPrompt: prompt,
             categoryName: "chat",
             complexity: 5,
-            images: screenshots.map((s) => s.base64),
+            images: screenshots.filter((s) => s.angle !== "isometric").map((s) => ({ angle: s.angle, base64: s.base64 })),
           });
 
           totalPromptTokens += evalResult.promptTokens;

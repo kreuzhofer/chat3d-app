@@ -35,12 +35,9 @@
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0xf0f0f0);
 
-      const camera = new THREE.PerspectiveCamera(
-        75,
-        options.width / options.height,
-        0.1,
-        10000
-      );
+      // Orthographic camera — frustum will be sized once model bounds are known.
+      // Using placeholder values here; updateCameraFrustum() sets the real ones.
+      const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10000);
 
       const renderer = new THREE.WebGLRenderer({
         antialias: false,
@@ -77,6 +74,16 @@
       return { scene, camera, renderer };
     }
 
+    function updateCameraFrustum(camera, maxDim, aspect) {
+      // Orthographic frustum: model fills ~80% of frame (0.6 = half of 1.2×)
+      const halfExtent = maxDim * 0.6;
+      camera.left = -halfExtent * aspect;
+      camera.right = halfExtent * aspect;
+      camera.top = halfExtent;
+      camera.bottom = -halfExtent;
+      camera.updateProjectionMatrix();
+    }
+
     function positionCamera(camera, angle, distance, modelCenterY) {
       // All cameras look at the model center and are exactly `distance` away from it
       const lookAt = new THREE.Vector3(0, modelCenterY, 0);
@@ -85,14 +92,49 @@
         case 'front':
           camera.position.set(0, modelCenterY, distance);
           break;
+        case 'back':
+          camera.position.set(0, modelCenterY, -distance);
+          break;
+        case 'left':
+          camera.position.set(-distance, modelCenterY, 0);
+          break;
+        case 'right':
+          camera.position.set(distance, modelCenterY, 0);
+          break;
         case 'top':
-          // Place camera `distance` above the lookAt point (not above the origin)
           camera.position.set(0, modelCenterY + distance, 0.001);
           break;
+        case 'bottom':
+          camera.position.set(0, modelCenterY - distance, -0.001);
+          break;
+        case 'ortho_45': {
+          // 45° azimuth, 45° elevation — orthographic 3D overview for VLM
+          const az = Math.PI / 4;
+          const el = Math.PI / 4;
+          const x = distance * Math.cos(el) * Math.sin(az);
+          const y = distance * Math.sin(el);
+          const z = distance * Math.cos(el) * Math.cos(az);
+          camera.position.set(x, modelCenterY + y, z);
+          break;
+        }
+        case 'ortho_45_bottom': {
+          // 45° azimuth, -45° elevation — bottom-up 3D overview for VLM
+          const az = Math.PI / 4;
+          const el = -Math.PI / 4;
+          const x = distance * Math.cos(el) * Math.sin(az);
+          const y = distance * Math.sin(el);
+          const z = distance * Math.cos(el) * Math.cos(az);
+          camera.position.set(x, modelCenterY + y, z);
+          break;
+        }
         case 'isometric': {
-          // (d,d,d) offset from lookAt — magnitude is d*sqrt(3), so d = distance/sqrt(3)
-          const d = distance / Math.sqrt(3);
-          camera.position.set(d, modelCenterY + d, d);
+          // 45° azimuth, 35° elevation — classic isometric for thumbnails
+          const az = Math.PI / 4;
+          const el = Math.PI * 35 / 180;
+          const x = distance * Math.cos(el) * Math.sin(az);
+          const y = distance * Math.sin(el);
+          const z = distance * Math.cos(el) * Math.cos(az);
+          camera.position.set(x, modelCenterY + y, z);
           break;
         }
         default:
@@ -213,8 +255,12 @@
       scene.add(result.object);
 
       const maxDim = Math.max(result.size.x, result.size.y, result.size.z);
-      const distance = maxDim * 2.5;
+      const distance = maxDim * 3.0; // Far enough for orthographic clipping
       const modelCenterY = result.size.y / 2;
+      const aspect = options.width / options.height;
+
+      // Set orthographic frustum based on model bounds
+      updateCameraFrustum(camera, maxDim, aspect);
 
       const images = [];
       for (const angle of angles) {

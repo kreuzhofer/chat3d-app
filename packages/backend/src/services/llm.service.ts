@@ -256,14 +256,19 @@ async function generateWithConfig(
         ...extraOpts,
       });
 
-      if (result.reasoning) {
+      if (result.reasoningText) {
         logger.info(
-          { provider: cfg.provider, model: cfg.modelName, reasoningLength: result.reasoning.length },
+          { provider: cfg.provider, model: cfg.modelName, reasoningLength: result.reasoningText.length },
           "thinking output received",
         );
         logger.trace(
-          { provider: cfg.provider, model: cfg.modelName, reasoning: result.reasoning },
+          { provider: cfg.provider, model: cfg.modelName, reasoning: result.reasoningText },
           "thinking output content",
+        );
+      } else {
+        logger.debug(
+          { provider: cfg.provider, model: cfg.modelName, reasoningBlocks: result.reasoning?.length ?? 0 },
+          "no thinking output in response",
         );
       }
 
@@ -315,14 +320,19 @@ async function streamWithConfig(
 
       const finalResult = await result;
 
-      if (finalResult.reasoning) {
+      if (finalResult.reasoningText) {
         logger.info(
-          { provider: cfg.provider, model: cfg.modelName, reasoningLength: finalResult.reasoning.length },
+          { provider: cfg.provider, model: cfg.modelName, reasoningLength: finalResult.reasoningText.length },
           "thinking output received",
         );
         logger.trace(
-          { provider: cfg.provider, model: cfg.modelName, reasoning: finalResult.reasoning },
+          { provider: cfg.provider, model: cfg.modelName, reasoning: finalResult.reasoningText },
           "thinking output content",
+        );
+      } else {
+        logger.debug(
+          { provider: cfg.provider, model: cfg.modelName, reasoningBlocks: finalResult.reasoning?.length ?? 0 },
+          "no thinking output in response",
         );
       }
 

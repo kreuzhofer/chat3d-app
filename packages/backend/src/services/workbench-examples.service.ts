@@ -22,10 +22,15 @@ interface ExampleRow {
   step_path: string | null;
   threemf_path: string | null;
   screenshot_front: string | null;
+  screenshot_back: string | null;
+  screenshot_left: string | null;
+  screenshot_right: string | null;
   screenshot_top: string | null;
+  screenshot_bottom: string | null;
+  screenshot_ortho_45: string | null;
+  screenshot_ortho_45_bottom: string | null;
   screenshot_iso: string | null;
   screenshot_iso_back: string | null;
-  screenshot_bottom: string | null;
   eval_score: number | null;
   eval_issues: unknown;
   eval_suggestions: unknown;
@@ -58,10 +63,15 @@ export interface ExampleDetail {
   stepPath: string | null;
   threemfPath: string | null;
   screenshotFront: string | null;
+  screenshotBack: string | null;
+  screenshotLeft: string | null;
+  screenshotRight: string | null;
   screenshotTop: string | null;
+  screenshotBottom: string | null;
+  screenshotOrtho45: string | null;
+  screenshotOrtho45Bottom: string | null;
   screenshotIso: string | null;
   screenshotIsoBack: string | null;
-  screenshotBottom: string | null;
   evalScore: number | null;
   evalIssues: string[];
   evalSuggestions: string[];
@@ -120,10 +130,15 @@ export async function listExamplesForPrompt(promptId: string): Promise<ExampleDe
     stepPath: row.step_path,
     threemfPath: row.threemf_path,
     screenshotFront: row.screenshot_front,
+    screenshotBack: row.screenshot_back,
+    screenshotLeft: row.screenshot_left,
+    screenshotRight: row.screenshot_right,
     screenshotTop: row.screenshot_top,
+    screenshotBottom: row.screenshot_bottom,
+    screenshotOrtho45: row.screenshot_ortho_45,
+    screenshotOrtho45Bottom: row.screenshot_ortho_45_bottom,
     screenshotIso: row.screenshot_iso,
     screenshotIsoBack: row.screenshot_iso_back,
-    screenshotBottom: row.screenshot_bottom,
     evalScore: row.eval_score,
     evalIssues: parseJsonbArray(row.eval_issues),
     evalSuggestions: parseJsonbArray(row.eval_suggestions),
@@ -174,10 +189,15 @@ export async function getExample(exampleId: string): Promise<ExampleDetail> {
     stepPath: row.step_path,
     threemfPath: row.threemf_path,
     screenshotFront: row.screenshot_front,
+    screenshotBack: row.screenshot_back,
+    screenshotLeft: row.screenshot_left,
+    screenshotRight: row.screenshot_right,
     screenshotTop: row.screenshot_top,
+    screenshotBottom: row.screenshot_bottom,
+    screenshotOrtho45: row.screenshot_ortho_45,
+    screenshotOrtho45Bottom: row.screenshot_ortho_45_bottom,
     screenshotIso: row.screenshot_iso,
     screenshotIsoBack: row.screenshot_iso_back,
-    screenshotBottom: row.screenshot_bottom,
     evalScore: row.eval_score,
     evalIssues: parseJsonbArray(row.eval_issues),
     evalSuggestions: parseJsonbArray(row.eval_suggestions),
@@ -252,10 +272,15 @@ export async function updateExampleCode(exampleId: string, newCode: string): Pro
          render_status = 'pending',
          render_error = NULL,
          screenshot_front = NULL,
+         screenshot_back = NULL,
+         screenshot_left = NULL,
+         screenshot_right = NULL,
          screenshot_top = NULL,
+         screenshot_bottom = NULL,
+         screenshot_ortho_45 = NULL,
+         screenshot_ortho_45_bottom = NULL,
          screenshot_iso = NULL,
          screenshot_iso_back = NULL,
-         screenshot_bottom = NULL,
          eval_score = NULL,
          eval_issues = NULL,
          eval_suggestions = NULL,

@@ -324,10 +324,15 @@ async function insertExample(data: {
   stepPath: string | null;
   threemfPath: string | null;
   screenshotFront: string | null;
+  screenshotBack: string | null;
+  screenshotLeft: string | null;
+  screenshotRight: string | null;
   screenshotTop: string | null;
+  screenshotBottom: string | null;
+  screenshotOrtho45: string | null;
+  screenshotOrtho45Bottom: string | null;
   screenshotIso: string | null;
   screenshotIsoBack: string | null;
-  screenshotBottom: string | null;
   evalScore: number | null;
   evalIssues: string[] | null;
   evalSuggestions: string[] | null;
@@ -342,11 +347,13 @@ async function insertExample(data: {
     `INSERT INTO workbench_examples (
        id, prompt_id, iteration, code, render_status, render_error,
        stl_path, step_path, threemf_path,
-       screenshot_front, screenshot_top, screenshot_iso, screenshot_iso_back, screenshot_bottom,
+       screenshot_front, screenshot_back, screenshot_left, screenshot_right,
+       screenshot_top, screenshot_bottom, screenshot_ortho_45, screenshot_ortho_45_bottom,
+       screenshot_iso, screenshot_iso_back,
        eval_score, eval_issues, eval_suggestions,
        approval_status, rejection_note, llm_model, vlm_model,
        prompt_tokens, completion_tokens
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
      RETURNING id`,
     [
       data.id,
@@ -359,10 +366,15 @@ async function insertExample(data: {
       data.stepPath,
       data.threemfPath,
       data.screenshotFront,
+      data.screenshotBack,
+      data.screenshotLeft,
+      data.screenshotRight,
       data.screenshotTop,
+      data.screenshotBottom,
+      data.screenshotOrtho45,
+      data.screenshotOrtho45Bottom,
       data.screenshotIso,
       data.screenshotIsoBack,
-      data.screenshotBottom,
       data.evalScore,
       data.evalIssues ? JSON.stringify(data.evalIssues) : null,
       data.evalSuggestions ? JSON.stringify(data.evalSuggestions) : null,
@@ -467,14 +479,19 @@ root_part = part.part
     ? await semaphore.run(doGenerate)
     : await doGenerate();
 
-  if (result.reasoning) {
+  if (result.reasoningText) {
     logger.info(
-      { provider: modelConfig?.provider, model: modelConfig?.modelName, reasoningLength: result.reasoning.length },
+      { provider: modelConfig?.provider, model: modelConfig?.modelName, reasoningLength: result.reasoningText.length },
       "workbench thinking output received",
     );
     logger.trace(
-      { provider: modelConfig?.provider, model: modelConfig?.modelName, reasoning: result.reasoning },
+      { provider: modelConfig?.provider, model: modelConfig?.modelName, reasoning: result.reasoningText },
       "workbench thinking output content",
+    );
+  } else {
+    logger.debug(
+      { provider: modelConfig?.provider, model: modelConfig?.modelName, reasoningBlocks: result.reasoning?.length ?? 0 },
+      "no thinking output in workbench response",
     );
   }
 
@@ -497,7 +514,7 @@ root_part = part.part
 
 function findScreenshot(
   images: RenderedScreenshot[],
-  angle: "front" | "top" | "isometric" | "isometric_back" | "bottom",
+  angle: string,
 ): string | null {
   return images.find((img) => img.angle === angle)?.base64 ?? null;
 }
@@ -521,22 +538,29 @@ function mapExtension(filename: string): string {
  * Persist rendered files and screenshots to domain-scoped storage.
  * Returns the relative paths stored in the workbench directory.
  */
+interface PersistedFilePaths {
+  stlPath: string | null;
+  stepPath: string | null;
+  threemfPath: string | null;
+  screenshotFrontPath: string | null;
+  screenshotBackPath: string | null;
+  screenshotLeftPath: string | null;
+  screenshotRightPath: string | null;
+  screenshotTopPath: string | null;
+  screenshotBottomPath: string | null;
+  screenshotOrtho45Path: string | null;
+  screenshotOrtho45BottomPath: string | null;
+  screenshotIsoPath: string | null;
+  screenshotIsoBackPath: string | null;
+}
+
 async function persistWorkbenchFiles(opts: {
   categoryId: string;
   exampleId: string;
   renderedFiles: RenderedFile[];
   code: string;
   screenshots: RenderedScreenshot[];
-}): Promise<{
-  stlPath: string | null;
-  stepPath: string | null;
-  threemfPath: string | null;
-  screenshotFrontPath: string | null;
-  screenshotTopPath: string | null;
-  screenshotIsoPath: string | null;
-  screenshotIsoBackPath: string | null;
-  screenshotBottomPath: string | null;
-}> {
+}): Promise<PersistedFilePaths> {
   const prefix = `workbench/${opts.categoryId}/${opts.exampleId}`;
 
   // Persist rendered 3D files
@@ -561,32 +585,29 @@ async function persistWorkbenchFiles(opts: {
     });
   }
 
-  // Persist screenshots
-  const angleMap: Record<string, "front" | "top" | "isometric" | "isometric_back" | "bottom"> = {
-    front: "front",
-    top: "top",
-    isometric: "isometric",
-    isometric_back: "isometric_back",
-    bottom: "bottom",
-  };
-
-  let screenshotFrontPath: string | null = null;
-  let screenshotTopPath: string | null = null;
-  let screenshotIsoPath: string | null = null;
-  let screenshotIsoBackPath: string | null = null;
-  let screenshotBottomPath: string | null = null;
-
+  // Persist screenshots — map angle names to file paths
+  const pathsByAngle: Record<string, string> = {};
   for (const ss of opts.screenshots) {
     const ssPath = `${prefix}-screenshot-${ss.angle}.png`;
     await writeStorageFile({ relativePath: ssPath, contentBase64: ss.base64 });
-    if (ss.angle === "front") screenshotFrontPath = ssPath;
-    else if (ss.angle === "top") screenshotTopPath = ssPath;
-    else if (ss.angle === "isometric") screenshotIsoPath = ssPath;
-    else if (ss.angle === "isometric_back") screenshotIsoBackPath = ssPath;
-    else if (ss.angle === "bottom") screenshotBottomPath = ssPath;
+    pathsByAngle[ss.angle] = ssPath;
   }
 
-  return { stlPath, stepPath, threemfPath, screenshotFrontPath, screenshotTopPath, screenshotIsoPath, screenshotIsoBackPath, screenshotBottomPath };
+  return {
+    stlPath,
+    stepPath,
+    threemfPath,
+    screenshotFrontPath: pathsByAngle["front"] ?? null,
+    screenshotBackPath: pathsByAngle["back"] ?? null,
+    screenshotLeftPath: pathsByAngle["left"] ?? null,
+    screenshotRightPath: pathsByAngle["right"] ?? null,
+    screenshotTopPath: pathsByAngle["top"] ?? null,
+    screenshotBottomPath: pathsByAngle["bottom"] ?? null,
+    screenshotOrtho45Path: pathsByAngle["ortho_45"] ?? null,
+    screenshotOrtho45BottomPath: pathsByAngle["ortho_45_bottom"] ?? null,
+    screenshotIsoPath: pathsByAngle["isometric"] ?? null,
+    screenshotIsoBackPath: pathsByAngle["isometric_back"] ?? null,
+  };
 }
 
 // ── Main pipeline ────────────────────────────────────────────────────
@@ -630,10 +651,15 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       stepPath: null,
       threemfPath: null,
       screenshotFront: null,
+      screenshotBack: null,
+      screenshotLeft: null,
+      screenshotRight: null,
       screenshotTop: null,
+      screenshotBottom: null,
+      screenshotOrtho45: null,
+      screenshotOrtho45Bottom: null,
       screenshotIso: null,
       screenshotIsoBack: null,
-      screenshotBottom: null,
       evalScore: null,
       evalIssues: null,
       evalSuggestions: null,
@@ -777,10 +803,15 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
           stepPath: null,
           threemfPath: null,
           screenshotFront: null,
+          screenshotBack: null,
+          screenshotLeft: null,
+          screenshotRight: null,
           screenshotTop: null,
+          screenshotBottom: null,
+          screenshotOrtho45: null,
+          screenshotOrtho45Bottom: null,
           screenshotIso: null,
           screenshotIsoBack: null,
-          screenshotBottom: null,
           evalScore: null,
           evalIssues: null,
           evalSuggestions: null,
@@ -833,15 +864,17 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       logger.warn("no STL file available, skipping screenshots");
     }
 
-    // 5. VLM Evaluate
-    const imageBase64s = screenshots.map((s) => s.base64);
-    logger.info({ imageCount: imageBase64s.length }, "starting VLM evaluation");
-    if (imageBase64s.length > 0) {
+    // 5. VLM Evaluate — send labeled images, exclude isometric (thumbnail-only)
+    const vlmImages = screenshots
+      .filter((s) => s.angle !== "isometric")
+      .map((s) => ({ angle: s.angle, base64: s.base64 }));
+    logger.info({ imageCount: vlmImages.length }, "starting VLM evaluation");
+    if (vlmImages.length > 0) {
       evalResult = await evaluateModel({
         userPrompt: ctx.prompt,
         categoryName: ctx.categoryName,
         complexity: ctx.complexity,
-        images: imageBase64s,
+        images: vlmImages,
       });
       // Accumulate VLM eval tokens into the total
       totalPromptTokens += evalResult.promptTokens;
@@ -881,10 +914,15 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         stepPath: filePaths.stepPath,
         threemfPath: filePaths.threemfPath,
         screenshotFront: null,
+        screenshotBack: null,
+        screenshotLeft: null,
+        screenshotRight: null,
         screenshotTop: null,
+        screenshotBottom: null,
+        screenshotOrtho45: null,
+        screenshotOrtho45Bottom: null,
         screenshotIso: null,
         screenshotIsoBack: null,
-        screenshotBottom: null,
         evalScore: null,
         evalIssues: ["Screenshot service unavailable — evaluation skipped"],
         evalSuggestions: null,
@@ -970,10 +1008,15 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         stepPath: filePaths.stepPath,
         threemfPath: filePaths.threemfPath,
         screenshotFront: filePaths.screenshotFrontPath,
+        screenshotBack: filePaths.screenshotBackPath,
+        screenshotLeft: filePaths.screenshotLeftPath,
+        screenshotRight: filePaths.screenshotRightPath,
         screenshotTop: filePaths.screenshotTopPath,
+        screenshotBottom: filePaths.screenshotBottomPath,
+        screenshotOrtho45: filePaths.screenshotOrtho45Path,
+        screenshotOrtho45Bottom: filePaths.screenshotOrtho45BottomPath,
         screenshotIso: filePaths.screenshotIsoPath,
         screenshotIsoBack: filePaths.screenshotIsoBackPath,
-        screenshotBottom: filePaths.screenshotBottomPath,
         evalScore: finalScore,
         evalIssues: final.evalResult?.issues ?? null,
         evalSuggestions: final.evalResult?.suggestions ?? null,
@@ -1071,10 +1114,15 @@ export async function reRenderForExample(exampleId: string): Promise<GenerateRes
       stepPath: null,
       threemfPath: null,
       screenshotFront: null,
+      screenshotBack: null,
+      screenshotLeft: null,
+      screenshotRight: null,
       screenshotTop: null,
+      screenshotBottom: null,
+      screenshotOrtho45: null,
+      screenshotOrtho45Bottom: null,
       screenshotIso: null,
       screenshotIsoBack: null,
-      screenshotBottom: null,
       evalScore: null,
       evalIssues: null,
       evalSuggestions: null,
@@ -1122,18 +1170,20 @@ export async function reRenderForExample(exampleId: string): Promise<GenerateRes
     logger.warn("no STL file available, skipping screenshots (re-render)");
   }
 
-  // 4. VLM Evaluate — single pass, no loop
+  // 4. VLM Evaluate — single pass, no loop — send labeled images, exclude isometric (thumbnail-only)
   let evalResult: EvaluationResult | null = null;
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
-  const imageBase64s = screenshots.map((s) => s.base64);
-  if (imageBase64s.length > 0) {
-    logger.info({ imageCount: imageBase64s.length }, "starting VLM evaluation (re-render)");
+  const vlmImages = screenshots
+    .filter((s) => s.angle !== "isometric")
+    .map((s) => ({ angle: s.angle, base64: s.base64 }));
+  if (vlmImages.length > 0) {
+    logger.info({ imageCount: vlmImages.length }, "starting VLM evaluation (re-render)");
     evalResult = await evaluateModel({
       userPrompt: ctx.prompt,
       categoryName: ctx.categoryName,
       complexity: ctx.complexity,
-      images: imageBase64s,
+      images: vlmImages,
     });
     totalPromptTokens = evalResult.promptTokens;
     totalCompletionTokens = evalResult.completionTokens;
@@ -1166,10 +1216,15 @@ export async function reRenderForExample(exampleId: string): Promise<GenerateRes
     stepPath: filePaths.stepPath,
     threemfPath: filePaths.threemfPath,
     screenshotFront: filePaths.screenshotFrontPath,
+    screenshotBack: filePaths.screenshotBackPath,
+    screenshotLeft: filePaths.screenshotLeftPath,
+    screenshotRight: filePaths.screenshotRightPath,
     screenshotTop: filePaths.screenshotTopPath,
+    screenshotBottom: filePaths.screenshotBottomPath,
+    screenshotOrtho45: filePaths.screenshotOrtho45Path,
+    screenshotOrtho45Bottom: filePaths.screenshotOrtho45BottomPath,
     screenshotIso: filePaths.screenshotIsoPath,
     screenshotIsoBack: filePaths.screenshotIsoBackPath,
-    screenshotBottom: filePaths.screenshotBottomPath,
     evalScore: score,
     evalIssues: evalResult?.issues ?? null,
     evalSuggestions: evalResult?.suggestions ?? null,

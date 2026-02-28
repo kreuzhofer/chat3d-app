@@ -68,10 +68,15 @@ export interface WorkbenchExample {
   stepPath: string | null;
   threemfPath: string | null;
   screenshotFront: string | null;
+  screenshotBack: string | null;
+  screenshotLeft: string | null;
+  screenshotRight: string | null;
   screenshotTop: string | null;
+  screenshotBottom: string | null;
+  screenshotOrtho45: string | null;
+  screenshotOrtho45Bottom: string | null;
   screenshotIso: string | null;
   screenshotIsoBack: string | null;
-  screenshotBottom: string | null;
   evalScore: number | null;
   evalIssues: string[];
   evalSuggestions: string[];
@@ -176,6 +181,18 @@ export function updatePromptText(token: string, promptId: string, prompt: string
   return requestJson<{ ok: true }>(token, `/prompts/${encodeURIComponent(promptId)}`, {
     method: "PATCH",
     body: JSON.stringify({ prompt }),
+  });
+}
+
+// ── Prompt Improvement ──────────────────────────────────────────────
+
+export interface PromptImproveResult {
+  variations: string[];
+}
+
+export function improvePrompt(token: string, promptId: string): Promise<PromptImproveResult> {
+  return requestJson<PromptImproveResult>(token, `/prompts/${encodeURIComponent(promptId)}/improve`, {
+    method: "POST",
   });
 }
 

@@ -65,10 +65,35 @@ category only needs to demonstrate the basic shape correctly. A complexity-10 PC
 must have accurate port cutouts, standoff placement, and structural features.
 
 CRITICAL — about the rendering format:
-These images show STL file renders. STL is a tessellated mesh format — ALL surfaces are
-composed of flat triangular facets. This is inherent to the format, not a defect.
-Curved surfaces (cylinders, spheres, fillets, cones, tori) will ALWAYS appear faceted.
-The render uses flat shading with no anti-aliasing, so edges may look jagged.
+These images show STL file renders using ORTHOGRAPHIC projection (no perspective distortion).
+In orthographic projection, parallel edges remain perfectly parallel and relative sizes are
+accurate regardless of distance from the camera. There is no foreshortening or convergence.
+Straight geometry (cylinders, pipes, boxes) will appear truly straight — do not report tapering
+or convergence artifacts.
+
+STL is a tessellated mesh format — ALL surfaces are composed of flat triangular facets.
+This is inherent to the format, not a defect. Curved surfaces (cylinders, spheres, fillets,
+cones, tori) will ALWAYS appear faceted. The render uses flat shading with no anti-aliasing,
+so edges may look jagged.
+
+You are provided labeled views: front, back, left, right, top, bottom, a 45° down view, and a 45° up view.
+Together these cover all six faces of the model plus two complementary 3D overviews (from above and below).
+
+CRITICAL — positional judgments:
+The 45° angled views create visual displacement: features appear shifted toward the camera's opposite
+edge (e.g. holes appear lower in the 45° down view and higher in the 45° up view). This is a normal
+projection effect, NOT a modeling error. To judge the vertical position of features, ALWAYS use the
+straight side views (front, back, left, right) where vertical position maps directly to pixel position.
+The camera is centered at the exact geometric center of the model's bounding box, so a feature at the
+vertical center of the model appears at the vertical center of the straight side views.
+Never report positional issues (e.g. "holes are in the lower half") based on angled views alone.
+
+CRITICAL — do not invent requirements:
+Only evaluate what the user ACTUALLY requested. If the prompt does not specify a position, size ratio,
+or other detail, then ANY reasonable interpretation is correct and must NOT be flagged as an issue.
+For example, if the prompt says "through-holes" without specifying vertical placement, the holes may be
+at any height and this is NOT an issue. Only flag something as an issue if the prompt explicitly
+requested it and the model clearly does not match.
 
 You MUST completely ignore ALL of the following when scoring:
 - Faceted/polygonal appearance of curved surfaces
@@ -85,10 +110,14 @@ Do the overall shape, proportions, and key features match the request? Ignore te
 Classifying issues vs suggestions:
 - "issues": ONLY real geometric/structural problems — wrong shape, missing features,
   incorrect proportions, extra geometry, misaligned parts. These are problems in the
-  Build123d code that produces the geometry.
-- "suggestions": rendering observations, minor cosmetic notes, and code-level improvement
-  ideas. These are NOT geometric errors and must NOT affect the score.
-  Never put faceting, smoothness, aliasing, or tessellation observations into issues.
+  Build123d code that produces the geometry. Issues must NEVER reference rendering
+  artifacts, tessellation, or features the prompt did not request.
+- "suggestions": ONLY prompt clarifications — specific ways the user's prompt could be
+  more precise to get better results. Example: "The prompt does not specify hole vertical
+  placement; adding 'at mid-height' would ensure centered positioning."
+  Suggestions must NEVER contain: rendering observations, tessellation/faceting comments,
+  "verify X in code" statements, or proposals to add features the prompt did not request.
+  If you cannot identify a genuine prompt ambiguity, return an empty suggestions array.
 
 Return JSON only:
 {
@@ -172,12 +201,17 @@ export function parseEvaluationResponse(content: string): ParsedEvaluation {
 
 // ── Main evaluation function ─────────────────────────────────────────
 
+export interface LabeledImage {
+  angle: string;
+  base64: string;
+}
+
 export interface EvaluateModelInput {
   userPrompt: string;
   categoryName: string;
   complexity: number;
-  /** Base64-encoded PNG images from different angles */
-  images: string[];
+  /** Labeled base64-encoded PNG images from different angles */
+  images: LabeledImage[];
 }
 
 export async function evaluateModel(input: EvaluateModelInput): Promise<EvaluationResult> {
@@ -189,7 +223,7 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
   );
 
   if (!images || images.length === 0) {
-    logger.warn("no images provided, returning score 1");
+    logger.warn("no labeled images provided, returning score 1");
     return {
       score: 1,
       issues: ["No images provided for evaluation"],
@@ -207,13 +241,28 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
 
   const systemPrompt = buildEvaluationSystemPrompt(userPrompt, categoryName, complexity);
 
-  // Build user message with image parts
+  // Build user message with labeled image parts.
+  // Each image is preceded by a text label so the VLM knows which angle it's viewing.
+  const angleLabels: Record<string, string> = {
+    front: "Front view",
+    back: "Back view",
+    left: "Left view",
+    right: "Right view",
+    top: "Top view",
+    bottom: "Bottom view",
+    ortho_45: "45° down view",
+    ortho_45_bottom: "45° up view",
+    isometric: "Isometric view",
+  };
+
   const userContent: Array<{ type: "text"; text: string } | { type: "image"; image: string }> = [
     { type: "text", text: "Please evaluate the following 3D model images:" },
   ];
 
-  for (const base64Image of images) {
-    userContent.push({ type: "image", image: base64Image });
+  for (const img of images) {
+    const label = angleLabels[img.angle] ?? img.angle;
+    userContent.push({ type: "text", text: `${label}:` });
+    userContent.push({ type: "image", image: img.base64 });
   }
 
   // Wrap entire evaluation (including retries) with per-provider semaphore

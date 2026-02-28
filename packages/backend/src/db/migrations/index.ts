@@ -13,6 +13,8 @@ import { migration011LlmProvidersTable } from "./011_llm_api_key_in_db.js";
 import { migration012ProviderMaxConcurrent } from "./012_provider_max_concurrent.js";
 import { migration013ScreenshotIsoBack } from "./013_screenshot_iso_back.js";
 import { migration014ScreenshotBottom } from "./014_screenshot_bottom.js";
+import { migration015NewScreenshotAngles } from "./015_new_screenshot_angles.js";
+import { migration016ScreenshotOrtho45Bottom } from "./016_screenshot_ortho_45_bottom.js";
 
 export const migrations: Migration[] = [
   migration001InitialSchema,
@@ -29,4 +31,6 @@ export const migrations: Migration[] = [
   migration012ProviderMaxConcurrent,
   migration013ScreenshotIsoBack,
   migration014ScreenshotBottom,
+  migration015NewScreenshotAngles,
+  migration016ScreenshotOrtho45Bottom,
 ];

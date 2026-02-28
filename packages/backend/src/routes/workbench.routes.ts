@@ -54,8 +54,23 @@ import {
   startExport,
   startImport,
 } from "../services/workbench-data-transfer.service.js";
+import { improvePrompt } from "../services/workbench-prompt-improve.service.js";
+import { pool } from "../db/connection.js";
 
 const logger = createLogger("workbench-routes");
+
+function parseJsonbArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((v): v is string => typeof v === "string");
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed.filter((v): v is string => typeof v === "string");
+    } catch {
+      // ignore
+    }
+  }
+  return [];
+}
 
 export const workbenchRouter = Router();
 
@@ -104,6 +119,60 @@ workbenchRouter.patch("/prompts/:id", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "Failed to update prompt", detail: String(error) });
+  }
+});
+
+// ── Prompt Improvement ───────────────────────────────────────────────
+
+workbenchRouter.post("/prompts/:id/improve", async (req, res) => {
+  try {
+    const promptId = req.params.id;
+
+    // Look up prompt text
+    const promptRow = await pool.query<{ prompt: string }>(
+      "SELECT prompt FROM workbench_example_prompts WHERE id = $1",
+      [promptId],
+    );
+    if (promptRow.rows.length === 0) {
+      res.status(404).json({ error: "Prompt not found" });
+      return;
+    }
+    const promptText = promptRow.rows[0].prompt;
+
+    // Find best evaluated example for this prompt
+    const exampleRow = await pool.query<{
+      code: string;
+      eval_issues: unknown;
+      eval_suggestions: unknown;
+    }>(
+      `SELECT code, eval_issues, eval_suggestions
+       FROM workbench_examples
+       WHERE prompt_id = $1 AND render_status = 'success' AND eval_score IS NOT NULL
+       ORDER BY eval_score DESC, created_at DESC
+       LIMIT 1`,
+      [promptId],
+    );
+
+    const example = exampleRow.rows[0];
+    const evalIssues = parseJsonbArray(example?.eval_issues);
+    const evalSuggestions = parseJsonbArray(example?.eval_suggestions);
+    const code = example?.code ?? "";
+
+    const result = await improvePrompt({
+      promptText,
+      evalIssues,
+      evalSuggestions,
+      code,
+    });
+
+    res.status(200).json({ variations: result.variations });
+  } catch (error) {
+    logger.error({ err: error }, "Failed to generate prompt improvements");
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to generate prompt improvements", detail: String(error) });
   }
 });
 
@@ -224,17 +293,23 @@ workbenchRouter.get("/examples/:id", async (req, res) => {
 workbenchRouter.get("/examples/:id/screenshot/:angle", async (req, res) => {
   try {
     const { id, angle } = req.params;
-    if (!["front", "top", "iso", "iso_back", "bottom"].includes(angle)) {
-      res.status(400).json({ error: "angle must be front, top, iso, iso_back, or bottom" });
+    const validAngles = ["front", "back", "left", "right", "top", "bottom", "ortho_45", "ortho_45_bottom", "iso", "iso_back"];
+    if (!validAngles.includes(angle)) {
+      res.status(400).json({ error: `angle must be one of: ${validAngles.join(", ")}` });
       return;
     }
     const example = await getExample(id);
     const columnMap: Record<string, keyof typeof example> = {
       front: "screenshotFront",
+      back: "screenshotBack",
+      left: "screenshotLeft",
+      right: "screenshotRight",
       top: "screenshotTop",
+      bottom: "screenshotBottom",
+      ortho_45: "screenshotOrtho45",
+      ortho_45_bottom: "screenshotOrtho45Bottom",
       iso: "screenshotIso",
       iso_back: "screenshotIsoBack",
-      bottom: "screenshotBottom",
     };
     const column = columnMap[angle] ?? "screenshotFront";
     const screenshotValue = example[column as keyof typeof example] as string | null;

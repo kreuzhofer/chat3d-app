@@ -15,6 +15,7 @@ import { createLogger } from "./logger.js";
 import {
   isQuotaExhaustion,
   isRateLimitError,
+  isTransientError,
   asQuotaError,
   asRateLimitError,
 } from "./llm-errors.js";
@@ -33,10 +34,11 @@ export interface LlmRetryOptions {
 }
 
 /**
- * Wrap an LLM call with retry logic for transient rate limit errors.
+ * Wrap an LLM call with retry logic for transient errors.
  *
  * - On 429 rate limit (retryable): waits with exponential backoff, then retries.
  *   Respects `Retry-After` header if present.
+ * - On transient errors (timeouts, 5xx, network): waits with exponential backoff, then retries.
  * - On 429 quota exhaustion (non-retryable): throws immediately as ProviderQuotaExhaustedError.
  * - On other errors: throws immediately (no retry).
  */
@@ -58,39 +60,45 @@ export async function withLlmRetry<T>(
         throw asQuotaError(error, provider) ?? error;
       }
 
-      // Retryable rate limit — retry if attempts remain
-      if (isRateLimitError(error) && attempt < maxRetries) {
-        const rateLimit = asRateLimitError(error, provider);
+      const isRetryable = isRateLimitError(error) || isTransientError(error);
+
+      // Retryable error — retry if attempts remain
+      if (isRetryable && attempt < maxRetries) {
+        const rateLimit = isRateLimitError(error) ? asRateLimitError(error, provider) : null;
         const calculatedDelay = baseDelayMs * Math.pow(2, attempt);
         const delay = Math.min(
           rateLimit?.retryAfterMs ?? calculatedDelay,
           maxDelayMs,
         );
 
+        const errorKind = isRateLimitError(error) ? "rate limited" : "transient error";
         logger.warn(
           {
             provider,
             attempt: attempt + 1,
             maxRetries,
             delayMs: delay,
+            errorKind,
             err: error instanceof Error ? error.message : String(error),
           },
-          `rate limited, retrying in ${delay}ms`,
+          `${errorKind}, retrying in ${delay}ms`,
         );
 
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       }
 
-      // Rate limit with retries exhausted
-      if (isRateLimitError(error)) {
+      // Retryable error with retries exhausted
+      if (isRetryable) {
+        const errorKind = isRateLimitError(error) ? "rate limit" : "transient error";
         logger.error(
           {
             provider,
             attempts: attempt + 1,
+            errorKind,
             err: error instanceof Error ? error.message : String(error),
           },
-          "rate limit retries exhausted",
+          `${errorKind} retries exhausted`,
         );
       }
 

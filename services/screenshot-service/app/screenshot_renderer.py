@@ -70,11 +70,36 @@ def _camera_pose_for_angle(
 
     if angle == "front":
         eye = centroid + np.array([0.0, 0.0, distance])
+    elif angle == "back":
+        eye = centroid + np.array([0.0, 0.0, -distance])
+    elif angle == "left":
+        eye = centroid + np.array([-distance, 0.0, 0.0])
+    elif angle == "right":
+        eye = centroid + np.array([distance, 0.0, 0.0])
     elif angle == "top":
         eye = centroid + np.array([0.0, distance, 0.0])
         up = np.array([0.0, 0.0, -1.0])  # look down, Z toward viewer
+    elif angle == "bottom":
+        eye = centroid + np.array([0.0, -distance, 0.0])
+        up = np.array([0.0, 0.0, 1.0])  # look up, Z toward viewer
+    elif angle == "ortho_45":
+        # 45° azimuth, 45° elevation — orthographic 3D overview for VLM
+        azimuth = math.radians(45)
+        elevation = math.radians(45)
+        x = distance * math.cos(elevation) * math.sin(azimuth)
+        y = distance * math.sin(elevation)
+        z = distance * math.cos(elevation) * math.cos(azimuth)
+        eye = centroid + np.array([x, y, z])
+    elif angle == "ortho_45_bottom":
+        # 45° azimuth, -45° elevation — bottom-up 3D overview for VLM
+        azimuth = math.radians(45)
+        elevation = math.radians(-45)
+        x = distance * math.cos(elevation) * math.sin(azimuth)
+        y = distance * math.sin(elevation)
+        z = distance * math.cos(elevation) * math.cos(azimuth)
+        eye = centroid + np.array([x, y, z])
     elif angle == "isometric":
-        # 45° around Y, 35° elevation
+        # 45° azimuth, 35° elevation — classic isometric for thumbnails
         azimuth = math.radians(45)
         elevation = math.radians(35)
         x = distance * math.cos(elevation) * math.sin(azimuth)
@@ -82,16 +107,13 @@ def _camera_pose_for_angle(
         z = distance * math.cos(elevation) * math.cos(azimuth)
         eye = centroid + np.array([x, y, z])
     elif angle == "isometric_back":
-        # Opposite of isometric: 225° around Y (45° + 180°), same 35° elevation
+        # Legacy: 225° around Y, 35° elevation (kept for backward compat)
         azimuth = math.radians(225)
         elevation = math.radians(35)
         x = distance * math.cos(elevation) * math.sin(azimuth)
         y = distance * math.sin(elevation)
         z = distance * math.cos(elevation) * math.cos(azimuth)
         eye = centroid + np.array([x, y, z])
-    elif angle == "bottom":
-        eye = centroid + np.array([0.0, -distance, 0.0])
-        up = np.array([0.0, 0.0, 1.0])  # look up, Z toward viewer
     else:
         # Fallback: treat as front
         eye = centroid + np.array([0.0, 0.0, distance])
@@ -171,11 +193,20 @@ def render_screenshots(
     extent = np.max(bounds[1] - bounds[0])
     if extent < 1e-10:
         raise ValueError("Model has zero extent (degenerate geometry)")
-    # Distance so model fills ~45% of frame with 75° FOV (more breathing room
-    # for VLM evaluation — matches the old ThreeJS renderer's framing)
-    distance = extent / (2 * math.tan(math.radians(37.5))) * 2.5
+    # Camera distance — far enough that clipping doesn't occur.
+    # For orthographic the distance only affects clipping and camera pose,
+    # not the apparent size of the model (that's controlled by xmag/ymag).
+    distance = extent * 3.0
 
-    # Adaptive clipping planes based on model size (mirrors the Three.js viewer).
+    # Orthographic frustum: half-extent with breathing room.
+    # The model's bounding box diagonal for angled views (ortho_45, isometric) is
+    # larger than the axis-aligned extent, so we need extra padding.
+    # 0.85 = half of 1.7× the max extent — fills ~60% of frame, safe for all angles.
+    ortho_half = extent * 0.85
+    ortho_ymag = ortho_half
+    ortho_xmag = ortho_half * (width / height)
+
+    # Adaptive clipping planes based on model size.
     znear = max(distance / 100.0, 0.01)
     zfar = distance * 100.0
 
@@ -201,9 +232,10 @@ def render_screenshots(
         )
         scene.add(pr_mesh)
 
-        # Camera — explicit znear/zfar prevent clipping at any model scale
-        camera = pyrender.PerspectiveCamera(
-            yfov=math.radians(75), aspectRatio=width / height,
+        # Orthographic camera — no perspective distortion, parallel lines stay parallel.
+        # This prevents straight geometry (cylinders, pipes) from appearing tapered.
+        camera = pyrender.OrthographicCamera(
+            xmag=ortho_xmag, ymag=ortho_ymag,
             znear=znear, zfar=zfar,
         )
         cam_pose = _camera_pose_for_angle(angle, center, distance)

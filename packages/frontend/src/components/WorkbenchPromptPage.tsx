@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Check, Loader2, Pencil, Play, RefreshCw, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
+import { ArrowLeft, Check, Lightbulb, Loader2, Pencil, Play, RefreshCw, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 import {
   approveExample,
   deleteExample as apiDeleteExample,
@@ -9,6 +9,7 @@ import {
   getExample,
   getJobDetails,
   getJobStatus,
+  improvePrompt as apiImprovePrompt,
   listExamplesForPrompt,
   listPromptsForCategory,
   rejectExample,
@@ -88,6 +89,11 @@ export function WorkbenchPromptPage() {
   const [promptEditValue, setPromptEditValue] = useState("");
   const [confirmDeleteExampleId, setConfirmDeleteExampleId] = useState<string | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const [improveDialogOpen, setImproveDialogOpen] = useState(false);
+  const [improveVariations, setImproveVariations] = useState<string[]>([]);
+  const [improveBusy, setImproveBusy] = useState(false);
+  const [selectedVariation, setSelectedVariation] = useState<number>(0);
+  const promptSectionRef = useRef<HTMLDivElement>(null);
 
   // Derive busy from either an active generation job or a quick action in progress
   const busy = actionBusy || (activeJob?.status === "running");
@@ -286,6 +292,34 @@ export function WorkbenchPromptPage() {
     }
   }, [loadData, promptEditValue, promptId, pushToast, token]);
 
+  const handleImprovePrompt = useCallback(async () => {
+    if (!token || !promptId) return;
+    setImproveBusy(true);
+    setError(null);
+    try {
+      const result = await apiImprovePrompt(token, promptId);
+      setImproveVariations(result.variations);
+      setSelectedVariation(0);
+      setImproveDialogOpen(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImproveBusy(false);
+    }
+  }, [promptId, token]);
+
+  const handleSelectVariation = useCallback(() => {
+    if (improveVariations.length === 0) return;
+    setPromptEditValue(improveVariations[selectedVariation]);
+    setEditingPrompt(true);
+    setImproveDialogOpen(false);
+    setImproveVariations([]);
+    // Scroll to the prompt editor so the user sees it immediately
+    setTimeout(() => {
+      promptSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }, [improveVariations, selectedVariation]);
+
   const handleDeleteExample = useCallback(async (exampleId: string) => {
     if (!token) return;
     setActionBusy(true);
@@ -352,6 +386,7 @@ export function WorkbenchPromptPage() {
       />
 
       {/* Editable prompt text */}
+      <div ref={promptSectionRef}>
       <SectionCard
         title="Prompt"
         actions={
@@ -387,6 +422,7 @@ export function WorkbenchPromptPage() {
           <p className="text-sm">{prompt?.prompt ?? "..."}</p>
         )}
       </SectionCard>
+      </div>
 
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
       {isLoading ? <InlineAlert tone="info">Loading...</InlineAlert> : null}
@@ -435,9 +471,9 @@ export function WorkbenchPromptPage() {
       {selectedExample ? (
         <div className="space-y-4">
           {/* Screenshots */}
-          {(selectedExample.screenshotFront || selectedExample.screenshotTop || selectedExample.screenshotIso || selectedExample.screenshotIsoBack || selectedExample.screenshotBottom || selectedExample.stlPath || selectedExample.threemfPath) ? (
-            <SectionCard title="Model Views" description="Front, top, bottom, isometric, isometric back, and interactive 3D viewer">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
+          {(selectedExample.screenshotFront || selectedExample.screenshotTop || selectedExample.screenshotIso || selectedExample.stlPath || selectedExample.threemfPath) ? (
+            <SectionCard title="Model Views" description="Orthographic views from all 6 faces, 45° up/down overviews, isometric thumbnail, and interactive 3D viewer">
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
                 {selectedExample.screenshotFront ? (
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Front</p>
@@ -448,11 +484,71 @@ export function WorkbenchPromptPage() {
                     />
                   </div>
                 ) : null}
+                {selectedExample.screenshotBack ? (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Back</p>
+                    <AuthImage
+                      src={`/api/admin/workbench/examples/${selectedExample.id}/screenshot/back`}
+                      token={token}
+                      className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
+                    />
+                  </div>
+                ) : null}
+                {selectedExample.screenshotLeft ? (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Left</p>
+                    <AuthImage
+                      src={`/api/admin/workbench/examples/${selectedExample.id}/screenshot/left`}
+                      token={token}
+                      className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
+                    />
+                  </div>
+                ) : null}
+                {selectedExample.screenshotRight ? (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Right</p>
+                    <AuthImage
+                      src={`/api/admin/workbench/examples/${selectedExample.id}/screenshot/right`}
+                      token={token}
+                      className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
+                    />
+                  </div>
+                ) : null}
                 {selectedExample.screenshotTop ? (
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Top</p>
                     <AuthImage
                       src={`/api/admin/workbench/examples/${selectedExample.id}/screenshot/top`}
+                      token={token}
+                      className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
+                    />
+                  </div>
+                ) : null}
+                {selectedExample.screenshotBottom ? (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Bottom</p>
+                    <AuthImage
+                      src={`/api/admin/workbench/examples/${selectedExample.id}/screenshot/bottom`}
+                      token={token}
+                      className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
+                    />
+                  </div>
+                ) : null}
+                {selectedExample.screenshotOrtho45 ? (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">45° Down</p>
+                    <AuthImage
+                      src={`/api/admin/workbench/examples/${selectedExample.id}/screenshot/ortho_45`}
+                      token={token}
+                      className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
+                    />
+                  </div>
+                ) : null}
+                {selectedExample.screenshotOrtho45Bottom ? (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">45° Up</p>
+                    <AuthImage
+                      src={`/api/admin/workbench/examples/${selectedExample.id}/screenshot/ortho_45_bottom`}
                       token={token}
                       className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
                     />
@@ -473,16 +569,6 @@ export function WorkbenchPromptPage() {
                     <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Iso Back</p>
                     <AuthImage
                       src={`/api/admin/workbench/examples/${selectedExample.id}/screenshot/iso_back`}
-                      token={token}
-                      className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
-                    />
-                  </div>
-                ) : null}
-                {selectedExample.screenshotBottom ? (
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Bottom</p>
-                    <AuthImage
-                      src={`/api/admin/workbench/examples/${selectedExample.id}/screenshot/bottom`}
                       token={token}
                       className="aspect-square w-full rounded border border-[hsl(var(--border))] object-contain"
                     />
@@ -554,6 +640,19 @@ export function WorkbenchPromptPage() {
                       >
                         Retry
                       </Button>
+                      {selectedExample.evalScore != null ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="border border-amber-200 text-amber-500 hover:bg-amber-50 hover:text-amber-700"
+                          iconLeft={<Lightbulb className="h-3 w-3" />}
+                          loading={improveBusy}
+                          disabled={busy}
+                          onClick={() => void handleImprovePrompt()}
+                        >
+                          Improve Prompt
+                        </Button>
+                      ) : null}
                     </>
                   );
                 })()}
@@ -692,6 +791,46 @@ export function WorkbenchPromptPage() {
           >
             Delete All
           </Button>
+        </div>
+      </Dialog>
+
+      {/* Prompt improvement variation picker */}
+      <Dialog
+        open={improveDialogOpen}
+        title="Improve Prompt"
+        description="Select a variation to use as a starting point. You can edit it before saving."
+        onClose={() => setImproveDialogOpen(false)}
+      >
+        <div className="space-y-3">
+          {improveVariations.map((variation, i) => (
+            <button
+              key={i}
+              type="button"
+              className={`w-full rounded-lg border p-3 text-left text-sm transition-colors ${
+                selectedVariation === i
+                  ? "border-[hsl(var(--primary))] bg-[hsl(var(--primary)/0.05)] ring-1 ring-[hsl(var(--primary))]"
+                  : "border-[hsl(var(--border))] hover:border-[hsl(var(--primary)/0.5)] hover:bg-[hsl(var(--muted)/0.5)]"
+              }`}
+              onClick={() => setSelectedVariation(i)}
+            >
+              <span className="mb-1 block text-xs font-medium text-[hsl(var(--muted-foreground))]">
+                Variation {i + 1}
+              </span>
+              {variation}
+            </button>
+          ))}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button size="sm" variant="outline" onClick={() => setImproveDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              iconLeft={<Check className="h-3 w-3" />}
+              onClick={handleSelectVariation}
+            >
+              Use This
+            </Button>
+          </div>
         </div>
       </Dialog>
     </section>
