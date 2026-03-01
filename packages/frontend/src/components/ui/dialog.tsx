@@ -98,11 +98,11 @@ export function Dialog({ open, title, description, onClose, children }: DialogPr
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         className={cn(
-          "relative z-[71] w-full max-w-lg rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-5 shadow-[var(--elevation-3)]",
+          "relative z-[71] flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-5 shadow-[var(--elevation-3)]",
           "animate-scale-in",
         )}
       >
-        <header className="space-y-1">
+        <header className="shrink-0 space-y-1">
           <h2 id={titleId} className="text-lg font-semibold text-[hsl(var(--foreground))]">
             {title}
           </h2>
@@ -112,7 +112,7 @@ export function Dialog({ open, title, description, onClose, children }: DialogPr
             </p>
           ) : null}
         </header>
-        <div className="mt-4">{children}</div>
+        <div className="mt-4 min-h-0 overflow-y-auto">{children}</div>
       </section>
     </div>
   );
