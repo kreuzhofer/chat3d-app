@@ -92,7 +92,6 @@ export function WorkbenchPromptPage() {
   const [improveDialogOpen, setImproveDialogOpen] = useState(false);
   const [improveVariations, setImproveVariations] = useState<string[]>([]);
   const [improveBusy, setImproveBusy] = useState(false);
-  const [selectedVariation, setSelectedVariation] = useState<number>(0);
   const promptSectionRef = useRef<HTMLDivElement>(null);
 
   // Derive busy from either an active generation job or a quick action in progress
@@ -299,7 +298,6 @@ export function WorkbenchPromptPage() {
     try {
       const result = await apiImprovePrompt(token, promptId);
       setImproveVariations(result.variations);
-      setSelectedVariation(0);
       setImproveDialogOpen(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -308,9 +306,9 @@ export function WorkbenchPromptPage() {
     }
   }, [promptId, token]);
 
-  const handleSelectVariation = useCallback(() => {
+  const handleSelectVariation = useCallback((index: number) => {
     if (improveVariations.length === 0) return;
-    setPromptEditValue(improveVariations[selectedVariation]);
+    setPromptEditValue(improveVariations[index]);
     setEditingPrompt(true);
     setImproveDialogOpen(false);
     setImproveVariations([]);
@@ -318,7 +316,7 @@ export function WorkbenchPromptPage() {
     setTimeout(() => {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }, 50);
-  }, [improveVariations, selectedVariation]);
+  }, [improveVariations]);
 
   const handleDeleteExample = useCallback(async (exampleId: string) => {
     if (!token) return;
@@ -806,12 +804,8 @@ export function WorkbenchPromptPage() {
             <button
               key={i}
               type="button"
-              className={`w-full rounded-lg border p-3 text-left text-sm transition-colors ${
-                selectedVariation === i
-                  ? "border-[hsl(var(--primary))] bg-[hsl(var(--primary)/0.05)] ring-1 ring-[hsl(var(--primary))]"
-                  : "border-[hsl(var(--border))] hover:border-[hsl(var(--primary)/0.5)] hover:bg-[hsl(var(--muted)/0.5)]"
-              }`}
-              onClick={() => setSelectedVariation(i)}
+              className="w-full rounded-lg border border-[hsl(var(--border))] p-3 text-left text-sm transition-colors hover:border-[hsl(var(--primary)/0.5)] hover:bg-[hsl(var(--muted)/0.5)]"
+              onClick={() => handleSelectVariation(i)}
             >
               <span className="mb-1 block text-xs font-medium text-[hsl(var(--muted-foreground))]">
                 Variation {i + 1}
@@ -819,18 +813,6 @@ export function WorkbenchPromptPage() {
               {variation}
             </button>
           ))}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button size="sm" variant="outline" onClick={() => setImproveDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              iconLeft={<Check className="h-3 w-3" />}
-              onClick={handleSelectVariation}
-            >
-              Use This
-            </Button>
-          </div>
         </div>
       </Dialog>
     </section>
