@@ -1,20 +1,21 @@
 // Feature: ux-gaps-conversational-experience, Property 18: Immutable chat history — new generations preserve previous items
-import { describe, expect, it, vi } from "vitest";
+// Updated: Tests initiateQuery + executeQueryPipeline (the two-step async pattern)
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import fc from "fast-check";
 
 /**
  * Validates: Requirements 11.2, 23.1, 23.6
  *
- * Property 18: For any follow-up prompt or regeneration in a chat context,
- * the operation should create exactly one new assistant item, and all
- * previously existing assistant items should remain unchanged (same id,
- * same messages, same files).
+ * Property 18: For any follow-up prompt, initiateQuery creates exactly one new
+ * user item and one new assistant item. executeQueryPipeline only updates the
+ * new assistant item. All previously existing assistant items remain unchanged.
  */
 
-// --- Mocks for all external dependencies used by submitQuery ---
+// --- Mocks ---
 
 vi.mock("../db/connection.js", () => ({
   query: vi.fn(),
+  pool: { query: vi.fn() },
 }));
 
 vi.mock("../services/notification.service.js", () => ({
@@ -22,10 +23,7 @@ vi.mock("../services/notification.service.js", () => ({
 }));
 
 vi.mock("../services/sse.service.js", () => ({
-  sseService: {
-    publishStreamToken: vi.fn(),
-    publish: vi.fn(),
-  },
+  sseService: { publishStreamToken: vi.fn(), publish: vi.fn() },
 }));
 
 // Track all createChatItem and updateChatItem calls with their arguments
@@ -47,108 +45,138 @@ vi.mock("../services/chat.service.js", () => ({
     updateChatItemCalls.push({ args, returnValue: result });
     return Promise.resolve(result);
   }),
-  ChatError: class ChatError extends Error {
-    constructor(message: string, public readonly statusCode = 400) {
-      super(message);
-    }
+  updateChatContext: vi.fn().mockResolvedValue(undefined),
+  ChatError: class extends Error {
+    constructor(message: string, public readonly statusCode = 400) { super(message); }
   },
 }));
 
 vi.mock("../services/file-storage.service.js", () => ({
-  writeUserFile: vi.fn().mockResolvedValue(undefined),
-  readUserFile: vi.fn(),
-  FileStorageError: class FileStorageError extends Error {
-    constructor(message: string, public readonly statusCode = 500) {
-      super(message);
-    }
+  writeStorageFile: vi.fn().mockResolvedValue(undefined),
+  readStorageFile: vi.fn().mockResolvedValue(Buffer.from("")),
+  FileStorageError: class extends Error {
+    constructor(message: string, public readonly statusCode = 500) { super(message); }
   },
 }));
 
-const mockGenerateConversationText = vi.fn();
-const mockGenerateBuild123dCode = vi.fn();
+vi.mock("ai", () => ({
+  generateText: vi.fn().mockResolvedValue({
+    text: "Box(1,1,1)", usage: { inputTokens: 10, outputTokens: 10 },
+  }),
+}));
 
 vi.mock("../services/llm.service.js", () => ({
-  generateConversationText: (...args: unknown[]) => mockGenerateConversationText(...args),
+  generateConversationText: vi.fn().mockResolvedValue({
+    text: "[CODEGEN_NEEDED]\nHere is your model.",
+    usage: { source: "estimated", inputTokens: 10, outputTokens: 10, totalTokens: 20, estimatedCostUsd: 0 },
+  }),
   generateConversationTextStream: vi.fn(),
-  generateBuild123dCode: (...args: unknown[]) => mockGenerateBuild123dCode(...args),
   parseConversationResponse: (raw: string) => {
-    const trimmed = raw.trim();
-    if (trimmed.startsWith("[CODEGEN_NEEDED]")) {
-      return { needsCodegen: true, text: trimmed.slice("[CODEGEN_NEEDED]".length).trim() };
-    }
-    if (trimmed.startsWith("[CHAT_ONLY]")) {
-      return { needsCodegen: false, text: trimmed.slice("[CHAT_ONLY]".length).trim() };
-    }
-    return { needsCodegen: false, text: trimmed };
+    const t = raw.trim();
+    if (t.startsWith("[CODEGEN_NEEDED]")) return { needsCodegen: true, text: t.slice("[CODEGEN_NEEDED]".length).trim() };
+    return { needsCodegen: false, text: t };
   },
-  LlmServiceError: class LlmServiceError extends Error {
-    constructor(message: string, public readonly statusCode = 500) {
-      super(message);
-    }
+  extractExecutableCode: vi.fn().mockImplementation((t: string) => t),
+  findMostRecentCode: () => undefined,
+  formatConversationHistory: () => "",
+  LlmServiceError: class extends Error {
+    constructor(message: string, public readonly statusCode = 500) { super(message); }
   },
 }));
 
-const mockRenderBuild123d = vi.fn();
+vi.mock("../services/rendering.service.js", () => ({
+  renderBuild123d: vi.fn(),
+  RenderingServiceError: class extends Error {
+    constructor(message: string, public readonly statusCode = 502) { super(message); }
+  },
+}));
 
-vi.mock("../services/rendering.service.js", () => {
-  class RenderingServiceError extends Error {
-    constructor(message: string, public readonly statusCode = 502) {
-      super(message);
-    }
-  }
-  return {
-    renderBuild123d: (...args: unknown[]) => mockRenderBuild123d(...args),
-    RenderingServiceError,
-  };
-});
+vi.mock("../utils/render-errors.js", () => ({
+  classifyRenderError: vi.fn(),
+  buildEscalatedGuidance: vi.fn().mockReturnValue(""),
+  renderWithInfraRetry: vi.fn().mockResolvedValue({
+    ok: true,
+    result: { files: [{ filename: "m.stl", contentBase64: "bW9jaw==" }] },
+  }),
+}));
 
-// Import after mocks are set up
-import { submitQuery } from "../services/query.service.js";
+vi.mock("../services/workbench-codegen.service.js", () => ({
+  buildInitialPrompt: vi.fn().mockReturnValue("initial prompt"),
+  buildFixPrompt: vi.fn().mockReturnValue("fix prompt"),
+  buildModificationPrompt: vi.fn().mockReturnValue("mod prompt"),
+  wrapInTemplate: vi.fn().mockImplementation((c: string) => c),
+  stripTemplateBoilerplate: vi.fn().mockImplementation((c: string) => c),
+  MAX_FIX_ITERATIONS: 5,
+  AUTO_APPROVE_THRESHOLD: 7,
+}));
+
+vi.mock("../services/llm-config.service.js", () => ({
+  getModelForPurpose: vi.fn().mockResolvedValue({
+    label: "test", provider: "test", modelName: "test-v1", maxOutputTokens: 4000, maxConcurrent: 2,
+  }),
+  createProviderModel: vi.fn().mockReturnValue("mock-model"),
+  buildGenerateOptions: vi.fn().mockReturnValue({}),
+  calculateCostUsd: vi.fn().mockReturnValue(0.001),
+}));
+
+vi.mock("../services/workbench-seeder.service.js", () => ({
+  getActiveSystemPrompt: vi.fn().mockResolvedValue({ content: "sys" }),
+}));
+
+vi.mock("../services/workbench-embeddings.service.js", () => ({
+  findSimilarExamples: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("../utils/resource-limits.js", () => ({
+  getLlmSemaphore: vi.fn().mockReturnValue({
+    run: vi.fn().mockImplementation((fn: () => unknown) => fn()),
+  }),
+}));
+
+vi.mock("../utils/llm-retry.js", () => ({
+  withLlmRetry: vi.fn().mockImplementation((fn: () => unknown) => fn()),
+}));
+
+vi.mock("../services/stl-rendering-client.service.js", () => ({
+  renderModelScreenshots: vi.fn().mockResolvedValue({
+    images: [{ angle: "front", base64: "abc" }],
+  }),
+}));
+
+vi.mock("../services/visual-eval.service.js", () => ({
+  evaluateModel: vi.fn().mockResolvedValue({
+    score: 9, issues: [], suggestions: [],
+    vlmModel: "mock-vlm", promptTokens: 10, completionTokens: 10,
+  }),
+}));
+
+vi.mock("../utils/llm-errors.js", () => ({
+  ProviderQuotaExhaustedError: class extends Error {},
+}));
+
+// Import after mocks
+import { initiateQuery, executeQueryPipeline } from "../services/query.service.js";
 import { query as dbQuery } from "../db/connection.js";
 
 // --- Helpers ---
 
-function mockConversationResult() {
-  return {
-    text: "[CODEGEN_NEEDED]\nHere is your model.",
-    model: { id: "mock-conv", provider: "mock", stage: "conversation", modelName: "mock" },
-    usage: { source: "estimated", inputTokens: 10, outputTokens: 10, totalTokens: 20, estimatedCostUsd: 0 },
-  };
-}
-
-function mockCodegenResult(code: string) {
-  return {
-    code,
-    baseFileName: "model",
-    model: { id: "mock-codegen", provider: "mock", stage: "codegen", modelName: "mock" },
-    usage: { source: "estimated", inputTokens: 10, outputTokens: 10, totalTokens: 20, estimatedCostUsd: 0 },
-  };
-}
-
-function mockRenderResult() {
-  return {
-    files: [{ filename: "model.step", contentBase64: "bW9jaw==" }],
-    renderer: "mock" as const,
-  };
-}
-
-/**
- * Stub the DB queries:
- * - ensureOwnedContext: returns a valid context row
- * - buildConversationContext: returns existing items as history rows
- */
 function stubDb(existingItems: Array<{ id: string; role: string; messages: unknown }>) {
-  vi.mocked(dbQuery).mockImplementation((_sql: string, _params?: unknown[]) => {
+  vi.mocked(dbQuery).mockImplementation((_sql: string) => {
     const sql = _sql as string;
 
     // ensureOwnedContext query
     if (sql.includes("FROM chat_contexts")) {
       return Promise.resolve({
-        rows: [{ id: "ctx-1", name: "Test Context", owner_id: "user-1" }],
-        command: "SELECT",
-        rowCount: 1,
-        oid: 0,
-        fields: [],
+        rows: [{ id: "ctx-1", name: "Test", owner_id: "u-1" }],
+        command: "SELECT", rowCount: 1, oid: 0, fields: [],
+      }) as ReturnType<typeof dbQuery>;
+    }
+
+    // initiateQuery item count query
+    if (sql.includes("COUNT(*)")) {
+      return Promise.resolve({
+        rows: [{ count: String(existingItems.length) }],
+        command: "SELECT", rowCount: 1, oid: 0, fields: [],
       }) as ReturnType<typeof dbQuery>;
     }
 
@@ -156,33 +184,22 @@ function stubDb(existingItems: Array<{ id: string; role: string; messages: unkno
     if (sql.includes("FROM chat_items") && sql.includes("ORDER BY created_at DESC")) {
       return Promise.resolve({
         rows: [...existingItems].reverse().map((item) => ({
-          id: item.id,
-          role: item.role,
-          messages: item.messages,
+          ...item,
           created_at: new Date().toISOString(),
         })),
-        command: "SELECT",
-        rowCount: existingItems.length,
-        oid: 0,
-        fields: [],
+        command: "SELECT", rowCount: existingItems.length, oid: 0, fields: [],
       }) as ReturnType<typeof dbQuery>;
     }
 
     // Default fallback
     return Promise.resolve({
-      rows: [],
-      command: "SELECT",
-      rowCount: 0,
-      oid: 0,
-      fields: [],
+      rows: [], command: "SELECT", rowCount: 0, oid: 0, fields: [],
     }) as ReturnType<typeof dbQuery>;
   });
 }
 
 function resetMocks() {
-  mockGenerateConversationText.mockReset();
-  mockGenerateBuild123dCode.mockReset();
-  mockRenderBuild123d.mockReset();
+  vi.clearAllMocks();
   createChatItemCalls.length = 0;
   updateChatItemCalls.length = 0;
   createCallCounter = 0;
@@ -211,7 +228,7 @@ const existingItemsArb = fc.array(existingAssistantItemArb, { minLength: 1, maxL
 );
 
 describe("Immutable chat history — new generations preserve previous items", () => {
-  it("creates exactly one new assistant item and never updates previous items", () => {
+  it("initiateQuery creates exactly one user and one assistant item", () => {
     return fc.assert(
       fc.asyncProperty(
         existingItemsArb,
@@ -220,40 +237,63 @@ describe("Immutable chat history — new generations preserve previous items", (
           resetMocks();
           stubDb(existingItems);
 
-          mockGenerateConversationText.mockResolvedValue(mockConversationResult());
-          mockGenerateBuild123dCode.mockResolvedValue(mockCodegenResult("Box(1,1,1)"));
-          mockRenderBuild123d.mockResolvedValue(mockRenderResult());
-
-          const previousItemIds = new Set(existingItems.map((item) => item.id));
-
-          await submitQuery({
-            userId: "user-1",
+          const result = await initiateQuery({
+            userId: "u-1",
             contextId: "ctx-1",
             prompt,
           });
 
-          // createChatItem should be called exactly twice: once for user item, once for assistant item
+          // Exactly two items created: user + assistant
           expect(createChatItemCalls.length).toBe(2);
+          expect((createChatItemCalls[0].args as { role: string }).role).toBe("user");
+          expect((createChatItemCalls[1].args as { role: string }).role).toBe("assistant");
 
-          const userCreate = createChatItemCalls[0];
-          const assistantCreate = createChatItemCalls[1];
+          // No updates during initiation
+          expect(updateChatItemCalls.length).toBe(0);
 
-          expect((userCreate.args as { role: string }).role).toBe("user");
-          expect((assistantCreate.args as { role: string }).role).toBe("assistant");
+          // Returned IDs are from the new items
+          expect(result.userItem.id).toBeDefined();
+          expect(result.assistantItem.id).toBeDefined();
+          expect(result.userItem.id).not.toBe(result.assistantItem.id);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
 
-          // The new assistant item ID should NOT be in the set of previous items
-          const newAssistantId = (assistantCreate.returnValue as { id: string }).id;
-          expect(previousItemIds.has(newAssistantId)).toBe(false);
+  it("executeQueryPipeline only updates the specified assistant item, never previous items", () => {
+    return fc.assert(
+      fc.asyncProperty(
+        existingItemsArb,
+        fc.string({ minLength: 1, maxLength: 200 }).filter((s) => s.trim().length > 0),
+        async (existingItems, prompt) => {
+          resetMocks();
+          stubDb(existingItems);
 
-          // updateChatItem should only be called for the NEW assistant item, never for previous items
+          const previousItemIds = new Set(existingItems.map((i) => i.id));
+          const newAssistantId = "new-assistant-id";
+
+          await executeQueryPipeline({
+            userId: "u-1",
+            contextId: "ctx-1",
+            prompt,
+            attachments: [],
+            context: { id: "ctx-1", name: "Test" },
+            userItemId: "new-user-id",
+            assistantItemId: newAssistantId,
+            stream: false,
+            isFirstPrompt: false,
+          });
+
+          // All updateChatItem calls target only the new assistant item
           for (const call of updateChatItemCalls) {
             const updatedId = (call.args as { itemId: string }).itemId;
             expect(previousItemIds.has(updatedId)).toBe(false);
             expect(updatedId).toBe(newAssistantId);
           }
 
-          // updateChatItem should be called exactly once (to finalize the new assistant item)
-          expect(updateChatItemCalls.length).toBe(1);
+          // Should have at least one update (the final result)
+          expect(updateChatItemCalls.length).toBeGreaterThanOrEqual(1);
         },
       ),
       { numRuns: 100 },
@@ -269,26 +309,17 @@ describe("Immutable chat history — new generations preserve previous items", (
           resetMocks();
           stubDb(existingItems);
 
-          mockGenerateConversationText.mockResolvedValue(mockConversationResult());
-          mockGenerateBuild123dCode.mockResolvedValue(mockCodegenResult("Cylinder(5,10)"));
-          mockRenderBuild123d.mockResolvedValue(mockRenderResult());
+          const previousItemIds = new Set(existingItems.map((i) => i.id));
 
-          const previousItemIds = new Set(existingItems.map((item) => item.id));
-
-          const result = await submitQuery({
-            userId: "user-1",
+          const result = await initiateQuery({
+            userId: "u-1",
             contextId: "ctx-1",
             prompt,
           });
 
-          // The returned assistant item ID must not collide with any previous item
+          // The new item IDs must not collide with any previous items
           expect(previousItemIds.has(result.assistantItem.id)).toBe(false);
-
-          // All previous items remain untouched — no updateChatItem call targets them
-          for (const call of updateChatItemCalls) {
-            const updatedId = (call.args as { itemId: string }).itemId;
-            expect(previousItemIds.has(updatedId)).toBe(false);
-          }
+          expect(previousItemIds.has(result.userItem.id)).toBe(false);
         },
       ),
       { numRuns: 100 },

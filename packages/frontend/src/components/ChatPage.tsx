@@ -32,6 +32,7 @@ import { useStreamingQuery } from "../hooks/useStreamingQuery";
 import { TypingIndicator } from "./chat/TypingIndicator";
 import { ExamplePrompts } from "./chat/ExamplePrompts";
 import { CapabilityHints } from "./chat/CapabilityHints";
+import { PushToggle } from "./chat/PushToggle";
 
 type MobilePane = "contexts" | "thread" | "workbench";
 
@@ -222,15 +223,23 @@ export function ChatPage() {
   // ── Streaming integration ──────────────────────────────────────────────────
   // streamingAssistantItemId is set when a prompt is submitted and the backend
   // returns the new assistant item. It's cleared when streaming completes.
+  const streamingItemStartedAt = useMemo(() => {
+    if (!streamingAssistantItemId) return null;
+    const item = items.find((i) => i.id === streamingAssistantItemId);
+    return item?.createdAt ?? null;
+  }, [streamingAssistantItemId, items]);
+
   const {
     streamingText,
     queryState,
     queryStateDetail,
     isStreaming,
+    isLongRunning,
     error: streamingError,
   } = useStreamingQuery({
     token,
     assistantItemId: streamingAssistantItemId,
+    startedAt: streamingItemStartedAt,
   });
 
   // Clear streamingAssistantItemId when streaming finishes.
@@ -247,6 +256,37 @@ export function ChatPage() {
       wasStreamingRef.current = false;
     }
   }, [streamingAssistantItemId, isStreaming]);
+
+  // Synchronize streamingAssistantItemId with the actual DB state of items.
+  // Two jobs:
+  // 1. (Reload recovery) If no streaming ID is set, scan for a pending item and restore it.
+  // 2. (Completion fallback) If a streaming ID IS set but the item is no longer pending
+  //    in the DB, clear it. This catches cases where the SSE "completed" event was lost
+  //    (connection drop, timing) — the item refresh (triggered by chat.item.updated)
+  //    is authoritative.
+  useEffect(() => {
+    if (!streamingAssistantItemId) {
+      // No active streaming — look for a pending item (reload recovery)
+      const pendingItem = timelineItems.find(
+        (item) => item.role === "assistant" &&
+          item.segments.some((seg) => seg.kind === "message" && seg.state === "pending"),
+      );
+      if (pendingItem) setStreamingAssistantItemId(pendingItem.id);
+    } else {
+      // Streaming active — verify the item is still pending
+      const item = timelineItems.find((i) => i.id === streamingAssistantItemId);
+      if (item) {
+        const stillPending = item.segments.some(
+          (seg) => seg.kind === "message" && seg.state === "pending",
+        );
+        if (!stillPending) {
+          // Item completed in DB — clear streaming regardless of SSE event
+          setStreamingAssistantItemId(null);
+          wasStreamingRef.current = false;
+        }
+      }
+    }
+  }, [timelineItems, streamingAssistantItemId]);
 
   // Show typing indicator:
   // - Before conversation tokens arrive (queued / early conversation)
@@ -722,13 +762,18 @@ export function ChatPage() {
     setError("");
     setMessage("");
     try {
-      await regenerateQuery({
+      const result = await regenerateQuery({
         token,
         contextId: activeContextId,
         assistantItemId,
       });
-      await refreshItems();
-      setMessage("Regeneration submitted.");
+
+      // Start listening for streaming events — same pattern as submitPromptAction
+      setStreamingAssistantItemId(result.assistantItem.id);
+
+      // Load items to show the pending assistant item in the timeline
+      const loaded = await listChatItems(token, activeContextId);
+      setItems(loaded);
     } catch (actionError) {
       setError(toErrorMessage(actionError));
     } finally {
@@ -750,6 +795,7 @@ export function ChatPage() {
             {activeContext ? activeContext.name : "New conversation"}
           </h2>
           <div className="flex items-center gap-2">
+            <PushToggle token={token} />
             {lastQueryState ? <Badge tone="info">query: {lastQueryState.state}</Badge> : null}
           </div>
         </div>
@@ -851,7 +897,7 @@ export function ChatPage() {
                 );
               })}
 
-              {showTypingIndicator ? <TypingIndicator queryState={queryState} detail={queryStateDetail} /> : null}
+              {showTypingIndicator ? <TypingIndicator queryState={queryState} detail={queryStateDetail} isLongRunning={isLongRunning} /> : null}
 
               {optimisticPrompt ? (
                 <>

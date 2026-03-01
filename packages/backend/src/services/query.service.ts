@@ -12,6 +12,8 @@ import {
   generateConversationTextStream,
   parseConversationResponse,
   extractExecutableCode,
+  findMostRecentCode,
+  formatConversationHistory,
   LlmServiceError,
   type LlmUsageMetadata,
 } from "./llm.service.js";
@@ -28,11 +30,13 @@ import {
   type RenderedScreenshot,
 } from "./stl-rendering-client.service.js";
 import { evaluateModel } from "./visual-eval.service.js";
+import { pushNotificationService } from "./push-notification.service.js";
 import { getActiveSystemPrompt } from "./workbench-seeder.service.js";
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
 import {
   buildInitialPrompt,
   buildFixPrompt,
+  buildModificationPrompt,
   wrapInTemplate,
   stripTemplateBoilerplate,
   MAX_FIX_ITERATIONS,
@@ -415,7 +419,7 @@ function extractPromptFromMessages(messages: unknown): string | null {
   return null;
 }
 
-async function resolvePromptForRegeneration(input: {
+export async function resolvePromptForRegeneration(input: {
   userId: string;
   contextId: string;
   assistantItemId: string;
@@ -783,6 +787,18 @@ export async function executeQueryPipeline(input: {
       return;
     }
 
+    // Helper: persist the current pipeline phase to the DB so it survives page reloads.
+    // Writes conversation text + a stateMessage describing the active phase.
+    const persistPhase = (stateMessage: string) =>
+      updateChatItem({
+        userId: input.userId,
+        contextId: input.contextId,
+        itemId: assistantItemId,
+        messages: [{ itemType: "message", text: conversationText, state: "pending", stateMessage }],
+      });
+
+    await persistPhase("Generating 3D model...");
+
     // ── Workbench-style iteration loop: codegen → render → VLM eval → fix ──
 
     let epSystemPromptContent = "";
@@ -803,6 +819,14 @@ export async function executeQueryPipeline(input: {
     const epExtraOpts = buildGenerateOptions(epCodegenConfig);
     queryLogger.info({ model: epCodegenConfig.label, provider: epCodegenConfig.provider, modelName: epCodegenConfig.modelName, maxOutputTokens: epCodegenConfig.maxOutputTokens, thinkingEffort: epCodegenConfig.thinkingEffort, supportsThinking: epCodegenConfig.supportsThinking }, "resolved chat codegen model");
 
+    // Detect modification scenario: check if conversation history has previous Build123d code
+    const epBaselineCode = findMostRecentCode(conversationHistory);
+    const epConvHistoryText = formatConversationHistory(conversationHistory);
+    const epIsModification = !!epBaselineCode;
+    if (epIsModification) {
+      queryLogger.info({ baselineCodeLength: epBaselineCode!.length }, "modification scenario detected — will use baseline code for iteration 1");
+    }
+
     let epTotalPromptTokens = 0;
     let epTotalCompletionTokens = 0;
     let epTotalCostUsd = 0;
@@ -817,9 +841,12 @@ export async function executeQueryPipeline(input: {
     for (let iteration = 1; iteration <= MAX_FIX_ITERATIONS; iteration++) {
       const isFirst = iteration === 1;
       await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: isFirst ? "codegen" : "fixing", detail: isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${MAX_FIX_ITERATIONS})...` });
+      await persistPhase(isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${MAX_FIX_ITERATIONS})...`);
 
       const cgPrompt = isFirst
-        ? buildInitialPrompt(epSystemPromptContent, epFewShots, prompt)
+        ? (epIsModification
+            ? buildModificationPrompt(epSystemPromptContent, epFewShots, prompt, epBaselineCode!, conversationText, epConvHistoryText || undefined)
+            : buildInitialPrompt(epSystemPromptContent, epFewShots, prompt))
         : buildFixPrompt(epSystemPromptContent, epFewShots, prompt, epCurrentCode, iteration - 1, epRenderError, epEvalState?.issues ?? null, epEvalState?.suggestions ?? null, epRenderErrorCtx);
 
       queryLogger.info({ iteration, maxIterations: MAX_FIX_ITERATIONS, isFirst, promptLength: cgPrompt.length }, "codegen iteration starting");
@@ -867,6 +894,7 @@ export async function executeQueryPipeline(input: {
       epEvalState = null;
 
       await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "rendering", detail: "Rendering 3D model..." });
+      await persistPhase("Rendering 3D model...");
 
       const epBaseFileName = `chat-${assistantItemId.slice(0, 8)}-iter${iteration}`;
       const epExecCode = wrapInTemplate(epCurrentCode, epBaseFileName);
@@ -932,6 +960,7 @@ export async function executeQueryPipeline(input: {
 
       if (epScreenshots.length > 0) {
         await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "evaluating", detail: `Evaluating quality (attempt ${iteration}/${MAX_FIX_ITERATIONS})...` });
+        await persistPhase(`Evaluating quality (attempt ${iteration}/${MAX_FIX_ITERATIONS})...`);
         try {
           const evr = await evaluateModel({ userPrompt: prompt, categoryName: "chat", complexity: 5, images: epScreenshots.filter((s) => s.angle !== "isometric").map((s) => ({ angle: s.angle, base64: s.base64 })) });
           epTotalPromptTokens += evr.promptTokens;
@@ -1047,6 +1076,14 @@ export async function executeQueryPipeline(input: {
     });
 
     await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "completed" });
+
+    // Best-effort push notification — never blocks or fails the pipeline
+    void pushNotificationService.sendToUser(input.userId, {
+      title: "Your 3D model is ready!",
+      body: "Come back to Chat3D to see your generated model.",
+      tag: `query-${assistantItemId}`,
+      url: `/chat/${input.contextId}`,
+    }).catch(() => {/* ignore push errors */});
   } catch (error) {
     const isQuota = error instanceof ProviderQuotaExhaustedError;
     const errorMessage = isQuota
@@ -1074,620 +1111,22 @@ export async function executeQueryPipeline(input: {
         },
       ],
     });
+
+    // Best-effort push notification for failure
+    void pushNotificationService.sendToUser(input.userId, {
+      title: "Model generation encountered an issue",
+      body: "Open Chat3D to see what happened.",
+      tag: `query-${assistantItemId}`,
+      url: `/chat/${input.contextId}`,
+    }).catch(() => {/* ignore push errors */});
   }
 }
 
-export async function submitQuery(input: {
-  userId: string;
-  contextId: string;
-  prompt: string;
-  attachments?: unknown;
-  stream?: boolean;
-}) {
-  const prompt = input.prompt.trim();
-  if (prompt === "") {
-    throw new QueryServiceError("prompt is required", 400);
-  }
-  const attachments = normalizeQueryAttachments(input.attachments);
+// NOTE: submitQuery and regenerateQuery were removed. The /regenerate route now uses
+// resolvePromptForRegeneration + initiateQuery + executeQueryPipeline directly,
+// eliminating the duplicated codegen loop that previously existed here.
+//
+// This leaves executeQueryPipeline as the single codegen pipeline for both
+// /submit and /regenerate flows.
 
-  const context = await ensureOwnedContext(input.userId, input.contextId);
-  await assertAttachmentsAccessible(input.userId, attachments);
-
-  const userMessages = [
-    { itemType: "message", text: prompt, state: "completed", stateMessage: "" },
-    ...attachments.map((attachment) => ({
-      itemType: "attachment",
-      text: `${attachment.kind === "image" ? "Image" : "File"} attached: ${attachment.filename}`,
-      attachment: attachment.path,
-      filename: attachment.filename,
-      mimeType: attachment.mimeType,
-      attachmentKind: attachment.kind,
-      state: "completed",
-      stateMessage: "",
-      files: [{ path: attachment.path, filename: attachment.filename }],
-    })),
-  ];
-
-  const userItem = await createChatItem({
-    userId: input.userId,
-    contextId: input.contextId,
-    role: "user",
-    messages: userMessages,
-  });
-
-  const assistantItem = await createChatItem({
-    userId: input.userId,
-    contextId: input.contextId,
-    role: "assistant",
-    messages: [{ itemType: "message", text: "Working on your request...", state: "pending", stateMessage: "" }],
-  });
-
-  await publishQueryState({
-    userId: input.userId,
-    contextId: input.contextId,
-    assistantItemId: assistantItem.id,
-    state: "queued",
-  });
-
-  try {
-    await publishQueryState({
-      userId: input.userId,
-      contextId: input.contextId,
-      assistantItemId: assistantItem.id,
-      state: "conversation",
-    });
-
-    // Buffer to strip the leading intent tag ([CHAT_ONLY] / [CODEGEN_NEEDED]) from streamed tokens.
-    let regenTagBuffer = "";
-    let regenTagStripped = false;
-
-    const onToken = input.stream
-      ? (token: string) => {
-          if (!regenTagStripped) {
-            regenTagBuffer += token;
-            const chatMatch = regenTagBuffer.match(/^\[CHAT_ONLY\]\s*/);
-            const codegenMatch = regenTagBuffer.match(/^\[CODEGEN_NEEDED\]\s*/);
-            const match = chatMatch || codegenMatch;
-            if (match) {
-              regenTagStripped = true;
-              const remainder = regenTagBuffer.slice(match[0].length);
-              if (remainder) {
-                sseService.publishStreamToken(input.userId, {
-                  contextId: input.contextId,
-                  assistantItemId: assistantItem.id,
-                  token: remainder,
-                  done: false,
-                });
-              }
-              return;
-            }
-            if (!regenTagBuffer.startsWith("[")) {
-              regenTagStripped = true;
-              sseService.publishStreamToken(input.userId, {
-                contextId: input.contextId,
-                assistantItemId: assistantItem.id,
-                token: regenTagBuffer,
-                done: false,
-              });
-              return;
-            }
-            if (regenTagBuffer.length > 20) {
-              regenTagStripped = true;
-              sseService.publishStreamToken(input.userId, {
-                contextId: input.contextId,
-                assistantItemId: assistantItem.id,
-                token: regenTagBuffer,
-                done: false,
-              });
-            }
-            return;
-          }
-          sseService.publishStreamToken(input.userId, {
-            contextId: input.contextId,
-            assistantItemId: assistantItem.id,
-            token,
-            done: false,
-          });
-        }
-      : undefined;
-
-    const conversationPrompt = `${prompt}${formatAttachmentContext(attachments)}`;
-
-    // Fetch conversation history for iterative refinement (Req 10)
-    // Exclude the current user+assistant items we just created by fetching before they exist in context
-    // The items we just created are already in the DB, so we exclude them by fetching items
-    // created before the current user item. We use the item IDs to filter.
-    const conversationHistory = await buildConversationContext(
-      input.contextId,
-      input.userId,
-      5,
-      [userItem.id, assistantItem.id],
-    );
-
-    const conversation = input.stream && onToken
-      ? await generateConversationTextStream({
-          prompt: conversationPrompt,
-          contextName: context.name,
-          onToken,
-          conversationHistory,
-        })
-      : await generateConversationText({
-          prompt: conversationPrompt,
-          contextName: context.name,
-          conversationHistory,
-        });
-
-    if (input.stream) {
-      sseService.publishStreamToken(input.userId, {
-        contextId: input.contextId,
-        assistantItemId: assistantItem.id,
-        token: "",
-        done: true,
-      });
-    }
-
-    // Parse conversation response to determine if codegen is needed
-    const parsed = parseConversationResponse(conversation.text);
-    const conversationText = parsed.text;
-    queryLogger.info({ needsCodegen: parsed.needsCodegen, textLength: conversationText.length, textPreview: conversationText.slice(0, 120) }, "conversation LLM response parsed (legacy pipeline)");
-
-    // If the conversation is chat-only (no 3D model requested), skip codegen/rendering
-    if (!parsed.needsCodegen) {
-      const chatOnlyMessages = [
-        {
-          itemType: "message",
-          text: conversationText,
-          state: "completed",
-          stateMessage: "",
-        },
-      ];
-
-      const finalizedAssistantItem = await updateChatItem({
-        userId: input.userId,
-        contextId: input.contextId,
-        itemId: assistantItem.id,
-        messages: chatOnlyMessages,
-      });
-
-      await publishQueryState({
-        userId: input.userId,
-        contextId: input.contextId,
-        assistantItemId: assistantItem.id,
-        state: "completed",
-      });
-
-      return {
-        contextId: input.contextId,
-        userItemId: userItem.id,
-        assistantItem: finalizedAssistantItem,
-        generatedFiles: [],
-        llm: {
-          conversationModel: conversation.model.id,
-          codegenModel: "",
-        },
-        usage: summarizeUsage([conversation.usage]),
-        renderer: "none",
-      };
-    }
-
-    // ── Workbench-style iteration loop: codegen → render → VLM eval → fix ──
-
-    // Load workbench assets (fail-open for few-shot examples)
-    let systemPromptContent = "";
-    try {
-      const systemPromptRow = await getActiveSystemPrompt();
-      systemPromptContent = systemPromptRow.content;
-    } catch {
-      queryLogger.warn("no active system prompt found, using empty");
-    }
-
-    let fewShotExamples: Array<{ prompt: string; code: string }> = [];
-    try {
-      fewShotExamples = (await findSimilarExamples(prompt, 6)).map(({ prompt: p, code }) => ({ prompt: p, code }));
-      queryLogger.info({ count: fewShotExamples.length }, "few-shot examples loaded for chat codegen");
-    } catch {
-      queryLogger.warn("few-shot example retrieval failed, proceeding without");
-    }
-
-    // Resolve codegen model from DB config
-    const codegenConfig = await getModelForPurpose("chat_codegen");
-    const codegenProviderModel = createProviderModelFromConfig(codegenConfig);
-    const codegenExtraOpts = buildGenerateOptions(codegenConfig);
-
-    // Track token usage across all LLM calls in the iteration loop
-    let totalPromptTokens = conversation.usage.inputTokens;
-    let totalCompletionTokens = conversation.usage.outputTokens;
-    let totalCostUsd = conversation.usage.estimatedCostUsd;
-
-    let currentCode = "";
-    let renderError: string | null = null;
-    let renderErrorCtx: RenderErrorContext | null = null;
-    const errorHistory: ClassifiedRenderError[] = [];
-    interface EvalState { score: number; issues: string[]; suggestions: string[]; vlmModel: string; }
-    let evalState: EvalState | null = null;
-
-    // Track best result across iterations (never regress).
-    // Files are NOT written to disk during the loop — only the winning
-    // iteration's files are persisted after the loop completes.
-    let bestResult: {
-      code: string;
-      score: number | null;
-      evalState: EvalState | null;
-      renderedFiles: Array<{ filename: string; contentBase64: string }>;
-      screenshots: RenderedScreenshot[];
-      iteration: number;
-    } | null = null;
-
-    for (let iteration = 1; iteration <= MAX_FIX_ITERATIONS; iteration++) {
-      const isFirstIteration = iteration === 1;
-
-      await publishQueryState({
-        userId: input.userId,
-        contextId: input.contextId,
-        assistantItemId: assistantItem.id,
-        state: isFirstIteration ? "codegen" : "fixing",
-        detail: isFirstIteration
-          ? "Generating code..."
-          : `Improving model (attempt ${iteration}/${MAX_FIX_ITERATIONS}, score: ${evalState?.score ?? "?"}/10)...`,
-      });
-
-      // Build prompt using workbench functions
-      const codegenPrompt = isFirstIteration
-        ? buildInitialPrompt(systemPromptContent, fewShotExamples, prompt)
-        : buildFixPrompt(
-            systemPromptContent,
-            fewShotExamples,
-            prompt,
-            currentCode,
-            iteration - 1,
-            renderError,
-            evalState?.issues ?? null,
-            evalState?.suggestions ?? null,
-            renderErrorCtx,
-          );
-
-      // Generate code via codegen LLM (wrapped with per-provider semaphore + retry)
-      const codegenSemaphore = getLlmSemaphore(codegenConfig.provider, codegenConfig.maxConcurrent);
-      const codegenResult = await codegenSemaphore.run(
-        () => withLlmRetry(
-          () => generateText({ model: codegenProviderModel, prompt: codegenPrompt, ...codegenExtraOpts }),
-          { provider: codegenConfig.provider },
-        ),
-        {
-          onQueuePositionChange: (position, total) => {
-            void publishQueryState({
-              userId: input.userId, contextId: input.contextId, assistantItemId: assistantItem.id,
-              state: "queued",
-              detail: `Waiting for LLM slot (${position}/${total} in queue)`,
-            });
-          },
-        },
-      );
-
-      if (codegenResult.reasoningText) {
-        queryLogger.info(
-          { iteration, provider: codegenConfig.provider, model: codegenConfig.modelName, reasoningLength: codegenResult.reasoningText.length },
-          "codegen thinking output received",
-        );
-        queryLogger.trace(
-          { iteration, reasoning: codegenResult.reasoningText },
-          "codegen thinking output content",
-        );
-      } else {
-        queryLogger.debug(
-          { iteration, provider: codegenConfig.provider, model: codegenConfig.modelName, reasoningBlocks: codegenResult.reasoning?.length ?? 0 },
-          "no thinking output in codegen response",
-        );
-      }
-
-      const rawCode = extractExecutableCode(codegenResult.text);
-      currentCode = stripTemplateBoilerplate(rawCode);
-
-      const codePromptTokens = codegenResult.usage?.inputTokens ?? 0;
-      const codeCompletionTokens = codegenResult.usage?.outputTokens ?? 0;
-      totalPromptTokens += codePromptTokens;
-      totalCompletionTokens += codeCompletionTokens;
-      totalCostUsd += calculateCostUsd(codegenConfig, codePromptTokens, codeCompletionTokens);
-
-      // Reset per-iteration state
-      renderError = null;
-      renderErrorCtx = null;
-      evalState = null;
-
-      // Render with Build123d (infrastructure retry handles service hiccups)
-      await publishQueryState({
-        userId: input.userId,
-        contextId: input.contextId,
-        assistantItemId: assistantItem.id,
-        state: "rendering",
-        detail: "Rendering 3D model...",
-      });
-
-      const baseFileName = `chat-${assistantItem.id.slice(0, 8)}-iter${iteration}`;
-      const executableCode = wrapInTemplate(currentCode, baseFileName);
-      let renderedFiles: Awaited<ReturnType<typeof renderBuild123d>>["files"] = [];
-
-      const renderOutcome = await renderWithInfraRetry(
-        () => renderBuild123d(
-          { code: executableCode, baseFileName },
-          {
-            onQueuePositionChange: (position, total) => {
-              void publishQueryState({
-                userId: input.userId, contextId: input.contextId, assistantItemId: assistantItem.id,
-                state: "queued",
-                detail: `Waiting for rendering slot (${position}/${total} in queue)`,
-              });
-            },
-          },
-        ),
-        {
-          onRetry: (attempt, classified) => {
-            queryLogger.info({ attempt, category: classified.category, iteration }, "infrastructure retry for Build123d");
-          },
-        },
-      );
-
-      if (renderOutcome.ok) {
-        renderedFiles = renderOutcome.result.files;
-      } else {
-        const classified = renderOutcome.error;
-        errorHistory.push(classified);
-        renderError = classified.rawMessage;
-        const escalation = buildEscalatedGuidance(classified, errorHistory.slice(0, -1));
-        renderErrorCtx = { classified, escalationGuidance: escalation };
-        queryLogger.warn({ iteration, renderError, category: classified.category }, "render failed in iteration loop");
-
-        if (iteration >= MAX_FIX_ITERATIONS) break;
-        continue; // try fix on next iteration
-      }
-
-      // Take STL screenshots for VLM evaluation
-      let screenshots: RenderedScreenshot[] = [];
-      const stlFile = renderedFiles.find((f) => f.filename.toLowerCase().endsWith(".stl"));
-      if (stlFile) {
-        try {
-          const screenshotResult = await renderModelScreenshots(
-            { modelData: stlFile.contentBase64, format: "stl", width: 512, height: 512 },
-            {
-              onQueuePositionChange: (position, total) => {
-                void publishQueryState({
-                  userId: input.userId, contextId: input.contextId, assistantItemId: assistantItem.id,
-                  state: "queued",
-                  detail: `Waiting for screenshot slot (${position}/${total} in queue)`,
-                });
-              },
-            },
-          );
-          screenshots = screenshotResult.images;
-        } catch {
-          queryLogger.warn({ iteration }, "screenshot failed, skipping VLM eval");
-        }
-      }
-
-      // VLM evaluate
-      if (screenshots.length > 0) {
-        await publishQueryState({
-          userId: input.userId,
-          contextId: input.contextId,
-          assistantItemId: assistantItem.id,
-          state: "evaluating",
-          detail: `Evaluating quality (attempt ${iteration}/${MAX_FIX_ITERATIONS})...`,
-        });
-
-        try {
-          const evalResult = await evaluateModel({
-            userPrompt: prompt,
-            categoryName: "chat",
-            complexity: 5,
-            images: screenshots.filter((s) => s.angle !== "isometric").map((s) => ({ angle: s.angle, base64: s.base64 })),
-          });
-
-          totalPromptTokens += evalResult.promptTokens;
-          totalCompletionTokens += evalResult.completionTokens;
-          totalCostUsd += calculateCostUsd(
-            await getModelForPurpose("vlm_eval"),
-            evalResult.promptTokens,
-            evalResult.completionTokens,
-          );
-
-          evalState = {
-            score: evalResult.score,
-            issues: evalResult.issues,
-            suggestions: evalResult.suggestions,
-            vlmModel: evalResult.vlmModel,
-          };
-
-          queryLogger.info({ iteration, score: evalResult.score, issues: evalResult.issues.length }, "VLM eval result");
-        } catch {
-          queryLogger.warn({ iteration }, "VLM eval failed, treating as unscored");
-        }
-      }
-
-      // Track best result (never regress) — keep file contents in memory;
-      // only the winning iteration is persisted to disk after the loop.
-      const score = evalState?.score ?? null;
-      if (bestResult === null || (score !== null && (bestResult.score === null || score > bestResult.score))) {
-        bestResult = {
-          code: currentCode,
-          score,
-          evalState,
-          renderedFiles: renderedFiles.map((f) => ({ filename: f.filename, contentBase64: f.contentBase64 })),
-          screenshots: [...screenshots],
-          iteration,
-        };
-      }
-
-      // Stop if: score meets threshold with no issues, or last iteration
-      const approved = score !== null && score >= AUTO_APPROVE_THRESHOLD;
-      const hasIssues = (evalState?.issues ?? []).length > 0;
-      if ((approved && !hasIssues) || iteration >= MAX_FIX_ITERATIONS) {
-        break;
-      }
-    }
-
-    // Persist only the best iteration's files to disk.
-    const finalFiles: Array<{ path: string; filename: string }> = [];
-
-    if (bestResult) {
-      // Save rendered model files (STL, STEP, 3MF)
-      for (const file of bestResult.renderedFiles) {
-        const extension = mapExtension(file.filename);
-        const relativePath = `chat/${input.contextId}/${assistantItem.id}.${extension}`;
-        await writeStorageFile({ relativePath, contentBase64: file.contentBase64 });
-        finalFiles.push({ path: relativePath, filename: file.filename });
-      }
-      // Save the best code as .b123d file
-      if (bestResult.code?.trim()) {
-        const codeRelPath = `chat/${input.contextId}/${assistantItem.id}.b123d`;
-        await writeStorageFile({ relativePath: codeRelPath, contentBase64: Buffer.from(bestResult.code, "utf-8").toString("base64") });
-        finalFiles.push({ path: codeRelPath, filename: `${assistantItem.id}.b123d` });
-      }
-      // Save the best screenshots as PNGs
-      for (const ss of bestResult.screenshots) {
-        const ssPath = `chat/${input.contextId}/${assistantItem.id}-screenshot-${ss.angle}.png`;
-        await writeStorageFile({ relativePath: ssPath, contentBase64: ss.base64 });
-        finalFiles.push({ path: ssPath, filename: `${assistantItem.id}-screenshot-${ss.angle}.png` });
-      }
-    }
-    const finalEval = bestResult?.evalState ?? evalState;
-
-    const artifact = summarizeArtifacts(finalFiles);
-    const usage: QueryUsageSummary = {
-      inputTokens: totalPromptTokens,
-      outputTokens: totalCompletionTokens,
-      totalTokens: totalPromptTokens + totalCompletionTokens,
-      estimatedCostUsd: Number(totalCostUsd.toFixed(8)),
-    };
-
-    const assistantMessages = [
-      {
-        itemType: "message",
-        text: conversationText,
-        state: "completed",
-        stateMessage: "",
-      },
-      ...(finalFiles.length > 0
-        ? [
-            {
-              itemType: "3dmodel",
-              text:
-                artifact.previewStatus === "ready"
-                  ? "Generated 3D preview."
-                  : `Preview unavailable in-browser. ${artifact.detail}`,
-              attachment: artifact.previewFilePath ?? "",
-              state: "completed",
-              stateMessage: "",
-              artifact,
-              files: finalFiles,
-            },
-          ]
-        : []),
-      {
-        itemType: "meta",
-        text: "Generation diagnostics",
-        state: "completed",
-        stateMessage: "",
-        usage,
-        artifact,
-        llm: {
-          conversationModel: conversation.model.id,
-          codegenModel: codegenConfig.label,
-          vlmModel: finalEval?.vlmModel ?? null,
-          evalScore: finalEval?.score ?? null,
-          iterations: bestResult?.iteration ?? 1,
-        },
-        files: finalFiles,
-      },
-    ];
-
-    const finalizedAssistantItem = await updateChatItem({
-      userId: input.userId,
-      contextId: input.contextId,
-      itemId: assistantItem.id,
-      messages: assistantMessages,
-      promptTokens: totalPromptTokens,
-      completionTokens: totalCompletionTokens,
-      estimatedCostUsd: Number(totalCostUsd.toFixed(8)),
-    });
-
-    await publishQueryState({
-      userId: input.userId,
-      contextId: input.contextId,
-      assistantItemId: assistantItem.id,
-      state: "completed",
-    });
-
-    return {
-      contextId: input.contextId,
-      userItemId: userItem.id,
-      assistantItem: finalizedAssistantItem,
-      generatedFiles: finalFiles,
-      llm: {
-        conversationModel: conversation.model.id,
-        codegenModel: codegenConfig.label,
-      },
-      artifact,
-      usage,
-      renderer: "build123d",
-    };
-  } catch (error) {
-    const isQuota = error instanceof ProviderQuotaExhaustedError;
-    const errorMessage = isQuota
-      ? "LLM provider credits exhausted. Please check your API billing or switch to a different provider in Admin → Providers."
-      : (error instanceof Error ? error.message : String(error));
-
-    await publishQueryState({
-      userId: input.userId,
-      contextId: input.contextId,
-      assistantItemId: assistantItem.id,
-      state: "failed",
-      detail: errorMessage,
-    });
-
-    await updateChatItem({
-      userId: input.userId,
-      contextId: input.contextId,
-      itemId: assistantItem.id,
-      messages: [
-        {
-          itemType: "errormessage",
-          text: errorMessage,
-          state: "error",
-          stateMessage: "",
-        },
-      ],
-    });
-
-    if (error instanceof ProviderQuotaExhaustedError) {
-      throw new QueryServiceError(errorMessage, 429);
-    }
-    if (error instanceof QueryServiceError || error instanceof ChatError || error instanceof LlmServiceError) {
-      throw error;
-    }
-    if (error instanceof RenderingServiceError) {
-      throw new QueryServiceError(error.message, error.statusCode);
-    }
-    if (error instanceof FileStorageError) {
-      throw new QueryServiceError(error.message, error.statusCode);
-    }
-    throw new QueryServiceError("Failed to process query", 500);
-  }
-}
-
-export async function regenerateQuery(input: {
-  userId: string;
-  contextId: string;
-  assistantItemId: string;
-}) {
-  const prompt = await resolvePromptForRegeneration({
-    userId: input.userId,
-    contextId: input.contextId,
-    assistantItemId: input.assistantItemId,
-  });
-
-  return submitQuery({
-    userId: input.userId,
-    contextId: input.contextId,
-    prompt,
-  });
-}
+// --- end of module ---

@@ -1,20 +1,21 @@
-// Feature: ux-gaps-conversational-experience, Property 14: Error recovery feeds error context to LLM with at most one retry
-import { describe, expect, it, vi } from "vitest";
+// Feature: ux-gaps-conversational-experience, Property 14: Error recovery feeds error context to LLM
+// Updated: Tests the workbench-style iteration loop in executeQueryPipeline
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import fc from "fast-check";
 
 /**
  * Validates: Requirements 8.1, 8.2, 8.5
  *
- * Property 14: For any rendering failure, the Query_Service should invoke
- * the codegen LLM exactly once more with the error message and failing code
- * included in the prompt. If the retry also fails, no further retries should
- * occur and the error should be returned to the user.
+ * Property 14: For any rendering failure during the codegen iteration loop,
+ * the pipeline should retry with the error context included in the fix prompt.
+ * The loop runs up to MAX_FIX_ITERATIONS (5) times.
  */
 
-// --- Mocks for all external dependencies used by submitQuery ---
+// --- Mocks for all external dependencies used by executeQueryPipeline ---
 
 vi.mock("../db/connection.js", () => ({
   query: vi.fn(),
+  pool: { query: vi.fn() },
 }));
 
 vi.mock("../services/notification.service.js", () => ({
@@ -22,251 +23,231 @@ vi.mock("../services/notification.service.js", () => ({
 }));
 
 vi.mock("../services/sse.service.js", () => ({
-  sseService: {
-    publishStreamToken: vi.fn(),
-    publish: vi.fn(),
-  },
+  sseService: { publishStreamToken: vi.fn(), publish: vi.fn() },
 }));
 
 vi.mock("../services/chat.service.js", () => ({
-  createChatItem: vi.fn().mockResolvedValue({ id: "assistant-item-1" }),
-  updateChatItem: vi.fn().mockResolvedValue({ id: "assistant-item-1" }),
-  ChatError: class ChatError extends Error {
-    constructor(message: string, public readonly statusCode = 400) {
-      super(message);
-    }
+  createChatItem: vi.fn().mockResolvedValue({ id: "ast-1" }),
+  updateChatItem: vi.fn().mockResolvedValue({ id: "ast-1" }),
+  updateChatContext: vi.fn().mockResolvedValue(undefined),
+  ChatError: class extends Error {
+    constructor(message: string, public readonly statusCode = 400) { super(message); }
   },
 }));
 
 vi.mock("../services/file-storage.service.js", () => ({
-  writeUserFile: vi.fn().mockResolvedValue(undefined),
-  readUserFile: vi.fn(),
-  FileStorageError: class FileStorageError extends Error {
-    constructor(message: string, public readonly statusCode = 500) {
-      super(message);
-    }
+  writeStorageFile: vi.fn().mockResolvedValue(undefined),
+  readStorageFile: vi.fn().mockResolvedValue(Buffer.from("")),
+  FileStorageError: class extends Error {
+    constructor(message: string, public readonly statusCode = 500) { super(message); }
   },
 }));
 
-// Mock LLM service — we control generateConversationText and generateBuild123dCode
-const mockGenerateConversationText = vi.fn();
-const mockGenerateBuild123dCode = vi.fn();
+const mockGenerateText = vi.fn();
+vi.mock("ai", () => ({
+  generateText: (...args: unknown[]) => mockGenerateText(...args),
+}));
 
 vi.mock("../services/llm.service.js", () => ({
-  generateConversationText: (...args: unknown[]) => mockGenerateConversationText(...args),
+  generateConversationText: vi.fn().mockResolvedValue({
+    text: "[CODEGEN_NEEDED]\nGenerating your model.",
+    usage: { source: "estimated", inputTokens: 10, outputTokens: 10, totalTokens: 20, estimatedCostUsd: 0 },
+  }),
   generateConversationTextStream: vi.fn(),
-  generateBuild123dCode: (...args: unknown[]) => mockGenerateBuild123dCode(...args),
   parseConversationResponse: (raw: string) => {
-    const trimmed = raw.trim();
-    if (trimmed.startsWith("[CODEGEN_NEEDED]")) {
-      return { needsCodegen: true, text: trimmed.slice("[CODEGEN_NEEDED]".length).trim() };
-    }
-    if (trimmed.startsWith("[CHAT_ONLY]")) {
-      return { needsCodegen: false, text: trimmed.slice("[CHAT_ONLY]".length).trim() };
-    }
-    return { needsCodegen: false, text: trimmed };
+    const t = raw.trim();
+    if (t.startsWith("[CODEGEN_NEEDED]")) return { needsCodegen: true, text: t.slice("[CODEGEN_NEEDED]".length).trim() };
+    return { needsCodegen: false, text: t };
   },
-  LlmServiceError: class LlmServiceError extends Error {
-    constructor(message: string, public readonly statusCode = 500) {
-      super(message);
-    }
+  extractExecutableCode: vi.fn().mockImplementation((t: string) => t),
+  findMostRecentCode: () => undefined,
+  formatConversationHistory: () => "",
+  LlmServiceError: class extends Error {
+    constructor(message: string, public readonly statusCode = 500) { super(message); }
   },
 }));
 
-// Mock rendering service — we control renderBuild123d
-const mockRenderBuild123d = vi.fn();
+vi.mock("../services/rendering.service.js", () => ({
+  renderBuild123d: vi.fn(),
+  RenderingServiceError: class extends Error {
+    constructor(message: string, public readonly statusCode = 502) { super(message); }
+  },
+}));
 
-vi.mock("../services/rendering.service.js", () => {
-  class RenderingServiceError extends Error {
-    constructor(message: string, public readonly statusCode = 502) {
-      super(message);
-    }
-  }
-  return {
-    renderBuild123d: (...args: unknown[]) => mockRenderBuild123d(...args),
-    RenderingServiceError,
-  };
-});
+const mockRenderWithInfraRetry = vi.fn();
+vi.mock("../utils/render-errors.js", () => ({
+  classifyRenderError: vi.fn(),
+  buildEscalatedGuidance: vi.fn().mockReturnValue(""),
+  renderWithInfraRetry: (...args: unknown[]) => mockRenderWithInfraRetry(...args),
+}));
 
-// Import after mocks are set up
-import { submitQuery } from "../services/query.service.js";
-import { RenderingServiceError } from "../services/rendering.service.js";
+const mockBuildFixPrompt = vi.fn().mockReturnValue("fix prompt");
+vi.mock("../services/workbench-codegen.service.js", () => ({
+  buildInitialPrompt: vi.fn().mockReturnValue("initial prompt"),
+  buildFixPrompt: (...args: unknown[]) => mockBuildFixPrompt(...args),
+  buildModificationPrompt: vi.fn().mockReturnValue("mod prompt"),
+  wrapInTemplate: vi.fn().mockImplementation((c: string) => c),
+  stripTemplateBoilerplate: vi.fn().mockImplementation((c: string) => c),
+  MAX_FIX_ITERATIONS: 5,
+  AUTO_APPROVE_THRESHOLD: 7,
+}));
+
+vi.mock("../services/llm-config.service.js", () => ({
+  getModelForPurpose: vi.fn().mockResolvedValue({
+    label: "test", provider: "test", modelName: "test-v1", maxOutputTokens: 4000, maxConcurrent: 2,
+  }),
+  createProviderModel: vi.fn().mockReturnValue("mock-model"),
+  buildGenerateOptions: vi.fn().mockReturnValue({}),
+  calculateCostUsd: vi.fn().mockReturnValue(0.001),
+}));
+
+vi.mock("../services/workbench-seeder.service.js", () => ({
+  getActiveSystemPrompt: vi.fn().mockResolvedValue({ content: "sys" }),
+}));
+
+vi.mock("../services/workbench-embeddings.service.js", () => ({
+  findSimilarExamples: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("../utils/resource-limits.js", () => ({
+  getLlmSemaphore: vi.fn().mockReturnValue({
+    run: vi.fn().mockImplementation((fn: () => unknown) => fn()),
+  }),
+}));
+
+vi.mock("../utils/llm-retry.js", () => ({
+  withLlmRetry: vi.fn().mockImplementation((fn: () => unknown) => fn()),
+}));
+
+vi.mock("../services/stl-rendering-client.service.js", () => ({
+  renderModelScreenshots: vi.fn().mockResolvedValue({
+    images: [{ angle: "front", base64: "abc" }],
+  }),
+}));
+
+vi.mock("../services/visual-eval.service.js", () => ({
+  evaluateModel: vi.fn().mockResolvedValue({
+    score: 9, issues: [], suggestions: [],
+    vlmModel: "mock-vlm", promptTokens: 10, completionTokens: 10,
+  }),
+}));
+
+vi.mock("../utils/llm-errors.js", () => ({
+  ProviderQuotaExhaustedError: class extends Error {},
+}));
+
+// Import after mocks
+import { executeQueryPipeline } from "../services/query.service.js";
 import { query as dbQuery } from "../db/connection.js";
 
-// Helper: build a mock codegen result
-function mockCodegenResult(code: string) {
-  return {
-    code,
-    baseFileName: "model",
-    model: { id: "mock-codegen", provider: "mock", stage: "codegen", modelName: "mock" },
-    usage: { source: "estimated", inputTokens: 10, outputTokens: 10, totalTokens: 20, estimatedCostUsd: 0 },
-  };
-}
-
-// Helper: build a mock conversation result
-function mockConversationResult() {
-  return {
-    text: "[CODEGEN_NEEDED]\nHere is your model.",
-    model: { id: "mock-conv", provider: "mock", stage: "conversation", modelName: "mock" },
-    usage: { source: "estimated", inputTokens: 10, outputTokens: 10, totalTokens: 20, estimatedCostUsd: 0 },
-  };
-}
-
-// Helper: build a mock render result
-function mockRenderResult() {
-  return {
-    files: [{ filename: "model.step", contentBase64: "bW9jaw==" }],
-    renderer: "mock" as const,
-  };
-}
-
-// Stub the DB query used by ensureOwnedContext
-function stubDbContext() {
+function stubDb() {
   vi.mocked(dbQuery).mockResolvedValue({
-    rows: [{ id: "ctx-1", name: "Test Context", owner_id: "user-1" }],
-    command: "SELECT",
-    rowCount: 1,
-    oid: 0,
-    fields: [],
-  });
+    rows: [], command: "SELECT", rowCount: 0, oid: 0, fields: [],
+  } as ReturnType<typeof dbQuery> extends Promise<infer R> ? R : never);
 }
 
-// Reset all mock call counts and implementations between property iterations
-function resetMocks() {
-  mockGenerateConversationText.mockReset();
-  mockGenerateBuild123dCode.mockReset();
-  mockRenderBuild123d.mockReset();
+function makeRenderSuccess() {
+  return { ok: true as const, result: { files: [{ filename: "m.stl", contentBase64: "bW9jaw==" }] } };
 }
 
+function makeRenderFailure(msg: string) {
+  return { ok: false as const, error: { category: "code_error", rawMessage: msg, originalError: new Error(msg) } };
+}
 
-describe("Error recovery feeds error context to LLM with at most one retry", () => {
-  it("retries exactly once with error context when first render fails, then succeeds", () => {
-    return fc.assert(
-      fc.asyncProperty(
-        fc.string({ minLength: 1, maxLength: 200 }).filter((s) => s.trim().length > 0),
-        fc.string({ minLength: 1, maxLength: 500 }),
-        async (errorMessage, failingCode) => {
-          resetMocks();
-          stubDbContext();
+const pipelineInput = () => ({
+  userId: "u-1",
+  contextId: "ctx-1",
+  prompt: "make a box",
+  attachments: [] as never[],
+  context: { id: "ctx-1", name: "Test" },
+  userItemId: "ui-1",
+  assistantItemId: "ai-1",
+  stream: false,
+  isFirstPrompt: false,
+});
 
-          mockGenerateConversationText.mockResolvedValue(mockConversationResult());
-
-          // First codegen returns the failing code, second returns corrected code
-          mockGenerateBuild123dCode
-            .mockResolvedValueOnce(mockCodegenResult(failingCode))
-            .mockResolvedValueOnce(mockCodegenResult("corrected_code()"));
-
-          // First render fails with RenderingServiceError, second succeeds
-          mockRenderBuild123d
-            .mockRejectedValueOnce(new RenderingServiceError(errorMessage))
-            .mockResolvedValueOnce(mockRenderResult());
-
-          const result = await submitQuery({
-            userId: "user-1",
-            contextId: "ctx-1",
-            prompt: "make a box",
-          });
-
-          // generateBuild123dCode called exactly twice (original + one retry)
-          expect(mockGenerateBuild123dCode).toHaveBeenCalledTimes(2);
-
-          // renderBuild123d called exactly twice (original + one retry)
-          expect(mockRenderBuild123d).toHaveBeenCalledTimes(2);
-
-          // The retry codegen call should include the error message and failing code
-          const retryCallArgs = mockGenerateBuild123dCode.mock.calls[1][0] as {
-            prompt: string;
-            conversationText: string;
-          };
-          expect(retryCallArgs.conversationText).toContain(errorMessage);
-          expect(retryCallArgs.conversationText).toContain(failingCode);
-          expect(retryCallArgs.conversationText).toContain("Error Recovery");
-
-          // Should complete successfully
-          expect(result).toBeDefined();
-          expect(result.contextId).toBe("ctx-1");
-        },
-      ),
-      { numRuns: 100 },
-    );
+describe("Error recovery feeds error context to LLM", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stubDb();
   });
 
-  it("returns error when both render attempts fail — no further retries", () => {
-    return fc.assert(
-      fc.asyncProperty(
-        fc.string({ minLength: 1, maxLength: 200 }).filter((s) => s.trim().length > 0),
-        fc.string({ minLength: 1, maxLength: 500 }),
-        fc.string({ minLength: 1, maxLength: 200 }).filter((s) => s.trim().length > 0),
-        async (firstError, failingCode, secondError) => {
-          resetMocks();
-          stubDbContext();
-
-          mockGenerateConversationText.mockResolvedValue(mockConversationResult());
-
-          mockGenerateBuild123dCode
-            .mockResolvedValueOnce(mockCodegenResult(failingCode))
-            .mockResolvedValueOnce(mockCodegenResult("retry_code()"));
-
-          // Both render attempts fail
-          mockRenderBuild123d
-            .mockRejectedValueOnce(new RenderingServiceError(firstError))
-            .mockRejectedValueOnce(new RenderingServiceError(secondError));
-
-          // submitQuery should throw (error propagates to outer catch)
-          await expect(
-            submitQuery({
-              userId: "user-1",
-              contextId: "ctx-1",
-              prompt: "make a box",
-            }),
-          ).rejects.toThrow();
-
-          // generateBuild123dCode called exactly twice (original + one retry)
-          expect(mockGenerateBuild123dCode).toHaveBeenCalledTimes(2);
-
-          // renderBuild123d called exactly twice — no third attempt
-          expect(mockRenderBuild123d).toHaveBeenCalledTimes(2);
-
-          // The retry codegen call should include the first error and failing code
-          const retryCallArgs = mockGenerateBuild123dCode.mock.calls[1][0] as {
-            prompt: string;
-            conversationText: string;
-          };
-          expect(retryCallArgs.conversationText).toContain(firstError);
-          expect(retryCallArgs.conversationText).toContain(failingCode);
-        },
-      ),
-      { numRuns: 100 },
-    );
-  });
-
-  it("does not retry for non-RenderingServiceError failures", () => {
+  it("retries with error context when first render fails, then succeeds", () => {
     return fc.assert(
       fc.asyncProperty(
         fc.string({ minLength: 1, maxLength: 200 }).filter((s) => s.trim().length > 0),
         async (errorMessage) => {
-          resetMocks();
-          stubDbContext();
+          vi.clearAllMocks();
+          stubDb();
 
-          mockGenerateConversationText.mockResolvedValue(mockConversationResult());
-          mockGenerateBuild123dCode.mockResolvedValueOnce(mockCodegenResult("some_code()"));
+          mockGenerateText.mockResolvedValue({
+            text: "some_code()", usage: { inputTokens: 10, outputTokens: 10 },
+          });
 
-          // Render throws a generic Error (not RenderingServiceError)
-          mockRenderBuild123d.mockRejectedValueOnce(new Error(errorMessage));
+          // First render fails, second succeeds
+          mockRenderWithInfraRetry
+            .mockResolvedValueOnce(makeRenderFailure(errorMessage))
+            .mockResolvedValueOnce(makeRenderSuccess());
 
-          await expect(
-            submitQuery({
-              userId: "user-1",
-              contextId: "ctx-1",
-              prompt: "make a box",
-            }),
-          ).rejects.toThrow();
+          await executeQueryPipeline(pipelineInput());
 
-          // Only one codegen call — no retry for non-RenderingServiceError
-          expect(mockGenerateBuild123dCode).toHaveBeenCalledTimes(1);
+          // Two codegen iterations: initial + one retry after render failure
+          expect(mockGenerateText).toHaveBeenCalledTimes(2);
 
-          // Only one render attempt — no retry
-          expect(mockRenderBuild123d).toHaveBeenCalledTimes(1);
+          // buildFixPrompt called for the second iteration with error context
+          expect(mockBuildFixPrompt).toHaveBeenCalledTimes(1);
+          const fixArgs = mockBuildFixPrompt.mock.calls[0];
+          // buildFixPrompt(systemPrompt, fewShots, prompt, currentCode, iterMinus1, renderError, issues, suggestions, renderErrorCtx)
+          expect(fixArgs[5]).toBe(errorMessage); // renderError argument
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it("stops after MAX_FIX_ITERATIONS when all renders fail — no further retries", () => {
+    return fc.assert(
+      fc.asyncProperty(
+        fc.string({ minLength: 1, maxLength: 200 }).filter((s) => s.trim().length > 0),
+        async (errorMessage) => {
+          vi.clearAllMocks();
+          stubDb();
+
+          mockGenerateText.mockResolvedValue({
+            text: "code()", usage: { inputTokens: 10, outputTokens: 10 },
+          });
+
+          // All renders fail
+          mockRenderWithInfraRetry.mockResolvedValue(makeRenderFailure(errorMessage));
+
+          await executeQueryPipeline(pipelineInput());
+
+          // Exactly MAX_FIX_ITERATIONS (5) codegen calls — no more
+          expect(mockGenerateText).toHaveBeenCalledTimes(5);
+          expect(mockRenderWithInfraRetry).toHaveBeenCalledTimes(5);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it("does not retry codegen for non-rendering pipeline errors", () => {
+    return fc.assert(
+      fc.asyncProperty(
+        fc.string({ minLength: 1, maxLength: 200 }).filter((s) => s.trim().length > 0),
+        async (errorMessage) => {
+          vi.clearAllMocks();
+          stubDb();
+
+          // First codegen call throws (not a render error)
+          mockGenerateText.mockRejectedValueOnce(new Error(errorMessage));
+
+          await executeQueryPipeline(pipelineInput());
+
+          // Only one codegen attempt — error propagates to outer catch
+          expect(mockGenerateText).toHaveBeenCalledTimes(1);
+          // renderWithInfraRetry never called since codegen itself failed
+          expect(mockRenderWithInfraRetry).toHaveBeenCalledTimes(0);
         },
       ),
       { numRuns: 100 },

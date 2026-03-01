@@ -234,6 +234,73 @@ export function buildFixPrompt(
   return sections.join("\n");
 }
 
+/**
+ * Build a prompt for modifying existing working code based on a user's
+ * follow-up request in chat. Unlike `buildFixPrompt` (which addresses
+ * render errors or VLM-identified issues), this prompt frames the
+ * previous code as a *working baseline* and instructs the LLM to make
+ * targeted modifications while preserving all unrelated geometry.
+ */
+export function buildModificationPrompt(
+  systemPromptContent: string,
+  fewShots: FewShotExample[],
+  userPrompt: string,
+  baselineCode: string,
+  conversationSummary: string,
+  conversationHistory?: string,
+): string {
+  const sections: string[] = [systemPromptContent, ""];
+
+  if (fewShots.length > 0) {
+    sections.push("## Approved Examples for Reference", "");
+    for (const example of fewShots) {
+      sections.push(
+        `### User request: "${example.prompt}"`,
+        "```python",
+        example.code,
+        "```",
+        "",
+      );
+    }
+  }
+
+  sections.push(
+    "## Working Baseline Code",
+    "The following Build123d code produces a working 3D model. Your task is to MODIFY",
+    "this code to incorporate the user's requested changes while PRESERVING all existing",
+    "geometry, features, and structure that the user has not asked to change.",
+    "```python",
+    baselineCode,
+    "```",
+    "",
+  );
+
+  if (conversationSummary) {
+    sections.push(
+      "## Conversation Context",
+      conversationSummary,
+      "",
+    );
+  }
+
+  if (conversationHistory) {
+    sections.push(conversationHistory, "");
+  }
+
+  sections.push(
+    "## Modification Request",
+    userPrompt,
+    "",
+    "## Requirements",
+    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math`. You may also import `itertools`, `functools`, `copy`, or `numpy`.",
+    "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
+    "- Use only Build123d classes and functions from the reference above.",
+    "- IMPORTANT: Start from the baseline code above and make targeted modifications. Do NOT rewrite from scratch. Preserve all working geometry, dimensions, and features unless the user explicitly asked to change them.",
+  );
+
+  return sections.join("\n");
+}
+
 // ── Few-shot example retrieval ───────────────────────────────────────
 
 /**

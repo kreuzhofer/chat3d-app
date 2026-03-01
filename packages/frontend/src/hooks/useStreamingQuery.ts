@@ -33,6 +33,9 @@ export interface UseStreamingQueryOptions {
   token: string | null;
   /** The assistant item ID to filter events for. Streaming is disabled when null. */
   assistantItemId: string | null;
+  /** ISO timestamp of when the pipeline started (item createdAt). Used to compute
+   *  elapsed time so `isLongRunning` fires correctly after a page reload. */
+  startedAt?: string | null;
 }
 
 export interface UseStreamingQueryResult {
@@ -44,6 +47,8 @@ export interface UseStreamingQueryResult {
   queryStateDetail: string | null;
   /** True while the streaming connection is active and not yet completed/failed. */
   isStreaming: boolean;
+  /** True when the pipeline has been running for more than 60 seconds. */
+  isLongRunning: boolean;
   /** Error message if the stream was interrupted or the query failed. */
   error: string | null;
 }
@@ -51,6 +56,9 @@ export interface UseStreamingQueryResult {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const ACTIVE_STATES = new Set<QueryState>(["queued", "conversation", "codegen", "rendering", "evaluating", "fixing", "retrying"]);
+
+/** Threshold in ms after which the pipeline is considered "long-running". */
+const LONG_RUNNING_THRESHOLD_MS = 60_000;
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
@@ -65,11 +73,13 @@ const ACTIVE_STATES = new Set<QueryState>(["queued", "conversation", "codegen", 
 export function useStreamingQuery({
   token,
   assistantItemId,
+  startedAt,
 }: UseStreamingQueryOptions): UseStreamingQueryResult {
   const [streamingText, setStreamingText] = useState("");
   const [queryState, setQueryState] = useState<QueryState | null>(null);
   const [queryStateDetail, setQueryStateDetail] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isLongRunning, setIsLongRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { subscribe } = useNotifications();
@@ -114,6 +124,7 @@ export function useStreamingQuery({
     setQueryState(null);
     setQueryStateDetail(null);
     setIsStreaming(false);
+    setIsLongRunning(false);
     setError(null);
 
     if (!token || !assistantItemId) {
@@ -126,5 +137,23 @@ export function useStreamingQuery({
     return unsubscribe;
   }, [token, assistantItemId, subscribe, handleMessage]);
 
-  return { streamingText, queryState, queryStateDetail, isStreaming, error };
+  // Track long-running pipelines: set isLongRunning after 60s since pipeline start.
+  // Uses startedAt (item createdAt) so the timer survives page reloads — if the
+  // pipeline has already been running for >60s, isLongRunning fires immediately.
+  useEffect(() => {
+    if (!isStreaming) {
+      setIsLongRunning(false);
+      return;
+    }
+    const elapsed = startedAt ? Date.now() - Date.parse(startedAt) : 0;
+    if (elapsed >= LONG_RUNNING_THRESHOLD_MS) {
+      setIsLongRunning(true);
+      return; // no timer needed — already past threshold
+    }
+    const remaining = LONG_RUNNING_THRESHOLD_MS - elapsed;
+    const timer = setTimeout(() => setIsLongRunning(true), remaining);
+    return () => clearTimeout(timer);
+  }, [isStreaming, startedAt]);
+
+  return { streamingText, queryState, queryStateDetail, isStreaming, isLongRunning, error };
 }

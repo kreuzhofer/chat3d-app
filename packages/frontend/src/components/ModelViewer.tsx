@@ -163,11 +163,22 @@ export function ModelViewer({ token, filePath }: ModelViewerProps) {
           const geometry = new STLLoader().parse(buffer);
           meshOrGroup = new THREE.Mesh(
             geometry,
-            new THREE.MeshStandardMaterial({ color: 0x3f72af, metalness: 0.0, roughness: 0.85, flatShading: true }),
+            new THREE.MeshStandardMaterial({ color: 0x10b981, metalness: 0.0, roughness: 0.85, flatShading: true }),
           );
         } else {
           objectUrl = URL.createObjectURL(downloaded.blob);
           meshOrGroup = await new ThreeMFLoader().loadAsync(objectUrl);
+          // 3MF files from Build123d often lack embedded materials — apply the
+          // branding green default to any mesh that has no color/map set.
+          const defaultMat = new THREE.MeshStandardMaterial({ color: 0x10b981, metalness: 0.0, roughness: 0.85, flatShading: true });
+          meshOrGroup.traverse((child) => {
+            const mesh = child as THREE.Mesh;
+            if (!mesh.isMesh) return;
+            const mat = mesh.material as THREE.MeshPhongMaterial | undefined;
+            if (mat && mat.color && mat.color.getHex() === 0xffffff && !mat.map) {
+              mesh.material = defaultMat;
+            }
+          });
         }
 
         if (disposed) {

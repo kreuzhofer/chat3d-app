@@ -1,0 +1,496 @@
+// ─── Prisma Schema for Chat3D ───────────────────────────────────────────────
+// Generated from existing PostgreSQL schema (16 hand-rolled migrations).
+// This schema exists IN PARALLEL with the raw pg driver code — it does not
+// replace the existing migration system yet.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [pgcrypto, vector]
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ENUMS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+enum UserRole {
+  admin
+  user
+
+  @@map("user_role")
+}
+
+enum UserStatus {
+  active
+  deactivated
+  pending_registration
+
+  @@map("user_status")
+}
+
+enum WaitlistStatus {
+  pending_email_confirmation
+  pending_admin_approval
+  approved
+  rejected
+
+  @@map("waitlist_status")
+}
+
+enum RegistrationTokenSource {
+  waitlist
+  admin_invite
+  user_invite
+
+  @@map("registration_token_source")
+}
+
+enum InvitationStatus {
+  pending
+  waitlisted
+  registration_sent
+  accepted
+  expired
+  revoked
+
+  @@map("invitation_status")
+}
+
+enum AccountActionType {
+  password_reset
+  email_change
+  data_export
+  account_delete
+  account_reactivate
+
+  @@map("account_action_type")
+}
+
+enum AccountActionStatus {
+  pending
+  completed
+  expired
+  cancelled
+
+  @@map("account_action_status")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MODELS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+model User {
+  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String     @unique @db.VarChar(255)
+  passwordHash     String     @map("password_hash") @db.VarChar(255)
+  displayName      String?    @map("display_name") @db.VarChar(255)
+  role             UserRole   @default(user)
+  status           UserStatus @default(active)
+  deactivatedUntil DateTime?  @map("deactivated_until") @db.Timestamptz()
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime   @default(now()) @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  chatContexts                  ChatContext[]
+  chatItems                     ChatItem[]
+  accountActions                AccountAction[]
+  notifications                 Notification[]
+  invitationsSent               Invitation[]
+  pushSubscriptions             PushSubscription[]
+  registrationTokensInvited     RegistrationToken[]
+  adminAuditLogsAsAdmin         AdminAuditLog[]         @relation("AuditAdmin")
+  adminAuditLogsAsTarget        AdminAuditLog[]         @relation("AuditTarget")
+  securityEvents                SecurityEvent[]
+  appSettingsUpdated            AppSettings[]
+  waitlistEntriesApproved       WaitlistEntry[]
+
+  @@index([role], map: "idx_users_role")
+  @@index([status], map: "idx_users_status")
+  @@map("users")
+}
+
+model ChatContext {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String   @default("unnamed chat") @db.VarChar(255)
+  conversationModelId   String?  @map("conversation_model_id") @db.VarChar(255)
+  chat3dModelId         String?  @map("chat_3d_model_id") @db.VarChar(255)
+  ownerId               String   @map("owner_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  owner User       @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "chat_contexts_owner_fk")
+  items ChatItem[]
+
+  @@index([ownerId], map: "idx_chat_contexts_owner")
+  @@map("chat_contexts")
+}
+
+model ChatItem {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chatContextId    String   @map("chat_context_id") @db.Uuid
+  role             String   @db.VarChar(20)
+  messages         Json     @default("[]") @db.JsonB
+  rating           Int      @default(0)
+  ownerId          String   @map("owner_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz()
+  promptTokens     Int?     @default(0) @map("prompt_tokens")
+  completionTokens Int?     @default(0) @map("completion_tokens")
+  estimatedCostUsd Decimal? @default(0) @map("estimated_cost_usd") @db.Decimal(12, 8)
+
+  // Relations
+  chatContext ChatContext @relation(fields: [chatContextId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  owner       User        @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "chat_items_owner_fk")
+
+  @@index([chatContextId], map: "idx_chat_items_context")
+  @@index([ownerId], map: "idx_chat_items_owner")
+  @@map("chat_items")
+}
+
+model AppSettings {
+  id                        Boolean  @id @default(true) @db.Boolean
+  waitlistEnabled           Boolean  @default(false) @map("waitlist_enabled")
+  invitationsEnabled        Boolean  @default(true) @map("invitations_enabled")
+  invitationWaitlistRequired Boolean @default(false) @map("invitation_waitlist_required")
+  invitationQuotaPerUser    Int      @default(3) @map("invitation_quota_per_user")
+  updatedBy                 String?  @map("updated_by") @db.Uuid
+  updatedAt                 DateTime @default(now()) @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  updatedByUser User? @relation(fields: [updatedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("app_settings")
+}
+
+model WaitlistEntry {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String         @unique @db.VarChar(255)
+  marketingConsent Boolean        @default(false) @map("marketing_consent")
+  emailConfirmedAt DateTime?      @map("email_confirmed_at") @db.Timestamptz()
+  status           WaitlistStatus @default(pending_email_confirmation)
+  approvedBy       String?        @map("approved_by") @db.Uuid
+  approvedAt       DateTime?      @map("approved_at") @db.Timestamptz()
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime       @default(now()) @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  approvedByUser         User?                       @relation(fields: [approvedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  emailConfirmations     WaitlistEmailConfirmation[]
+
+  @@map("waitlist_entries")
+}
+
+model WaitlistEmailConfirmation {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  waitlistEntryId String   @map("waitlist_entry_id") @db.Uuid
+  tokenHash       String   @unique @map("token_hash") @db.VarChar(255)
+  expiresAt       DateTime @map("expires_at") @db.Timestamptz()
+  consumedAt      DateTime? @map("consumed_at") @db.Timestamptz()
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  waitlistEntry WaitlistEntry @relation(fields: [waitlistEntryId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([waitlistEntryId], map: "idx_waitlist_email_confirmations_entry")
+  @@index([expiresAt], map: "idx_waitlist_email_confirmations_expires")
+  @@map("waitlist_email_confirmations")
+}
+
+model RegistrationToken {
+  id              String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tokenHash       String                  @unique @map("token_hash") @db.VarChar(255)
+  email           String                  @db.VarChar(255)
+  source          RegistrationTokenSource
+  invitedByUserId String?                 @map("invited_by_user_id") @db.Uuid
+  maxUses         Int                     @default(1) @map("max_uses")
+  usedCount       Int                     @default(0) @map("used_count")
+  expiresAt       DateTime?               @map("expires_at") @db.Timestamptz()
+  consumedAt      DateTime?               @map("consumed_at") @db.Timestamptz()
+  createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  invitedByUser User?        @relation(fields: [invitedByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  invitations   Invitation[]
+
+  @@index([email], map: "idx_registration_tokens_email")
+  @@map("registration_tokens")
+}
+
+model Invitation {
+  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  inviterUserId       String           @map("inviter_user_id") @db.Uuid
+  inviteeEmail        String           @map("invitee_email") @db.VarChar(255)
+  status              InvitationStatus @default(pending)
+  registrationTokenId String?          @map("registration_token_id") @db.Uuid
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime         @default(now()) @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  inviterUser       User               @relation(fields: [inviterUserId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  registrationToken RegistrationToken? @relation(fields: [registrationTokenId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([inviterUserId, inviteeEmail])
+  @@index([inviterUserId], map: "idx_invitations_inviter")
+  @@index([inviteeEmail], map: "idx_invitations_email")
+  @@map("invitations")
+}
+
+model AccountAction {
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String              @map("user_id") @db.Uuid
+  actionType  AccountActionType   @map("action_type")
+  tokenHash   String              @unique @map("token_hash") @db.VarChar(255)
+  payload     Json                @default("{}") @db.JsonB
+  status      AccountActionStatus @default(pending)
+  expiresAt   DateTime?           @map("expires_at") @db.Timestamptz()
+  completedAt DateTime?           @map("completed_at") @db.Timestamptz()
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId], map: "idx_account_actions_user")
+  @@map("account_actions")
+}
+
+model Notification {
+  id        BigInt    @id @default(autoincrement())
+  userId    String    @map("user_id") @db.Uuid
+  eventType String    @map("event_type") @db.VarChar(100)
+  payload   Json      @db.JsonB
+  readAt    DateTime? @map("read_at") @db.Timestamptz()
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId, createdAt(sort: Desc)], map: "idx_notifications_user_created")
+  @@map("notifications")
+}
+
+model PushSubscription {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  endpoint  String   @db.Text
+  p256dh    String   @db.Text
+  auth      String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([userId, endpoint])
+  @@index([userId], map: "idx_push_subscriptions_user_id")
+  @@map("push_subscriptions")
+}
+
+model AdminAuditLog {
+  id           BigInt   @id @default(autoincrement())
+  adminUserId  String   @map("admin_user_id") @db.Uuid
+  action       String   @db.VarChar(120)
+  targetUserId String?  @map("target_user_id") @db.Uuid
+  metadata     Json     @default("{}") @db.JsonB
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  adminUser  User  @relation("AuditAdmin", fields: [adminUserId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  targetUser User? @relation("AuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([adminUserId, createdAt(sort: Desc)], map: "idx_admin_audit_logs_admin_created")
+  @@index([targetUserId, createdAt(sort: Desc)], map: "idx_admin_audit_logs_target_created")
+  @@map("admin_audit_logs")
+}
+
+model SecurityEvent {
+  id        BigInt   @id @default(autoincrement())
+  eventType String   @map("event_type") @db.VarChar(120)
+  userId    String?  @map("user_id") @db.Uuid
+  ipAddress String?  @map("ip_address") @db.VarChar(64)
+  path      String?  @db.VarChar(255)
+  metadata  Json     @default("{}") @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([createdAt(sort: Desc)], map: "idx_security_events_created")
+  @@index([eventType], map: "idx_security_events_event_type")
+  @@map("security_events")
+}
+
+model WorkbenchCategory {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rank        Int      @unique
+  name        String   @db.VarChar(255)
+  complexity  Int
+  description String   @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  prompts WorkbenchExamplePrompt[]
+
+  @@map("workbench_categories")
+}
+
+model WorkbenchExamplePrompt {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  categoryId     String   @map("category_id") @db.Uuid
+  index          Int
+  prompt         String   @db.Text
+  createdAt      DateTime                       @default(now()) @map("created_at") @db.Timestamptz()
+  embedding      Unsupported("vector(1536)")?   @map("embedding")
+  embeddingModel String?                        @map("embedding_model") @db.Text
+
+  // Relations
+  category WorkbenchCategory  @relation(fields: [categoryId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  examples WorkbenchExample[]
+
+  @@unique([categoryId, index])
+  @@index([categoryId], map: "idx_wb_prompts_category")
+  @@map("workbench_example_prompts")
+}
+
+model WorkbenchExample {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  promptId              String   @map("prompt_id") @db.Uuid
+  iteration             Int      @default(1)
+  generationSeed        Int?     @map("generation_seed")
+  code                  String   @db.Text
+  renderStatus          String   @default("pending") @map("render_status") @db.VarChar(20)
+  renderError           String?  @map("render_error") @db.Text
+  stlPath               String?  @map("stl_path") @db.Text
+  stepPath              String?  @map("step_path") @db.Text
+  threemfPath           String?  @map("threemf_path") @db.Text
+  screenshotFront       String?  @map("screenshot_front") @db.Text
+  screenshotTop         String?  @map("screenshot_top") @db.Text
+  screenshotIso         String?  @map("screenshot_iso") @db.Text
+  evalScore             Int?     @map("eval_score")
+  evalIssues            Json?    @map("eval_issues") @db.JsonB
+  evalSuggestions       Json?    @map("eval_suggestions") @db.JsonB
+  approvalStatus        String   @default("pending") @map("approval_status") @db.VarChar(20)
+  rejectionNote         String?  @map("rejection_note") @db.Text
+  llmModel              String?  @map("llm_model") @db.VarChar(255)
+  vlmModel              String?  @map("vlm_model") @db.VarChar(255)
+  promptTokens          Int?     @map("prompt_tokens")
+  completionTokens      Int?     @map("completion_tokens")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz()
+  screenshotIsoBack     String?  @map("screenshot_iso_back") @db.Text
+  screenshotBottom      String?  @map("screenshot_bottom") @db.Text
+  screenshotBack        String?  @map("screenshot_back") @db.Text
+  screenshotLeft        String?  @map("screenshot_left") @db.Text
+  screenshotRight       String?  @map("screenshot_right") @db.Text
+  screenshotOrtho45     String?  @map("screenshot_ortho_45") @db.Text
+  screenshotOrtho45Bottom String? @map("screenshot_ortho_45_bottom") @db.Text
+
+  // Relations
+  promptRef WorkbenchExamplePrompt @relation(fields: [promptId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([promptId], map: "idx_wb_examples_prompt")
+  @@index([approvalStatus], map: "idx_wb_examples_approval")
+  @@index([evalScore], map: "idx_wb_examples_eval_score")
+  @@map("workbench_examples")
+}
+
+model WorkbenchSystemPrompt {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  version   Int      @unique
+  label     String   @db.VarChar(255)
+  content   String   @db.Text
+  isActive  Boolean  @default(false) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@map("workbench_system_prompts")
+}
+
+model LlmProvider {
+  name          String   @id @db.VarChar(50)
+  displayName   String?  @map("display_name") @db.VarChar(100)
+  apiKey        String?  @map("api_key") @db.Text
+  endpointUrl   String?  @map("endpoint_url") @db.Text
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz()
+  maxConcurrent Int?     @map("max_concurrent")
+
+  // Relations
+  models LlmModel[]
+
+  @@map("llm_providers")
+}
+
+model LlmModel {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider              String   @db.VarChar(50)
+  modelName             String   @map("model_name") @db.VarChar(255)
+  displayName           String?  @map("display_name") @db.VarChar(255)
+  costPer1mInput        Decimal  @default(0) @map("cost_per_1m_input") @db.Decimal(12, 4)
+  costPer1mOutput       Decimal  @default(0) @map("cost_per_1m_output") @db.Decimal(12, 4)
+  maxOutputTokens       Int?     @map("max_output_tokens")
+  maxContextTokens      Int?     @map("max_context_tokens")
+  supportsThinking      Boolean  @default(false) @map("supports_thinking")
+  defaultThinkingEffort String?  @map("default_thinking_effort") @db.VarChar(20)
+  supportsVision        Boolean  @default(false) @map("supports_vision")
+  supportsEmbeddings    Boolean  @default(false) @map("supports_embeddings")
+  isActive              Boolean  @default(true) @map("is_active")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  providerRef LlmProvider    @relation(fields: [provider], references: [name], onUpdate: Cascade, onDelete: Restrict, map: "fk_llm_models_provider")
+  purposes    LlmPurposeMap[]
+
+  @@unique([provider, modelName])
+  @@map("llm_models")
+}
+
+model LlmPurposeMap {
+  id                       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  purpose                  String   @unique @db.VarChar(50)
+  modelId                  String   @map("model_id") @db.Uuid
+  overrideMaxOutputTokens  Int?     @map("override_max_output_tokens")
+  overrideThinkingEffort   String?  @map("override_thinking_effort") @db.VarChar(20)
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt                DateTime @default(now()) @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  model LlmModel @relation(fields: [modelId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@map("llm_purpose_map")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// OBJECTS MANAGED OUTSIDE PRISMA
+//
+// These DB objects exist in the production database but cannot be expressed
+// in Prisma's schema language. They must be added via raw SQL in a Prisma
+// migration or maintained as a post-migration script.
+//
+// 1. schema_migrations table — used by the legacy custom migration runner.
+//    Prisma uses its own _prisma_migrations table.
+//
+// 2. HNSW vector index on workbench_example_prompts.embedding:
+//    CREATE INDEX idx_wb_prompts_embedding
+//      ON workbench_example_prompts USING hnsw (embedding vector_cosine_ops);
+//    The embedding column IS modeled (as Unsupported("vector(1536)")), but
+//    Prisma cannot declare HNSW indexes. Use $executeRaw or a raw SQL
+//    migration step to create this index.
+//
+// 3. CHECK constraints — Prisma does not model CHECK constraints. The
+//    following exist in the DB and should be enforced at the application layer
+//    or via a post-migration SQL script:
+//    - chat_items.role IN ('user', 'assistant')
+//    - chat_items.rating IN (-1, 0, 1)
+//    - app_settings.id = TRUE
+//    - app_settings.invitation_quota_per_user >= 0
+//    - workbench_categories.complexity BETWEEN 1 AND 10
+//    - workbench_examples.render_status IN ('pending','rendering','success','error')
+//    - workbench_examples.approval_status IN ('pending','auto_approved','human_approved','rejected')
+//    - workbench_examples.eval_score BETWEEN 1 AND 10
+// ═══════════════════════════════════════════════════════════════════════════════

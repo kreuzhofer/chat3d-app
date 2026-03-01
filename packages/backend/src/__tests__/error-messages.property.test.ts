@@ -1,28 +1,21 @@
 // Feature: ux-gaps-conversational-experience, Property 15: Conversational error messages contain error detail and follow-up suggestion
-import { describe, expect, it, vi } from "vitest";
+// Updated: Tests executeQueryPipeline which writes errormessage segments via updateChatItem
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import fc from "fast-check";
 
 /**
  * Validates: Requirements 9.1, 9.2, 9.3
  *
- * Property 15: For any rendering or code generation error, the resulting
- * Assistant_Response should contain: (a) the specific error detail from the
- * rendering service or LLM, and (b) a follow-up action suggestion string.
- *
- * The backend stores error messages via updateChatItem with itemType "errormessage"
- * and the error detail in the "text" field. The frontend MessageBubble renders
- * segments with kind "error" showing the error detail and a follow-up suggestion.
- *
- * This test verifies:
- * 1. The backend stores the specific error detail in the errormessage chat item
- * 2. The frontend rendering contract: error segments always produce output
- *    containing both the error detail and a follow-up action suggestion
+ * Property 15: For any error during the query pipeline, the resulting
+ * assistant item should contain an errormessage segment with the specific
+ * error detail. The frontend renders a follow-up suggestion for error segments.
  */
 
-// --- Mocks for all external dependencies used by submitQuery ---
+// --- Mocks ---
 
 vi.mock("../db/connection.js", () => ({
   query: vi.fn(),
+  pool: { query: vi.fn() },
 }));
 
 vi.mock("../services/notification.service.js", () => ({
@@ -30,109 +23,135 @@ vi.mock("../services/notification.service.js", () => ({
 }));
 
 vi.mock("../services/sse.service.js", () => ({
-  sseService: {
-    publishStreamToken: vi.fn(),
-    publish: vi.fn(),
-  },
+  sseService: { publishStreamToken: vi.fn(), publish: vi.fn() },
 }));
 
-const mockUpdateChatItem = vi.fn().mockResolvedValue({ id: "assistant-item-1" });
+const mockUpdateChatItem = vi.fn().mockResolvedValue({ id: "ast-1" });
 
 vi.mock("../services/chat.service.js", () => ({
-  createChatItem: vi.fn().mockResolvedValue({ id: "assistant-item-1" }),
+  createChatItem: vi.fn().mockResolvedValue({ id: "ast-1" }),
   updateChatItem: (...args: unknown[]) => mockUpdateChatItem(...args),
-  ChatError: class ChatError extends Error {
-    constructor(message: string, public readonly statusCode = 400) {
-      super(message);
-    }
+  updateChatContext: vi.fn().mockResolvedValue(undefined),
+  ChatError: class extends Error {
+    constructor(message: string, public readonly statusCode = 400) { super(message); }
   },
 }));
 
 vi.mock("../services/file-storage.service.js", () => ({
-  writeUserFile: vi.fn().mockResolvedValue(undefined),
-  readUserFile: vi.fn(),
-  FileStorageError: class FileStorageError extends Error {
-    constructor(message: string, public readonly statusCode = 500) {
-      super(message);
-    }
+  writeStorageFile: vi.fn().mockResolvedValue(undefined),
+  readStorageFile: vi.fn().mockResolvedValue(Buffer.from("")),
+  FileStorageError: class extends Error {
+    constructor(message: string, public readonly statusCode = 500) { super(message); }
   },
 }));
 
 const mockGenerateConversationText = vi.fn();
-const mockGenerateBuild123dCode = vi.fn();
+const mockGenerateText = vi.fn();
+
+vi.mock("ai", () => ({
+  generateText: (...args: unknown[]) => mockGenerateText(...args),
+}));
 
 vi.mock("../services/llm.service.js", () => ({
   generateConversationText: (...args: unknown[]) => mockGenerateConversationText(...args),
   generateConversationTextStream: vi.fn(),
-  generateBuild123dCode: (...args: unknown[]) => mockGenerateBuild123dCode(...args),
   parseConversationResponse: (raw: string) => {
-    const trimmed = raw.trim();
-    if (trimmed.startsWith("[CODEGEN_NEEDED]")) {
-      return { needsCodegen: true, text: trimmed.slice("[CODEGEN_NEEDED]".length).trim() };
-    }
-    if (trimmed.startsWith("[CHAT_ONLY]")) {
-      return { needsCodegen: false, text: trimmed.slice("[CHAT_ONLY]".length).trim() };
-    }
-    return { needsCodegen: false, text: trimmed };
+    const t = raw.trim();
+    if (t.startsWith("[CODEGEN_NEEDED]")) return { needsCodegen: true, text: t.slice("[CODEGEN_NEEDED]".length).trim() };
+    return { needsCodegen: false, text: t };
   },
-  LlmServiceError: class LlmServiceError extends Error {
-    constructor(message: string, public readonly statusCode = 500) {
-      super(message);
-    }
+  extractExecutableCode: vi.fn().mockImplementation((t: string) => t),
+  findMostRecentCode: () => undefined,
+  formatConversationHistory: () => "",
+  LlmServiceError: class extends Error {
+    constructor(message: string, public readonly statusCode = 500) { super(message); }
   },
 }));
 
-const mockRenderBuild123d = vi.fn();
+vi.mock("../services/rendering.service.js", () => ({
+  renderBuild123d: vi.fn(),
+  RenderingServiceError: class extends Error {
+    constructor(message: string, public readonly statusCode = 502) { super(message); }
+  },
+}));
 
-vi.mock("../services/rendering.service.js", () => {
-  class RenderingServiceError extends Error {
-    constructor(message: string, public readonly statusCode = 502) {
-      super(message);
-    }
-  }
-  return {
-    renderBuild123d: (...args: unknown[]) => mockRenderBuild123d(...args),
-    RenderingServiceError,
-  };
-});
+const mockRenderWithInfraRetry = vi.fn();
+vi.mock("../utils/render-errors.js", () => ({
+  classifyRenderError: vi.fn(),
+  buildEscalatedGuidance: vi.fn().mockReturnValue(""),
+  renderWithInfraRetry: (...args: unknown[]) => mockRenderWithInfraRetry(...args),
+}));
 
-import { submitQuery } from "../services/query.service.js";
-import { RenderingServiceError } from "../services/rendering.service.js";
+vi.mock("../services/workbench-codegen.service.js", () => ({
+  buildInitialPrompt: vi.fn().mockReturnValue("initial prompt"),
+  buildFixPrompt: vi.fn().mockReturnValue("fix prompt"),
+  buildModificationPrompt: vi.fn().mockReturnValue("mod prompt"),
+  wrapInTemplate: vi.fn().mockImplementation((c: string) => c),
+  stripTemplateBoilerplate: vi.fn().mockImplementation((c: string) => c),
+  MAX_FIX_ITERATIONS: 5,
+  AUTO_APPROVE_THRESHOLD: 7,
+}));
+
+vi.mock("../services/llm-config.service.js", () => ({
+  getModelForPurpose: vi.fn().mockResolvedValue({
+    label: "test", provider: "test", modelName: "test-v1", maxOutputTokens: 4000, maxConcurrent: 2,
+  }),
+  createProviderModel: vi.fn().mockReturnValue("mock-model"),
+  buildGenerateOptions: vi.fn().mockReturnValue({}),
+  calculateCostUsd: vi.fn().mockReturnValue(0.001),
+}));
+
+vi.mock("../services/workbench-seeder.service.js", () => ({
+  getActiveSystemPrompt: vi.fn().mockResolvedValue({ content: "sys" }),
+}));
+
+vi.mock("../services/workbench-embeddings.service.js", () => ({
+  findSimilarExamples: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("../utils/resource-limits.js", () => ({
+  getLlmSemaphore: vi.fn().mockReturnValue({
+    run: vi.fn().mockImplementation((fn: () => unknown) => fn()),
+  }),
+}));
+
+vi.mock("../utils/llm-retry.js", () => ({
+  withLlmRetry: vi.fn().mockImplementation((fn: () => unknown) => fn()),
+}));
+
+vi.mock("../services/stl-rendering-client.service.js", () => ({
+  renderModelScreenshots: vi.fn().mockResolvedValue({ images: [] }),
+}));
+
+vi.mock("../services/visual-eval.service.js", () => ({
+  evaluateModel: vi.fn(),
+}));
+
+vi.mock("../utils/llm-errors.js", () => ({
+  ProviderQuotaExhaustedError: class extends Error {},
+}));
+
+// Import after mocks
+import { executeQueryPipeline } from "../services/query.service.js";
 import { query as dbQuery } from "../db/connection.js";
 
-function mockCodegenResult(code: string) {
-  return {
-    code,
-    baseFileName: "model",
-    model: { id: "mock-codegen", provider: "mock", stage: "codegen", modelName: "mock" },
-    usage: { source: "estimated", inputTokens: 10, outputTokens: 10, totalTokens: 20, estimatedCostUsd: 0 },
-  };
-}
-
-function mockConversationResult() {
-  return {
-    text: "[CODEGEN_NEEDED]\nHere is your model.",
-    model: { id: "mock-conv", provider: "mock", stage: "conversation", modelName: "mock" },
-    usage: { source: "estimated", inputTokens: 10, outputTokens: 10, totalTokens: 20, estimatedCostUsd: 0 },
-  };
-}
-
-function stubDbContext() {
+function stubDb() {
   vi.mocked(dbQuery).mockResolvedValue({
-    rows: [{ id: "ctx-1", name: "Test Context", owner_id: "user-1" }],
-    command: "SELECT",
-    rowCount: 1,
-    oid: 0,
-    fields: [],
-  });
+    rows: [], command: "SELECT", rowCount: 0, oid: 0, fields: [],
+  } as ReturnType<typeof dbQuery> extends Promise<infer R> ? R : never);
 }
 
-function resetMocks() {
-  mockGenerateConversationText.mockReset();
-  mockGenerateBuild123dCode.mockReset();
-  mockRenderBuild123d.mockReset();
-  mockUpdateChatItem.mockReset().mockResolvedValue({ id: "assistant-item-1" });
-}
+const pipelineInput = () => ({
+  userId: "u-1",
+  contextId: "ctx-1",
+  prompt: "make a box",
+  attachments: [] as never[],
+  context: { id: "ctx-1", name: "Test" },
+  userItemId: "ui-1",
+  assistantItemId: "ai-1",
+  stream: false,
+  isFirstPrompt: false,
+});
 
 /**
  * The follow-up suggestion is rendered by the frontend MessageBubble component
@@ -142,42 +161,48 @@ function resetMocks() {
 const FOLLOW_UP_SUGGESTION = "Try rephrasing your request or ask me to use a different approach.";
 
 describe("Conversational error messages contain error detail and follow-up suggestion", () => {
-  it("stores the specific error detail in the errormessage chat item when rendering fails", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stubDb();
+  });
+
+  it("stores error detail in errormessage segment when all render iterations fail and no code produced", () => {
     return fc.assert(
       fc.asyncProperty(
         fc.string({ minLength: 1, maxLength: 300 }).filter((s) => s.trim().length > 0),
         async (errorDetail) => {
-          resetMocks();
-          stubDbContext();
+          vi.clearAllMocks();
+          stubDb();
 
-          mockGenerateConversationText.mockResolvedValue(mockConversationResult());
-          mockGenerateBuild123dCode
-            .mockResolvedValueOnce(mockCodegenResult("failing_code()"))
-            .mockResolvedValueOnce(mockCodegenResult("retry_code()"));
+          mockGenerateConversationText.mockResolvedValue({
+            text: "[CODEGEN_NEEDED]\nHere is your model.",
+            usage: { source: "estimated", inputTokens: 10, outputTokens: 10, totalTokens: 20, estimatedCostUsd: 0 },
+          });
 
-          // Both render attempts fail so the error propagates to the outer catch
-          mockRenderBuild123d
-            .mockRejectedValueOnce(new RenderingServiceError(errorDetail))
-            .mockRejectedValueOnce(new RenderingServiceError(errorDetail));
+          // Codegen returns empty text — no usable code produced
+          mockGenerateText.mockResolvedValue({
+            text: "", usage: { inputTokens: 10, outputTokens: 10 },
+          });
 
-          await expect(
-            submitQuery({ userId: "user-1", contextId: "ctx-1", prompt: "make a box" }),
-          ).rejects.toThrow();
+          // All render iterations fail with the error detail
+          mockRenderWithInfraRetry.mockResolvedValue({
+            ok: false,
+            error: { category: "code_error", rawMessage: errorDetail, originalError: new Error(errorDetail) },
+          });
 
-          // updateChatItem should have been called with the error message
-          // First call is the initial "Working on your request..." message (from createChatItem)
-          // The error update is the last call to updateChatItem
+          await executeQueryPipeline(pipelineInput());
+
+          // Find the updateChatItem call containing an errormessage segment
           const errorCall = mockUpdateChatItem.mock.calls.find((call) => {
             const args = call[0] as { messages: Array<{ itemType: string; text: string }> };
             return args.messages?.some((m) => m.itemType === "errormessage");
           });
 
           expect(errorCall).toBeDefined();
+          const messages = (errorCall![0] as { messages: Array<{ itemType: string; text: string }> }).messages;
+          const errorMsg = messages.find((m) => m.itemType === "errormessage");
 
-          const errorMessages = (errorCall![0] as { messages: Array<{ itemType: string; text: string }> }).messages;
-          const errorMsg = errorMessages.find((m) => m.itemType === "errormessage");
-
-          // (a) The error detail from the rendering service is stored in the text field
+          // The error detail from the rendering service is stored in the text field
           expect(errorMsg).toBeDefined();
           expect(errorMsg!.text).toBe(errorDetail);
         },
@@ -186,30 +211,28 @@ describe("Conversational error messages contain error detail and follow-up sugge
     );
   });
 
-  it("error detail is preserved for any error type (rendering, LLM, generic)", () => {
+  it("stores error detail when conversation LLM fails", () => {
     return fc.assert(
       fc.asyncProperty(
         fc.string({ minLength: 1, maxLength: 300 }).filter((s) => s.trim().length > 0),
         async (errorDetail) => {
-          resetMocks();
-          stubDbContext();
+          vi.clearAllMocks();
+          stubDb();
 
-          // LLM conversation stage fails — error goes directly to outer catch
+          // Conversation stage throws — error goes to outer catch block
           mockGenerateConversationText.mockRejectedValue(new Error(errorDetail));
 
-          await expect(
-            submitQuery({ userId: "user-1", contextId: "ctx-1", prompt: "make a box" }),
-          ).rejects.toThrow();
+          await executeQueryPipeline(pipelineInput());
 
+          // The outer catch block writes an errormessage segment
           const errorCall = mockUpdateChatItem.mock.calls.find((call) => {
             const args = call[0] as { messages: Array<{ itemType: string; text: string }> };
             return args.messages?.some((m) => m.itemType === "errormessage");
           });
 
           expect(errorCall).toBeDefined();
-
-          const errorMessages = (errorCall![0] as { messages: Array<{ itemType: string; text: string }> }).messages;
-          const errorMsg = errorMessages.find((m) => m.itemType === "errormessage");
+          const messages = (errorCall![0] as { messages: Array<{ itemType: string; text: string }> }).messages;
+          const errorMsg = messages.find((m) => m.itemType === "errormessage");
 
           // The specific error detail is stored regardless of error source
           expect(errorMsg).toBeDefined();

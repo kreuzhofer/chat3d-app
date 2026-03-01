@@ -1,6 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { AlertTriangle, Bot, MessageCircleWarning, RefreshCw, ThumbsDown, ThumbsUp, User } from "lucide-react";
+import { AlertTriangle, Bot, Loader2, MessageCircleWarning, RefreshCw, ThumbsDown, ThumbsUp, User } from "lucide-react";
 import type { ChatTimelineItem } from "../../features/chat/chat-adapters";
 import { Button } from "../ui/button";
 import { InlineModelViewer } from "./InlineModelViewer";
@@ -45,12 +45,13 @@ export function MessageBubble({
   const allFiles = uniqueFilesByPath(item.segments.flatMap((segment) => segment.files));
   const hasStreamingContent = isStreaming && typeof streamingText === "string" && streamingText.length > 0;
 
-  // Find the first preview-ready file (.stl or .3mf) for inline 3D preview
-  const previewFile = item.role === "assistant" && !isStreaming
-    ? allFiles.find((f) => {
-        const ext = fileExtension(f.path);
-        return ext === ".stl" || ext === ".3mf";
-      })
+  // Find the best preview-ready file for inline 3D preview.
+  // Prefer .3mf (richer format, can carry materials), fall back to .stl.
+  // Show as soon as files exist — don't wait for the pipeline to finish, since
+  // rendering completes before evaluation/fixing phases.
+  const previewFile = item.role === "assistant"
+    ? (allFiles.find((f) => fileExtension(f.path) === ".3mf") ??
+       allFiles.find((f) => fileExtension(f.path) === ".stl"))
     : undefined;
 
   // Aggregate usage across all meta segments for inline cost tag
@@ -100,6 +101,9 @@ export function MessageBubble({
             </span>
           )}
           <span className="font-semibold uppercase tracking-wide">{item.role}</span>
+          {isStreaming ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-[hsl(var(--primary))]" />
+          ) : null}
         </div>
         <span>{new Date(item.createdAt).toLocaleString()}</span>
       </div>
@@ -192,7 +196,20 @@ export function MessageBubble({
                       ) : null}
                     </div>
                   ) : segment.text ? (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>
+                    <>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>
+                      {/* Inline progress indicator for pending segments (pipeline still running after reload) */}
+                      {segment.state === "pending" && segment.stateMessage ? (
+                        <div className="mt-2 flex items-center gap-2" data-testid="inline-pending-indicator">
+                          <span className="flex items-center gap-1" aria-hidden="true">
+                            <span className="typing-dot h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />
+                            <span className="typing-dot typing-dot-delay-1 h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />
+                            <span className="typing-dot typing-dot-delay-2 h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />
+                          </span>
+                          <span className="text-xs text-[hsl(var(--muted-foreground))]">{segment.stateMessage}</span>
+                        </div>
+                      ) : null}
+                    </>
                   ) : (
                     <p className="text-sm text-[hsl(var(--muted-foreground))]">(empty)</p>
                   )}

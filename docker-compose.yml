@@ -118,6 +118,9 @@ services:
       EMAIL_SOCKET_TIMEOUT_MS: ${EMAIL_SOCKET_TIMEOUT_MS:-20000}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_FORMAT: ${LOG_FORMAT:-json}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@chat3d.local}
     ports:
       - "3001:3001"
     depends_on:

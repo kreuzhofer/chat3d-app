@@ -15,6 +15,7 @@ import { migration013ScreenshotIsoBack } from "./013_screenshot_iso_back.js";
 import { migration014ScreenshotBottom } from "./014_screenshot_bottom.js";
 import { migration015NewScreenshotAngles } from "./015_new_screenshot_angles.js";
 import { migration016ScreenshotOrtho45Bottom } from "./016_screenshot_ortho_45_bottom.js";
+import { migration017PushSubscriptions } from "./017_push_subscriptions.js";
 
 export const migrations: Migration[] = [
   migration001InitialSchema,
@@ -33,4 +34,5 @@ export const migrations: Migration[] = [
   migration014ScreenshotBottom,
   migration015NewScreenshotAngles,
   migration016ScreenshotOrtho45Bottom,
+  migration017PushSubscriptions,
 ];
