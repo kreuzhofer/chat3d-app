@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { pool } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import { isWaitlistEnabled } from "../services/app-settings.service.js";
 import { listRecentApprovedExamples } from "../services/workbench-examples.service.js";
@@ -35,21 +35,22 @@ publicRouter.get("/recent-models/:id/screenshot", async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await pool.query<{ screenshot_iso: string }>(
-      `SELECT screenshot_iso FROM workbench_examples
-       WHERE id = $1
-         AND approval_status IN ('auto_approved', 'human_approved')
-         AND render_status = 'success'
-         AND screenshot_iso IS NOT NULL`,
-      [id],
-    );
+    const example = await prisma.workbenchExample.findFirst({
+      where: {
+        id,
+        approvalStatus: { in: ["auto_approved", "human_approved"] },
+        renderStatus: "success",
+        screenshotIso: { not: null },
+      },
+      select: { screenshotIso: true },
+    });
 
-    if (result.rows.length === 0) {
+    if (!example || !example.screenshotIso) {
       res.status(404).json({ error: "Screenshot not found" });
       return;
     }
 
-    const screenshotValue = result.rows[0].screenshot_iso;
+    const screenshotValue = example.screenshotIso;
     let buffer: Buffer;
     if (screenshotValue.startsWith("workbench/")) {
       buffer = await readStorageFile({ relativePath: screenshotValue });

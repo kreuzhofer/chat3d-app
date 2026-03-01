@@ -1,5 +1,5 @@
 import express, { type NextFunction, type Request, type Response } from "express";
-import { query } from "./db/connection.js";
+import { prisma } from "./db/prisma.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { securityHeaders } from "./middleware/security-headers.js";
@@ -32,7 +32,7 @@ export function createApp() {
 
   app.get("/ready", async (_req, res) => {
     try {
-      await query("SELECT 1");
+      await prisma.$queryRaw`SELECT 1`;
       res.status(200).json({ status: "ready" });
     } catch (error) {
       res.status(503).json({ status: "not_ready", error: String(error) });

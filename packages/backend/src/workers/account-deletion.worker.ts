@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { pool, query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 
 const logger = createLogger("account-deletion");
@@ -15,8 +15,7 @@ export async function runAccountDeletionSweep(limit = 100): Promise<{
 }> {
   const boundedLimit = Math.max(1, Math.min(limit, 1000));
 
-  const result = await query<DeletedUserRow>(
-    `
+  const rows = await prisma.$queryRaw<DeletedUserRow[]>`
     WITH expired_users AS (
       SELECT id
       FROM users
@@ -24,20 +23,18 @@ export async function runAccountDeletionSweep(limit = 100): Promise<{
         AND deactivated_until IS NOT NULL
         AND deactivated_until < NOW()
       ORDER BY deactivated_until ASC
-      LIMIT $1
+      LIMIT ${boundedLimit}
       FOR UPDATE SKIP LOCKED
     )
     DELETE FROM users u
     USING expired_users e
     WHERE u.id = e.id
-    RETURNING u.id, u.email;
-    `,
-    [boundedLimit],
-  );
+    RETURNING u.id, u.email
+  `;
 
   return {
-    deletedCount: result.rows.length,
-    deletedUsers: result.rows.map((row) => ({ id: row.id, email: row.email })),
+    deletedCount: rows.length,
+    deletedUsers: rows.map((row) => ({ id: row.id, email: row.email })),
   };
 }
 
@@ -52,7 +49,7 @@ async function runAsScript() {
     logger.error({ err: error }, "failed");
     process.exitCode = 1;
   } finally {
-    await pool.end();
+    await prisma.$disconnect();
   }
 }
 

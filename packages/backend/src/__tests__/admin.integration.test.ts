@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../app.js";
-import { pool, query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { emailService } from "../services/email.service.js";
 
 interface LoginResponse {
@@ -29,23 +29,26 @@ async function upsertUser(input: {
 }): Promise<string> {
   const passwordHash = await bcrypt.hash(password, 12);
 
-  const result = await query<{ id: string }>(
-    `
-    INSERT INTO users (email, password_hash, display_name, role, status)
-    VALUES ($1, $2, $3, $4, $5)
-    ON CONFLICT (email)
-    DO UPDATE SET
-      password_hash = EXCLUDED.password_hash,
-      display_name = EXCLUDED.display_name,
-      role = EXCLUDED.role,
-      status = EXCLUDED.status,
-      updated_at = NOW()
-    RETURNING id;
-    `,
-    [input.email, passwordHash, input.displayName, input.role, input.status ?? "active"],
-  );
+  const user = await prisma.user.upsert({
+    where: { email: input.email },
+    create: {
+      email: input.email,
+      passwordHash,
+      displayName: input.displayName,
+      role: input.role,
+      status: input.status ?? "active",
+    },
+    update: {
+      passwordHash,
+      displayName: input.displayName,
+      role: input.role,
+      status: input.status ?? "active",
+      updatedAt: new Date(),
+    },
+    select: { id: true },
+  });
 
-  return result.rows[0].id;
+  return user.id;
 }
 
 describe("Milestone 6 admin APIs", () => {
@@ -56,40 +59,34 @@ describe("Milestone 6 admin APIs", () => {
   let userToken = "";
 
   beforeAll(async () => {
-    await query(`DELETE FROM notifications WHERE user_id IN (SELECT id FROM users WHERE email = ANY($1::text[]));`, [
-      [adminEmail, userEmail],
-    ]);
-    await query(`DELETE FROM account_actions WHERE user_id IN (SELECT id FROM users WHERE email = ANY($1::text[]));`, [
-      [adminEmail, userEmail],
-    ]);
-    await query(`DELETE FROM users WHERE email = ANY($1::text[]);`, [[adminEmail, userEmail]]);
+    const emails = [adminEmail, userEmail];
+    await prisma.notification.deleteMany({ where: { user: { email: { in: emails } } } });
+    await prisma.accountAction.deleteMany({ where: { user: { email: { in: emails } } } });
+    await prisma.user.deleteMany({ where: { email: { in: emails } } });
 
     adminId = await upsertUser({ email: adminEmail, role: "admin", displayName: "Admin M6" });
     userId = await upsertUser({ email: userEmail, role: "user", displayName: "User SearchTarget" });
 
-    await query(
-      `
-      INSERT INTO app_settings (
-        id,
-        waitlist_enabled,
-        invitations_enabled,
-        invitation_waitlist_required,
-        invitation_quota_per_user,
-        updated_by,
-        updated_at
-      )
-      VALUES (TRUE, FALSE, TRUE, FALSE, 3, $1, NOW())
-      ON CONFLICT (id)
-      DO UPDATE SET
-        waitlist_enabled = FALSE,
-        invitations_enabled = TRUE,
-        invitation_waitlist_required = FALSE,
-        invitation_quota_per_user = 3,
-        updated_by = $1,
-        updated_at = NOW();
-      `,
-      [adminId],
-    );
+    await prisma.appSettings.upsert({
+      where: { id: true },
+      create: {
+        id: true,
+        waitlistEnabled: false,
+        invitationsEnabled: true,
+        invitationWaitlistRequired: false,
+        invitationQuotaPerUser: 3,
+        updatedBy: adminId,
+        updatedAt: new Date(),
+      },
+      update: {
+        waitlistEnabled: false,
+        invitationsEnabled: true,
+        invitationWaitlistRequired: false,
+        invitationQuotaPerUser: 3,
+        updatedBy: adminId,
+        updatedAt: new Date(),
+      },
+    });
 
     const adminLogin = await request(app).post("/api/auth/login").send({
       email: adminEmail,
@@ -107,13 +104,15 @@ describe("Milestone 6 admin APIs", () => {
   });
 
   afterAll(async () => {
-    await query(`UPDATE app_settings SET updated_by = NULL WHERE updated_by IN ($1, $2);`, [adminId, userId]);
-    await query(`DELETE FROM notifications WHERE user_id IN ($1, $2);`, [adminId, userId]);
-    await query(`DELETE FROM account_actions WHERE user_id IN ($1, $2);`, [adminId, userId]);
-    await query(`DELETE FROM admin_audit_logs WHERE admin_user_id = $1 OR target_user_id = $2;`, [adminId, userId]);
-    await query(`DELETE FROM users WHERE id IN ($1, $2);`, [adminId, userId]);
+    await prisma.appSettings.updateMany({ where: { updatedBy: { in: [adminId, userId] } }, data: { updatedBy: null } });
+    await prisma.notification.deleteMany({ where: { userId: { in: [adminId, userId] } } });
+    await prisma.accountAction.deleteMany({ where: { userId: { in: [adminId, userId] } } });
+    await prisma.adminAuditLog.deleteMany({
+      where: { OR: [{ adminUserId: adminId }, { targetUserId: userId }] },
+    });
+    await prisma.user.deleteMany({ where: { id: { in: [adminId, userId] } } });
 
-    await pool.end();
+    await prisma.$disconnect();
   });
 
   it("lists users and supports search filter", async () => {
@@ -152,18 +151,14 @@ describe("Milestone 6 admin APIs", () => {
 
     expect(loginWhileDeactivated.status).toBe(403);
 
-    const statusEventRows = await query<{ event_type: string; payload: { action?: string } }>(
-      `
-      SELECT event_type, payload
-      FROM notifications
-      WHERE user_id = $1
-      ORDER BY id DESC;
-      `,
-      [userId],
-    );
+    const statusEventRows = await prisma.notification.findMany({
+      where: { userId },
+      orderBy: { id: "desc" },
+      select: { eventType: true, payload: true },
+    });
 
     expect(
-      statusEventRows.rows.some((row) => row.event_type === "account.status.changed" && row.payload?.action === "deactivated"),
+      statusEventRows.some((row) => row.eventType === "account.status.changed" && (row.payload as { action?: string })?.action === "deactivated"),
     ).toBe(true);
 
     const activateResponse = await request(app)
@@ -180,19 +175,14 @@ describe("Milestone 6 admin APIs", () => {
 
     expect(loginAfterActivate.status).toBe(200);
 
-    const auditRows = await query<{ action: string }>(
-      `
-      SELECT action
-      FROM admin_audit_logs
-      WHERE admin_user_id = $1
-        AND target_user_id = $2
-      ORDER BY created_at ASC;
-      `,
-      [adminId, userId],
-    );
+    const auditRows = await prisma.adminAuditLog.findMany({
+      where: { adminUserId: adminId, targetUserId: userId },
+      orderBy: { createdAt: "asc" },
+      select: { action: true },
+    });
 
-    expect(auditRows.rows.some((row) => row.action === "user.deactivated")).toBe(true);
-    expect(auditRows.rows.some((row) => row.action === "user.activated")).toBe(true);
+    expect(auditRows.some((row) => row.action === "user.deactivated")).toBe(true);
+    expect(auditRows.some((row) => row.action === "user.activated")).toBe(true);
   });
 
   it("triggers admin password reset workflow with email", async () => {
@@ -204,19 +194,14 @@ describe("Milestone 6 admin APIs", () => {
 
     expect(response.status).toBe(202);
 
-    const actionRows = await query<{ action_type: string; status: string }>(
-      `
-      SELECT action_type, status
-      FROM account_actions
-      WHERE user_id = $1
-      ORDER BY created_at DESC
-      LIMIT 1;
-      `,
-      [userId],
-    );
+    const actionRow = await prisma.accountAction.findFirst({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      select: { actionType: true, status: true },
+    });
 
-    expect(actionRows.rows[0]?.action_type).toBe("password_reset");
-    expect(actionRows.rows[0]?.status).toBe("pending");
+    expect(actionRow?.actionType).toBe("password_reset");
+    expect(actionRow?.status).toBe("pending");
 
     const emails = emailService.getSentEmailsForTest();
     expect(emails.length).toBeGreaterThan(0);

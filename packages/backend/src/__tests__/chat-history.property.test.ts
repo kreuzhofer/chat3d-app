@@ -13,9 +13,19 @@ import fc from "fast-check";
 
 // --- Mocks ---
 
-vi.mock("../db/connection.js", () => ({
-  query: vi.fn(),
-  pool: { query: vi.fn() },
+vi.mock("../db/prisma.js", () => ({
+  prisma: {
+    chatItem: {
+      findMany: vi.fn(),
+      findFirst: vi.fn(),
+      count: vi.fn(),
+    },
+    chatContext: {
+      findFirst: vi.fn(),
+    },
+    $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
+  },
 }));
 
 vi.mock("../services/notification.service.js", () => ({
@@ -156,46 +166,30 @@ vi.mock("../utils/llm-errors.js", () => ({
 
 // Import after mocks
 import { initiateQuery, executeQueryPipeline } from "../services/query.service.js";
-import { query as dbQuery } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
+
+const mockPrisma = vi.mocked(prisma);
 
 // --- Helpers ---
 
 function stubDb(existingItems: Array<{ id: string; role: string; messages: unknown }>) {
-  vi.mocked(dbQuery).mockImplementation((_sql: string) => {
-    const sql = _sql as string;
+  // ensureOwnedContext → prisma.chatContext.findFirst
+  vi.mocked(mockPrisma.chatContext.findFirst).mockResolvedValue(
+    { id: "ctx-1", name: "Test" } as never,
+  );
 
-    // ensureOwnedContext query
-    if (sql.includes("FROM chat_contexts")) {
-      return Promise.resolve({
-        rows: [{ id: "ctx-1", name: "Test", owner_id: "u-1" }],
-        command: "SELECT", rowCount: 1, oid: 0, fields: [],
-      }) as ReturnType<typeof dbQuery>;
-    }
+  // initiateQuery item count → prisma.chatItem.count
+  vi.mocked(mockPrisma.chatItem.count).mockResolvedValue(existingItems.length);
 
-    // initiateQuery item count query
-    if (sql.includes("COUNT(*)")) {
-      return Promise.resolve({
-        rows: [{ count: String(existingItems.length) }],
-        command: "SELECT", rowCount: 1, oid: 0, fields: [],
-      }) as ReturnType<typeof dbQuery>;
-    }
-
-    // buildConversationContext query — return existing items
-    if (sql.includes("FROM chat_items") && sql.includes("ORDER BY created_at DESC")) {
-      return Promise.resolve({
-        rows: [...existingItems].reverse().map((item) => ({
-          ...item,
-          created_at: new Date().toISOString(),
-        })),
-        command: "SELECT", rowCount: existingItems.length, oid: 0, fields: [],
-      }) as ReturnType<typeof dbQuery>;
-    }
-
-    // Default fallback
-    return Promise.resolve({
-      rows: [], command: "SELECT", rowCount: 0, oid: 0, fields: [],
-    }) as ReturnType<typeof dbQuery>;
-  });
+  // buildConversationContext → prisma.chatItem.findMany
+  // Prisma returns rows ordered by createdAt DESC; the service then reverses them.
+  // Return items in reverse order (DESC) with createdAt as Date objects.
+  vi.mocked(mockPrisma.chatItem.findMany).mockResolvedValue(
+    [...existingItems].reverse().map((item) => ({
+      ...item,
+      createdAt: new Date(),
+    })) as never,
+  );
 }
 
 function resetMocks() {

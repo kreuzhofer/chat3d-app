@@ -1,4 +1,4 @@
-import { query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 
 export async function recordAdminAuditLog(input: {
   adminUserId: string;
@@ -6,11 +6,12 @@ export async function recordAdminAuditLog(input: {
   targetUserId?: string | null;
   metadata?: Record<string, unknown>;
 }): Promise<void> {
-  await query(
-    `
-    INSERT INTO admin_audit_logs (admin_user_id, action, target_user_id, metadata)
-    VALUES ($1, $2, $3, $4::jsonb);
-    `,
-    [input.adminUserId, input.action, input.targetUserId ?? null, JSON.stringify(input.metadata ?? {})],
-  );
+  await prisma.adminAuditLog.create({
+    data: {
+      adminUserId: input.adminUserId,
+      action: input.action,
+      targetUserId: input.targetUserId ?? null,
+      metadata: input.metadata ?? {},
+    },
+  });
 }

@@ -1,28 +1,7 @@
-import { query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { notificationService } from "./notification.service.js";
 
 type ChatItemRole = "user" | "assistant";
-
-interface ChatContextRow {
-  id: string;
-  name: string;
-  conversation_model_id: string | null;
-  chat_3d_model_id: string | null;
-  owner_id: string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ChatItemRow {
-  id: string;
-  chat_context_id: string;
-  role: ChatItemRole;
-  messages: unknown;
-  rating: number;
-  owner_id: string;
-  created_at: string;
-  updated_at: string;
-}
 
 export class ChatError extends Error {
   constructor(
@@ -33,43 +12,25 @@ export class ChatError extends Error {
   }
 }
 
-function mapContext(row: ChatContextRow) {
-  return {
-    id: row.id,
-    name: row.name,
-    conversationModelId: row.conversation_model_id,
-    chat3dModelId: row.chat_3d_model_id,
-    ownerId: row.owner_id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function mapItem(row: ChatItemRow) {
-  return {
-    id: row.id,
-    chatContextId: row.chat_context_id,
-    role: row.role,
-    messages: row.messages,
-    rating: row.rating,
-    ownerId: row.owner_id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+function toIso(d: Date): string {
+  return d.toISOString();
 }
 
 export async function listChatContexts(userId: string) {
-  const result = await query<ChatContextRow>(
-    `
-    SELECT id, name, conversation_model_id, chat_3d_model_id, owner_id, created_at::text, updated_at::text
-    FROM chat_contexts
-    WHERE owner_id = $1
-    ORDER BY updated_at DESC;
-    `,
-    [userId],
-  );
+  const rows = await prisma.chatContext.findMany({
+    where: { ownerId: userId },
+    orderBy: { updatedAt: "desc" },
+  });
 
-  return result.rows.map(mapContext);
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    conversationModelId: r.conversationModelId,
+    chat3dModelId: r.chat3dModelId,
+    ownerId: r.ownerId,
+    createdAt: toIso(r.createdAt),
+    updatedAt: toIso(r.updatedAt),
+  }));
 }
 
 export async function createChatContext(input: {
@@ -83,30 +44,31 @@ export async function createChatContext(input: {
     throw new ChatError("name is required", 400);
   }
 
-  const result = await query<ChatContextRow>(
-    `
-    INSERT INTO chat_contexts (name, conversation_model_id, chat_3d_model_id, owner_id)
-    VALUES ($1, $2, $3, $4)
-    RETURNING id, name, conversation_model_id, chat_3d_model_id, owner_id, created_at::text, updated_at::text;
-    `,
-    [name, input.conversationModelId ?? null, input.chat3dModelId ?? null, input.userId],
-  );
+  const r = await prisma.chatContext.create({
+    data: {
+      name,
+      conversationModelId: input.conversationModelId ?? null,
+      chat3dModelId: input.chat3dModelId ?? null,
+      ownerId: input.userId,
+    },
+  });
 
-  return mapContext(result.rows[0]);
+  return {
+    id: r.id,
+    name: r.name,
+    conversationModelId: r.conversationModelId,
+    chat3dModelId: r.chat3dModelId,
+    ownerId: r.ownerId,
+    createdAt: toIso(r.createdAt),
+    updatedAt: toIso(r.updatedAt),
+  };
 }
 
-export async function getOwnedContext(userId: string, contextId: string): Promise<ChatContextRow> {
-  const result = await query<ChatContextRow>(
-    `
-    SELECT id, name, conversation_model_id, chat_3d_model_id, owner_id, created_at::text, updated_at::text
-    FROM chat_contexts
-    WHERE id = $1
-      AND owner_id = $2;
-    `,
-    [contextId, userId],
-  );
+export async function getOwnedContext(userId: string, contextId: string) {
+  const context = await prisma.chatContext.findFirst({
+    where: { id: contextId, ownerId: userId },
+  });
 
-  const context = result.rows[0];
   if (!context) {
     throw new ChatError("Chat context not found", 404);
   }
@@ -123,67 +85,57 @@ export async function updateChatContext(input: {
 }) {
   await getOwnedContext(input.userId, input.contextId);
 
-  const updateResult = await query<ChatContextRow>(
-    `
-    UPDATE chat_contexts
-    SET name = COALESCE($3, name),
-        conversation_model_id = COALESCE($4, conversation_model_id),
-        chat_3d_model_id = COALESCE($5, chat_3d_model_id),
-        updated_at = NOW()
-    WHERE id = $1
-      AND owner_id = $2
-    RETURNING id, name, conversation_model_id, chat_3d_model_id, owner_id, created_at::text, updated_at::text;
-    `,
-    [
-      input.contextId,
-      input.userId,
-      input.name?.trim() || null,
-      input.conversationModelId ?? null,
-      input.chat3dModelId ?? null,
-    ],
-  );
+  const r = await prisma.chatContext.update({
+    where: { id: input.contextId },
+    data: {
+      name: input.name?.trim() || undefined,
+      conversationModelId: input.conversationModelId ?? undefined,
+      chat3dModelId: input.chat3dModelId ?? undefined,
+      updatedAt: new Date(),
+    },
+  });
 
-  return mapContext(updateResult.rows[0]);
+  return {
+    id: r.id,
+    name: r.name,
+    conversationModelId: r.conversationModelId,
+    chat3dModelId: r.chat3dModelId,
+    ownerId: r.ownerId,
+    createdAt: toIso(r.createdAt),
+    updatedAt: toIso(r.updatedAt),
+  };
 }
 
 export async function deleteChatContext(input: { userId: string; contextId: string }) {
-  const result = await query<{ id: string }>(
-    `
-    DELETE FROM chat_contexts
-    WHERE id = $1
-      AND owner_id = $2
-    RETURNING id;
-    `,
-    [input.contextId, input.userId],
-  );
+  const context = await prisma.chatContext.findFirst({
+    where: { id: input.contextId, ownerId: input.userId },
+  });
 
-  if (!result.rows[0]) {
+  if (!context) {
     throw new ChatError("Chat context not found", 404);
   }
+
+  await prisma.chatContext.delete({ where: { id: input.contextId } });
 }
 
 export async function listChatItems(input: { userId: string; contextId: string }) {
   await getOwnedContext(input.userId, input.contextId);
 
-  const result = await query<ChatItemRow>(
-    `
-    SELECT i.id,
-           i.chat_context_id,
-           i.role,
-           i.messages,
-           i.rating,
-           i.owner_id,
-           i.created_at::text,
-           i.updated_at::text
-    FROM chat_items i
-    WHERE i.chat_context_id = $1
-      AND i.owner_id = $2
-    ORDER BY i.created_at ASC;
-    `,
-    [input.contextId, input.userId],
-  );
+  const rows = await prisma.chatItem.findMany({
+    where: { chatContextId: input.contextId, ownerId: input.userId },
+    orderBy: { createdAt: "asc" },
+  });
 
-  return result.rows.map(mapItem);
+  return rows.map((r) => ({
+    id: r.id,
+    chatContextId: r.chatContextId,
+    role: r.role,
+    messages: r.messages,
+    rating: r.rating,
+    ownerId: r.ownerId,
+    createdAt: toIso(r.createdAt),
+    updatedAt: toIso(r.updatedAt),
+  }));
 }
 
 function validateRole(value: unknown): ChatItemRole {
@@ -217,16 +169,26 @@ export async function createChatItem(input: {
   const role = validateRole(input.role);
   const messages = validateMessages(input.messages);
 
-  const result = await query<ChatItemRow>(
-    `
-    INSERT INTO chat_items (chat_context_id, role, messages, owner_id, rating)
-    VALUES ($1, $2, $3::jsonb, $4, 0)
-    RETURNING id, chat_context_id, role, messages, rating, owner_id, created_at::text, updated_at::text;
-    `,
-    [input.contextId, role, JSON.stringify(messages), input.userId],
-  );
+  const r = await prisma.chatItem.create({
+    data: {
+      chatContextId: input.contextId,
+      role,
+      messages: messages as object[],
+      ownerId: input.userId,
+      rating: 0,
+    },
+  });
 
-  const item = mapItem(result.rows[0]);
+  const item = {
+    id: r.id,
+    chatContextId: r.chatContextId,
+    role: r.role,
+    messages: r.messages,
+    rating: r.rating,
+    ownerId: r.ownerId,
+    createdAt: toIso(r.createdAt),
+    updatedAt: toIso(r.updatedAt),
+  };
 
   await notificationService.publishToUser(input.userId, "chat.item.updated", {
     action: "created",
@@ -238,19 +200,11 @@ export async function createChatItem(input: {
   return item;
 }
 
-async function getOwnedItem(userId: string, contextId: string, itemId: string): Promise<ChatItemRow> {
-  const result = await query<ChatItemRow>(
-    `
-    SELECT id, chat_context_id, role, messages, rating, owner_id, created_at::text, updated_at::text
-    FROM chat_items
-    WHERE id = $1
-      AND chat_context_id = $2
-      AND owner_id = $3;
-    `,
-    [itemId, contextId, userId],
-  );
+async function getOwnedItem(userId: string, contextId: string, itemId: string) {
+  const item = await prisma.chatItem.findFirst({
+    where: { id: itemId, chatContextId: contextId, ownerId: userId },
+  });
 
-  const item = result.rows[0];
   if (!item) {
     throw new ChatError("Chat item not found", 404);
   }
@@ -270,48 +224,31 @@ export async function updateChatItem(input: {
   await getOwnedContext(input.userId, input.contextId);
   const existing = await getOwnedItem(input.userId, input.contextId, input.itemId);
 
-  const nextMessages = input.messages !== undefined ? validateMessages(input.messages) : existing.messages;
-  const nextRating = input.rating !== undefined ? validateRating(input.rating) : existing.rating;
+  const nextMessages = input.messages !== undefined ? validateMessages(input.messages) : undefined;
+  const nextRating = input.rating !== undefined ? validateRating(input.rating) : undefined;
 
-  // Build SET clause dynamically — always update messages + rating,
-  // optionally update token columns when provided.
-  const setClauses = [
-    `messages = $4::jsonb`,
-    `rating = $5`,
-    `updated_at = NOW()`,
-  ];
-  const values: unknown[] = [input.itemId, input.contextId, input.userId, JSON.stringify(nextMessages), nextRating];
-  let paramIdx = 6;
+  const r = await prisma.chatItem.update({
+    where: { id: input.itemId },
+    data: {
+      messages: nextMessages !== undefined ? (nextMessages as object[]) : existing.messages,
+      rating: nextRating !== undefined ? nextRating : existing.rating,
+      promptTokens: input.promptTokens,
+      completionTokens: input.completionTokens,
+      estimatedCostUsd: input.estimatedCostUsd,
+      updatedAt: new Date(),
+    },
+  });
 
-  if (input.promptTokens !== undefined) {
-    setClauses.push(`prompt_tokens = $${paramIdx}`);
-    values.push(input.promptTokens);
-    paramIdx++;
-  }
-  if (input.completionTokens !== undefined) {
-    setClauses.push(`completion_tokens = $${paramIdx}`);
-    values.push(input.completionTokens);
-    paramIdx++;
-  }
-  if (input.estimatedCostUsd !== undefined) {
-    setClauses.push(`estimated_cost_usd = $${paramIdx}`);
-    values.push(input.estimatedCostUsd);
-    paramIdx++;
-  }
-
-  const result = await query<ChatItemRow>(
-    `
-    UPDATE chat_items
-    SET ${setClauses.join(",\n        ")}
-    WHERE id = $1
-      AND chat_context_id = $2
-      AND owner_id = $3
-    RETURNING id, chat_context_id, role, messages, rating, owner_id, created_at::text, updated_at::text;
-    `,
-    values,
-  );
-
-  const item = mapItem(result.rows[0]);
+  const item = {
+    id: r.id,
+    chatContextId: r.chatContextId,
+    role: r.role,
+    messages: r.messages,
+    rating: r.rating,
+    ownerId: r.ownerId,
+    createdAt: toIso(r.createdAt),
+    updatedAt: toIso(r.updatedAt),
+  };
 
   await notificationService.publishToUser(input.userId, "chat.item.updated", {
     action: "updated",
@@ -326,20 +263,15 @@ export async function updateChatItem(input: {
 export async function deleteChatItem(input: { userId: string; contextId: string; itemId: string }) {
   await getOwnedContext(input.userId, input.contextId);
 
-  const result = await query<{ id: string }>(
-    `
-    DELETE FROM chat_items
-    WHERE id = $1
-      AND chat_context_id = $2
-      AND owner_id = $3
-    RETURNING id;
-    `,
-    [input.itemId, input.contextId, input.userId],
-  );
+  const item = await prisma.chatItem.findFirst({
+    where: { id: input.itemId, chatContextId: input.contextId, ownerId: input.userId },
+  });
 
-  if (!result.rows[0]) {
+  if (!item) {
     throw new ChatError("Chat item not found", 404);
   }
+
+  await prisma.chatItem.delete({ where: { id: input.itemId } });
 
   await notificationService.publishToUser(input.userId, "chat.item.updated", {
     action: "deleted",

@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../app.js";
-import { pool, query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 
 interface LoginResponse {
   token: string;
@@ -22,21 +22,24 @@ const password = "S3curePass!123";
 
 async function upsertUser(email: string): Promise<string> {
   const passwordHash = await bcrypt.hash(password, 12);
-  const result = await query<{ id: string }>(
-    `
-    INSERT INTO users (email, password_hash, display_name, role, status)
-    VALUES ($1, $2, 'Milestone 8 User', 'user', 'active')
-    ON CONFLICT (email)
-    DO UPDATE SET
-      password_hash = EXCLUDED.password_hash,
-      role = 'user',
-      status = 'active',
-      updated_at = NOW()
-    RETURNING id;
-    `,
-    [email, passwordHash],
-  );
-  return result.rows[0].id;
+  const user = await prisma.user.upsert({
+    where: { email },
+    create: {
+      email,
+      passwordHash,
+      displayName: "Milestone 8 User",
+      role: "user",
+      status: "active",
+    },
+    update: {
+      passwordHash,
+      role: "user",
+      status: "active",
+      updatedAt: new Date(),
+    },
+    select: { id: true },
+  });
+  return user.id;
 }
 
 describe("Milestone 8 chat/files migration", () => {
@@ -49,16 +52,21 @@ describe("Milestone 8 chat/files migration", () => {
   let itemId = "";
 
   beforeAll(async () => {
-    await query(`DELETE FROM notifications WHERE user_id IN (SELECT id FROM users WHERE email = ANY($1::text[]));`, [
-      [ownerEmail, strangerEmail],
-    ]);
-    await query(`DELETE FROM chat_items WHERE owner_id IN (SELECT id FROM users WHERE email = ANY($1::text[]));`, [
-      [ownerEmail, strangerEmail],
-    ]);
-    await query(`DELETE FROM chat_contexts WHERE owner_id IN (SELECT id FROM users WHERE email = ANY($1::text[]));`, [
-      [ownerEmail, strangerEmail],
-    ]);
-    await query(`DELETE FROM users WHERE email = ANY($1::text[]);`, [[ownerEmail, strangerEmail]]);
+    const allEmails = [ownerEmail, strangerEmail];
+
+    // Find user IDs for cleanup
+    const existingUsers = await prisma.user.findMany({
+      where: { email: { in: allEmails } },
+      select: { id: true },
+    });
+    const existingUserIds = existingUsers.map((u) => u.id);
+
+    if (existingUserIds.length > 0) {
+      await prisma.notification.deleteMany({ where: { userId: { in: existingUserIds } } });
+      await prisma.chatItem.deleteMany({ where: { ownerId: { in: existingUserIds } } });
+      await prisma.chatContext.deleteMany({ where: { ownerId: { in: existingUserIds } } });
+    }
+    await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
 
     ownerId = await upsertUser(ownerEmail);
     strangerId = await upsertUser(strangerEmail);
@@ -71,11 +79,14 @@ describe("Milestone 8 chat/files migration", () => {
   });
 
   afterAll(async () => {
-    await query(`DELETE FROM notifications WHERE user_id IN ($1, $2);`, [ownerId, strangerId]);
-    await query(`DELETE FROM chat_items WHERE owner_id IN ($1, $2);`, [ownerId, strangerId]);
-    await query(`DELETE FROM chat_contexts WHERE owner_id IN ($1, $2);`, [ownerId, strangerId]);
-    await query(`DELETE FROM users WHERE id IN ($1, $2);`, [ownerId, strangerId]);
-    await pool.end();
+    const userIds = [ownerId, strangerId].filter(Boolean);
+    if (userIds.length > 0) {
+      await prisma.notification.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.chatItem.deleteMany({ where: { ownerId: { in: userIds } } });
+      await prisma.chatContext.deleteMany({ where: { ownerId: { in: userIds } } });
+    }
+    await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+    await prisma.$disconnect();
   });
 
   it("creates, lists, updates and deletes chat contexts and items with ownership checks", async () => {
@@ -122,22 +133,18 @@ describe("Milestone 8 chat/files migration", () => {
     expect(updateItem.status).toBe(200);
     expect(updateItem.body.rating).toBe(1);
 
-    const chatEvents = await query<{ event_type: string; payload: { action?: string; itemId?: string } }>(
-      `
-      SELECT event_type, payload
-      FROM notifications
-      WHERE user_id = $1
-      ORDER BY id DESC;
-      `,
-      [ownerId],
-    );
+    const chatEvents = await prisma.notification.findMany({
+      where: { userId: ownerId },
+      orderBy: { id: "desc" },
+      select: { eventType: true, payload: true },
+    });
 
     expect(
-      chatEvents.rows.some(
+      chatEvents.some(
         (row) =>
-          row.event_type === "chat.item.updated" &&
-          row.payload?.itemId === itemId &&
-          ["created", "updated"].includes(row.payload?.action ?? ""),
+          row.eventType === "chat.item.updated" &&
+          (row.payload as { itemId?: string; action?: string })?.itemId === itemId &&
+          ["created", "updated"].includes((row.payload as { action?: string })?.action ?? ""),
       ),
     ).toBe(true);
 

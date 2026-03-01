@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../app.js";
-import { pool, query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { emailService } from "../services/email.service.js";
 
 interface LoginResponse {
@@ -16,11 +16,6 @@ interface LoginResponse {
   };
 }
 
-interface WaitlistEntryRow {
-  id: string;
-  status: "pending_email_confirmation" | "pending_admin_approval" | "approved" | "rejected";
-}
-
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const adminEmail = `m4-admin-${suffix}@example.test`;
 const password = "S3curePass!123";
@@ -31,19 +26,22 @@ const statusEmail = `m4-status-${suffix}@example.test`;
 
 async function insertAdmin(email: string): Promise<void> {
   const passwordHash = await bcrypt.hash(password, 12);
-  await query(
-    `
-    INSERT INTO users (email, password_hash, display_name, role, status)
-    VALUES ($1, $2, 'Milestone 4 Admin', 'admin', 'active')
-    ON CONFLICT (email)
-    DO UPDATE SET
-      password_hash = EXCLUDED.password_hash,
-      role = 'admin',
-      status = 'active',
-      updated_at = NOW();
-    `,
-    [email, passwordHash],
-  );
+  await prisma.user.upsert({
+    where: { email },
+    create: {
+      email,
+      passwordHash,
+      displayName: "Milestone 4 Admin",
+      role: "admin",
+      status: "active",
+    },
+    update: {
+      passwordHash,
+      role: "admin",
+      status: "active",
+      updatedAt: new Date(),
+    },
+  });
 }
 
 function extractTokenFromText(text: string): string {
@@ -83,21 +81,16 @@ async function joinWaitlistAndConfirm(
   expect(confirmResponse.status).toBe(200);
   expect(confirmResponse.body.status).toBe("pending_admin_approval");
 
-  const entryResult = await query<WaitlistEntryRow>(
-    `
-    SELECT id, status
-    FROM waitlist_entries
-    WHERE email = $1;
-    `,
-    [email],
-  );
+  const entry = await prisma.waitlistEntry.findUnique({
+    where: { email },
+    select: { id: true, status: true },
+  });
 
-  const entry = entryResult.rows[0];
   expect(entry).toBeTruthy();
-  expect(entry.status).toBe("pending_admin_approval");
+  expect(entry!.status).toBe("pending_admin_approval");
 
   return {
-    entryId: entry.id,
+    entryId: entry!.id,
     confirmToken,
   };
 }
@@ -107,42 +100,30 @@ describe("Milestone 4 waitlist and registration token flow", () => {
   let adminToken = "";
 
   beforeAll(async () => {
-    await query(
-      `
-      DELETE FROM users
-      WHERE email = ANY($1::text[]);
-      `,
-      [[adminEmail, pendingEmail, approvedEmail, rejectedEmail]],
-    );
+    const allEmails = [adminEmail, pendingEmail, approvedEmail, rejectedEmail];
+    await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
 
-    await query(
-      `
-      DELETE FROM waitlist_entries
-      WHERE email = ANY($1::text[]);
-      `,
-      [[pendingEmail, approvedEmail, rejectedEmail, statusEmail]],
-    );
-
-    await query(
-      `
-      DELETE FROM registration_tokens
-      WHERE email = ANY($1::text[]);
-      `,
-      [[pendingEmail, approvedEmail, rejectedEmail, statusEmail]],
-    );
+    const waitlistEmails = [pendingEmail, approvedEmail, rejectedEmail, statusEmail];
+    await prisma.waitlistEntry.deleteMany({ where: { email: { in: waitlistEmails } } });
+    await prisma.registrationToken.deleteMany({ where: { email: { in: waitlistEmails } } });
 
     await insertAdmin(adminEmail);
 
-    await query(
-      `
-      INSERT INTO app_settings (id, waitlist_enabled, invitations_enabled, invitation_waitlist_required, invitation_quota_per_user, updated_at)
-      VALUES (TRUE, TRUE, TRUE, FALSE, 3, NOW())
-      ON CONFLICT (id)
-      DO UPDATE SET
-        waitlist_enabled = TRUE,
-        updated_at = NOW();
-      `,
-    );
+    await prisma.appSettings.upsert({
+      where: { id: true },
+      create: {
+        id: true,
+        waitlistEnabled: true,
+        invitationsEnabled: true,
+        invitationWaitlistRequired: false,
+        invitationQuotaPerUser: 3,
+        updatedAt: new Date(),
+      },
+      update: {
+        waitlistEnabled: true,
+        updatedAt: new Date(),
+      },
+    });
 
     const adminLogin = await request(app).post("/api/auth/login").send({
       email: adminEmail,
@@ -154,40 +135,19 @@ describe("Milestone 4 waitlist and registration token flow", () => {
   });
 
   afterAll(async () => {
-    await query(
-      `
-      UPDATE app_settings
-      SET waitlist_enabled = FALSE,
-          updated_at = NOW()
-      WHERE id = TRUE;
-      `,
-    );
+    await prisma.appSettings.updateMany({
+      where: { id: true },
+      data: { waitlistEnabled: false, updatedAt: new Date() },
+    });
 
-    await query(
-      `
-      DELETE FROM registration_tokens
-      WHERE email = ANY($1::text[]);
-      `,
-      [[pendingEmail, approvedEmail, rejectedEmail, statusEmail]],
-    );
+    const waitlistEmails = [pendingEmail, approvedEmail, rejectedEmail, statusEmail];
+    await prisma.registrationToken.deleteMany({ where: { email: { in: waitlistEmails } } });
+    await prisma.waitlistEntry.deleteMany({ where: { email: { in: waitlistEmails } } });
 
-    await query(
-      `
-      DELETE FROM waitlist_entries
-      WHERE email = ANY($1::text[]);
-      `,
-      [[pendingEmail, approvedEmail, rejectedEmail, statusEmail]],
-    );
+    const allEmails = [adminEmail, pendingEmail, approvedEmail, rejectedEmail, statusEmail];
+    await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
 
-    await query(
-      `
-      DELETE FROM users
-      WHERE email = ANY($1::text[]);
-      `,
-      [[adminEmail, pendingEmail, approvedEmail, rejectedEmail, statusEmail]],
-    );
-
-    await pool.end();
+    await prisma.$disconnect();
   });
 
   it("blocks waitlisted users from registering before admin approval", async () => {
@@ -274,7 +234,7 @@ describe("Milestone 4 waitlist and registration token flow", () => {
 
     expect(firstRegisterResponse.status).toBe(201);
 
-    await query(`DELETE FROM users WHERE email = $1;`, [approvedEmail]);
+    await prisma.user.deleteMany({ where: { email: approvedEmail } });
 
     const secondRegisterResponse = await request(app).post("/api/auth/register").send({
       email: approvedEmail,

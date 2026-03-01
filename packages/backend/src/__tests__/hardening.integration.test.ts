@@ -1,18 +1,18 @@
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../app.js";
-import { pool, query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 
 describe("Milestone 10 hardening", () => {
   const app = createApp();
 
   beforeAll(async () => {
-    await query(`DELETE FROM security_events;`);
+    await prisma.securityEvent.deleteMany();
   });
 
   afterAll(async () => {
-    await query(`DELETE FROM security_events;`);
-    await pool.end();
+    await prisma.securityEvent.deleteMany();
+    await prisma.$disconnect();
   });
 
   it("sets security headers on health endpoints", async () => {
@@ -49,15 +49,12 @@ describe("Milestone 10 hardening", () => {
 
     expect(sawRateLimit).toBe(true);
 
-    const events = await query<{ event_type: string }>(
-      `
-      SELECT event_type
-      FROM security_events
-      WHERE event_type = 'rate_limit.exceeded';
-      `,
-    );
+    const events = await prisma.securityEvent.findMany({
+      where: { eventType: "rate_limit.exceeded" },
+      select: { eventType: true },
+    });
 
-    expect(events.rows.length).toBeGreaterThan(0);
+    expect(events.length).toBeGreaterThan(0);
   });
 
   it("allows query-token auth only for stream endpoint", async () => {

@@ -13,9 +13,19 @@ import fc from "fast-check";
 
 // --- Mocks for all external dependencies used by executeQueryPipeline ---
 
-vi.mock("../db/connection.js", () => ({
-  query: vi.fn(),
-  pool: { query: vi.fn() },
+vi.mock("../db/prisma.js", () => ({
+  prisma: {
+    chatItem: {
+      findMany: vi.fn(),
+      findFirst: vi.fn(),
+      count: vi.fn(),
+    },
+    chatContext: {
+      findFirst: vi.fn(),
+    },
+    $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
+  },
 }));
 
 vi.mock("../services/notification.service.js", () => ({
@@ -138,12 +148,13 @@ vi.mock("../utils/llm-errors.js", () => ({
 
 // Import after mocks
 import { executeQueryPipeline } from "../services/query.service.js";
-import { query as dbQuery } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
+
+const mockPrisma = vi.mocked(prisma);
 
 function stubDb() {
-  vi.mocked(dbQuery).mockResolvedValue({
-    rows: [], command: "SELECT", rowCount: 0, oid: 0, fields: [],
-  } as ReturnType<typeof dbQuery> extends Promise<infer R> ? R : never);
+  // buildConversationContext → prisma.chatItem.findMany
+  vi.mocked(mockPrisma.chatItem.findMany).mockResolvedValue([]);
 }
 
 function makeRenderSuccess() {

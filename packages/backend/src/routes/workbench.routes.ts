@@ -14,7 +14,6 @@ import {
   listCategories,
   listPromptsForCategory,
   listSystemPrompts,
-  seedFromFiles,
   updatePromptText,
   WorkbenchSeederError,
 } from "../services/workbench-seeder.service.js";
@@ -56,7 +55,7 @@ import {
   startImport,
 } from "../services/workbench-data-transfer.service.js";
 import { improvePrompt } from "../services/workbench-prompt-improve.service.js";
-import { pool } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 
 const logger = createLogger("workbench-routes");
 
@@ -130,33 +129,28 @@ workbenchRouter.post("/prompts/:id/improve", async (req, res) => {
     const promptId = req.params.id;
 
     // Look up prompt text
-    const promptRow = await pool.query<{ prompt: string }>(
-      "SELECT prompt FROM workbench_example_prompts WHERE id = $1",
-      [promptId],
-    );
-    if (promptRow.rows.length === 0) {
+    const prompt = await prisma.workbenchExamplePrompt.findUnique({
+      where: { id: promptId },
+      select: { prompt: true },
+    });
+    if (!prompt) {
       res.status(404).json({ error: "Prompt not found" });
       return;
     }
-    const promptText = promptRow.rows[0].prompt;
+    const promptText = prompt.prompt;
 
     // Find best evaluated example for this prompt
-    const exampleRow = await pool.query<{
-      code: string;
-      eval_issues: unknown;
-      eval_suggestions: unknown;
-    }>(
-      `SELECT code, eval_issues, eval_suggestions
-       FROM workbench_examples
-       WHERE prompt_id = $1 AND render_status = 'success' AND eval_score IS NOT NULL
-       ORDER BY eval_score DESC, created_at DESC
-       LIMIT 1`,
-      [promptId],
-    );
-
-    const example = exampleRow.rows[0];
-    const evalIssues = parseJsonbArray(example?.eval_issues);
-    const evalSuggestions = parseJsonbArray(example?.eval_suggestions);
+    const example = await prisma.workbenchExample.findFirst({
+      where: {
+        promptId,
+        renderStatus: "success",
+        evalScore: { not: null },
+      },
+      select: { code: true, evalIssues: true, evalSuggestions: true },
+      orderBy: [{ evalScore: "desc" }, { createdAt: "desc" }],
+    });
+    const evalIssues = parseJsonbArray(example?.evalIssues);
+    const evalSuggestions = parseJsonbArray(example?.evalSuggestions);
     const code = example?.code ?? "";
 
     const result = await improvePrompt({
@@ -174,21 +168,6 @@ workbenchRouter.post("/prompts/:id/improve", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "Failed to generate prompt improvements", detail: String(error) });
-  }
-});
-
-// ── Seeding ───────────────────────────────────────────────────────────
-
-workbenchRouter.post("/categories/seed", async (_req, res) => {
-  try {
-    const result = await seedFromFiles();
-    res.status(200).json(result);
-  } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
-      res.status(error.statusCode).json({ error: error.message });
-      return;
-    }
-    res.status(500).json({ error: "Seeding failed", detail: String(error) });
   }
 });
 

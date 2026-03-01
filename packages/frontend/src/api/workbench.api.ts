@@ -121,12 +121,6 @@ export interface ExportStats {
   };
 }
 
-export interface SeedResult {
-  categories: number;
-  prompts: number;
-  systemPromptSeeded: boolean;
-}
-
 export type JobType = "batch" | "batch-re-render" | "generate" | "retry" | "re-render";
 
 export interface BatchJobSummary {
@@ -171,10 +165,6 @@ export function listPromptsForCategory(token: string, categoryId: string): Promi
   return requestJson<WorkbenchPrompt[]>(token, `/categories/${encodeURIComponent(categoryId)}/prompts`, {
     method: "GET",
   });
-}
-
-export function seedCategories(token: string): Promise<SeedResult> {
-  return requestJson<SeedResult>(token, "/categories/seed", { method: "POST" });
 }
 
 export function updatePromptText(token: string, promptId: string, prompt: string): Promise<{ ok: true }> {

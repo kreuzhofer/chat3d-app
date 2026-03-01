@@ -13,7 +13,7 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { pool } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
 import { readStorageFile, writeStorageFile } from "./file-storage.service.js";
@@ -279,32 +279,37 @@ async function runExport(job: TransferJob): Promise<void> {
 
     // 1. Query categories
     job.progress = { phase: "querying categories" };
-    const catResult = await pool.query(
-      `SELECT id, rank, name, complexity, description,
-              created_at, updated_at
-       FROM workbench_categories
-       ORDER BY rank ASC`,
-    );
-    const categories: ExportCategory[] = catResult.rows.map((r) => ({
+    const catRows = await prisma.workbenchCategory.findMany({
+      orderBy: { rank: "asc" },
+    });
+    const categories: ExportCategory[] = catRows.map((r) => ({
       id: r.id,
       rank: r.rank,
       name: r.name,
       complexity: r.complexity,
       description: r.description,
-      created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
-      updated_at: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at),
+      created_at: r.createdAt.toISOString(),
+      updated_at: r.updatedAt.toISOString(),
     }));
 
-    // 2. Query prompts (cast embedding to text for JSON serialization — pgvector can't cast to float[])
+    // 2. Query prompts (embedding needs raw SQL — pgvector cast to text for JSON serialization)
     job.progress = { phase: "querying prompts", detail: `${categories.length} categories found` };
-    const promptResult = await pool.query(
-      `SELECT id, category_id, index, prompt,
+    const promptRows = await prisma.$queryRaw<{
+      id: string;
+      category_id: string;
+      index: number;
+      prompt: string;
+      embedding: string | null;
+      embedding_model: string | null;
+      created_at: Date;
+    }[]>`
+      SELECT id, category_id, index, prompt,
               embedding::text AS embedding, embedding_model,
               created_at
        FROM workbench_example_prompts
-       ORDER BY category_id, index ASC`,
-    );
-    const prompts: ExportPrompt[] = promptResult.rows.map((r) => ({
+       ORDER BY category_id, index ASC
+    `;
+    const prompts: ExportPrompt[] = promptRows.map((r) => ({
       id: r.id,
       category_id: r.category_id,
       index: r.index,
@@ -316,69 +321,58 @@ async function runExport(job: TransferJob): Promise<void> {
 
     // 3. Query examples (largest table)
     job.progress = { phase: "querying examples", detail: `${prompts.length} prompts found` };
-    const exampleResult = await pool.query(
-      `SELECT id, prompt_id, iteration, generation_seed, code,
-              render_status, render_error,
-              stl_path, step_path, threemf_path,
-              screenshot_front, screenshot_top, screenshot_iso, screenshot_iso_back, screenshot_bottom,
-              eval_score, eval_issues, eval_suggestions,
-              approval_status, rejection_note,
-              llm_model, vlm_model, prompt_tokens, completion_tokens,
-              created_at, updated_at
-       FROM workbench_examples
-       ORDER BY prompt_id, iteration ASC`,
-    );
+    const exampleRows = await prisma.workbenchExample.findMany({
+      orderBy: [{ promptId: "asc" }, { iteration: "asc" }],
+    });
 
     // Resolve screenshot values: if they are file paths (start with "workbench/"),
     // read the file from disk and export as base64 so the export is self-contained.
-    job.progress = { phase: "resolving screenshot files", detail: `${exampleResult.rows.length} examples` };
+    job.progress = { phase: "resolving screenshot files", detail: `${exampleRows.length} examples` };
     const examples: ExportExample[] = [];
-    for (const r of exampleResult.rows) {
+    for (const r of exampleRows) {
       const ex: ExportExample = {
         id: r.id,
-        prompt_id: r.prompt_id,
+        prompt_id: r.promptId,
         iteration: r.iteration,
-        generation_seed: r.generation_seed ?? null,
+        generation_seed: r.generationSeed ?? null,
         code: r.code,
-        render_status: r.render_status,
-        render_error: r.render_error ?? null,
-        stl_path: r.stl_path ?? null,
-        step_path: r.step_path ?? null,
-        threemf_path: r.threemf_path ?? null,
-        screenshot_front: await resolveScreenshotForExport(r.screenshot_front),
-        screenshot_top: await resolveScreenshotForExport(r.screenshot_top),
-        screenshot_iso: await resolveScreenshotForExport(r.screenshot_iso),
-        screenshot_iso_back: await resolveScreenshotForExport(r.screenshot_iso_back),
-        screenshot_bottom: await resolveScreenshotForExport(r.screenshot_bottom),
-        eval_score: r.eval_score ?? null,
-        eval_issues: r.eval_issues ?? null,
-        eval_suggestions: r.eval_suggestions ?? null,
-        approval_status: r.approval_status,
-        rejection_note: r.rejection_note ?? null,
-        llm_model: r.llm_model ?? null,
-        vlm_model: r.vlm_model ?? null,
-        prompt_tokens: r.prompt_tokens ?? null,
-        completion_tokens: r.completion_tokens ?? null,
-        created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
-        updated_at: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at),
+        render_status: r.renderStatus,
+        render_error: r.renderError ?? null,
+        stl_path: r.stlPath ?? null,
+        step_path: r.stepPath ?? null,
+        threemf_path: r.threemfPath ?? null,
+        screenshot_front: await resolveScreenshotForExport(r.screenshotFront),
+        screenshot_top: await resolveScreenshotForExport(r.screenshotTop),
+        screenshot_iso: await resolveScreenshotForExport(r.screenshotIso),
+        screenshot_iso_back: await resolveScreenshotForExport(r.screenshotIsoBack),
+        screenshot_bottom: await resolveScreenshotForExport(r.screenshotBottom),
+        eval_score: r.evalScore ?? null,
+        eval_issues: r.evalIssues ?? null,
+        eval_suggestions: r.evalSuggestions ?? null,
+        approval_status: r.approvalStatus,
+        rejection_note: r.rejectionNote ?? null,
+        llm_model: r.llmModel ?? null,
+        vlm_model: r.vlmModel ?? null,
+        prompt_tokens: r.promptTokens ?? null,
+        completion_tokens: r.completionTokens ?? null,
+        created_at: r.createdAt.toISOString(),
+        updated_at: r.updatedAt.toISOString(),
       };
       examples.push(ex);
     }
 
     // 4. Query system prompts
     job.progress = { phase: "querying system prompts", detail: `${examples.length} examples found` };
-    const spResult = await pool.query(
-      `SELECT id, version, label, content, is_active, created_at
-       FROM workbench_system_prompts
-       ORDER BY version ASC`,
-    );
-    const systemPrompts: ExportSystemPrompt[] = spResult.rows.map((r) => ({
+    const spRows = await prisma.workbenchSystemPrompt.findMany({
+      orderBy: { version: "asc" },
+    });
+    const systemPrompts: ExportSystemPrompt[] = spRows.map((r) => ({
       id: r.id,
       version: r.version,
       label: r.label,
       content: r.content,
-      is_active: r.is_active,
-      created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+      is_active: r.isActive,
+      created_at: r.createdAt.toISOString(),
     }));
 
     // 5. Build and write JSON
@@ -449,118 +443,143 @@ async function runImport(job: TransferJob, filePath: string): Promise<void> {
     );
 
     // 3. Run destructive import in a single transaction
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
+    // Build prompt→category lookup so we can construct file paths for v2 imports
+    const promptCategoryMap = new Map<string, string>();
+    for (const p of data.prompts) {
+      promptCategoryMap.set(p.id, p.category_id);
+    }
 
+    // Resolve v2 screenshot files before the transaction (file I/O outside tx)
+    const resolvedScreenshots = new Map<string, {
+      front: string | null;
+      top: string | null;
+      iso: string | null;
+      isoBack: string | null;
+      bottom: string | null;
+    }>();
+
+    if (isV2) {
+      job.progress = { phase: "writing screenshot files", detail: `${data.examples.length} examples` };
+      for (const ex of data.examples) {
+        const categoryId = promptCategoryMap.get(ex.prompt_id);
+        if (categoryId) {
+          resolvedScreenshots.set(ex.id, {
+            front: await writeScreenshotOnImport(categoryId, ex.id, "front", ex.screenshot_front),
+            top: await writeScreenshotOnImport(categoryId, ex.id, "top", ex.screenshot_top),
+            iso: await writeScreenshotOnImport(categoryId, ex.id, "iso", ex.screenshot_iso),
+            isoBack: await writeScreenshotOnImport(categoryId, ex.id, "iso-back", ex.screenshot_iso_back ?? null),
+            bottom: await writeScreenshotOnImport(categoryId, ex.id, "bottom", ex.screenshot_bottom ?? null),
+          });
+        }
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
       // Delete in FK order (children first)
       job.progress = { phase: "clearing existing data" };
-      await client.query("DELETE FROM workbench_examples");
-      await client.query("DELETE FROM workbench_example_prompts");
-      await client.query("DELETE FROM workbench_categories");
-      await client.query("DELETE FROM workbench_system_prompts");
+      await tx.workbenchExample.deleteMany();
+      await tx.workbenchExamplePrompt.deleteMany();
+      await tx.workbenchCategory.deleteMany();
+      await tx.workbenchSystemPrompt.deleteMany();
 
       // Insert categories
       job.progress = { phase: "inserting categories", detail: `${data.categories.length} rows` };
       for (const cat of data.categories) {
-        await client.query(
-          `INSERT INTO workbench_categories (id, rank, name, complexity, description, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [cat.id, cat.rank, cat.name, cat.complexity, cat.description, cat.created_at, cat.updated_at],
-        );
+        await tx.workbenchCategory.create({
+          data: {
+            id: cat.id,
+            rank: cat.rank,
+            name: cat.name,
+            complexity: cat.complexity,
+            description: cat.description,
+            createdAt: new Date(cat.created_at),
+            updatedAt: new Date(cat.updated_at),
+          },
+        });
       }
 
-      // Insert prompts (with embeddings)
+      // Insert prompts (with embeddings — pgvector requires raw SQL)
       job.progress = { phase: "inserting prompts", detail: `${data.prompts.length} rows` };
       for (const p of data.prompts) {
         const embeddingValue = p.embedding
           ? `[${p.embedding.join(",")}]`
           : null;
-        await client.query(
-          `INSERT INTO workbench_example_prompts (id, category_id, index, prompt, embedding, embedding_model, created_at)
-           VALUES ($1, $2, $3, $4, $5::vector, $6, $7)`,
-          [p.id, p.category_id, p.index, p.prompt, embeddingValue, p.embedding_model, p.created_at],
-        );
+        if (embeddingValue) {
+          await tx.$executeRaw`
+            INSERT INTO workbench_example_prompts (id, category_id, index, prompt, embedding, embedding_model, created_at)
+            VALUES (${p.id}::uuid, ${p.category_id}::uuid, ${p.index}, ${p.prompt}, ${embeddingValue}::vector, ${p.embedding_model}, ${new Date(p.created_at)})
+          `;
+        } else {
+          await tx.workbenchExamplePrompt.create({
+            data: {
+              id: p.id,
+              categoryId: p.category_id,
+              index: p.index,
+              prompt: p.prompt,
+              embeddingModel: p.embedding_model,
+              createdAt: new Date(p.created_at),
+            },
+          });
+        }
       }
 
       // Insert examples
-      // Build prompt→category lookup so we can construct file paths for v2 imports
-      const promptCategoryMap = new Map<string, string>();
-      for (const p of data.prompts) {
-        promptCategoryMap.set(p.id, p.category_id);
-      }
-
       job.progress = { phase: "inserting examples", detail: `${data.examples.length} rows` };
       for (const ex of data.examples) {
-        // For v2 imports: write screenshot base64 to disk and store file paths in DB.
-        // For v1 imports: insert base64 directly (legacy — user can run migrate:screenshots later).
-        let ssFront = ex.screenshot_front;
-        let ssTop = ex.screenshot_top;
-        let ssIso = ex.screenshot_iso;
-        let ssIsoBack = ex.screenshot_iso_back ?? null;
-        let ssBottom = ex.screenshot_bottom ?? null;
+        const ss = resolvedScreenshots.get(ex.id);
+        const ssFront = ss ? ss.front : ex.screenshot_front;
+        const ssTop = ss ? ss.top : ex.screenshot_top;
+        const ssIso = ss ? ss.iso : ex.screenshot_iso;
+        const ssIsoBack = ss ? ss.isoBack : (ex.screenshot_iso_back ?? null);
+        const ssBottom = ss ? ss.bottom : (ex.screenshot_bottom ?? null);
 
-        if (isV2 && promptCategoryMap.has(ex.prompt_id)) {
-          const categoryId = promptCategoryMap.get(ex.prompt_id)!;
-          ssFront = await writeScreenshotOnImport(categoryId, ex.id, "front", ssFront);
-          ssTop = await writeScreenshotOnImport(categoryId, ex.id, "top", ssTop);
-          ssIso = await writeScreenshotOnImport(categoryId, ex.id, "iso", ssIso);
-          ssIsoBack = await writeScreenshotOnImport(categoryId, ex.id, "iso-back", ssIsoBack);
-          ssBottom = await writeScreenshotOnImport(categoryId, ex.id, "bottom", ssBottom);
-        }
-
-        await client.query(
-          `INSERT INTO workbench_examples (
-            id, prompt_id, iteration, generation_seed, code,
-            render_status, render_error,
-            stl_path, step_path, threemf_path,
-            screenshot_front, screenshot_top, screenshot_iso, screenshot_iso_back, screenshot_bottom,
-            eval_score, eval_issues, eval_suggestions,
-            approval_status, rejection_note,
-            llm_model, vlm_model, prompt_tokens, completion_tokens,
-            created_at, updated_at
-           ) VALUES (
-            $1, $2, $3, $4, $5,
-            $6, $7,
-            $8, $9, $10,
-            $11, $12, $13, $14, $15,
-            $16, $17, $18,
-            $19, $20,
-            $21, $22, $23, $24,
-            $25, $26
-           )`,
-          [
-            ex.id, ex.prompt_id, ex.iteration, ex.generation_seed, ex.code,
-            ex.render_status, ex.render_error,
-            ex.stl_path, ex.step_path, ex.threemf_path,
-            ssFront, ssTop, ssIso, ssIsoBack, ssBottom,
-            ex.eval_score,
-            ex.eval_issues ? JSON.stringify(ex.eval_issues) : null,
-            ex.eval_suggestions ? JSON.stringify(ex.eval_suggestions) : null,
-            ex.approval_status, ex.rejection_note,
-            ex.llm_model, ex.vlm_model, ex.prompt_tokens, ex.completion_tokens,
-            ex.created_at, ex.updated_at,
-          ],
-        );
+        await tx.workbenchExample.create({
+          data: {
+            id: ex.id,
+            promptId: ex.prompt_id,
+            iteration: ex.iteration,
+            generationSeed: ex.generation_seed,
+            code: ex.code,
+            renderStatus: ex.render_status,
+            renderError: ex.render_error,
+            stlPath: ex.stl_path,
+            stepPath: ex.step_path,
+            threemfPath: ex.threemf_path,
+            screenshotFront: ssFront,
+            screenshotTop: ssTop,
+            screenshotIso: ssIso,
+            screenshotIsoBack: ssIsoBack,
+            screenshotBottom: ssBottom,
+            evalScore: ex.eval_score,
+            evalIssues: ex.eval_issues ? ex.eval_issues as object : undefined,
+            evalSuggestions: ex.eval_suggestions ? ex.eval_suggestions as object : undefined,
+            approvalStatus: ex.approval_status,
+            rejectionNote: ex.rejection_note,
+            llmModel: ex.llm_model,
+            vlmModel: ex.vlm_model,
+            promptTokens: ex.prompt_tokens,
+            completionTokens: ex.completion_tokens,
+            createdAt: new Date(ex.created_at),
+            updatedAt: new Date(ex.updated_at),
+          },
+        });
       }
 
       // Insert system prompts
       job.progress = { phase: "inserting system prompts", detail: `${data.systemPrompts.length} rows` };
       for (const sp of data.systemPrompts) {
-        await client.query(
-          `INSERT INTO workbench_system_prompts (id, version, label, content, is_active, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [sp.id, sp.version, sp.label, sp.content, sp.is_active, sp.created_at],
-        );
+        await tx.workbenchSystemPrompt.create({
+          data: {
+            id: sp.id,
+            version: sp.version,
+            label: sp.label,
+            content: sp.content,
+            isActive: sp.is_active,
+            createdAt: new Date(sp.created_at),
+          },
+        });
       }
-
-      await client.query("COMMIT");
-    } catch (txError) {
-      await client.query("ROLLBACK");
-      throw txError;
-    } finally {
-      client.release();
-    }
+    }, { timeout: 120000 });
 
     // 4. Done
     job.counts = {

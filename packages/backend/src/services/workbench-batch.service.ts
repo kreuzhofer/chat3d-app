@@ -9,7 +9,7 @@
  * can use a single polling pattern regardless of how generation was started.
  */
 
-import { pool } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { ProviderQuotaExhaustedError } from "../utils/llm-errors.js";
 import { generateForPrompt, reRenderForExample, type GenerateResult } from "./workbench-codegen.service.js";
 import { embedAndStorePrompt } from "./workbench-embeddings.service.js";
@@ -181,23 +181,21 @@ export async function startBatchJob(
   }
 
   // Verify category exists
-  const catResult = await pool.query<{ name: string }>(
-    `SELECT name FROM workbench_categories WHERE id = $1`,
-    [categoryId],
-  );
-  if (catResult.rows.length === 0) {
+  const cat = await prisma.workbenchCategory.findUnique({
+    where: { id: categoryId },
+    select: { name: true },
+  });
+  if (!cat) {
     throw new Error("Category not found");
   }
-  const categoryName = catResult.rows[0].name;
+  const categoryName = cat.name;
 
   // Fetch prompts for this category
-  const promptResult = await pool.query<{ id: string; prompt: string }>(
-    `SELECT id, prompt FROM workbench_example_prompts
-     WHERE category_id = $1
-     ORDER BY index ASC`,
-    [categoryId],
-  );
-  const allPrompts = promptResult.rows;
+  const allPrompts = await prisma.workbenchExamplePrompt.findMany({
+    where: { categoryId },
+    select: { id: true, prompt: true },
+    orderBy: { index: "asc" },
+  });
 
   if (allPrompts.length === 0) {
     throw new Error("No prompts found for this category");
@@ -206,14 +204,15 @@ export async function startBatchJob(
   // Optionally filter out prompts that already have approved examples
   let promptsToProcess = allPrompts;
   if (options.skipApproved) {
-    const approvedResult = await pool.query<{ prompt_id: string }>(
-      `SELECT DISTINCT prompt_id
-       FROM workbench_examples
-       WHERE prompt_id = ANY($1::uuid[])
-         AND approval_status IN ('auto_approved', 'human_approved')`,
-      [allPrompts.map((p) => p.id)],
-    );
-    const approvedIds = new Set(approvedResult.rows.map((r) => r.prompt_id));
+    const approvedExamples = await prisma.workbenchExample.findMany({
+      where: {
+        promptId: { in: allPrompts.map((p) => p.id) },
+        approvalStatus: { in: ["auto_approved", "human_approved"] },
+      },
+      select: { promptId: true },
+      distinct: ["promptId"],
+    });
+    const approvedIds = new Set(approvedExamples.map((r) => r.promptId));
     promptsToProcess = allPrompts.filter((p) => !approvedIds.has(p.id));
   }
 
@@ -264,29 +263,39 @@ export async function startBatchReRender(categoryId: string): Promise<BatchJobSu
   }
 
   // Verify category exists
-  const catResult = await pool.query<{ name: string }>(
-    `SELECT name FROM workbench_categories WHERE id = $1`,
-    [categoryId],
-  );
-  if (catResult.rows.length === 0) {
+  const cat = await prisma.workbenchCategory.findUnique({
+    where: { id: categoryId },
+    select: { name: true },
+  });
+  if (!cat) {
     throw new Error("Category not found");
   }
-  const categoryName = catResult.rows[0].name;
+  const categoryName = cat.name;
 
   // Fetch all examples with renderable code in this category
-  const exampleResult = await pool.query<{ id: string; prompt_id: string; prompt_text: string }>(
-    `SELECT e.id, e.prompt_id, p.prompt AS prompt_text
-     FROM workbench_examples e
-     JOIN workbench_example_prompts p ON p.id = e.prompt_id
-     WHERE p.category_id = $1
-       AND e.code IS NOT NULL
-       AND e.code != ''
-       AND e.render_status = 'success'
-     ORDER BY p.index ASC, e.iteration ASC`,
-    [categoryId],
-  );
+  const exampleRows = await prisma.workbenchExample.findMany({
+    where: {
+      promptRef: { categoryId },
+      code: { not: "" },
+      renderStatus: "success",
+    },
+    select: {
+      id: true,
+      promptId: true,
+      promptRef: { select: { prompt: true, index: true } },
+      iteration: true,
+    },
+    orderBy: [
+      { promptRef: { index: "asc" } },
+      { iteration: "asc" },
+    ],
+  });
 
-  const examples = exampleResult.rows;
+  const examples = exampleRows.map((e) => ({
+    id: e.id,
+    prompt_id: e.promptId,
+    prompt_text: e.promptRef.prompt,
+  }));
   if (examples.length === 0) {
     throw new Error("No renderable examples found for this category");
   }
@@ -345,20 +354,16 @@ export async function startSingleJob(
   }
 
   // Look up the prompt's category
-  const promptResult = await pool.query<{ prompt: string; category_id: string }>(
-    `SELECT prompt, category_id FROM workbench_example_prompts WHERE id = $1`,
-    [promptId],
-  );
-  if (promptResult.rows.length === 0) {
+  const promptRow = await prisma.workbenchExamplePrompt.findUnique({
+    where: { id: promptId },
+    select: { prompt: true, categoryId: true, category: { select: { name: true } } },
+  });
+  if (!promptRow) {
     throw new Error("Prompt not found");
   }
-  const { prompt: promptText, category_id: categoryId } = promptResult.rows[0];
-
-  const catResult = await pool.query<{ name: string }>(
-    `SELECT name FROM workbench_categories WHERE id = $1`,
-    [categoryId],
-  );
-  const categoryName = catResult.rows[0]?.name ?? "Unknown";
+  const promptText = promptRow.prompt;
+  const categoryId = promptRow.categoryId;
+  const categoryName = promptRow.category.name;
 
   const jobId = generateJobId(type);
   const job: BatchJob = {
@@ -706,12 +711,11 @@ async function runBatchReRender(
   // Delete original examples that were successfully replaced
   if (originalIdsToDelete.length > 0) {
     try {
-      const deleteResult = await pool.query(
-        `DELETE FROM workbench_examples WHERE id = ANY($1::uuid[])`,
-        [originalIdsToDelete],
-      );
+      const deleteResult = await prisma.workbenchExample.deleteMany({
+        where: { id: { in: originalIdsToDelete } },
+      });
       logger.info(
-        { deleted: deleteResult.rowCount, total: originalIdsToDelete.length },
+        { deleted: deleteResult.count, total: originalIdsToDelete.length },
         "deleted original examples after batch re-render",
       );
     } catch (error) {
@@ -751,26 +755,24 @@ export async function startBatchCleanup(categoryId: string): Promise<BatchJobSum
     throw err;
   }
 
-  const catResult = await pool.query<{ name: string }>(
-    `SELECT name FROM workbench_categories WHERE id = $1`,
-    [categoryId],
-  );
-  if (catResult.rows.length === 0) {
+  const cat = await prisma.workbenchCategory.findUnique({
+    where: { id: categoryId },
+    select: { name: true },
+  });
+  if (!cat) {
     throw new Error("Category not found");
   }
-  const categoryName = catResult.rows[0].name;
+  const categoryName = cat.name;
 
   // Find prompts that have more than 1 example (nothing to clean if only 1)
-  const promptResult = await pool.query<{ id: string; prompt: string }>(
-    `SELECT p.id, p.prompt
-     FROM workbench_example_prompts p
-     WHERE p.category_id = $1
-       AND (SELECT COUNT(*) FROM workbench_examples e WHERE e.prompt_id = p.id) > 1
-     ORDER BY p.index ASC`,
-    [categoryId],
-  );
-
-  const prompts = promptResult.rows;
+  // Subquery with COUNT → raw SQL
+  const prompts = await prisma.$queryRaw<{ id: string; prompt: string }[]>`
+    SELECT p.id, p.prompt
+    FROM workbench_example_prompts p
+    WHERE p.category_id = ${categoryId}::uuid
+      AND (SELECT COUNT(*) FROM workbench_examples e WHERE e.prompt_id = p.id) > 1
+    ORDER BY p.index ASC
+  `;
   if (prompts.length === 0) {
     throw new Error("No prompts with multiple examples found — nothing to clean up");
   }

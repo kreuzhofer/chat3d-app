@@ -1,27 +1,36 @@
 import { config } from "./config.js";
 import { createApp } from "./app.js";
 import { createLogger } from "./utils/logger.js";
-import { runMigrations } from "./db/migrate.js";
-import { seedLlmModels } from "./services/llm-model-seeder.service.js";
-
+import { prisma } from "./db/prisma.js";
 const logger = createLogger("backend");
 
 const app = createApp();
 
-app.listen(config.port, () => {
+const server = app.listen(config.port, () => {
   logger.info("listening on %d", config.port);
+});
 
-  // Run pending database migrations on startup (idempotent)
-  runMigrations()
-    .then(() => {
-      logger.info("database migrations complete");
-    })
-    .catch((error) => {
-      logger.error({ err: error }, "database migration failed — server may be in an inconsistent state");
+function shutdown(signal: string) {
+  logger.info({ signal }, "shutting down");
+  server.close(() => {
+    prisma.$disconnect().then(() => {
+      logger.info("prisma disconnected");
+      process.exit(0);
+    }).catch((err) => {
+      logger.error({ err }, "prisma disconnect error");
+      process.exit(1);
     });
-
-  // Seed LLM model config on startup (idempotent — skips if already seeded)
-  seedLlmModels().catch((error) => {
-    logger.error({ err: error }, "failed to seed LLM models on startup");
   });
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
+process.on("unhandledRejection", (reason) => {
+  logger.error({ err: reason }, "unhandled promise rejection");
+});
+
+process.on("uncaughtException", (err) => {
+  logger.fatal({ err }, "uncaught exception — shutting down");
+  shutdown("uncaughtException");
 });

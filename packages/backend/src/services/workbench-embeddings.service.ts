@@ -8,7 +8,7 @@
 
 import { embed, embedMany } from "ai";
 import { asQuotaError } from "../utils/llm-errors.js";
-import { pool } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import {
   getModelForPurpose,
@@ -84,10 +84,9 @@ export async function embedAndStorePrompt(promptId: string, promptText: string):
   const { config: embeddingCfg } = await resolveEmbeddingConfig();
   const embedding = await embedPromptText(promptText);
   const pgVector = `[${embedding.join(",")}]`;
-  await pool.query(
-    `UPDATE workbench_example_prompts SET embedding = $2::vector, embedding_model = $3 WHERE id = $1`,
-    [promptId, pgVector, embeddingCfg.modelName],
-  );
+  await prisma.$executeRaw`
+    UPDATE workbench_example_prompts SET embedding = ${pgVector}::vector, embedding_model = ${embeddingCfg.modelName} WHERE id = ${promptId}::uuid
+  `;
 }
 
 // ── Backfill ────────────────────────────────────────────────────────
@@ -103,29 +102,28 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
   const currentModel = embeddingCfg.modelName;
   logger.info({ provider: embeddingCfg.provider, model: currentModel }, "resolving embedding model");
 
-  const result = await pool.query<{ id: string; prompt: string }>(
-    `SELECT DISTINCT p.id, p.prompt
-     FROM workbench_example_prompts p
-     JOIN workbench_examples e ON e.prompt_id = p.id
-     WHERE e.approval_status IN ('auto_approved', 'human_approved')
-       AND (p.embedding IS NULL
-            OR p.embedding_model IS NULL
-            OR p.embedding_model != $1)
-     ORDER BY p.id`,
-    [currentModel],
-  );
+  const rows = await prisma.$queryRaw<{ id: string; prompt: string }[]>`
+    SELECT DISTINCT p.id, p.prompt
+    FROM workbench_example_prompts p
+    JOIN workbench_examples e ON e.prompt_id = p.id
+    WHERE e.approval_status IN ('auto_approved', 'human_approved')
+      AND (p.embedding IS NULL
+           OR p.embedding_model IS NULL
+           OR p.embedding_model != ${currentModel})
+    ORDER BY p.id
+  `;
 
-  if (result.rows.length === 0) {
+  if (rows.length === 0) {
     logger.info("nothing to backfill — all up to date");
     return { embedded: 0, skipped: 0 };
   }
 
-  logger.info({ count: result.rows.length, model: currentModel }, "backfilling prompts");
+  logger.info({ count: rows.length, model: currentModel }, "backfilling prompts");
   const BATCH_SIZE = 100;
   let embedded = 0;
 
-  for (let i = 0; i < result.rows.length; i += BATCH_SIZE) {
-    const batch = result.rows.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE);
     const texts = batch.map((row) => row.prompt);
 
     logger.info({ batch: i / BATCH_SIZE + 1, size: batch.length }, "embedding batch");
@@ -147,28 +145,18 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
     }
 
     // Store each embedding + model name in a transaction
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
+    await prisma.$transaction(async (tx) => {
       for (let j = 0; j < batch.length; j++) {
         const pgVector = `[${embedResult.embeddings[j].join(",")}]`;
-        await client.query(
-          `UPDATE workbench_example_prompts
-           SET embedding = $2::vector, embedding_model = $3
-           WHERE id = $1`,
-          [batch[j].id, pgVector, currentModel],
-        );
+        await tx.$executeRaw`
+          UPDATE workbench_example_prompts
+          SET embedding = ${pgVector}::vector, embedding_model = ${currentModel}
+          WHERE id = ${batch[j].id}::uuid
+        `;
       }
-      await client.query("COMMIT");
-      embedded += batch.length;
-      logger.info({ embedded, total: result.rows.length }, "backfill progress");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      logger.error({ err: error, batch: i / BATCH_SIZE + 1 }, "DB store failed");
-      throw error;
-    } finally {
-      client.release();
-    }
+    });
+    embedded += batch.length;
+    logger.info({ embedded, total: rows.length }, "backfill progress");
   }
 
   return { embedded, skipped: 0 };
@@ -187,19 +175,18 @@ export async function findSimilarExamples(
   const queryEmbedding = await embedPromptText(promptText);
   const pgVector = `[${queryEmbedding.join(",")}]`;
 
-  const result = await pool.query<{ prompt: string; code: string; similarity: number }>(
-    `SELECT p.prompt, e.code,
-            1 - (p.embedding <=> $1::vector) AS similarity
+  const rows = await prisma.$queryRaw<{ prompt: string; code: string; similarity: number }[]>`
+    SELECT p.prompt, e.code,
+            1 - (p.embedding <=> ${pgVector}::vector) AS similarity
      FROM workbench_examples e
      JOIN workbench_example_prompts p ON p.id = e.prompt_id
      WHERE p.embedding IS NOT NULL
        AND e.approval_status IN ('auto_approved', 'human_approved')
-     ORDER BY p.embedding <=> $1::vector ASC
-     LIMIT $2`,
-    [pgVector, limit],
-  );
+     ORDER BY p.embedding <=> ${pgVector}::vector ASC
+     LIMIT ${limit}
+  `;
 
-  return result.rows;
+  return rows;
 }
 
 // ── Status ──────────────────────────────────────────────────────────
@@ -212,16 +199,16 @@ export async function findSimilarExamples(
 export async function getEmbeddingStatus(): Promise<EmbeddingStatus> {
   const { config: embeddingCfg } = await resolveEmbeddingConfig();
   const currentModel = embeddingCfg.modelName;
-  const result = await pool.query<{ total: string; embedded: string; current_model: string }>(`
+  const rows = await prisma.$queryRaw<{ total: string; embedded: string; current_model: string }[]>`
     SELECT
       COUNT(DISTINCT p.id)::text AS total,
       COUNT(DISTINCT CASE WHEN p.embedding IS NOT NULL THEN p.id END)::text AS embedded,
-      COUNT(DISTINCT CASE WHEN p.embedding IS NOT NULL AND p.embedding_model = $1 THEN p.id END)::text AS current_model
+      COUNT(DISTINCT CASE WHEN p.embedding IS NOT NULL AND p.embedding_model = ${currentModel} THEN p.id END)::text AS current_model
     FROM workbench_example_prompts p
     JOIN workbench_examples e ON e.prompt_id = p.id
     WHERE e.approval_status IN ('auto_approved', 'human_approved')
-  `, [currentModel]);
-  const row = result.rows[0];
+  `;
+  const row = rows[0];
   const total = Number(row.total);
   const embeddedCount = Number(row.embedded);
   const currentModelCount = Number(row.current_model);

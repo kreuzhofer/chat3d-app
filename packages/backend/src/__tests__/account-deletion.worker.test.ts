@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { pool, query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { runAccountDeletionSweep } from "../workers/account-deletion.worker.js";
 
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -8,17 +8,20 @@ const expiredEmail = `m7-expired-${suffix}@example.test`;
 const futureEmail = `m7-future-${suffix}@example.test`;
 const password = "S3curePass!123";
 
-async function insertDeactivatedUser(email: string, deactivatedUntilExpression: string): Promise<string> {
+async function insertDeactivatedUser(email: string, deactivatedUntil: Date): Promise<string> {
   const hash = await bcrypt.hash(password, 12);
-  const result = await query<{ id: string }>(
-    `
-    INSERT INTO users (email, password_hash, display_name, role, status, deactivated_until)
-    VALUES ($1, $2, 'Deletion Worker User', 'user', 'deactivated', ${deactivatedUntilExpression})
-    RETURNING id;
-    `,
-    [email, hash],
-  );
-  return result.rows[0].id;
+  const user = await prisma.user.create({
+    data: {
+      email,
+      passwordHash: hash,
+      displayName: "Deletion Worker User",
+      role: "user",
+      status: "deactivated",
+      deactivatedUntil,
+    },
+    select: { id: true },
+  });
+  return user.id;
 }
 
 describe("account deletion worker", () => {
@@ -26,14 +29,23 @@ describe("account deletion worker", () => {
   let futureUserId = "";
 
   beforeAll(async () => {
-    await query(`DELETE FROM users WHERE email = ANY($1::text[]);`, [[expiredEmail, futureEmail]]);
-    expiredUserId = await insertDeactivatedUser(expiredEmail, "NOW() - INTERVAL '1 day'");
-    futureUserId = await insertDeactivatedUser(futureEmail, "NOW() + INTERVAL '10 days'");
+    await prisma.user.deleteMany({
+      where: { email: { in: [expiredEmail, futureEmail] } },
+    });
+
+    const now = new Date();
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const tenDaysFromNow = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000);
+
+    expiredUserId = await insertDeactivatedUser(expiredEmail, oneDayAgo);
+    futureUserId = await insertDeactivatedUser(futureEmail, tenDaysFromNow);
   });
 
   afterAll(async () => {
-    await query(`DELETE FROM users WHERE id = ANY($1::uuid[]);`, [[expiredUserId, futureUserId]]);
-    await pool.end();
+    await prisma.user.deleteMany({
+      where: { id: { in: [expiredUserId, futureUserId].filter(Boolean) } },
+    });
+    await prisma.$disconnect();
   });
 
   it("deletes users whose deactivation window has expired", async () => {
@@ -41,10 +53,16 @@ describe("account deletion worker", () => {
     expect(result.deletedCount).toBe(1);
     expect(result.deletedUsers.some((item) => item.id === expiredUserId)).toBe(true);
 
-    const expiredCheck = await query<{ id: string }>(`SELECT id FROM users WHERE id = $1;`, [expiredUserId]);
-    expect(expiredCheck.rows).toHaveLength(0);
+    const expiredCheck = await prisma.user.findFirst({
+      where: { id: expiredUserId },
+      select: { id: true },
+    });
+    expect(expiredCheck).toBeNull();
 
-    const futureCheck = await query<{ id: string }>(`SELECT id FROM users WHERE id = $1;`, [futureUserId]);
-    expect(futureCheck.rows).toHaveLength(1);
+    const futureCheck = await prisma.user.findFirst({
+      where: { id: futureUserId },
+      select: { id: true },
+    });
+    expect(futureCheck).not.toBeNull();
   });
 });

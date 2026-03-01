@@ -1,34 +1,9 @@
-import { pool, query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { config } from "../config.js";
 import { emailService } from "./email.service.js";
 import { notificationService } from "./notification.service.js";
 import { generateOpaqueToken, hashToken } from "../utils/token.js";
 import { recordAdminAuditLog } from "./audit.service.js";
-
-interface AdminUserRow {
-  id: string;
-  email: string;
-  display_name: string | null;
-  role: "admin" | "user";
-  status: "active" | "deactivated" | "pending_registration";
-  deactivated_until: string | null;
-  created_at: string;
-}
-
-interface SettingsRow {
-  waitlist_enabled: boolean;
-  invitations_enabled: boolean;
-  invitation_waitlist_required: boolean;
-  invitation_quota_per_user: number;
-  updated_at: string;
-}
-
-interface UserEmailRow {
-  id: string;
-  email: string;
-  display_name: string | null;
-  status: "active" | "deactivated" | "pending_registration";
-}
 
 export class AdminError extends Error {
   constructor(
@@ -39,91 +14,79 @@ export class AdminError extends Error {
   }
 }
 
-function toSettingsResponse(row: SettingsRow) {
-  return {
-    waitlistEnabled: row.waitlist_enabled,
-    invitationsEnabled: row.invitations_enabled,
-    invitationWaitlistRequired: row.invitation_waitlist_required,
-    invitationQuotaPerUser: row.invitation_quota_per_user,
-    updatedAt: row.updated_at,
-  };
-}
-
-function buildUserSearchQuery(search?: string) {
-  if (!search || search.trim() === "") {
-    return {
-      sql: `
-        SELECT id, email, display_name, role, status, deactivated_until::text, created_at::text
-        FROM users
-        ORDER BY created_at DESC
-        LIMIT 200;
-      `,
-      params: [] as unknown[],
-    };
-  }
-
-  return {
-    sql: `
-      SELECT id, email, display_name, role, status, deactivated_until::text, created_at::text
-      FROM users
-      WHERE email ILIKE $1 OR COALESCE(display_name, '') ILIKE $1
-      ORDER BY created_at DESC
-      LIMIT 200;
-    `,
-    params: [`%${search.trim()}%`],
-  };
-}
-
 export async function listUsers(search?: string) {
-  const { sql, params } = buildUserSearchQuery(search);
-  const result = await query<AdminUserRow>(sql, params);
+  const where = search && search.trim() !== ""
+    ? {
+        OR: [
+          { email: { contains: search.trim(), mode: "insensitive" as const } },
+          { displayName: { contains: search.trim(), mode: "insensitive" as const } },
+        ],
+      }
+    : undefined;
 
-  return result.rows.map((row) => ({
+  const rows = await prisma.user.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    take: 200,
+    select: {
+      id: true,
+      email: true,
+      displayName: true,
+      role: true,
+      status: true,
+      deactivatedUntil: true,
+      createdAt: true,
+    },
+  });
+
+  return rows.map((row) => ({
     id: row.id,
     email: row.email,
-    displayName: row.display_name,
+    displayName: row.displayName,
     role: row.role,
     status: row.status,
-    deactivatedUntil: row.deactivated_until,
-    createdAt: row.created_at,
+    deactivatedUntil: row.deactivatedUntil?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
   }));
 }
 
 export async function getAdminSettings() {
-  const result = await query<SettingsRow>(
-    `
-    SELECT waitlist_enabled, invitations_enabled, invitation_waitlist_required, invitation_quota_per_user, updated_at::text
-    FROM app_settings
-    WHERE id = TRUE;
-    `,
-  );
+  const row = await prisma.appSettings.findUnique({
+    where: { id: true },
+    select: {
+      waitlistEnabled: true,
+      invitationsEnabled: true,
+      invitationWaitlistRequired: true,
+      invitationQuotaPerUser: true,
+      updatedAt: true,
+    },
+  });
 
-  const row = result.rows[0];
   if (!row) {
-    const fallback: SettingsRow = {
-      waitlist_enabled: false,
-      invitations_enabled: true,
-      invitation_waitlist_required: false,
-      invitation_quota_per_user: 3,
-      updated_at: new Date().toISOString(),
+    return {
+      waitlistEnabled: false,
+      invitationsEnabled: true,
+      invitationWaitlistRequired: false,
+      invitationQuotaPerUser: 3,
+      updatedAt: new Date().toISOString(),
     };
-    return toSettingsResponse(fallback);
   }
 
-  return toSettingsResponse(row);
+  return {
+    waitlistEnabled: row.waitlistEnabled,
+    invitationsEnabled: row.invitationsEnabled,
+    invitationWaitlistRequired: row.invitationWaitlistRequired,
+    invitationQuotaPerUser: row.invitationQuotaPerUser,
+    updatedAt: row.updatedAt.toISOString(),
+  };
 }
 
 async function listActiveAdminUserIds(): Promise<string[]> {
-  const result = await query<{ id: string }>(
-    `
-    SELECT id
-    FROM users
-    WHERE role = 'admin'
-      AND status = 'active';
-    `,
-  );
-
-  return result.rows.map((row) => row.id);
+  const rows = await prisma.user.findMany({
+    where: { role: "admin", status: "active" },
+    select: { id: true },
+  });
+  return rows.map((row) => row.id);
 }
 
 export async function updateAdminSettings(input: {
@@ -152,36 +115,33 @@ export async function updateAdminSettings(input: {
     throw new AdminError("invitationQuotaPerUser must be a non-negative integer", 400);
   }
 
-  const result = await query<SettingsRow>(
-    `
-    INSERT INTO app_settings (
-      id,
-      waitlist_enabled,
-      invitations_enabled,
-      invitation_waitlist_required,
-      invitation_quota_per_user,
-      updated_by,
-      updated_at
-    )
-    VALUES (TRUE, $1, $2, $3, $4, $5, NOW())
-    ON CONFLICT (id)
-    DO UPDATE SET
-      waitlist_enabled = EXCLUDED.waitlist_enabled,
-      invitations_enabled = EXCLUDED.invitations_enabled,
-      invitation_waitlist_required = EXCLUDED.invitation_waitlist_required,
-      invitation_quota_per_user = EXCLUDED.invitation_quota_per_user,
-      updated_by = EXCLUDED.updated_by,
-      updated_at = NOW()
-    RETURNING waitlist_enabled, invitations_enabled, invitation_waitlist_required, invitation_quota_per_user, updated_at::text;
-    `,
-    [
-      nextWaitlistEnabled,
-      nextInvitationsEnabled,
-      nextInvitationWaitlistRequired,
-      nextInvitationQuotaPerUser,
-      input.adminUserId,
-    ],
-  );
+  const row = await prisma.appSettings.upsert({
+    where: { id: true },
+    create: {
+      id: true,
+      waitlistEnabled: nextWaitlistEnabled,
+      invitationsEnabled: nextInvitationsEnabled,
+      invitationWaitlistRequired: nextInvitationWaitlistRequired,
+      invitationQuotaPerUser: nextInvitationQuotaPerUser,
+      updatedBy: input.adminUserId,
+      updatedAt: new Date(),
+    },
+    update: {
+      waitlistEnabled: nextWaitlistEnabled,
+      invitationsEnabled: nextInvitationsEnabled,
+      invitationWaitlistRequired: nextInvitationWaitlistRequired,
+      invitationQuotaPerUser: nextInvitationQuotaPerUser,
+      updatedBy: input.adminUserId,
+      updatedAt: new Date(),
+    },
+    select: {
+      waitlistEnabled: true,
+      invitationsEnabled: true,
+      invitationWaitlistRequired: true,
+      invitationQuotaPerUser: true,
+      updatedAt: true,
+    },
+  });
 
   await recordAdminAuditLog({
     adminUserId: input.adminUserId,
@@ -206,20 +166,13 @@ export async function updateAdminSettings(input: {
     });
   }
 
-  return toSettingsResponse(result.rows[0]);
-}
-
-async function findUserById(userId: string): Promise<UserEmailRow | null> {
-  const result = await query<UserEmailRow>(
-    `
-    SELECT id, email, display_name, status
-    FROM users
-    WHERE id = $1;
-    `,
-    [userId],
-  );
-
-  return result.rows[0] ?? null;
+  return {
+    waitlistEnabled: row.waitlistEnabled,
+    invitationsEnabled: row.invitationsEnabled,
+    invitationWaitlistRequired: row.invitationWaitlistRequired,
+    invitationQuotaPerUser: row.invitationQuotaPerUser,
+    updatedAt: row.updatedAt.toISOString(),
+  };
 }
 
 export async function deactivateUser(input: {
@@ -231,20 +184,16 @@ export async function deactivateUser(input: {
     throw new AdminError("Admins cannot deactivate their own account", 400);
   }
 
-  const result = await query<UserEmailRow & { deactivated_until: string | null }>(
-    `
-    UPDATE users
-    SET status = 'deactivated',
-        deactivated_until = NOW() + INTERVAL '30 days',
-        updated_at = NOW()
-    WHERE id = $1
-    RETURNING id, email, display_name, status, deactivated_until::text;
-    `,
-    [input.targetUserId],
-  );
+  const deactivatedUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-  const user = result.rows[0];
-  if (!user) {
+  let user;
+  try {
+    user = await prisma.user.update({
+      where: { id: input.targetUserId },
+      data: { status: "deactivated", deactivatedUntil, updatedAt: new Date() },
+      select: { id: true, email: true, displayName: true, status: true, deactivatedUntil: true },
+    });
+  } catch {
     throw new AdminError("User not found", 404);
   }
 
@@ -255,19 +204,21 @@ export async function deactivateUser(input: {
     metadata: { reason: input.reason ?? null },
   });
 
+  const deactivatedUntilIso = user.deactivatedUntil?.toISOString() ?? null;
+
   await notificationService.publishToUser(input.targetUserId, "account.status.changed", {
     action: "deactivated",
     changedBy: input.adminUserId,
-    deactivatedUntil: user.deactivated_until,
+    deactivatedUntil: deactivatedUntilIso,
     reason: input.reason ?? null,
   });
 
   return {
     id: user.id,
     email: user.email,
-    displayName: user.display_name,
+    displayName: user.displayName,
     status: user.status,
-    deactivatedUntil: user.deactivated_until,
+    deactivatedUntil: deactivatedUntilIso,
   };
 }
 
@@ -275,20 +226,14 @@ export async function activateUser(input: {
   adminUserId: string;
   targetUserId: string;
 }) {
-  const result = await query<UserEmailRow & { deactivated_until: string | null }>(
-    `
-    UPDATE users
-    SET status = 'active',
-        deactivated_until = NULL,
-        updated_at = NOW()
-    WHERE id = $1
-    RETURNING id, email, display_name, status, deactivated_until::text;
-    `,
-    [input.targetUserId],
-  );
-
-  const user = result.rows[0];
-  if (!user) {
+  let user;
+  try {
+    user = await prisma.user.update({
+      where: { id: input.targetUserId },
+      data: { status: "active", deactivatedUntil: null, updatedAt: new Date() },
+      select: { id: true, email: true, displayName: true, status: true, deactivatedUntil: true },
+    });
+  } catch {
     throw new AdminError("User not found", 404);
   }
 
@@ -306,9 +251,9 @@ export async function activateUser(input: {
   return {
     id: user.id,
     email: user.email,
-    displayName: user.display_name,
+    displayName: user.displayName,
     status: user.status,
-    deactivatedUntil: user.deactivated_until,
+    deactivatedUntil: user.deactivatedUntil?.toISOString() ?? null,
   };
 }
 
@@ -316,7 +261,11 @@ export async function triggerAdminPasswordReset(input: {
   adminUserId: string;
   targetUserId: string;
 }) {
-  const targetUser = await findUserById(input.targetUserId);
+  const targetUser = await prisma.user.findUnique({
+    where: { id: input.targetUserId },
+    select: { id: true, email: true, displayName: true, status: true },
+  });
+
   if (!targetUser) {
     throw new AdminError("User not found", 404);
   }
@@ -324,34 +273,16 @@ export async function triggerAdminPasswordReset(input: {
   const resetToken = generateOpaqueToken();
   const resetTokenHash = hashToken(resetToken);
 
-  await query(
-    `
-    INSERT INTO account_actions (
-      user_id,
-      action_type,
-      token_hash,
-      payload,
-      status,
-      expires_at
-    )
-    VALUES (
-      $1,
-      'password_reset',
-      $2,
-      $3::jsonb,
-      'pending',
-      NOW() + INTERVAL '24 hours'
-    );
-    `,
-    [
-      input.targetUserId,
-      resetTokenHash,
-      JSON.stringify({
-        requestedByAdminId: input.adminUserId,
-        source: "admin",
-      }),
-    ],
-  );
+  await prisma.accountAction.create({
+    data: {
+      userId: input.targetUserId,
+      actionType: "password_reset",
+      tokenHash: resetTokenHash,
+      payload: { requestedByAdminId: input.adminUserId, source: "admin" },
+      status: "pending",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    },
+  });
 
   await recordAdminAuditLog({
     adminUserId: input.adminUserId,

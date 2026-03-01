@@ -1,6 +1,5 @@
 import { Router } from "express";
-import type { QueryResultRow } from "pg";
-import { pool } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
   assertValidPassword,
@@ -15,14 +14,6 @@ import { recordSecurityEvent } from "../services/security-audit.service.js";
 import { consumeRegistrationToken, WaitlistError } from "../services/waitlist.service.js";
 
 export const authRouter = Router();
-
-interface RegisterUserRow extends QueryResultRow {
-  id: string;
-  email: string;
-  display_name: string | null;
-  role: "admin" | "user";
-  status: "active" | "deactivated" | "pending_registration";
-}
 
 authRouter.post("/register", async (req, res) => {
   const email = typeof req.body?.email === "string" ? req.body.email : "";
@@ -49,70 +40,63 @@ authRouter.post("/register", async (req, res) => {
     return;
   }
 
-  const client = await pool.connect();
-
   try {
-    await client.query("BEGIN");
+    const result = await prisma.$transaction(async (tx) => {
+      // FOR UPDATE lock to prevent duplicate registrations
+      const existingRows = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM users WHERE email = ${normalizedEmail} FOR UPDATE
+      `;
 
-    const existingResult = await client.query<{ id: string }>(
-      `
-      SELECT id
-      FROM users
-      WHERE email = $1
-      FOR UPDATE;
-      `,
-      [normalizedEmail],
-    );
+      if (existingRows[0]) {
+        throw Object.assign(new Error("Email is already registered"), { statusCode: 409 });
+      }
 
-    if (existingResult.rows[0]) {
-      await client.query("ROLLBACK");
-      res.status(409).json({ error: "Email is already registered" });
-      return;
-    }
+      if (waitlistEnabled) {
+        await consumeRegistrationToken({
+          rawToken: registrationToken,
+          email: normalizedEmail,
+          tx,
+        });
+      }
 
-    if (waitlistEnabled) {
-      await consumeRegistrationToken({
-        rawToken: registrationToken,
-        email: normalizedEmail,
-        client,
+      const passwordHash = await hashPassword(password);
+      const normalizedDisplayName = displayName?.trim() || null;
+
+      const inserted = await tx.user.create({
+        data: {
+          email: normalizedEmail,
+          passwordHash,
+          displayName: normalizedDisplayName,
+          role: "user",
+          status: "active",
+        },
+        select: { id: true, email: true, displayName: true, role: true, status: true },
       });
-    }
 
-    const passwordHash = await hashPassword(password);
-    const normalizedDisplayName = displayName?.trim() || null;
+      return {
+        id: inserted.id,
+        email: inserted.email,
+        displayName: inserted.displayName,
+        role: inserted.role,
+        status: inserted.status,
+      };
+    });
 
-    const insertResult = await client.query<RegisterUserRow>(
-      `
-      INSERT INTO users (email, password_hash, display_name, role, status)
-      VALUES ($1, $2, $3, 'user', 'active')
-      RETURNING id, email, display_name, role, status;
-      `,
-      [normalizedEmail, passwordHash, normalizedDisplayName],
-    );
-
-    await client.query("COMMIT");
-
-    const inserted = insertResult.rows[0];
-    const user = {
-      id: inserted.id,
-      email: inserted.email,
-      displayName: inserted.display_name,
-      role: inserted.role,
-      status: inserted.status,
-    };
-
-    const token = await issueAuthToken(user);
-    res.status(201).json({ token, user });
+    const token = await issueAuthToken(result);
+    res.status(201).json({ token, user: result });
   } catch (error) {
-    await client.query("ROLLBACK");
     if (error instanceof WaitlistError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
 
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (statusCode === 409) {
+      res.status(409).json({ error: (error as Error).message });
+      return;
+    }
+
     res.status(500).json({ error: "Failed to register user", detail: String(error) });
-  } finally {
-    client.release();
   }
 });
 

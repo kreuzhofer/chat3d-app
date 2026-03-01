@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import { jwtVerify, SignJWT } from "jose";
 import { config } from "../config.js";
-import { query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 
 export type UserRole = "admin" | "user";
 export type UserStatus = "active" | "deactivated" | "pending_registration";
@@ -12,15 +12,6 @@ export interface AuthenticatedUser {
   role: UserRole;
   status: UserStatus;
   displayName: string | null;
-}
-
-interface UserRow {
-  id: string;
-  email: string;
-  password_hash: string;
-  display_name: string | null;
-  role: UserRole;
-  status: UserStatus;
 }
 
 interface JwtClaims {
@@ -48,49 +39,39 @@ export async function verifyPassword(password: string, passwordHash: string): Pr
   return bcrypt.compare(password, passwordHash);
 }
 
-function mapUser(row: UserRow): AuthenticatedUser {
+export async function findUserByEmail(email: string): Promise<(AuthenticatedUser & { passwordHash: string }) | null> {
+  const row = await prisma.user.findUnique({
+    where: { email: normalizeEmail(email) },
+    select: { id: true, email: true, passwordHash: true, displayName: true, role: true, status: true },
+  });
+
+  if (!row) return null;
+
   return {
     id: row.id,
     email: row.email,
-    role: row.role,
-    status: row.status,
-    displayName: row.display_name,
-  };
-}
-
-export async function findUserByEmail(email: string): Promise<(AuthenticatedUser & { passwordHash: string }) | null> {
-  const result = await query<UserRow>(
-    `
-    SELECT id, email, password_hash, display_name, role, status
-    FROM users
-    WHERE email = $1;
-    `,
-    [normalizeEmail(email)],
-  );
-
-  const row = result.rows[0];
-  if (!row) {
-    return null;
-  }
-
-  return {
-    ...mapUser(row),
-    passwordHash: row.password_hash,
+    role: row.role as UserRole,
+    status: row.status as UserStatus,
+    displayName: row.displayName,
+    passwordHash: row.passwordHash,
   };
 }
 
 export async function findUserById(id: string): Promise<AuthenticatedUser | null> {
-  const result = await query<UserRow>(
-    `
-    SELECT id, email, password_hash, display_name, role, status
-    FROM users
-    WHERE id = $1;
-    `,
-    [id],
-  );
+  const row = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, email: true, displayName: true, role: true, status: true },
+  });
 
-  const row = result.rows[0];
-  return row ? mapUser(row) : null;
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role as UserRole,
+    status: row.status as UserStatus,
+    displayName: row.displayName,
+  };
 }
 
 export async function createUser(input: {
@@ -102,16 +83,18 @@ export async function createUser(input: {
   const email = normalizeEmail(input.email);
   const displayName = input.displayName?.trim() || null;
 
-  const result = await query<UserRow>(
-    `
-    INSERT INTO users (email, password_hash, display_name, role, status)
-    VALUES ($1, $2, $3, 'user', 'active')
-    RETURNING id, email, password_hash, display_name, role, status;
-    `,
-    [email, passwordHash, displayName],
-  );
+  const row = await prisma.user.create({
+    data: { email, passwordHash, displayName, role: "user", status: "active" },
+    select: { id: true, email: true, displayName: true, role: true, status: true },
+  });
 
-  return mapUser(result.rows[0]);
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role as UserRole,
+    status: row.status as UserStatus,
+    displayName: row.displayName,
+  };
 }
 
 export async function issueAuthToken(user: AuthenticatedUser): Promise<string> {

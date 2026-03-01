@@ -1,71 +1,51 @@
-import type { PoolClient, QueryResultRow } from "pg";
-import { query } from "../db/connection.js";
-
-interface AppSettingsRow {
-  waitlist_enabled: boolean;
-  invitations_enabled: boolean;
-  invitation_waitlist_required: boolean;
-  invitation_quota_per_user: number;
-}
+import type { Prisma } from "@prisma/client";
+import { prisma } from "../db/prisma.js";
 
 export async function isWaitlistEnabled(): Promise<boolean> {
-  const result = await query<AppSettingsRow>(
-    `
-    SELECT waitlist_enabled
-    FROM app_settings
-    WHERE id = TRUE;
-    `,
-  );
-
-  const row = result.rows[0];
-  return row ? row.waitlist_enabled : false;
+  const row = await prisma.appSettings.findUnique({ where: { id: true }, select: { waitlistEnabled: true } });
+  return row ? row.waitlistEnabled : false;
 }
 
-interface QueryExecutor {
-  query: <T extends QueryResultRow = QueryResultRow>(text: string, params?: unknown[]) => Promise<{ rows: T[] }>;
-}
-
-async function readInvitationPolicy(executor: QueryExecutor): Promise<{
+export interface InvitationPolicy {
   invitationsEnabled: boolean;
   invitationWaitlistRequired: boolean;
   invitationQuotaPerUser: number;
-}> {
-  const result = await executor.query<AppSettingsRow>(
-    `
-    SELECT invitations_enabled, invitation_waitlist_required, invitation_quota_per_user, waitlist_enabled
-    FROM app_settings
-    WHERE id = TRUE;
-    `,
-  );
+}
 
-  const row = result.rows[0];
-  if (!row) {
-    return {
+const INVITATION_POLICY_DEFAULTS: InvitationPolicy = {
+  invitationsEnabled: true,
+  invitationWaitlistRequired: false,
+  invitationQuotaPerUser: 3,
+};
+
+async function readInvitationPolicy(
+  tx?: Prisma.TransactionClient,
+): Promise<InvitationPolicy> {
+  const client = tx ?? prisma;
+  const row = await client.appSettings.findUnique({
+    where: { id: true },
+    select: {
       invitationsEnabled: true,
-      invitationWaitlistRequired: false,
-      invitationQuotaPerUser: 3,
-    };
-  }
+      invitationWaitlistRequired: true,
+      invitationQuotaPerUser: true,
+    },
+  });
+
+  if (!row) return INVITATION_POLICY_DEFAULTS;
 
   return {
-    invitationsEnabled: row.invitations_enabled,
-    invitationWaitlistRequired: row.invitation_waitlist_required,
-    invitationQuotaPerUser: row.invitation_quota_per_user,
+    invitationsEnabled: row.invitationsEnabled,
+    invitationWaitlistRequired: row.invitationWaitlistRequired,
+    invitationQuotaPerUser: row.invitationQuotaPerUser,
   };
 }
 
-export async function getInvitationPolicy(): Promise<{
-  invitationsEnabled: boolean;
-  invitationWaitlistRequired: boolean;
-  invitationQuotaPerUser: number;
-}> {
-  return readInvitationPolicy({ query });
+export async function getInvitationPolicy(): Promise<InvitationPolicy> {
+  return readInvitationPolicy();
 }
 
-export async function getInvitationPolicyWithClient(client: PoolClient): Promise<{
-  invitationsEnabled: boolean;
-  invitationWaitlistRequired: boolean;
-  invitationQuotaPerUser: number;
-}> {
-  return readInvitationPolicy(client);
+export async function getInvitationPolicyTx(
+  tx: Prisma.TransactionClient,
+): Promise<InvitationPolicy> {
+  return readInvitationPolicy(tx);
 }

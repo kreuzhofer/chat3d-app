@@ -1,8 +1,8 @@
-import { generateText } from "ai";
+import { generateText, NoOutputGeneratedError, streamText } from "ai";
 import { ProviderQuotaExhaustedError } from "../utils/llm-errors.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import { withLlmRetry } from "../utils/llm-retry.js";
-import { query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { notificationService } from "./notification.service.js";
 import { sseService } from "./sse.service.js";
 import { createChatItem, updateChatItem, updateChatContext as updateChatContextService, ChatError } from "./chat.service.js";
@@ -204,21 +204,24 @@ export async function buildConversationContext(
   // Fetch the last (maxPairs * 2) items ordered by created_at DESC, then reverse
   // to get chronological order. We fetch more than needed to handle gaps.
   const limit = maxPairs * 2 + 2; // small buffer for edge cases
-  const result = await query<ChatItemHistoryRow>(
-    `
-    SELECT id, role, messages, created_at::text
-    FROM chat_items
-    WHERE chat_context_id = $1
-      AND owner_id = $2
-      AND id != ALL($3::uuid[])
-    ORDER BY created_at DESC
-    LIMIT $4;
-    `,
-    [contextId, userId, excludeIds, limit],
-  );
+  const rows = await prisma.chatItem.findMany({
+    where: {
+      chatContextId: contextId,
+      ownerId: userId,
+      ...(excludeIds.length > 0 ? { id: { notIn: excludeIds } } : {}),
+    },
+    select: { id: true, role: true, messages: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
 
   // Reverse to chronological order
-  const items = result.rows.reverse();
+  const items = rows.reverse().map((r) => ({
+    id: r.id,
+    role: r.role as "user" | "assistant",
+    messages: r.messages,
+    created_at: r.createdAt.toISOString(),
+  }));
 
   // Build entries from all items
   const entries: ConversationHistoryEntry[] = [];
@@ -262,17 +265,11 @@ export function capConversationEntries(
 }
 
 async function ensureOwnedContext(userId: string, contextId: string): Promise<ChatContextRow> {
-  const result = await query<ChatContextRow>(
-    `
-    SELECT id, name
-    FROM chat_contexts
-    WHERE id = $1
-      AND owner_id = $2;
-    `,
-    [contextId, userId],
-  );
+  const context = await prisma.chatContext.findFirst({
+    where: { id: contextId, ownerId: userId },
+    select: { id: true, name: true },
+  });
 
-  const context = result.rows[0];
   if (!context) {
     throw new QueryServiceError("Chat context not found", 404);
   }
@@ -424,39 +421,32 @@ export async function resolvePromptForRegeneration(input: {
   contextId: string;
   assistantItemId: string;
 }): Promise<string> {
-  const assistantItemResult = await query<OwnedAssistantItemRow>(
-    `
-    SELECT id, created_at::text, role
-    FROM chat_items
-    WHERE id = $1
-      AND chat_context_id = $2
-      AND owner_id = $3
-      AND role = 'assistant'
-    LIMIT 1;
-    `,
-    [input.assistantItemId, input.contextId, input.userId],
-  );
+  const assistantItem = await prisma.chatItem.findFirst({
+    where: {
+      id: input.assistantItemId,
+      chatContextId: input.contextId,
+      ownerId: input.userId,
+      role: "assistant",
+    },
+    select: { id: true, createdAt: true, role: true },
+  });
 
-  const assistantItem = assistantItemResult.rows[0];
   if (!assistantItem) {
     throw new QueryServiceError("Assistant item not found", 404);
   }
 
-  const promptResult = await query<UserPromptRow>(
-    `
-    SELECT messages
-    FROM chat_items
-    WHERE chat_context_id = $1
-      AND owner_id = $2
-      AND role = 'user'
-      AND created_at <= $3::timestamptz
-    ORDER BY created_at DESC
-    LIMIT 1;
-    `,
-    [input.contextId, input.userId, assistantItem.created_at],
-  );
+  const promptRow = await prisma.chatItem.findFirst({
+    where: {
+      chatContextId: input.contextId,
+      ownerId: input.userId,
+      role: "user",
+      createdAt: { lte: assistantItem.createdAt },
+    },
+    select: { messages: true },
+    orderBy: { createdAt: "desc" },
+  });
 
-  const prompt = extractPromptFromMessages(promptResult.rows[0]?.messages);
+  const prompt = extractPromptFromMessages(promptRow?.messages);
   if (!prompt) {
     throw new QueryServiceError("Unable to resolve original prompt for regeneration", 400);
   }
@@ -571,11 +561,10 @@ export async function initiateQuery(input: {
   await assertAttachmentsAccessible(input.userId, attachments);
 
   // Detect first prompt before creating items
-  const itemCountResult = await query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM chat_items WHERE chat_context_id = $1 AND owner_id = $2`,
-    [input.contextId, input.userId],
-  );
-  const isFirstPrompt = parseInt(itemCountResult.rows[0]?.count ?? "0", 10) === 0;
+  const itemCount = await prisma.chatItem.count({
+    where: { chatContextId: input.contextId, ownerId: input.userId },
+  });
+  const isFirstPrompt = itemCount === 0;
 
   const userMessages = [
     { itemType: "message", text: prompt, state: "completed", stateMessage: "" },
@@ -850,10 +839,63 @@ export async function executeQueryPipeline(input: {
         : buildFixPrompt(epSystemPromptContent, epFewShots, prompt, epCurrentCode, iteration - 1, epRenderError, epEvalState?.issues ?? null, epEvalState?.suggestions ?? null, epRenderErrorCtx);
 
       queryLogger.info({ iteration, maxIterations: MAX_FIX_ITERATIONS, isFirst, promptLength: cgPrompt.length }, "codegen iteration starting");
+      const epUseFallbackStream = epCodegenConfig.provider === "bedrock" && epCodegenConfig.supportsThinking && epCodegenConfig.thinkingEffort;
       const epLlmSemaphore = getLlmSemaphore(epCodegenConfig.provider, epCodegenConfig.maxConcurrent);
       const cgResult = await epLlmSemaphore.run(
         () => withLlmRetry(
-          () => generateText({ model: epCodegenModel, prompt: cgPrompt, ...epExtraOpts }),
+          async () => {
+            if (epUseFallbackStream) {
+              // Bedrock's synchronous API does not support thinking — use streaming via fullStream
+              // so we can track both reasoning and text progress.
+              const stream = streamText({ model: epCodegenModel, prompt: cgPrompt, ...epExtraOpts });
+              let text = "";
+              let reasoningChars = 0;
+              let lastUpdateLen = 0;
+              let phase: "thinking" | "generating" = "thinking";
+              const stateLabel = isFirst ? "codegen" : "fixing" as const;
+
+              for await (const part of stream.fullStream) {
+                if (part.type === "reasoning-delta") {
+                  reasoningChars += part.text.length;
+                  if (reasoningChars - lastUpdateLen >= 500) {
+                    lastUpdateLen = reasoningChars;
+                    const detail = isFirst
+                      ? `Thinking... (${reasoningChars} chars)`
+                      : `Thinking (attempt ${iteration}/${MAX_FIX_ITERATIONS})... (${reasoningChars} chars)`;
+                    void publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: stateLabel, detail });
+                    queryLogger.debug({ iteration, reasoningChars }, "codegen thinking progress");
+                  }
+                } else if (part.type === "text-delta") {
+                  if (phase === "thinking") {
+                    phase = "generating";
+                    lastUpdateLen = 0;
+                    queryLogger.info({ iteration, totalReasoningChars: reasoningChars }, "codegen thinking complete, generating code");
+                  }
+                  text += part.text;
+                  if (text.length - lastUpdateLen >= 500) {
+                    lastUpdateLen = text.length;
+                    const detail = isFirst
+                      ? `Generating code... (${text.length} chars)`
+                      : `Writing code (attempt ${iteration}/${MAX_FIX_ITERATIONS})... (${text.length} chars)`;
+                    void publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: stateLabel, detail });
+                    queryLogger.debug({ iteration, chars: text.length }, "codegen text progress");
+                  }
+                }
+              }
+              queryLogger.info({ iteration, reasoningChars, textChars: text.length }, "codegen streaming complete");
+              let finalResult;
+              try {
+                finalResult = await stream;
+              } catch (err) {
+                if (err instanceof NoOutputGeneratedError) {
+                  throw new LlmServiceError("LLM returned empty output (no text generated)", 502);
+                }
+                throw err;
+              }
+              return { text, reasoningText: finalResult.reasoningText, reasoning: finalResult.reasoning, usage: finalResult.usage };
+            }
+            return generateText({ model: epCodegenModel, prompt: cgPrompt, ...epExtraOpts });
+          },
           { provider: epCodegenConfig.provider },
         ),
         {
@@ -1085,6 +1127,7 @@ export async function executeQueryPipeline(input: {
       url: `/chat/${input.contextId}`,
     }).catch(() => {/* ignore push errors */});
   } catch (error) {
+    queryLogger.error({ err: error }, "query pipeline failed");
     const isQuota = error instanceof ProviderQuotaExhaustedError;
     const errorMessage = isQuota
       ? "LLM provider credits exhausted. Please check your API billing or switch to a different provider in Admin → Providers."

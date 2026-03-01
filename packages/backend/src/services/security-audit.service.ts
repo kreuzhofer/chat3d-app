@@ -1,4 +1,4 @@
-import { query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 
 const logger = createLogger("security-audit");
@@ -11,19 +11,15 @@ export async function recordSecurityEvent(input: {
   metadata?: Record<string, unknown>;
 }) {
   try {
-    await query(
-      `
-      INSERT INTO security_events (event_type, user_id, ip_address, path, metadata)
-      VALUES ($1, $2, $3, $4, $5::jsonb);
-      `,
-      [
-        input.eventType,
-        input.userId ?? null,
-        input.ipAddress ?? null,
-        input.path ?? null,
-        JSON.stringify(input.metadata ?? {}),
-      ],
-    );
+    await prisma.securityEvent.create({
+      data: {
+        eventType: input.eventType,
+        userId: input.userId ?? null,
+        ipAddress: input.ipAddress ?? null,
+        path: input.path ?? null,
+        metadata: input.metadata ?? {},
+      },
+    });
   } catch (error) {
     logger.error({ err: error }, "failed to record event");
   }

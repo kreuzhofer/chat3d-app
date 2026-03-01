@@ -12,7 +12,7 @@ import { asQuotaError } from "../utils/llm-errors.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import { withLlmRetry } from "../utils/llm-retry.js";
 import { createLogger } from "../utils/logger.js";
-import { pool } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import {
   getModelForPurpose,
   createProviderModel as createProviderModelFromConfig,
@@ -308,17 +308,16 @@ export function buildModificationPrompt(
  * Used when vector search is unavailable (no embeddings or API error).
  */
 async function fetchFewShotExamplesByCategory(categoryId: string, limit = 6): Promise<FewShotExample[]> {
-  const result = await pool.query<{ prompt: string; code: string }>(
-    `SELECT p.prompt, e.code
+  // ORDER BY NULLS LAST → stays as raw SQL
+  return prisma.$queryRaw<FewShotExample[]>`
+    SELECT p.prompt, e.code
      FROM workbench_examples e
      JOIN workbench_example_prompts p ON p.id = e.prompt_id
-     WHERE p.category_id = $1
+     WHERE p.category_id = ${categoryId}::uuid
        AND e.approval_status IN ('auto_approved', 'human_approved')
      ORDER BY e.eval_score DESC NULLS LAST, e.created_at DESC
-     LIMIT $2`,
-    [categoryId, limit],
-  );
-  return result.rows;
+     LIMIT ${limit}
+  `;
 }
 
 /**
@@ -350,31 +349,21 @@ async function fetchFewShotExamples(
 // ── Prompt context loading ───────────────────────────────────────────
 
 async function loadPromptContext(promptId: string): Promise<PromptContext> {
-  const result = await pool.query<{
-    prompt_id: string;
-    prompt: string;
-    category_id: string;
-    category_name: string;
-    complexity: number;
-  }>(
-    `SELECT p.id AS prompt_id, p.prompt, c.id AS category_id, c.name AS category_name, c.complexity
-     FROM workbench_example_prompts p
-     JOIN workbench_categories c ON c.id = p.category_id
-     WHERE p.id = $1`,
-    [promptId],
-  );
+  const row = await prisma.workbenchExamplePrompt.findUnique({
+    where: { id: promptId },
+    include: { category: true },
+  });
 
-  if (result.rows.length === 0) {
+  if (!row) {
     throw new WorkbenchSeederError("Prompt not found", 404);
   }
 
-  const row = result.rows[0];
   return {
-    promptId: row.prompt_id,
+    promptId: row.id,
     prompt: row.prompt,
-    categoryId: row.category_id,
-    categoryName: row.category_name,
-    complexity: row.complexity,
+    categoryId: row.categoryId,
+    categoryName: row.category.name,
+    complexity: row.category.complexity,
   };
 }
 
@@ -410,50 +399,40 @@ async function insertExample(data: {
   promptTokens: number;
   completionTokens: number;
 }): Promise<string> {
-  const result = await pool.query<{ id: string }>(
-    `INSERT INTO workbench_examples (
-       id, prompt_id, iteration, code, render_status, render_error,
-       stl_path, step_path, threemf_path,
-       screenshot_front, screenshot_back, screenshot_left, screenshot_right,
-       screenshot_top, screenshot_bottom, screenshot_ortho_45, screenshot_ortho_45_bottom,
-       screenshot_iso, screenshot_iso_back,
-       eval_score, eval_issues, eval_suggestions,
-       approval_status, rejection_note, llm_model, vlm_model,
-       prompt_tokens, completion_tokens
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
-     RETURNING id`,
-    [
-      data.id,
-      data.promptId,
-      data.iteration,
-      data.code,
-      data.renderStatus,
-      data.renderError,
-      data.stlPath,
-      data.stepPath,
-      data.threemfPath,
-      data.screenshotFront,
-      data.screenshotBack,
-      data.screenshotLeft,
-      data.screenshotRight,
-      data.screenshotTop,
-      data.screenshotBottom,
-      data.screenshotOrtho45,
-      data.screenshotOrtho45Bottom,
-      data.screenshotIso,
-      data.screenshotIsoBack,
-      data.evalScore,
-      data.evalIssues ? JSON.stringify(data.evalIssues) : null,
-      data.evalSuggestions ? JSON.stringify(data.evalSuggestions) : null,
-      data.approvalStatus,
-      data.rejectionNote ?? null,
-      data.llmModel,
-      data.vlmModel,
-      data.promptTokens,
-      data.completionTokens,
-    ],
-  );
-  return result.rows[0].id;
+  const created = await prisma.workbenchExample.create({
+    data: {
+      id: data.id,
+      promptId: data.promptId,
+      iteration: data.iteration,
+      code: data.code,
+      renderStatus: data.renderStatus,
+      renderError: data.renderError,
+      stlPath: data.stlPath,
+      stepPath: data.stepPath,
+      threemfPath: data.threemfPath,
+      screenshotFront: data.screenshotFront,
+      screenshotBack: data.screenshotBack,
+      screenshotLeft: data.screenshotLeft,
+      screenshotRight: data.screenshotRight,
+      screenshotTop: data.screenshotTop,
+      screenshotBottom: data.screenshotBottom,
+      screenshotOrtho45: data.screenshotOrtho45,
+      screenshotOrtho45Bottom: data.screenshotOrtho45Bottom,
+      screenshotIso: data.screenshotIso,
+      screenshotIsoBack: data.screenshotIsoBack,
+      evalScore: data.evalScore,
+      evalIssues: data.evalIssues ?? undefined,
+      evalSuggestions: data.evalSuggestions ?? undefined,
+      approvalStatus: data.approvalStatus,
+      rejectionNote: data.rejectionNote ?? null,
+      llmModel: data.llmModel,
+      vlmModel: data.vlmModel,
+      promptTokens: data.promptTokens,
+      completionTokens: data.completionTokens,
+    },
+    select: { id: true },
+  });
+  return created.id;
 }
 
 // ── Code generation ──────────────────────────────────────────────────

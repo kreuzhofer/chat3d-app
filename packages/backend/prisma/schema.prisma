@@ -1,7 +1,5 @@
 // ─── Prisma Schema for Chat3D ───────────────────────────────────────────────
-// Generated from existing PostgreSQL schema (16 hand-rolled migrations).
-// This schema exists IN PARALLEL with the raw pg driver code — it does not
-// replace the existing migration system yet.
+// All database access uses Prisma Client. Schema changes use `prisma migrate dev`.
 
 generator client {
   provider        = "prisma-client-js"

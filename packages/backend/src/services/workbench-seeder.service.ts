@@ -1,7 +1,4 @@
-import { readFileSync, readdirSync, existsSync } from "fs";
-import { join } from "path";
-import { pool } from "../db/connection.js";
-import { config } from "../config.js";
+import { prisma } from "../db/prisma.js";
 import { embedAndStorePrompt } from "./workbench-embeddings.service.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -13,210 +10,6 @@ export class WorkbenchSeederError extends Error {
     public readonly statusCode = 400,
   ) {
     super(message);
-  }
-}
-
-// ── Frontmatter + prompt parsing ──────────────────────────────────────
-
-interface CategoryFrontmatter {
-  rank: number;
-  name: string;
-  complexity: number;
-  description: string;
-}
-
-interface ParsedCategoryFile {
-  frontmatter: CategoryFrontmatter;
-  prompts: string[];
-}
-
-function parseFrontmatter(raw: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  let currentKey = "";
-  let currentValue = "";
-
-  for (const line of raw.split("\n")) {
-    const keyMatch = line.match(/^(\w+):\s*(.*)/);
-    if (keyMatch) {
-      if (currentKey) {
-        result[currentKey] = currentValue.trim();
-      }
-      currentKey = keyMatch[1];
-      currentValue = keyMatch[2].replace(/^>\s*/, "");
-    } else if (currentKey && line.match(/^\s+/)) {
-      currentValue += " " + line.trim();
-    }
-  }
-  if (currentKey) {
-    result[currentKey] = currentValue.trim();
-  }
-  return result;
-}
-
-function parseCategoryFile(content: string, filename: string): ParsedCategoryFile {
-  // Split frontmatter from body
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (!fmMatch) {
-    throw new WorkbenchSeederError(`Invalid frontmatter in ${filename}`);
-  }
-
-  const raw = parseFrontmatter(fmMatch[1]);
-  const rank = Number(raw.rank);
-  const complexity = Number(raw.complexity);
-
-  if (!Number.isInteger(rank) || rank < 1) {
-    throw new WorkbenchSeederError(`Invalid rank in ${filename}: ${raw.rank}`);
-  }
-  if (!Number.isInteger(complexity) || complexity < 1 || complexity > 10) {
-    throw new WorkbenchSeederError(`Invalid complexity in ${filename}: ${raw.complexity}`);
-  }
-  if (!raw.name) {
-    throw new WorkbenchSeederError(`Missing name in ${filename}`);
-  }
-  if (!raw.description) {
-    throw new WorkbenchSeederError(`Missing description in ${filename}`);
-  }
-
-  const frontmatter: CategoryFrontmatter = {
-    rank,
-    name: raw.name,
-    complexity,
-    description: raw.description,
-  };
-
-  // Parse numbered prompts: lines starting with "N. "
-  const body = fmMatch[2];
-  const prompts: string[] = [];
-  let currentPrompt = "";
-  let currentIndex = 0;
-
-  for (const line of body.split("\n")) {
-    const promptMatch = line.match(/^(\d+)\.\s+(.*)/);
-    if (promptMatch) {
-      // Save previous prompt if any
-      if (currentIndex > 0 && currentPrompt) {
-        prompts.push(currentPrompt.trim());
-      }
-      currentIndex = Number(promptMatch[1]);
-      currentPrompt = promptMatch[2];
-    } else if (currentIndex > 0 && line.match(/^\s+/) && line.trim().length > 0) {
-      // Continuation line (indented)
-      currentPrompt += " " + line.trim();
-    }
-  }
-  // Save last prompt
-  if (currentIndex > 0 && currentPrompt) {
-    prompts.push(currentPrompt.trim());
-  }
-
-  return { frontmatter, prompts };
-}
-
-// ── Seeding ───────────────────────────────────────────────────────────
-
-export interface SeedResult {
-  categories: number;
-  prompts: number;
-  systemPromptSeeded: boolean;
-}
-
-export async function seedFromFiles(): Promise<SeedResult> {
-  const categoriesDir = join(config.workbench.dataDir, "categories");
-  const systemPromptPath = join(config.workbench.dataDir, "system-prompt.md");
-
-  if (!existsSync(categoriesDir)) {
-    throw new WorkbenchSeederError(
-      `Categories directory not found: ${categoriesDir}`,
-      404,
-    );
-  }
-
-  const files = readdirSync(categoriesDir)
-    .filter((f) => f.endsWith(".md"))
-    .sort();
-
-  if (files.length === 0) {
-    throw new WorkbenchSeederError("No category files found");
-  }
-
-  // Parse all files first (fail fast on any parse error)
-  const parsed = files.map((filename) => {
-    const content = readFileSync(join(categoriesDir, filename), "utf-8");
-    return { filename, ...parseCategoryFile(content, filename) };
-  });
-
-  const client = await pool.connect();
-  let totalPrompts = 0;
-
-  try {
-    await client.query("BEGIN");
-
-    for (const { filename, frontmatter, prompts } of parsed) {
-      // Upsert category by rank — never delete, only insert or update metadata
-      const catResult = await client.query<{ id: string }>(
-        `INSERT INTO workbench_categories (rank, name, complexity, description)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (rank) DO UPDATE SET
-           name = EXCLUDED.name,
-           complexity = EXCLUDED.complexity,
-           description = EXCLUDED.description,
-           updated_at = NOW()
-         RETURNING id`,
-        [frontmatter.rank, frontmatter.name, frontmatter.complexity, frontmatter.description],
-      );
-      const categoryId = catResult.rows[0].id;
-
-      // Upsert prompts by (category_id, index) — update text if changed, add new ones
-      // Never delete existing prompts (they may have examples attached)
-      let changed = 0;
-      for (let i = 0; i < prompts.length; i++) {
-        const upsertResult = await client.query(
-          `INSERT INTO workbench_example_prompts (category_id, index, prompt)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (category_id, index) DO UPDATE SET prompt = EXCLUDED.prompt
-           WHERE workbench_example_prompts.prompt IS DISTINCT FROM EXCLUDED.prompt`,
-          [categoryId, i + 1, prompts[i]],
-        );
-        if ((upsertResult.rowCount ?? 0) > 0) changed++;
-      }
-
-      totalPrompts += prompts.length;
-      logger.info(
-        { rank: frontmatter.rank, name: frontmatter.name, prompts: prompts.length, changed, unchanged: prompts.length - changed, filename },
-        "seeded category",
-      );
-    }
-
-    // Seed system prompt if file exists and no version exists yet
-    let systemPromptSeeded = false;
-    if (existsSync(systemPromptPath)) {
-      const existing = await client.query(
-        "SELECT COUNT(*) AS count FROM workbench_system_prompts",
-      );
-      if (Number(existing.rows[0].count) === 0) {
-        const content = readFileSync(systemPromptPath, "utf-8");
-        await client.query(
-          `INSERT INTO workbench_system_prompts (version, label, content, is_active)
-           VALUES (1, $1, $2, TRUE)`,
-          ["Initial system prompt", content],
-        );
-        systemPromptSeeded = true;
-        logger.info("seeded system prompt v1 (active)");
-      }
-    }
-
-    await client.query("COMMIT");
-
-    return {
-      categories: parsed.length,
-      prompts: totalPrompts,
-      systemPromptSeeded,
-    };
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
   }
 }
 
@@ -241,7 +34,8 @@ interface CategoryRow {
 export async function listCategories() {
   // Count prompts that have at least one example with a given status.
   // This avoids inflated counts when a single prompt has multiple examples.
-  const result = await pool.query<CategoryRow>(`
+  // Complex aggregate with GROUP BY + CASE → stays as raw SQL.
+  const rows = await prisma.$queryRaw<CategoryRow[]>`
     SELECT
       c.id,
       c.rank,
@@ -261,9 +55,9 @@ export async function listCategories() {
     LEFT JOIN workbench_examples e ON e.prompt_id = p.id
     GROUP BY c.id
     ORDER BY c.rank
-  `);
+  `;
 
-  return result.rows.map((row) => ({
+  return rows.map((row) => ({
     id: row.id,
     rank: row.rank,
     name: row.name,
@@ -294,15 +88,13 @@ interface PromptRow {
 
 export async function listPromptsForCategory(categoryId: string) {
   // Verify category exists
-  const catCheck = await pool.query(
-    "SELECT id FROM workbench_categories WHERE id = $1",
-    [categoryId],
-  );
-  if (catCheck.rows.length === 0) {
+  const cat = await prisma.workbenchCategory.findUnique({ where: { id: categoryId }, select: { id: true } });
+  if (!cat) {
     throw new WorkbenchSeederError("Category not found", 404);
   }
 
-  const result = await pool.query<PromptRow>(`
+  // Complex correlated subqueries → stays as raw SQL
+  const rows = await prisma.$queryRaw<PromptRow[]>`
     SELECT
       p.id,
       p.category_id,
@@ -339,12 +131,12 @@ export async function listPromptsForCategory(categoryId: string) {
       p.created_at
     FROM workbench_example_prompts p
     LEFT JOIN workbench_examples e ON e.prompt_id = p.id
-    WHERE p.category_id = $1
+    WHERE p.category_id = ${categoryId}::uuid
     GROUP BY p.id
     ORDER BY p.index
-  `, [categoryId]);
+  `;
 
-  return result.rows.map((row) => ({
+  return rows.map((row) => ({
     id: row.id,
     categoryId: row.category_id,
     index: row.index,
@@ -364,13 +156,12 @@ export async function updatePromptText(promptId: string, newText: string): Promi
 
   const trimmed = newText.trim();
 
-  // Clear embedding so it gets re-generated
-  const result = await pool.query(
-    `UPDATE workbench_example_prompts SET prompt = $2, embedding = NULL WHERE id = $1 RETURNING id`,
-    [promptId, trimmed],
-  );
+  // Clear embedding so it gets re-generated (pgvector column → raw SQL)
+  const count = await prisma.$executeRaw`
+    UPDATE workbench_example_prompts SET prompt = ${trimmed}, embedding = NULL WHERE id = ${promptId}::uuid
+  `;
 
-  if (result.rowCount === 0) {
+  if (count === 0) {
     throw new WorkbenchSeederError("Prompt not found", 404);
   }
 
@@ -380,78 +171,60 @@ export async function updatePromptText(promptId: string, newText: string): Promi
   );
 }
 
-// ── System prompt CRUD ────────────────────────────────────────────────
-
-interface SystemPromptRow {
-  id: string;
-  version: number;
-  label: string;
-  content: string;
-  is_active: boolean;
-  created_at: Date;
-}
+// ── System prompt CRUD ──────────────────────────────────────────────
 
 export async function listSystemPrompts() {
-  const result = await pool.query<SystemPromptRow>(
-    "SELECT id, version, label, content, is_active, created_at FROM workbench_system_prompts ORDER BY version DESC",
-  );
+  const rows = await prisma.workbenchSystemPrompt.findMany({
+    orderBy: { version: "desc" },
+  });
 
-  return result.rows.map((row) => ({
+  return rows.map((row) => ({
     id: row.id,
     version: row.version,
     label: row.label,
     content: row.content,
-    isActive: row.is_active,
-    createdAt: row.created_at,
+    isActive: row.isActive,
+    createdAt: row.createdAt,
   }));
 }
 
 export async function getActiveSystemPrompt() {
-  const result = await pool.query<SystemPromptRow>(
-    "SELECT id, version, label, content, is_active, created_at FROM workbench_system_prompts WHERE is_active = TRUE LIMIT 1",
-  );
+  const row = await prisma.workbenchSystemPrompt.findFirst({
+    where: { isActive: true },
+  });
 
-  if (result.rows.length === 0) {
+  if (!row) {
     throw new WorkbenchSeederError("No active system prompt found", 404);
   }
 
-  const row = result.rows[0];
   return {
     id: row.id,
     version: row.version,
     label: row.label,
     content: row.content,
-    isActive: row.is_active,
-    createdAt: row.created_at,
+    isActive: row.isActive,
+    createdAt: row.createdAt,
   };
 }
 
 export async function activateSystemPrompt(promptId: string) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
+  await prisma.$transaction(async (tx) => {
     // Verify prompt exists
-    const check = await client.query(
-      "SELECT id FROM workbench_system_prompts WHERE id = $1",
-      [promptId],
-    );
-    if (check.rows.length === 0) {
+    const check = await tx.workbenchSystemPrompt.findUnique({
+      where: { id: promptId },
+      select: { id: true },
+    });
+    if (!check) {
       throw new WorkbenchSeederError("System prompt not found", 404);
     }
 
     // Deactivate all, then activate the target
-    await client.query("UPDATE workbench_system_prompts SET is_active = FALSE");
-    await client.query(
-      "UPDATE workbench_system_prompts SET is_active = TRUE WHERE id = $1",
-      [promptId],
-    );
-
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+    await tx.workbenchSystemPrompt.updateMany({
+      data: { isActive: false },
+    });
+    await tx.workbenchSystemPrompt.update({
+      where: { id: promptId },
+      data: { isActive: true },
+    });
+  });
 }

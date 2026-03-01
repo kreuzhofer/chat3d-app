@@ -1,8 +1,8 @@
 import { config } from "../config.js";
-import { pool, query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { normalizeEmail } from "./auth.service.js";
 import { emailService, type EmailMessage } from "./email.service.js";
-import { getInvitationPolicyWithClient } from "./app-settings.service.js";
+import { getInvitationPolicy } from "./app-settings.service.js";
 import { generateOpaqueToken, hashToken } from "../utils/token.js";
 import { notificationService } from "./notification.service.js";
 
@@ -13,28 +13,6 @@ type InvitationStatus =
   | "accepted"
   | "expired"
   | "revoked";
-
-interface InvitationRow {
-  id: string;
-  inviter_user_id: string;
-  invitee_email: string;
-  status: InvitationStatus;
-  registration_token_id: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ActiveInvitationCountRow {
-  invitation_count: string;
-}
-
-interface UserEmailRow {
-  email: string;
-}
-
-interface RegistrationTokenInsertRow {
-  id: string;
-}
 
 export class InvitationError extends Error {
   constructor(
@@ -54,30 +32,33 @@ function isValidEmail(email: string): boolean {
   return /.+@.+\..+/.test(email);
 }
 
-function mapInvitation(row: InvitationRow) {
+function mapInvitation(row: {
+  id: string;
+  inviterUserId: string;
+  inviteeEmail: string;
+  status: string;
+  registrationTokenId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
   return {
     id: row.id,
-    inviterUserId: row.inviter_user_id,
-    inviteeEmail: row.invitee_email,
-    status: row.status,
-    registrationTokenId: row.registration_token_id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    inviterUserId: row.inviterUserId,
+    inviteeEmail: row.inviteeEmail,
+    status: row.status as InvitationStatus,
+    registrationTokenId: row.registrationTokenId,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 
 export async function listInvitationsForUser(inviterUserId: string): Promise<ReturnType<typeof mapInvitation>[]> {
-  const result = await query<InvitationRow>(
-    `
-    SELECT id, inviter_user_id, invitee_email, status, registration_token_id, created_at::text, updated_at::text
-    FROM invitations
-    WHERE inviter_user_id = $1
-    ORDER BY created_at DESC;
-    `,
-    [inviterUserId],
-  );
+  const rows = await prisma.invitation.findMany({
+    where: { inviterUserId },
+    orderBy: { createdAt: "desc" },
+  });
 
-  return result.rows.map(mapInvitation);
+  return rows.map(mapInvitation);
 }
 
 export async function createInvitationsForUser(input: {
@@ -95,44 +76,32 @@ export async function createInvitationsForUser(input: {
     }
   }
 
-  const client = await pool.connect();
   const outgoingEmails: EmailMessage[] = [];
   const createdInvitations: ReturnType<typeof mapInvitation>[] = [];
 
-  try {
-    await client.query("BEGIN");
+  await prisma.$transaction(async (tx) => {
+    // FOR UPDATE lock on the inviter user row
+    const inviterRows = await tx.$queryRaw<Array<{ email: string }>>`
+      SELECT email FROM users WHERE id = ${input.inviterUserId}::uuid FOR UPDATE
+    `;
 
-    const inviterResult = await client.query<UserEmailRow>(
-      `
-      SELECT email
-      FROM users
-      WHERE id = $1
-      FOR UPDATE;
-      `,
-      [input.inviterUserId],
-    );
-
-    const inviter = inviterResult.rows[0];
+    const inviter = inviterRows[0];
     if (!inviter) {
       throw new InvitationError("Inviter not found", 404);
     }
 
-    const policy = await getInvitationPolicyWithClient(client);
+    const policy = await getInvitationPolicy();
     if (!policy.invitationsEnabled) {
       throw new InvitationError("Invitations are currently disabled", 403);
     }
 
-    const countResult = await client.query<ActiveInvitationCountRow>(
-      `
-      SELECT COUNT(*)::text AS invitation_count
-      FROM invitations
-      WHERE inviter_user_id = $1
-        AND status NOT IN ('revoked', 'expired');
-      `,
-      [input.inviterUserId],
-    );
+    const currentCount = await tx.invitation.count({
+      where: {
+        inviterUserId: input.inviterUserId,
+        status: { notIn: ["revoked", "expired"] },
+      },
+    });
 
-    const currentCount = Number(countResult.rows[0]?.invitation_count ?? "0");
     if (currentCount + normalizedEmails.length > policy.invitationQuotaPerUser) {
       throw new InvitationError("Invitation quota exceeded for this user", 403);
     }
@@ -144,32 +113,33 @@ export async function createInvitationsForUser(input: {
         throw new InvitationError("You cannot invite your own email address", 400);
       }
 
-      const existingUserResult = await client.query<{ id: string }>(
-        `
-        SELECT id
-        FROM users
-        WHERE email = $1
-        LIMIT 1;
-        `,
-        [inviteeEmail],
-      );
+      const existingUser = await tx.user.findUnique({
+        where: { email: inviteeEmail },
+        select: { id: true },
+      });
 
-      if (existingUserResult.rows[0]) {
+      if (existingUser) {
         throw new InvitationError(`Email is already registered: ${inviteeEmail}`, 409);
       }
 
-      const existingInvitationResult = await client.query<InvitationRow>(
-        `
-        SELECT id, inviter_user_id, invitee_email, status, registration_token_id, created_at::text, updated_at::text
+      // FOR UPDATE lock on existing invitation
+      const existingRows = await tx.$queryRaw<Array<{
+        id: string;
+        inviter_user_id: string;
+        invitee_email: string;
+        status: string;
+        registration_token_id: string | null;
+        created_at: Date;
+        updated_at: Date;
+      }>>`
+        SELECT id, inviter_user_id, invitee_email, status, registration_token_id, created_at, updated_at
         FROM invitations
-        WHERE inviter_user_id = $1
-          AND invitee_email = $2
-        FOR UPDATE;
-        `,
-        [input.inviterUserId, inviteeEmail],
-      );
+        WHERE inviter_user_id = ${input.inviterUserId}::uuid
+          AND invitee_email = ${inviteeEmail}
+        FOR UPDATE
+      `;
 
-      const existingInvitation = existingInvitationResult.rows[0];
+      const existingInvitation = existingRows[0];
       if (existingInvitation && !["revoked", "expired"].includes(existingInvitation.status)) {
         throw new InvitationError(`Invite already exists for ${inviteeEmail}`, 409);
       }
@@ -181,17 +151,19 @@ export async function createInvitationsForUser(input: {
       if (policy.invitationWaitlistRequired) {
         status = "waitlisted";
 
-        await client.query(
-          `
-          INSERT INTO waitlist_entries (email, marketing_consent, email_confirmed_at, status, approved_by, approved_at, updated_at)
-          VALUES ($1, FALSE, NOW(), 'pending_admin_approval', NULL, NULL, NOW())
-          ON CONFLICT (email)
-          DO UPDATE SET
-            status = 'pending_admin_approval',
-            updated_at = NOW();
-          `,
-          [inviteeEmail],
-        );
+        await tx.waitlistEntry.upsert({
+          where: { email: inviteeEmail },
+          create: {
+            email: inviteeEmail,
+            marketingConsent: false,
+            emailConfirmedAt: new Date(),
+            status: "pending_admin_approval",
+          },
+          update: {
+            status: "pending_admin_approval",
+            updatedAt: new Date(),
+          },
+        });
 
         outgoingEmails.push({
           to: inviteeEmail,
@@ -203,21 +175,20 @@ export async function createInvitationsForUser(input: {
         registrationToken = generateOpaqueToken();
         const registrationTokenHash = hashToken(registrationToken);
 
-        const tokenResult = await client.query<RegistrationTokenInsertRow>(
-          `
-          INSERT INTO registration_tokens (token_hash, email, source, invited_by_user_id, max_uses, used_count, expires_at)
-          VALUES ($1, $2, 'user_invite', $3, 1, 0, NOW() + make_interval(hours => $4))
-          RETURNING id;
-          `,
-          [
-            registrationTokenHash,
-            inviteeEmail,
-            input.inviterUserId,
-            config.invitations.registrationTokenTtlHours,
-          ],
-        );
+        const tokenRow = await tx.registrationToken.create({
+          data: {
+            tokenHash: registrationTokenHash,
+            email: inviteeEmail,
+            source: "user_invite",
+            invitedByUserId: input.inviterUserId,
+            maxUses: 1,
+            usedCount: 0,
+            expiresAt: new Date(Date.now() + config.invitations.registrationTokenTtlHours * 3600 * 1000),
+          },
+          select: { id: true },
+        });
 
-        registrationTokenId = tokenResult.rows[0].id;
+        registrationTokenId = tokenRow.id;
 
         const registerUrl = appUrl(`/register?token=${encodeURIComponent(registrationToken)}`);
         outgoingEmails.push({
@@ -227,46 +198,31 @@ export async function createInvitationsForUser(input: {
         });
       }
 
-      let invitationRow: InvitationRow;
+      let invitationRow;
 
       if (existingInvitation) {
-        const updatedResult = await client.query<InvitationRow>(
-          `
-          UPDATE invitations
-          SET status = $3,
-              registration_token_id = $4,
-              updated_at = NOW()
-          WHERE id = $1
-            AND inviter_user_id = $2
-          RETURNING id, inviter_user_id, invitee_email, status, registration_token_id, created_at::text, updated_at::text;
-          `,
-          [existingInvitation.id, input.inviterUserId, status, registrationTokenId],
-        );
-
-        invitationRow = updatedResult.rows[0];
+        invitationRow = await tx.invitation.update({
+          where: { id: existingInvitation.id },
+          data: {
+            status,
+            registrationTokenId,
+            updatedAt: new Date(),
+          },
+        });
       } else {
-        const insertedResult = await client.query<InvitationRow>(
-          `
-          INSERT INTO invitations (inviter_user_id, invitee_email, status, registration_token_id)
-          VALUES ($1, $2, $3, $4)
-          RETURNING id, inviter_user_id, invitee_email, status, registration_token_id, created_at::text, updated_at::text;
-          `,
-          [input.inviterUserId, inviteeEmail, status, registrationTokenId],
-        );
-
-        invitationRow = insertedResult.rows[0];
+        invitationRow = await tx.invitation.create({
+          data: {
+            inviterUserId: input.inviterUserId,
+            inviteeEmail: inviteeEmail,
+            status,
+            registrationTokenId,
+          },
+        });
       }
 
       createdInvitations.push(mapInvitation(invitationRow));
     }
-
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 
   for (const emailMessage of outgoingEmails) {
     await emailService.sendTransactionalEmail(emailMessage);
@@ -289,25 +245,25 @@ export async function revokeInvitationForUser(input: {
   inviterUserId: string;
   invitationId: string;
 }): Promise<ReturnType<typeof mapInvitation>> {
-  const result = await query<InvitationRow>(
-    `
-    UPDATE invitations
-    SET status = 'revoked',
-        updated_at = NOW()
-    WHERE id = $1
-      AND inviter_user_id = $2
-      AND status <> 'revoked'
-    RETURNING id, inviter_user_id, invitee_email, status, registration_token_id, created_at::text, updated_at::text;
-    `,
-    [input.invitationId, input.inviterUserId],
-  );
+  const existing = await prisma.invitation.findFirst({
+    where: {
+      id: input.invitationId,
+      inviterUserId: input.inviterUserId,
+      status: { not: "revoked" },
+    },
+    select: { id: true },
+  });
 
-  const invitation = result.rows[0];
-  if (!invitation) {
+  if (!existing) {
     throw new InvitationError("Invitation not found", 404);
   }
 
-  const mapped = mapInvitation(invitation);
+  const row = await prisma.invitation.update({
+    where: { id: existing.id },
+    data: { status: "revoked", updatedAt: new Date() },
+  });
+
+  const mapped = mapInvitation(row);
 
   await notificationService.publishToUser(input.inviterUserId, "notification.created", {
     domain: "invitation",

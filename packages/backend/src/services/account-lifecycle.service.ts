@@ -1,6 +1,6 @@
-import type { PoolClient } from "pg";
+import type { Prisma } from "@prisma/client";
 import { config } from "../config.js";
-import { pool, query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { generateOpaqueToken, hashToken } from "../utils/token.js";
 import { assertValidPassword, hashPassword, normalizeEmail } from "./auth.service.js";
 import { emailService } from "./email.service.js";
@@ -12,48 +12,6 @@ type AccountActionType =
   | "data_export"
   | "account_delete"
   | "account_reactivate";
-
-interface AccountActionRow {
-  id: string;
-  user_id: string;
-  action_type: AccountActionType;
-  token_hash: string;
-  payload: Record<string, unknown>;
-  status: "pending" | "completed" | "expired" | "cancelled";
-  expires_at: string | null;
-  completed_at: string | null;
-  created_at: string;
-}
-
-interface UserRow {
-  id: string;
-  email: string;
-  display_name: string | null;
-  role: "admin" | "user";
-  status: "active" | "deactivated" | "pending_registration";
-  deactivated_until: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ChatContextRow {
-  id: string;
-  name: string;
-  created_at: string;
-}
-
-interface ChatItemRow {
-  id: string;
-  chat_context_id: string;
-  role: "user" | "assistant";
-  created_at: string;
-}
-
-interface ConfirmActionRow extends AccountActionRow {
-  email: string;
-  user_status: "active" | "deactivated" | "pending_registration";
-  user_deactivated_until: string | null;
-}
 
 export class AccountLifecycleError extends Error {
   constructor(
@@ -73,119 +31,122 @@ function isValidEmail(value: string): boolean {
   return /.+@.+\..+/.test(value);
 }
 
-async function cancelPendingAction(client: PoolClient, userId: string, actionType: AccountActionType) {
-  await client.query(
-    `
-    UPDATE account_actions
-    SET status = 'cancelled'
-    WHERE user_id = $1
-      AND action_type = $2
-      AND status = 'pending';
-    `,
-    [userId, actionType],
-  );
+async function cancelPendingAction(tx: Prisma.TransactionClient, userId: string, actionType: AccountActionType) {
+  await tx.accountAction.updateMany({
+    where: {
+      userId,
+      actionType,
+      status: "pending",
+    },
+    data: {
+      status: "cancelled",
+    },
+  });
 }
 
 async function createAccountAction(input: {
-  client: PoolClient;
+  tx: Prisma.TransactionClient;
   userId: string;
   actionType: AccountActionType;
   payload: Record<string, unknown>;
   expiresInHours?: number;
 }): Promise<{ actionId: string; token: string }> {
-  await cancelPendingAction(input.client, input.userId, input.actionType);
+  await cancelPendingAction(input.tx, input.userId, input.actionType);
 
   const token = generateOpaqueToken();
   const tokenHash = hashToken(token);
+  const expiresInHours = input.expiresInHours ?? 24;
 
-  const result = await input.client.query<{ id: string }>(
-    `
-    INSERT INTO account_actions (user_id, action_type, token_hash, payload, status, expires_at)
-    VALUES (
-      $1,
-      $2,
-      $3,
-      $4::jsonb,
-      'pending',
-      NOW() + make_interval(hours => $5)
-    )
-    RETURNING id;
-    `,
-    [input.userId, input.actionType, tokenHash, JSON.stringify(input.payload), input.expiresInHours ?? 24],
-  );
+  const action = await input.tx.accountAction.create({
+    data: {
+      userId: input.userId,
+      actionType: input.actionType,
+      tokenHash,
+      payload: input.payload,
+      status: "pending",
+      expiresAt: new Date(Date.now() + expiresInHours * 3600 * 1000),
+    },
+    select: { id: true },
+  });
 
   return {
-    actionId: result.rows[0].id,
+    actionId: action.id,
     token,
   };
 }
 
-async function findUserByEmail(client: PoolClient, email: string): Promise<UserRow | null> {
-  const result = await client.query<UserRow>(
-    `
-    SELECT id,
-           email,
-           display_name,
-           role,
-           status,
-           deactivated_until::text,
-           created_at::text,
-           updated_at::text
+async function findUserByEmailForUpdate(tx: Prisma.TransactionClient, email: string) {
+  const normalizedEmail = normalizeEmail(email);
+  const rows = await tx.$queryRaw<Array<{
+    id: string;
+    email: string;
+    status: string;
+    deactivated_until: Date | null;
+  }>>`
+    SELECT id, email, status, deactivated_until
     FROM users
-    WHERE email = $1
-    FOR UPDATE;
-    `,
-    [normalizeEmail(email)],
-  );
+    WHERE email = ${normalizedEmail}
+    FOR UPDATE
+  `;
 
-  return result.rows[0] ?? null;
+  return rows[0] ?? null;
 }
 
 async function buildDataExportPayload(userId: string) {
-  const userResult = await query<UserRow>(
-    `
-    SELECT id,
-           email,
-           display_name,
-           role,
-           status,
-           deactivated_until::text,
-           created_at::text,
-           updated_at::text
-    FROM users
-    WHERE id = $1;
-    `,
-    [userId],
-  );
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      email: true,
+      displayName: true,
+      role: true,
+      status: true,
+      deactivatedUntil: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
 
-  const contextsResult = await query<ChatContextRow>(
-    `
-    SELECT id, name, created_at::text
-    FROM chat_contexts
-    WHERE owner_id = $1
-    ORDER BY created_at ASC;
-    `,
-    [userId],
-  );
+  const contexts = await prisma.chatContext.findMany({
+    where: { ownerId: userId },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true, createdAt: true },
+  });
 
-  const itemsResult = await query<ChatItemRow>(
-    `
-    SELECT id, chat_context_id, role, created_at::text
-    FROM chat_items
-    WHERE owner_id = $1
-    ORDER BY created_at ASC;
-    `,
-    [userId],
-  );
+  const items = await prisma.chatItem.findMany({
+    where: { ownerId: userId },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, chatContextId: true, role: true, createdAt: true },
+  });
 
   return {
     exportedAt: new Date().toISOString(),
-    user: userResult.rows[0] ?? null,
-    chatContexts: contextsResult.rows,
-    chatItems: itemsResult.rows,
+    user: user
+      ? {
+          id: user.id,
+          email: user.email,
+          display_name: user.displayName,
+          role: user.role,
+          status: user.status,
+          deactivated_until: user.deactivatedUntil?.toISOString() ?? null,
+          created_at: user.createdAt.toISOString(),
+          updated_at: user.updatedAt.toISOString(),
+        }
+      : null,
+    chatContexts: contexts.map((c) => ({
+      id: c.id,
+      name: c.name,
+      created_at: c.createdAt.toISOString(),
+    })),
+    chatItems: items.map((i) => ({
+      id: i.id,
+      chat_context_id: i.chatContextId,
+      role: i.role,
+      created_at: i.createdAt.toISOString(),
+    })),
     totals: {
-      chatContexts: contextsResult.rows.length,
-      chatItems: itemsResult.rows.length,
+      chatContexts: contexts.length,
+      chatItems: items.length,
     },
   };
 }
@@ -200,32 +161,22 @@ export async function requestPasswordReset(input: {
   }
 
   const passwordHash = await hashPassword(input.newPassword);
-  const client = await pool.connect();
 
-  try {
-    await client.query("BEGIN");
-    const action = await createAccountAction({
-      client,
+  const action = await prisma.$transaction(async (tx) => {
+    return createAccountAction({
+      tx,
       userId: input.userId,
       actionType: "password_reset",
-      payload: {
-        passwordHash,
-      },
+      payload: { passwordHash },
     });
-    await client.query("COMMIT");
+  });
 
-    const confirmationUrl = appUrl(`/profile/actions/confirm?token=${encodeURIComponent(action.token)}`);
-    await emailService.sendTransactionalEmail({
-      to: input.email,
-      subject: "Confirm your password reset",
-      text: `Confirm your password reset request: ${confirmationUrl}`,
-    });
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  const confirmationUrl = appUrl(`/profile/actions/confirm?token=${encodeURIComponent(action.token)}`);
+  await emailService.sendTransactionalEmail({
+    to: input.email,
+    subject: "Confirm your password reset",
+    text: `Confirm your password reset request: ${confirmationUrl}`,
+  });
 }
 
 export async function requestEmailChange(input: {
@@ -242,102 +193,69 @@ export async function requestEmailChange(input: {
     throw new AccountLifecycleError("New email must be different from current email", 400);
   }
 
-  const client = await pool.connect();
+  const action = await prisma.$transaction(async (tx) => {
+    const existingUser = await tx.user.findFirst({
+      where: {
+        email: normalizedNewEmail,
+        id: { not: input.userId },
+      },
+      select: { id: true },
+    });
 
-  try {
-    await client.query("BEGIN");
-    const existingEmailResult = await client.query<{ id: string }>(
-      `
-      SELECT id
-      FROM users
-      WHERE email = $1
-        AND id <> $2
-      LIMIT 1;
-      `,
-      [normalizedNewEmail, input.userId],
-    );
-
-    if (existingEmailResult.rows[0]) {
+    if (existingUser) {
       throw new AccountLifecycleError("Email is already in use", 409);
     }
 
-    const action = await createAccountAction({
-      client,
+    return createAccountAction({
+      tx,
       userId: input.userId,
       actionType: "email_change",
-      payload: {
-        newEmail: normalizedNewEmail,
-      },
+      payload: { newEmail: normalizedNewEmail },
     });
+  });
 
-    await client.query("COMMIT");
-
-    const confirmationUrl = appUrl(`/profile/actions/confirm?token=${encodeURIComponent(action.token)}`);
-    await emailService.sendTransactionalEmail({
-      to: normalizedNewEmail,
-      subject: "Confirm your email change",
-      text: `Confirm your new email address by opening: ${confirmationUrl}`,
-    });
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  const confirmationUrl = appUrl(`/profile/actions/confirm?token=${encodeURIComponent(action.token)}`);
+  await emailService.sendTransactionalEmail({
+    to: normalizedNewEmail,
+    subject: "Confirm your email change",
+    text: `Confirm your new email address by opening: ${confirmationUrl}`,
+  });
 }
 
 export async function requestDataExport(input: { userId: string; email: string }) {
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-    const action = await createAccountAction({
-      client,
+  const action = await prisma.$transaction(async (tx) => {
+    return createAccountAction({
+      tx,
       userId: input.userId,
       actionType: "data_export",
       payload: {},
     });
-    await client.query("COMMIT");
+  });
 
-    const confirmationUrl = appUrl(`/profile/actions/confirm?token=${encodeURIComponent(action.token)}`);
-    await emailService.sendTransactionalEmail({
-      to: input.email,
-      subject: "Confirm your data export",
-      text: `Confirm your data export request: ${confirmationUrl}`,
-    });
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  const confirmationUrl = appUrl(`/profile/actions/confirm?token=${encodeURIComponent(action.token)}`);
+  await emailService.sendTransactionalEmail({
+    to: input.email,
+    subject: "Confirm your data export",
+    text: `Confirm your data export request: ${confirmationUrl}`,
+  });
 }
 
 export async function requestAccountDelete(input: { userId: string; email: string }) {
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-    const action = await createAccountAction({
-      client,
+  const action = await prisma.$transaction(async (tx) => {
+    return createAccountAction({
+      tx,
       userId: input.userId,
       actionType: "account_delete",
       payload: {},
     });
-    await client.query("COMMIT");
+  });
 
-    const confirmationUrl = appUrl(`/profile/actions/confirm?token=${encodeURIComponent(action.token)}`);
-    await emailService.sendTransactionalEmail({
-      to: input.email,
-      subject: "Confirm your account deletion",
-      text: `Confirm account deletion. Your account will be deactivated for 30 days: ${confirmationUrl}`,
-    });
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  const confirmationUrl = appUrl(`/profile/actions/confirm?token=${encodeURIComponent(action.token)}`);
+  await emailService.sendTransactionalEmail({
+    to: input.email,
+    subject: "Confirm your account deletion",
+    text: `Confirm account deletion. Your account will be deactivated for 30 days: ${confirmationUrl}`,
+  });
 }
 
 export async function requestAccountReactivation(input: { email: string }) {
@@ -346,70 +264,32 @@ export async function requestAccountReactivation(input: { email: string }) {
     return;
   }
 
-  const client = await pool.connect();
+  const action = await prisma.$transaction(async (tx) => {
+    const user = await findUserByEmailForUpdate(tx, normalizedEmail);
+    if (!user) return null;
 
-  try {
-    await client.query("BEGIN");
-    const user = await findUserByEmail(client, normalizedEmail);
-    if (!user) {
-      await client.query("COMMIT");
-      return;
+    if (user.status !== "deactivated") return null;
+
+    if (user.deactivated_until && user.deactivated_until.getTime() < Date.now()) {
+      return null;
     }
 
-    if (user.status !== "deactivated") {
-      await client.query("COMMIT");
-      return;
-    }
-
-    if (user.deactivated_until && Date.parse(user.deactivated_until) < Date.now()) {
-      await client.query("COMMIT");
-      return;
-    }
-
-    const action = await createAccountAction({
-      client,
+    return createAccountAction({
+      tx,
       userId: user.id,
       actionType: "account_reactivate",
       payload: {},
     });
+  });
 
-    await client.query("COMMIT");
+  if (!action) return;
 
-    const confirmationUrl = appUrl(`/profile/actions/confirm?token=${encodeURIComponent(action.token)}`);
-    await emailService.sendTransactionalEmail({
-      to: normalizedEmail,
-      subject: "Confirm your account reactivation",
-      text: `Confirm account reactivation: ${confirmationUrl}`,
-    });
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
-async function markActionCompleted(client: PoolClient, actionId: string) {
-  await client.query(
-    `
-    UPDATE account_actions
-    SET status = 'completed',
-        completed_at = NOW()
-    WHERE id = $1;
-    `,
-    [actionId],
-  );
-}
-
-async function markActionExpired(client: PoolClient, actionId: string) {
-  await client.query(
-    `
-    UPDATE account_actions
-    SET status = 'expired'
-    WHERE id = $1;
-    `,
-    [actionId],
-  );
+  const confirmationUrl = appUrl(`/profile/actions/confirm?token=${encodeURIComponent(action.token)}`);
+  await emailService.sendTransactionalEmail({
+    to: normalizedEmail,
+    subject: "Confirm your account reactivation",
+    text: `Confirm account reactivation: ${confirmationUrl}`,
+  });
 }
 
 function parsePayloadString(payload: Record<string, unknown>, key: string): string | null {
@@ -426,39 +306,36 @@ export async function confirmAccountAction(rawToken: string) {
   }
 
   const tokenHash = hashToken(rawToken);
-  const client = await pool.connect();
 
-  let confirmedActionType: AccountActionType | null = null;
-  let targetUserId: string | null = null;
-  let targetEmail: string | null = null;
-  let shouldSendDataExport = false;
-
-  try {
-    await client.query("BEGIN");
-
-    const result = await client.query<ConfirmActionRow>(
-      `
+  const result = await prisma.$transaction(async (tx) => {
+    // FOR UPDATE lock on the action + user join
+    const rows = await tx.$queryRaw<Array<{
+      id: string;
+      user_id: string;
+      action_type: string;
+      payload: Record<string, unknown>;
+      status: string;
+      expires_at: Date | null;
+      email: string;
+      user_status: string;
+      user_deactivated_until: Date | null;
+    }>>`
       SELECT a.id,
              a.user_id,
              a.action_type,
-             a.token_hash,
              a.payload,
              a.status,
-             a.expires_at::text,
-             a.completed_at::text,
-             a.created_at::text,
+             a.expires_at,
              u.email,
              u.status AS user_status,
-             u.deactivated_until::text AS user_deactivated_until
+             u.deactivated_until AS user_deactivated_until
       FROM account_actions a
       INNER JOIN users u ON u.id = a.user_id
-      WHERE a.token_hash = $1
-      FOR UPDATE;
-      `,
-      [tokenHash],
-    );
+      WHERE a.token_hash = ${tokenHash}
+      FOR UPDATE
+    `;
 
-    const action = result.rows[0];
+    const action = rows[0];
     if (!action) {
       throw new AccountLifecycleError("Invalid confirmation token", 400);
     }
@@ -467,11 +344,16 @@ export async function confirmAccountAction(rawToken: string) {
       throw new AccountLifecycleError("This token has already been used", 409);
     }
 
-    if (action.expires_at && Date.parse(action.expires_at) < Date.now()) {
-      await markActionExpired(client, action.id);
-      await client.query("COMMIT");
-      throw new AccountLifecycleError("This confirmation token has expired", 400);
+    if (action.expires_at && action.expires_at.getTime() < Date.now()) {
+      await tx.accountAction.update({
+        where: { id: action.id },
+        data: { status: "expired" },
+      });
+      // Return sentinel — we want this status change committed, then throw after tx
+      return { type: "expired" as const };
     }
+
+    let emailOverride: string | null = null;
 
     switch (action.action_type) {
       case "password_reset": {
@@ -480,15 +362,10 @@ export async function confirmAccountAction(rawToken: string) {
           throw new AccountLifecycleError("Invalid password reset payload", 400);
         }
 
-        await client.query(
-          `
-          UPDATE users
-          SET password_hash = $2,
-              updated_at = NOW()
-          WHERE id = $1;
-          `,
-          [action.user_id, passwordHashFromPayload],
-        );
+        await tx.user.update({
+          where: { id: action.user_id },
+          data: { passwordHash: passwordHashFromPayload, updatedAt: new Date() },
+        });
         break;
       }
 
@@ -499,51 +376,40 @@ export async function confirmAccountAction(rawToken: string) {
         }
 
         const normalizedNextEmail = normalizeEmail(nextEmail);
-        const existingEmailResult = await client.query<{ id: string }>(
-          `
-          SELECT id
-          FROM users
-          WHERE email = $1
-            AND id <> $2
-          LIMIT 1;
-          `,
-          [normalizedNextEmail, action.user_id],
-        );
+        const existingUser = await tx.user.findFirst({
+          where: {
+            email: normalizedNextEmail,
+            id: { not: action.user_id },
+          },
+          select: { id: true },
+        });
 
-        if (existingEmailResult.rows[0]) {
+        if (existingUser) {
           throw new AccountLifecycleError("Email is already in use", 409);
         }
 
-        await client.query(
-          `
-          UPDATE users
-          SET email = $2,
-              updated_at = NOW()
-          WHERE id = $1;
-          `,
-          [action.user_id, normalizedNextEmail],
-        );
+        await tx.user.update({
+          where: { id: action.user_id },
+          data: { email: normalizedNextEmail, updatedAt: new Date() },
+        });
 
-        targetEmail = normalizedNextEmail;
+        emailOverride = normalizedNextEmail;
         break;
       }
 
       case "data_export": {
-        shouldSendDataExport = true;
         break;
       }
 
       case "account_delete": {
-        await client.query(
-          `
-          UPDATE users
-          SET status = 'deactivated',
-              deactivated_until = NOW() + INTERVAL '30 days',
-              updated_at = NOW()
-          WHERE id = $1;
-          `,
-          [action.user_id],
-        );
+        await tx.user.update({
+          where: { id: action.user_id },
+          data: {
+            status: "deactivated",
+            deactivatedUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            updatedAt: new Date(),
+          },
+        });
         break;
       }
 
@@ -552,55 +418,58 @@ export async function confirmAccountAction(rawToken: string) {
           throw new AccountLifecycleError("Account is not deactivated", 409);
         }
 
-        if (action.user_deactivated_until && Date.parse(action.user_deactivated_until) < Date.now()) {
+        if (action.user_deactivated_until && action.user_deactivated_until.getTime() < Date.now()) {
           throw new AccountLifecycleError("Reactivation window has expired", 409);
         }
 
-        await client.query(
-          `
-          UPDATE users
-          SET status = 'active',
-              deactivated_until = NULL,
-              updated_at = NOW()
-          WHERE id = $1;
-          `,
-          [action.user_id],
-        );
+        await tx.user.update({
+          where: { id: action.user_id },
+          data: {
+            status: "active",
+            deactivatedUntil: null,
+            updatedAt: new Date(),
+          },
+        });
         break;
       }
     }
 
-    await markActionCompleted(client, action.id);
-    await client.query("COMMIT");
+    await tx.accountAction.update({
+      where: { id: action.id },
+      data: { status: "completed", completedAt: new Date() },
+    });
 
-    confirmedActionType = action.action_type;
-    targetUserId = action.user_id;
-    targetEmail = targetEmail ?? action.email;
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
+    return {
+      type: "completed" as const,
+      actionType: action.action_type as AccountActionType,
+      userId: action.user_id,
+      email: emailOverride ?? action.email,
+      shouldSendDataExport: action.action_type === "data_export",
+    };
+  });
+
+  if (result.type === "expired") {
+    throw new AccountLifecycleError("This confirmation token has expired", 400);
   }
 
-  if (confirmedActionType === "account_delete" && targetUserId) {
-    await notificationService.publishToUser(targetUserId, "account.status.changed", {
+  if (result.actionType === "account_delete") {
+    await notificationService.publishToUser(result.userId, "account.status.changed", {
       action: "deactivated",
       changedBy: "self",
     });
   }
 
-  if (confirmedActionType === "account_reactivate" && targetUserId) {
-    await notificationService.publishToUser(targetUserId, "account.status.changed", {
+  if (result.actionType === "account_reactivate") {
+    await notificationService.publishToUser(result.userId, "account.status.changed", {
       action: "activated",
       changedBy: "self",
     });
   }
 
-  if (shouldSendDataExport && targetUserId && targetEmail) {
-    const exportPayload = await buildDataExportPayload(targetUserId);
+  if (result.shouldSendDataExport) {
+    const exportPayload = await buildDataExportPayload(result.userId);
     await emailService.sendTransactionalEmail({
-      to: targetEmail,
+      to: result.email,
       subject: "Your data export",
       text: JSON.stringify(exportPayload, null, 2),
     });
@@ -608,6 +477,6 @@ export async function confirmAccountAction(rawToken: string) {
 
   return {
     status: "completed" as const,
-    actionType: confirmedActionType,
+    actionType: result.actionType,
   };
 }

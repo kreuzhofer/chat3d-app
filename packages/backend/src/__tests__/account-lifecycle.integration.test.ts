@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../app.js";
-import { pool, query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { emailService } from "../services/email.service.js";
 
 interface LoginResponse {
@@ -32,24 +32,27 @@ function extractTokenFromText(text: string): string {
 
 async function upsertUser(email: string, password: string): Promise<string> {
   const passwordHash = await bcrypt.hash(password, 12);
-  const result = await query<{ id: string }>(
-    `
-    INSERT INTO users (email, password_hash, display_name, role, status)
-    VALUES ($1, $2, 'Milestone 7 User', 'user', 'active')
-    ON CONFLICT (email)
-    DO UPDATE SET
-      password_hash = EXCLUDED.password_hash,
-      display_name = EXCLUDED.display_name,
-      role = 'user',
-      status = 'active',
-      deactivated_until = NULL,
-      updated_at = NOW()
-    RETURNING id;
-    `,
-    [email, passwordHash],
-  );
+  const user = await prisma.user.upsert({
+    where: { email },
+    create: {
+      email,
+      passwordHash,
+      displayName: "Milestone 7 User",
+      role: "user",
+      status: "active",
+    },
+    update: {
+      passwordHash,
+      displayName: "Milestone 7 User",
+      role: "user",
+      status: "active",
+      deactivatedUntil: null,
+      updatedAt: new Date(),
+    },
+    select: { id: true },
+  });
 
-  return result.rows[0].id;
+  return user.id;
 }
 
 describe("Milestone 7 profile account lifecycle", () => {
@@ -60,13 +63,10 @@ describe("Milestone 7 profile account lifecycle", () => {
   let currentPassword = initialPassword;
 
   beforeAll(async () => {
-    await query(`DELETE FROM notifications WHERE user_id IN (SELECT id FROM users WHERE email = ANY($1::text[]));`, [
-      [initialEmail, changedEmail],
-    ]);
-    await query(`DELETE FROM account_actions WHERE user_id IN (SELECT id FROM users WHERE email = ANY($1::text[]));`, [
-      [initialEmail, changedEmail],
-    ]);
-    await query(`DELETE FROM users WHERE email = ANY($1::text[]);`, [[initialEmail, changedEmail]]);
+    const emails = [initialEmail, changedEmail];
+    await prisma.notification.deleteMany({ where: { user: { email: { in: emails } } } });
+    await prisma.accountAction.deleteMany({ where: { user: { email: { in: emails } } } });
+    await prisma.user.deleteMany({ where: { email: { in: emails } } });
 
     userId = await upsertUser(initialEmail, initialPassword);
 
@@ -80,10 +80,14 @@ describe("Milestone 7 profile account lifecycle", () => {
   });
 
   afterAll(async () => {
-    await query(`DELETE FROM notifications WHERE user_id = $1;`, [userId]);
-    await query(`DELETE FROM account_actions WHERE user_id = $1;`, [userId]);
-    await query(`DELETE FROM users WHERE id = $1 OR email = ANY($2::text[]);`, [userId, [initialEmail, changedEmail]]);
-    await pool.end();
+    await prisma.notification.deleteMany({ where: { userId } });
+    await prisma.accountAction.deleteMany({ where: { userId } });
+    await prisma.user.deleteMany({
+      where: {
+        OR: [{ id: userId }, { email: { in: [initialEmail, changedEmail] } }],
+      },
+    });
+    await prisma.$disconnect();
   });
 
   it("resets password via email-confirmed action", async () => {
@@ -195,17 +199,13 @@ describe("Milestone 7 profile account lifecycle", () => {
     expect(deleteConfirm.status).toBe(200);
     expect(deleteConfirm.body.actionType).toBe("account_delete");
 
-    const userResult = await query<{ status: string; deactivated_until: string | null }>(
-      `
-      SELECT status, deactivated_until::text
-      FROM users
-      WHERE id = $1;
-      `,
-      [userId],
-    );
+    const userResult = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { status: true, deactivatedUntil: true },
+    });
 
-    expect(userResult.rows[0]?.status).toBe("deactivated");
-    expect(userResult.rows[0]?.deactivated_until).not.toBeNull();
+    expect(userResult?.status).toBe("deactivated");
+    expect(userResult?.deactivatedUntil).not.toBeNull();
 
     const blockedLogin = await request(app).post("/api/auth/login").send({
       email: currentEmail,

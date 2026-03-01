@@ -1,4 +1,4 @@
-import { generateText, streamText } from "ai";
+import { generateText, NoOutputGeneratedError, streamText } from "ai";
 import { asQuotaError } from "../utils/llm-errors.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import { withLlmRetry } from "../utils/llm-retry.js";
@@ -242,43 +242,109 @@ async function generateWithConfig(
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
 
+  // Bedrock's synchronous InvokeModel API does not support thinking/reasoning.
+  // When thinking is enabled for a Bedrock model, use streamText (which calls
+  // InvokeModelWithResponseStream) and collect the full output instead.
+  const useFallbackStream = cfg.provider === "bedrock" && cfg.supportsThinking && cfg.thinkingEffort;
+
   logger.info(
-    { provider: cfg.provider, model: cfg.modelName, thinkingEffort: cfg.thinkingEffort, supportsThinking: cfg.supportsThinking, extraOpts },
+    { provider: cfg.provider, model: cfg.modelName, thinkingEffort: cfg.thinkingEffort, supportsThinking: cfg.supportsThinking, useFallbackStream, extraOpts },
     "generateText call options",
   );
 
   const semaphore = getLlmSemaphore(cfg.provider, cfg.maxConcurrent);
   return semaphore.run(() =>
     withLlmRetry(async () => {
-      const result = await generateText({
-        model: providerModel,
-        prompt,
-        ...extraOpts,
-      });
+      let text: string;
+      let reasoningText: string | undefined;
+      let reasoning: unknown[] | undefined;
+      let usage: unknown;
 
-      if (result.reasoningText) {
+      if (useFallbackStream) {
+        // Use streamText via fullStream to work around Bedrock synchronous API limitation
+        // and track both reasoning and text progress.
+        const stream = streamText({
+          model: providerModel,
+          prompt,
+          ...extraOpts,
+        });
+
+        let fullText = "";
+        let reasoningChars = 0;
+        let lastLogLen = 0;
+        let phase: "thinking" | "generating" = "thinking";
+        for await (const part of stream.fullStream) {
+          if (part.type === "reasoning-delta") {
+            reasoningChars += part.text.length;
+            if (reasoningChars - lastLogLen >= 500) {
+              lastLogLen = reasoningChars;
+              logger.debug({ provider: cfg.provider, model: cfg.modelName, reasoningChars }, "thinking progress");
+            }
+          } else if (part.type === "text-delta") {
+            if (phase === "thinking") {
+              phase = "generating";
+              lastLogLen = 0;
+              logger.info({ provider: cfg.provider, model: cfg.modelName, totalReasoningChars: reasoningChars }, "thinking complete, generating text");
+            }
+            fullText += part.text;
+            if (fullText.length - lastLogLen >= 500) {
+              lastLogLen = fullText.length;
+              logger.debug({ provider: cfg.provider, model: cfg.modelName, chars: fullText.length }, "text streaming progress");
+            }
+          }
+        }
+        logger.info({ provider: cfg.provider, model: cfg.modelName, reasoningChars, textChars: fullText.length }, "streaming complete");
+
+        let finalResult;
+        try {
+          finalResult = await stream;
+        } catch (err) {
+          if (err instanceof NoOutputGeneratedError) {
+            throw new LlmServiceError("LLM returned empty output (no text generated)", 502);
+          }
+          throw err;
+        }
+
+        text = fullText;
+        reasoningText = finalResult.reasoningText;
+        reasoning = finalResult.reasoning;
+        usage = finalResult.usage;
+      } else {
+        const result = await generateText({
+          model: providerModel,
+          prompt,
+          ...extraOpts,
+        });
+
+        text = result.text;
+        reasoningText = result.reasoningText;
+        reasoning = result.reasoning;
+        usage = result.usage;
+      }
+
+      if (reasoningText) {
         logger.info(
-          { provider: cfg.provider, model: cfg.modelName, reasoningLength: result.reasoningText.length },
+          { provider: cfg.provider, model: cfg.modelName, reasoningLength: reasoningText.length },
           "thinking output received",
         );
         logger.trace(
-          { provider: cfg.provider, model: cfg.modelName, reasoning: result.reasoningText },
+          { provider: cfg.provider, model: cfg.modelName, reasoning: reasoningText },
           "thinking output content",
         );
       } else {
         logger.debug(
-          { provider: cfg.provider, model: cfg.modelName, reasoningBlocks: result.reasoning?.length ?? 0 },
+          { provider: cfg.provider, model: cfg.modelName, reasoningBlocks: (reasoning as unknown[])?.length ?? 0 },
           "no thinking output in response",
         );
       }
 
-      if (!result.text || result.text.trim() === "") {
+      if (!text || text.trim() === "") {
         throw new LlmServiceError("LLM returned empty output", 502);
       }
 
       return {
-        text: result.text.trim(),
-        usageRaw: result.usage,
+        text: text.trim(),
+        usageRaw: usage,
       };
     }, { provider: cfg.provider }),
   );
@@ -318,7 +384,15 @@ async function streamWithConfig(
         onToken(chunk);
       }
 
-      const finalResult = await result;
+      let finalResult;
+      try {
+        finalResult = await result;
+      } catch (awaitError) {
+        if (awaitError instanceof NoOutputGeneratedError) {
+          throw new LlmServiceError("LLM returned empty output (no text generated)", 502);
+        }
+        throw awaitError;
+      }
 
       if (finalResult.reasoningText) {
         logger.info(
@@ -345,6 +419,9 @@ async function streamWithConfig(
         usageRaw: finalResult.usage,
       };
     } catch (error) {
+      if (error instanceof NoOutputGeneratedError) {
+        throw new LlmServiceError("LLM returned empty output (no text generated)", 502);
+      }
       const quotaError = asQuotaError(error, cfg.provider);
       if (quotaError) throw quotaError;
       throw error;

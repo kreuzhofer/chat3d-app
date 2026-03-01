@@ -14,7 +14,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createXai } from "@ai-sdk/xai";
 import { createMinimax } from "vercel-minimax-ai-provider";
-import { pool } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -22,7 +22,7 @@ const logger = createLogger("llm-config");
 
 // ── Types ────────────────────────────────────────────────────────────
 
-/** Raw row from llm_providers table */
+/** API-facing row shape from llm_providers table (snake_case for backward compat) */
 export interface LlmProviderRow {
   name: string;
   display_name: string | null;
@@ -34,7 +34,7 @@ export interface LlmProviderRow {
   updated_at: string;
 }
 
-/** Raw row from llm_models table */
+/** API-facing row shape from llm_models table (snake_case for backward compat) */
 export interface LlmModelRow {
   id: string;
   provider: string;
@@ -139,6 +139,70 @@ function isAdaptiveThinkingModel(modelName: string): boolean {
   return /4[-.]6/.test(modelName);
 }
 
+// ── Prisma → API row mappers ────────────────────────────────────────
+
+interface PrismaProviderShape {
+  name: string;
+  displayName: string | null;
+  apiKey: string | null;
+  endpointUrl: string | null;
+  maxConcurrent: number | null;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+function toProviderRow(p: PrismaProviderShape): LlmProviderRow {
+  return {
+    name: p.name,
+    display_name: p.displayName,
+    api_key: p.apiKey,
+    endpoint_url: p.endpointUrl,
+    max_concurrent: p.maxConcurrent,
+    is_active: p.isActive,
+    created_at: p.createdAt.toISOString(),
+    updated_at: p.updatedAt.toISOString(),
+  };
+}
+
+interface PrismaModelShape {
+  id: string;
+  provider: string;
+  modelName: string;
+  displayName: string | null;
+  costPer1mInput: unknown; // Prisma Decimal
+  costPer1mOutput: unknown; // Prisma Decimal
+  maxOutputTokens: number | null;
+  maxContextTokens: number | null;
+  supportsThinking: boolean;
+  defaultThinkingEffort: string | null;
+  supportsVision: boolean;
+  supportsEmbeddings: boolean;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+function toModelRow(m: PrismaModelShape): LlmModelRow {
+  return {
+    id: m.id,
+    provider: m.provider,
+    model_name: m.modelName,
+    display_name: m.displayName,
+    cost_per_1m_input: Number(m.costPer1mInput),
+    cost_per_1m_output: Number(m.costPer1mOutput),
+    max_output_tokens: m.maxOutputTokens,
+    max_context_tokens: m.maxContextTokens,
+    supports_thinking: m.supportsThinking,
+    default_thinking_effort: m.defaultThinkingEffort,
+    supports_vision: m.supportsVision,
+    supports_embeddings: m.supportsEmbeddings,
+    is_active: m.isActive,
+    created_at: m.createdAt.toISOString(),
+    updated_at: m.updatedAt.toISOString(),
+  };
+}
+
 // ── Model resolution from DB ────────────────────────────────────────
 
 /**
@@ -146,58 +210,49 @@ function isAdaptiveThinkingModel(modelName: string): boolean {
  * Joins llm_purpose_map → llm_models → llm_providers to get full config.
  */
 export async function getModelForPurpose(purpose: string): Promise<LlmModelConfig> {
-  const result = await pool.query<
-    LlmModelRow & LlmPurposeRow & {
-      provider_api_key: string | null;
-      provider_endpoint_url: string | null;
-      provider_max_concurrent: number | null;
-    }
-  >(
-    `SELECT
-       m.*,
-       p.override_max_output_tokens,
-       p.override_thinking_effort,
-       prov.api_key AS provider_api_key,
-       prov.endpoint_url AS provider_endpoint_url,
-       prov.max_concurrent AS provider_max_concurrent
-     FROM llm_purpose_map p
-     JOIN llm_models m ON m.id = p.model_id
-     JOIN llm_providers prov ON prov.name = m.provider
-     WHERE p.purpose = $1`,
-    [purpose],
-  );
+  const purposeMap = await prisma.llmPurposeMap.findUnique({
+    where: { purpose },
+    include: {
+      model: {
+        include: {
+          providerRef: true,
+        },
+      },
+    },
+  });
 
-  if (result.rows.length === 0) {
+  if (!purposeMap) {
     throw new Error(`No model assigned for purpose: ${purpose}. Run model seeder or configure in admin.`);
   }
 
-  const row = result.rows[0];
-  const apiKey = row.provider_api_key?.trim() || null;
+  const model = purposeMap.model;
+  const provider = model.providerRef;
+  const apiKey = provider.apiKey?.trim() || null;
 
-  if (!apiKey && row.provider !== "ollama") {
+  if (!apiKey && provider.name !== "ollama") {
     logger.warn(
-      { purpose, model: `${row.provider}/${row.model_name}` },
+      { purpose, model: `${model.provider}/${model.modelName}` },
       "API key not configured for provider — set it via Admin → Providers",
     );
   }
 
   return {
-    id: row.id,
-    provider: row.provider,
-    modelName: row.model_name,
-    displayName: row.display_name ?? `${row.provider}/${row.model_name}`,
-    label: `${row.provider}/${row.model_name}`,
-    costPer1mInput: Number(row.cost_per_1m_input),
-    costPer1mOutput: Number(row.cost_per_1m_output),
-    maxOutputTokens: row.override_max_output_tokens ?? row.max_output_tokens,
-    maxContextTokens: row.max_context_tokens,
-    supportsThinking: row.supports_thinking,
-    thinkingEffort: row.override_thinking_effort ?? row.default_thinking_effort,
-    supportsVision: row.supports_vision,
-    supportsEmbeddings: row.supports_embeddings,
-    endpointUrl: row.provider_endpoint_url,
+    id: model.id,
+    provider: model.provider,
+    modelName: model.modelName,
+    displayName: model.displayName ?? `${model.provider}/${model.modelName}`,
+    label: `${model.provider}/${model.modelName}`,
+    costPer1mInput: Number(model.costPer1mInput),
+    costPer1mOutput: Number(model.costPer1mOutput),
+    maxOutputTokens: purposeMap.overrideMaxOutputTokens ?? model.maxOutputTokens,
+    maxContextTokens: model.maxContextTokens,
+    supportsThinking: model.supportsThinking,
+    thinkingEffort: purposeMap.overrideThinkingEffort ?? model.defaultThinkingEffort,
+    supportsVision: model.supportsVision,
+    supportsEmbeddings: model.supportsEmbeddings,
+    endpointUrl: provider.endpointUrl,
     apiKey,
-    maxConcurrent: row.provider_max_concurrent ?? null,
+    maxConcurrent: provider.maxConcurrent ?? null,
   };
 }
 
@@ -404,18 +459,17 @@ function roundUsd(value: number): number {
 // ── Provider CRUD (for admin API) ───────────────────────────────────
 
 export async function listAllProviders(): Promise<LlmProviderRow[]> {
-  const result = await pool.query<LlmProviderRow>(
-    `SELECT * FROM llm_providers ORDER BY name`,
-  );
-  return result.rows.map(maskProviderApiKey);
+  const rows = await prisma.llmProvider.findMany({
+    orderBy: { name: "asc" },
+  });
+  return rows.map((r) => maskProviderApiKey(toProviderRow(r)));
 }
 
 export async function getProviderByName(name: string): Promise<LlmProviderRow | null> {
-  const result = await pool.query<LlmProviderRow>(
-    `SELECT * FROM llm_providers WHERE name = $1`,
-    [name],
-  );
-  return result.rows[0] ?? null;
+  const row = await prisma.llmProvider.findUnique({
+    where: { name },
+  });
+  return row ? toProviderRow(row) : null;
 }
 
 export async function createProvider(input: {
@@ -424,63 +478,71 @@ export async function createProvider(input: {
   apiKey?: string | null;
   endpointUrl?: string | null;
 }): Promise<LlmProviderRow> {
-  const result = await pool.query<LlmProviderRow>(
-    `INSERT INTO llm_providers (name, display_name, api_key, endpoint_url)
-     VALUES ($1, $2, $3, $4)
-     RETURNING *`,
-    [input.name, input.displayName ?? null, input.apiKey ?? null, input.endpointUrl ?? null],
-  );
-  return maskProviderApiKey(result.rows[0]);
+  const row = await prisma.llmProvider.create({
+    data: {
+      name: input.name,
+      displayName: input.displayName ?? null,
+      apiKey: input.apiKey ?? null,
+      endpointUrl: input.endpointUrl ?? null,
+    },
+  });
+  return maskProviderApiKey(toProviderRow(row));
 }
 
 export async function updateProvider(
   name: string,
   patch: Record<string, unknown>,
 ): Promise<LlmProviderRow | null> {
-  const ALLOWED_COLUMNS: Record<string, string> = {
-    displayName: "display_name",
-    apiKey: "api_key",
-    endpointUrl: "endpoint_url",
-    maxConcurrent: "max_concurrent",
-    isActive: "is_active",
+  const ALLOWED_KEYS: Record<string, string> = {
+    displayName: "displayName",
+    apiKey: "apiKey",
+    endpointUrl: "endpointUrl",
+    maxConcurrent: "maxConcurrent",
+    isActive: "isActive",
   };
 
-  const setClauses: string[] = [];
-  const values: unknown[] = [];
-  let paramIdx = 1;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: Record<string, any> = {};
+  let hasChanges = false;
 
   for (const [key, value] of Object.entries(patch)) {
-    const column = ALLOWED_COLUMNS[key];
-    if (!column) continue;
-    setClauses.push(`${column} = $${paramIdx}`);
-    values.push(value);
-    paramIdx++;
+    const prismaKey = ALLOWED_KEYS[key];
+    if (!prismaKey) continue;
+    data[prismaKey] = value;
+    hasChanges = true;
   }
 
-  if (setClauses.length === 0) return getProviderByName(name);
+  if (!hasChanges) return getProviderByName(name);
 
-  setClauses.push(`updated_at = NOW()`);
-  values.push(name);
+  data.updatedAt = new Date();
 
-  const result = await pool.query<LlmProviderRow>(
-    `UPDATE llm_providers SET ${setClauses.join(", ")} WHERE name = $${paramIdx} RETURNING *`,
-    values,
-  );
-  return result.rows[0] ? maskProviderApiKey(result.rows[0]) : null;
+  try {
+    const row = await prisma.llmProvider.update({
+      where: { name },
+      data,
+    });
+    return maskProviderApiKey(toProviderRow(row));
+  } catch {
+    return null;
+  }
 }
 
 export async function deleteProvider(name: string): Promise<boolean> {
   // Check if any models reference this provider
-  const modelCheck = await pool.query(
-    `SELECT id FROM llm_models WHERE provider = $1 LIMIT 1`,
-    [name],
-  );
-  if (modelCheck.rows.length > 0) {
+  const modelCount = await prisma.llmModel.count({
+    where: { provider: name },
+  });
+
+  if (modelCount > 0) {
     throw new Error(`Cannot delete provider: models still reference it`);
   }
 
-  const result = await pool.query(`DELETE FROM llm_providers WHERE name = $1`, [name]);
-  return (result.rowCount ?? 0) > 0;
+  try {
+    await prisma.llmProvider.delete({ where: { name } });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -498,18 +560,17 @@ function maskProviderApiKey(row: LlmProviderRow): LlmProviderRow {
 // ── Model CRUD (for admin API) ──────────────────────────────────────
 
 export async function listAllModels(): Promise<LlmModelRow[]> {
-  const result = await pool.query<LlmModelRow>(
-    `SELECT * FROM llm_models ORDER BY provider, model_name`,
-  );
-  return result.rows;
+  const rows = await prisma.llmModel.findMany({
+    orderBy: [{ provider: "asc" }, { modelName: "asc" }],
+  });
+  return rows.map(toModelRow);
 }
 
 export async function getModelById(id: string): Promise<LlmModelRow | null> {
-  const result = await pool.query<LlmModelRow>(
-    `SELECT * FROM llm_models WHERE id = $1`,
-    [id],
-  );
-  return result.rows[0] ?? null;
+  const row = await prisma.llmModel.findUnique({
+    where: { id },
+  });
+  return row ? toModelRow(row) : null;
 }
 
 export async function createModel(input: {
@@ -525,121 +586,114 @@ export async function createModel(input: {
   supportsVision?: boolean;
   supportsEmbeddings?: boolean;
 }): Promise<LlmModelRow> {
-  const result = await pool.query<LlmModelRow>(
-    `INSERT INTO llm_models (
-       provider, model_name, display_name,
-       cost_per_1m_input, cost_per_1m_output,
-       max_output_tokens, max_context_tokens,
-       supports_thinking, default_thinking_effort,
-       supports_vision, supports_embeddings
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-     RETURNING *`,
-    [
-      input.provider,
-      input.modelName,
-      input.displayName ?? null,
-      input.costPer1mInput ?? 0,
-      input.costPer1mOutput ?? 0,
-      input.maxOutputTokens ?? null,
-      input.maxContextTokens ?? null,
-      input.supportsThinking ?? false,
-      input.defaultThinkingEffort ?? null,
-      input.supportsVision ?? false,
-      input.supportsEmbeddings ?? false,
-    ],
-  );
-  return result.rows[0];
+  const row = await prisma.llmModel.create({
+    data: {
+      provider: input.provider,
+      modelName: input.modelName,
+      displayName: input.displayName ?? null,
+      costPer1mInput: input.costPer1mInput ?? 0,
+      costPer1mOutput: input.costPer1mOutput ?? 0,
+      maxOutputTokens: input.maxOutputTokens ?? null,
+      maxContextTokens: input.maxContextTokens ?? null,
+      supportsThinking: input.supportsThinking ?? false,
+      defaultThinkingEffort: input.defaultThinkingEffort ?? null,
+      supportsVision: input.supportsVision ?? false,
+      supportsEmbeddings: input.supportsEmbeddings ?? false,
+    },
+  });
+  return toModelRow(row);
 }
 
 export async function updateModel(
   id: string,
   patch: Record<string, unknown>,
 ): Promise<LlmModelRow | null> {
-  const ALLOWED_COLUMNS: Record<string, string> = {
+  const ALLOWED_KEYS: Record<string, string> = {
     provider: "provider",
-    modelName: "model_name",
-    displayName: "display_name",
-    costPer1mInput: "cost_per_1m_input",
-    costPer1mOutput: "cost_per_1m_output",
-    maxOutputTokens: "max_output_tokens",
-    maxContextTokens: "max_context_tokens",
-    supportsThinking: "supports_thinking",
-    defaultThinkingEffort: "default_thinking_effort",
-    supportsVision: "supports_vision",
-    supportsEmbeddings: "supports_embeddings",
-    isActive: "is_active",
+    modelName: "modelName",
+    displayName: "displayName",
+    costPer1mInput: "costPer1mInput",
+    costPer1mOutput: "costPer1mOutput",
+    maxOutputTokens: "maxOutputTokens",
+    maxContextTokens: "maxContextTokens",
+    supportsThinking: "supportsThinking",
+    defaultThinkingEffort: "defaultThinkingEffort",
+    supportsVision: "supportsVision",
+    supportsEmbeddings: "supportsEmbeddings",
+    isActive: "isActive",
   };
 
-  const setClauses: string[] = [];
-  const values: unknown[] = [];
-  let paramIdx = 1;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: Record<string, any> = {};
+  let hasChanges = false;
 
   for (const [key, value] of Object.entries(patch)) {
-    const column = ALLOWED_COLUMNS[key];
-    if (!column) continue;
-    setClauses.push(`${column} = $${paramIdx}`);
-    values.push(value);
-    paramIdx++;
+    const prismaKey = ALLOWED_KEYS[key];
+    if (!prismaKey) continue;
+    data[prismaKey] = value;
+    hasChanges = true;
   }
 
-  if (setClauses.length === 0) return getModelById(id);
+  if (!hasChanges) return getModelById(id);
 
-  setClauses.push(`updated_at = NOW()`);
-  values.push(id);
+  data.updatedAt = new Date();
 
-  const result = await pool.query<LlmModelRow>(
-    `UPDATE llm_models SET ${setClauses.join(", ")} WHERE id = $${paramIdx} RETURNING *`,
-    values,
-  );
-  return result.rows[0] ?? null;
+  try {
+    const row = await prisma.llmModel.update({
+      where: { id },
+      data,
+    });
+    return toModelRow(row);
+  } catch {
+    return null;
+  }
 }
 
 export async function deleteModel(id: string): Promise<boolean> {
   // Check if model is assigned to any purpose
-  const purposeCheck = await pool.query(
-    `SELECT purpose FROM llm_purpose_map WHERE model_id = $1`,
-    [id],
-  );
-  if (purposeCheck.rows.length > 0) {
-    const purposes = purposeCheck.rows.map((r: { purpose: string }) => r.purpose).join(", ");
-    throw new Error(`Cannot delete model: still assigned to purposes: ${purposes}`);
+  const purposes = await prisma.llmPurposeMap.findMany({
+    where: { modelId: id },
+    select: { purpose: true },
+  });
+
+  if (purposes.length > 0) {
+    const purposeNames = purposes.map((r) => r.purpose).join(", ");
+    throw new Error(`Cannot delete model: still assigned to purposes: ${purposeNames}`);
   }
 
-  const result = await pool.query(`DELETE FROM llm_models WHERE id = $1`, [id]);
-  return (result.rowCount ?? 0) > 0;
+  try {
+    await prisma.llmModel.delete({ where: { id } });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ── Purpose assignment CRUD ─────────────────────────────────────────
 
 export async function listPurposeAssignments(): Promise<PurposeAssignment[]> {
-  const result = await pool.query<{
-    id: string;
-    purpose: string;
-    model_id: string;
-    override_max_output_tokens: number | null;
-    override_thinking_effort: string | null;
-    display_name: string | null;
-    provider: string;
-    model_name: string;
-  }>(
-    `SELECT
-       p.id, p.purpose, p.model_id,
-       p.override_max_output_tokens, p.override_thinking_effort,
-       m.display_name, m.provider, m.model_name
-     FROM llm_purpose_map p
-     JOIN llm_models m ON m.id = p.model_id
-     ORDER BY p.purpose`,
-  );
+  const rows = await prisma.llmPurposeMap.findMany({
+    include: {
+      model: {
+        select: {
+          displayName: true,
+          provider: true,
+          modelName: true,
+        },
+      },
+    },
+    orderBy: { purpose: "asc" },
+  });
 
-  return result.rows.map((row) => ({
+  return rows.map((row) => ({
     id: row.id,
     purpose: row.purpose,
-    modelId: row.model_id,
-    modelDisplayName: row.display_name ?? `${row.provider}/${row.model_name}`,
-    modelProvider: row.provider,
-    modelModelName: row.model_name,
-    overrideMaxOutputTokens: row.override_max_output_tokens,
-    overrideThinkingEffort: row.override_thinking_effort,
+    modelId: row.modelId,
+    modelDisplayName: row.model.displayName ?? `${row.model.provider}/${row.model.modelName}`,
+    modelProvider: row.model.provider,
+    modelModelName: row.model.modelName,
+    overrideMaxOutputTokens: row.overrideMaxOutputTokens,
+    overrideThinkingEffort: row.overrideThinkingEffort,
   }));
 }
 
@@ -651,35 +705,35 @@ export async function updatePurposeAssignment(
     overrideThinkingEffort?: string | null;
   },
 ): Promise<PurposeAssignment | null> {
-  const setClauses: string[] = [];
-  const values: unknown[] = [];
-  let paramIdx = 1;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: Record<string, any> = {};
+  let hasChanges = false;
 
   if (patch.modelId !== undefined) {
-    setClauses.push(`model_id = $${paramIdx}`);
-    values.push(patch.modelId);
-    paramIdx++;
+    data.modelId = patch.modelId;
+    hasChanges = true;
   }
   if (patch.overrideMaxOutputTokens !== undefined) {
-    setClauses.push(`override_max_output_tokens = $${paramIdx}`);
-    values.push(patch.overrideMaxOutputTokens);
-    paramIdx++;
+    data.overrideMaxOutputTokens = patch.overrideMaxOutputTokens;
+    hasChanges = true;
   }
   if (patch.overrideThinkingEffort !== undefined) {
-    setClauses.push(`override_thinking_effort = $${paramIdx}`);
-    values.push(patch.overrideThinkingEffort);
-    paramIdx++;
+    data.overrideThinkingEffort = patch.overrideThinkingEffort;
+    hasChanges = true;
   }
 
-  if (setClauses.length === 0) return null;
+  if (!hasChanges) return null;
 
-  setClauses.push(`updated_at = NOW()`);
-  values.push(purpose);
+  data.updatedAt = new Date();
 
-  await pool.query(
-    `UPDATE llm_purpose_map SET ${setClauses.join(", ")} WHERE purpose = $${paramIdx}`,
-    values,
-  );
+  try {
+    await prisma.llmPurposeMap.update({
+      where: { purpose },
+      data,
+    });
+  } catch {
+    return null;
+  }
 
   // Return the updated assignment with joined model info
   const assignments = await listPurposeAssignments();

@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../app.js";
-import { pool, query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { emailService } from "../services/email.service.js";
 
 interface LoginResponse {
@@ -18,10 +18,10 @@ interface LoginResponse {
 
 interface InvitationRow {
   id: string;
-  inviter_user_id: string;
-  invitee_email: string;
+  inviterUserId: string;
+  inviteeEmail: string;
   status: "pending" | "waitlisted" | "registration_sent" | "accepted" | "expired" | "revoked";
-  registration_token_id: string | null;
+  registrationTokenId: string | null;
 }
 
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -33,23 +33,28 @@ const inviteEmailC = `m5-c-${suffix}@example.test`;
 const inviteEmailD = `m5-d-${suffix}@example.test`;
 const inviteEmailE = `m5-e-${suffix}@example.test`;
 
+const allInviteEmails = [inviteEmailA, inviteEmailB, inviteEmailC, inviteEmailD, inviteEmailE];
+
 async function insertUser(email: string): Promise<string> {
   const passwordHash = await bcrypt.hash(password, 12);
-  const result = await query<{ id: string }>(
-    `
-    INSERT INTO users (email, password_hash, display_name, role, status)
-    VALUES ($1, $2, 'Milestone 5 Inviter', 'user', 'active')
-    ON CONFLICT (email)
-    DO UPDATE SET
-      password_hash = EXCLUDED.password_hash,
-      status = 'active',
-      updated_at = NOW()
-    RETURNING id;
-    `,
-    [email, passwordHash],
-  );
+  const user = await prisma.user.upsert({
+    where: { email },
+    create: {
+      email,
+      passwordHash,
+      displayName: "Milestone 5 Inviter",
+      role: "user",
+      status: "active",
+    },
+    update: {
+      passwordHash,
+      status: "active",
+      updatedAt: new Date(),
+    },
+    select: { id: true },
+  });
 
-  return result.rows[0].id;
+  return user.id;
 }
 
 async function setInvitationSettings(input: {
@@ -58,27 +63,24 @@ async function setInvitationSettings(input: {
   waitlistRequired: boolean;
   waitlistEnabled?: boolean;
 }) {
-  await query(
-    `
-    INSERT INTO app_settings (
-      id,
-      waitlist_enabled,
-      invitations_enabled,
-      invitation_waitlist_required,
-      invitation_quota_per_user,
-      updated_at
-    )
-    VALUES (TRUE, $1, $2, $3, $4, NOW())
-    ON CONFLICT (id)
-    DO UPDATE SET
-      waitlist_enabled = EXCLUDED.waitlist_enabled,
-      invitations_enabled = EXCLUDED.invitations_enabled,
-      invitation_waitlist_required = EXCLUDED.invitation_waitlist_required,
-      invitation_quota_per_user = EXCLUDED.invitation_quota_per_user,
-      updated_at = NOW();
-    `,
-    [input.waitlistEnabled ?? false, input.enabled, input.waitlistRequired, input.quota],
-  );
+  await prisma.appSettings.upsert({
+    where: { id: true },
+    create: {
+      id: true,
+      waitlistEnabled: input.waitlistEnabled ?? false,
+      invitationsEnabled: input.enabled,
+      invitationWaitlistRequired: input.waitlistRequired,
+      invitationQuotaPerUser: input.quota,
+      updatedAt: new Date(),
+    },
+    update: {
+      waitlistEnabled: input.waitlistEnabled ?? false,
+      invitationsEnabled: input.enabled,
+      invitationWaitlistRequired: input.waitlistRequired,
+      invitationQuotaPerUser: input.quota,
+      updatedAt: new Date(),
+    },
+  });
 }
 
 describe("Milestone 5 invitations and policy controls", () => {
@@ -87,16 +89,10 @@ describe("Milestone 5 invitations and policy controls", () => {
   let inviterToken = "";
 
   beforeAll(async () => {
-    await query(`DELETE FROM invitations WHERE invitee_email = ANY($1::text[]);`, [
-      [inviteEmailA, inviteEmailB, inviteEmailC, inviteEmailD, inviteEmailE],
-    ]);
-    await query(`DELETE FROM registration_tokens WHERE email = ANY($1::text[]);`, [
-      [inviteEmailA, inviteEmailB, inviteEmailC, inviteEmailD, inviteEmailE],
-    ]);
-    await query(`DELETE FROM waitlist_entries WHERE email = ANY($1::text[]);`, [
-      [inviteEmailA, inviteEmailB, inviteEmailC, inviteEmailD, inviteEmailE],
-    ]);
-    await query(`DELETE FROM users WHERE email = $1;`, [inviterEmail]);
+    await prisma.invitation.deleteMany({ where: { inviteeEmail: { in: allInviteEmails } } });
+    await prisma.registrationToken.deleteMany({ where: { email: { in: allInviteEmails } } });
+    await prisma.waitlistEntry.deleteMany({ where: { email: { in: allInviteEmails } } });
+    await prisma.user.deleteMany({ where: { email: inviterEmail } });
 
     inviterUserId = await insertUser(inviterEmail);
 
@@ -112,19 +108,13 @@ describe("Milestone 5 invitations and policy controls", () => {
   afterAll(async () => {
     await setInvitationSettings({ enabled: true, quota: 3, waitlistRequired: false, waitlistEnabled: false });
 
-    await query(`DELETE FROM invitations WHERE invitee_email = ANY($1::text[]);`, [
-      [inviteEmailA, inviteEmailB, inviteEmailC, inviteEmailD, inviteEmailE],
-    ]);
-    await query(`DELETE FROM registration_tokens WHERE email = ANY($1::text[]);`, [
-      [inviteEmailA, inviteEmailB, inviteEmailC, inviteEmailD, inviteEmailE],
-    ]);
-    await query(`DELETE FROM waitlist_entries WHERE email = ANY($1::text[]);`, [
-      [inviteEmailA, inviteEmailB, inviteEmailC, inviteEmailD, inviteEmailE],
-    ]);
-    await query(`DELETE FROM notifications WHERE user_id = $1;`, [inviterUserId]);
-    await query(`DELETE FROM users WHERE id = $1;`, [inviterUserId]);
+    await prisma.invitation.deleteMany({ where: { inviteeEmail: { in: allInviteEmails } } });
+    await prisma.registrationToken.deleteMany({ where: { email: { in: allInviteEmails } } });
+    await prisma.waitlistEntry.deleteMany({ where: { email: { in: allInviteEmails } } });
+    await prisma.notification.deleteMany({ where: { userId: inviterUserId } });
+    await prisma.user.deleteMany({ where: { id: inviterUserId } });
 
-    await pool.end();
+    await prisma.$disconnect();
   });
 
   it("blocks invitation creation when invitations feature is disabled", async () => {
@@ -140,7 +130,7 @@ describe("Milestone 5 invitations and policy controls", () => {
   });
 
   it("enforces per-user invitation quota", async () => {
-    await query(`DELETE FROM invitations WHERE inviter_user_id = $1;`, [inviterUserId]);
+    await prisma.invitation.deleteMany({ where: { inviterUserId } });
     await setInvitationSettings({ enabled: true, quota: 1, waitlistRequired: false, waitlistEnabled: true });
 
     const first = await request(app)
@@ -161,8 +151,8 @@ describe("Milestone 5 invitations and policy controls", () => {
   });
 
   it("sends direct registration invitation email and emits invitation notification", async () => {
-    await query(`DELETE FROM invitations WHERE inviter_user_id = $1;`, [inviterUserId]);
-    await query(`DELETE FROM notifications WHERE user_id = $1;`, [inviterUserId]);
+    await prisma.invitation.deleteMany({ where: { inviterUserId } });
+    await prisma.notification.deleteMany({ where: { userId: inviterUserId } });
     await setInvitationSettings({ enabled: true, quota: 5, waitlistRequired: false, waitlistEnabled: true });
     emailService.clearSentEmailsForTest();
 
@@ -180,18 +170,15 @@ describe("Milestone 5 invitations and policy controls", () => {
     expect(invitationEmail.to).toBe(inviteEmailC);
     expect(invitationEmail.text).toContain("token=");
 
-    const tokenRows = await query<{ id: string }>(
-      `
-      SELECT id
-      FROM registration_tokens
-      WHERE email = $1
-        AND source = 'user_invite'
-        AND invited_by_user_id = $2;
-      `,
-      [inviteEmailC, inviterUserId],
-    );
+    const tokenCount = await prisma.registrationToken.count({
+      where: {
+        email: inviteEmailC,
+        source: "user_invite",
+        invitedByUserId: inviterUserId,
+      },
+    });
 
-    expect(tokenRows.rows.length).toBe(1);
+    expect(tokenCount).toBe(1);
 
     const replayResponse = await request(app)
       .get("/api/events/replay")
@@ -209,9 +196,9 @@ describe("Milestone 5 invitations and policy controls", () => {
   });
 
   it("routes invited users into waitlist when invitation waitlist policy is enabled", async () => {
-    await query(`DELETE FROM invitations WHERE inviter_user_id = $1;`, [inviterUserId]);
-    await query(`DELETE FROM waitlist_entries WHERE email = $1;`, [inviteEmailD]);
-    await query(`DELETE FROM registration_tokens WHERE email = $1;`, [inviteEmailD]);
+    await prisma.invitation.deleteMany({ where: { inviterUserId } });
+    await prisma.waitlistEntry.deleteMany({ where: { email: inviteEmailD } });
+    await prisma.registrationToken.deleteMany({ where: { email: inviteEmailD } });
 
     await setInvitationSettings({ enabled: true, quota: 5, waitlistRequired: true });
     emailService.clearSentEmailsForTest();
@@ -224,28 +211,21 @@ describe("Milestone 5 invitations and policy controls", () => {
     expect(createResponse.status).toBe(201);
     expect(createResponse.body.invitations[0].status).toBe("waitlisted");
 
-    const waitlistRows = await query<{ status: string }>(
-      `
-      SELECT status
-      FROM waitlist_entries
-      WHERE email = $1;
-      `,
-      [inviteEmailD],
-    );
+    const waitlistEntry = await prisma.waitlistEntry.findUnique({
+      where: { email: inviteEmailD },
+      select: { status: true },
+    });
 
-    expect(waitlistRows.rows[0]?.status).toBe("pending_admin_approval");
+    expect(waitlistEntry?.status).toBe("pending_admin_approval");
 
-    const tokenRows = await query<{ id: string }>(
-      `
-      SELECT id
-      FROM registration_tokens
-      WHERE email = $1
-        AND source = 'user_invite';
-      `,
-      [inviteEmailD],
-    );
+    const tokenCount = await prisma.registrationToken.count({
+      where: {
+        email: inviteEmailD,
+        source: "user_invite",
+      },
+    });
 
-    expect(tokenRows.rows.length).toBe(0);
+    expect(tokenCount).toBe(0);
 
     const sentEmails = emailService.getSentEmailsForTest();
     expect(sentEmails.length).toBeGreaterThan(0);
@@ -253,7 +233,7 @@ describe("Milestone 5 invitations and policy controls", () => {
   });
 
   it("lists and revokes inviter-owned invitations", async () => {
-    await query(`DELETE FROM invitations WHERE inviter_user_id = $1;`, [inviterUserId]);
+    await prisma.invitation.deleteMany({ where: { inviterUserId } });
     await setInvitationSettings({ enabled: true, quota: 5, waitlistRequired: false, waitlistEnabled: true });
 
     const createResponse = await request(app)

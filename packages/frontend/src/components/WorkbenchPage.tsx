@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Database, Download, FolderOpen, Loader2, RefreshCw, Sprout, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Database, Download, FolderOpen, Loader2, RefreshCw, Trash2, Upload } from "lucide-react";
 import {
   backfillEmbeddings,
   deleteTransferJob,
@@ -10,13 +10,11 @@ import {
   getTransferJob,
   listCategories,
   listTransferJobs,
-  seedCategories,
   startFullExport,
   uploadAndImport,
   type BatchJobSummary,
   type EmbeddingStatus,
   type ExportStats,
-  type SeedResult,
   type TransferJob,
   type WorkbenchCategory,
 } from "../api/workbench.api";
@@ -55,7 +53,6 @@ export function WorkbenchPage() {
   const [runningJobs, setRunningJobs] = useState<Map<string, BatchJobSummary>>(new Map());
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [seeding, setSeeding] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
   const [transferJobs, setTransferJobs] = useState<TransferJob[]>([]);
   const [exporting, setExporting] = useState(false);
@@ -219,25 +216,6 @@ export function WorkbenchPage() {
     }
   }, [token]);
 
-  const handleSeed = useCallback(async () => {
-    if (!token) return;
-    setSeeding(true);
-    setError(null);
-    try {
-      const result: SeedResult = await seedCategories(token);
-      pushToast({
-        tone: "success",
-        title: "Seeding complete",
-        description: `${result.categories} categories, ${result.prompts} prompts${result.systemPromptSeeded ? ", system prompt v1" : ""}.`,
-      });
-      await loadData();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSeeding(false);
-    }
-  }, [loadData, pushToast, token]);
-
   const handleBackfill = useCallback(async () => {
     if (!token) return;
     setBackfilling(true);
@@ -298,9 +276,6 @@ export function WorkbenchPage() {
             <Button variant="outline" size="sm" iconLeft={<RefreshCw className="h-3.5 w-3.5" />} loading={isLoading} onClick={() => void loadData()}>
               Refresh
             </Button>
-            <Button variant="outline" size="sm" iconLeft={<Sprout className="h-3.5 w-3.5" />} loading={seeding} onClick={() => void handleSeed()}>
-              Seed from files
-            </Button>
             <Button variant="outline" size="sm" iconLeft={<Database className="h-3.5 w-3.5" />} loading={backfilling} onClick={() => void handleBackfill()} disabled={!embeddingStatus || (embeddingStatus.missing === 0 && embeddingStatus.stale === 0)}>
               Backfill Embeddings{embeddingStatus && (embeddingStatus.missing + embeddingStatus.stale) > 0 ? ` (${embeddingStatus.missing + embeddingStatus.stale})` : ""}
             </Button>
@@ -359,11 +334,7 @@ export function WorkbenchPage() {
       ) : null}
 
       {categories.length === 0 && !isLoading ? (
-        <SectionCard title="No categories" description="Run 'Seed from files' to populate categories and prompts from the workbench directory.">
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Place category Markdown files in <code>workbench/categories/</code> and click the seed button.
-          </p>
-        </SectionCard>
+        <SectionCard title="No categories" description="No workbench categories found. Create categories and prompts via the admin interface." />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {categories.map((cat) => {

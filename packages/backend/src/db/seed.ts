@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { config } from "../config.js";
-import { pool } from "./connection.js";
+import { prisma } from "./prisma.js";
 import { createLogger } from "../utils/logger.js";
 
 const logger = createLogger("seed");
@@ -8,46 +8,40 @@ const logger = createLogger("seed");
 async function seed() {
   const passwordHash = await bcrypt.hash(config.auth.seedAdminPassword, 12);
 
-  const adminResult = await pool.query<{ id: string }>(
-    `
-    INSERT INTO users (email, password_hash, display_name, role, status)
-    VALUES ($1, $2, $3, 'admin', 'active')
-    ON CONFLICT (email)
-    DO UPDATE SET
-      password_hash = EXCLUDED.password_hash,
-      display_name = EXCLUDED.display_name,
-      role = 'admin',
-      status = 'active',
-      updated_at = NOW()
-    RETURNING id;
-    `,
-    [config.auth.seedAdminEmail, passwordHash, config.auth.seedAdminDisplayName],
-  );
+  const admin = await prisma.user.upsert({
+    where: { email: config.auth.seedAdminEmail },
+    update: {
+      passwordHash,
+      displayName: config.auth.seedAdminDisplayName,
+      role: "admin",
+      status: "active",
+      updatedAt: new Date(),
+    },
+    create: {
+      email: config.auth.seedAdminEmail,
+      passwordHash,
+      displayName: config.auth.seedAdminDisplayName,
+      role: "admin",
+      status: "active",
+    },
+    select: { id: true },
+  });
 
-  const adminId = adminResult.rows[0]?.id;
-  if (!adminId) {
-    throw new Error("Failed to seed admin user");
-  }
-
-  await pool.query(
-    `
-    INSERT INTO app_settings (
-      id,
-      waitlist_enabled,
-      invitations_enabled,
-      invitation_waitlist_required,
-      invitation_quota_per_user,
-      updated_by,
-      updated_at
-    )
-    VALUES (TRUE, FALSE, TRUE, FALSE, 3, $1, NOW())
-    ON CONFLICT (id)
-    DO UPDATE SET
-      updated_by = EXCLUDED.updated_by,
-      updated_at = NOW();
-    `,
-    [adminId],
-  );
+  await prisma.appSettings.upsert({
+    where: { id: true },
+    update: {
+      updatedBy: admin.id,
+      updatedAt: new Date(),
+    },
+    create: {
+      id: true,
+      waitlistEnabled: false,
+      invitationsEnabled: true,
+      invitationWaitlistRequired: false,
+      invitationQuotaPerUser: 3,
+      updatedBy: admin.id,
+    },
+  });
 
   logger.info("Admin user seeded: %s", config.auth.seedAdminEmail);
   logger.info("Default app settings seeded");
@@ -55,10 +49,10 @@ async function seed() {
 
 seed()
   .then(async () => {
-    await pool.end();
+    await prisma.$disconnect();
   })
   .catch(async (error) => {
     logger.error({ err: error }, "Seed failed");
-    await pool.end();
+    await prisma.$disconnect();
     process.exit(1);
   });

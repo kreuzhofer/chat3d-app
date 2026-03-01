@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../app.js";
-import { pool, query } from "../db/connection.js";
+import { prisma } from "../db/prisma.js";
 import { notificationService } from "../services/notification.service.js";
 
 interface LoginResponse {
@@ -32,56 +32,48 @@ async function insertUser(
   status: "active" | "deactivated" | "pending_registration",
 ) {
   const passwordHash = await bcrypt.hash(password, 12);
-  const result = await query<{ id: string }>(
-    `
-    INSERT INTO users (email, password_hash, display_name, role, status)
-    VALUES ($1, $2, $3, $4, $5)
-    RETURNING id;
-    `,
-    [email, passwordHash, `${role} test`, role, status],
-  );
-  return result.rows[0].id;
+  const user = await prisma.user.create({
+    data: {
+      email,
+      passwordHash,
+      displayName: `${role} test`,
+      role,
+      status,
+    },
+    select: { id: true },
+  });
+  return user.id;
 }
 
 describe("Milestone 2/3 auth and events integration", () => {
   const app = createApp();
 
   beforeAll(async () => {
-    await query(
-      `
-      UPDATE app_settings
-      SET waitlist_enabled = FALSE,
-          updated_at = NOW()
-      WHERE id = TRUE;
-      `,
-    );
+    await prisma.appSettings.update({
+      where: { id: true },
+      data: { waitlistEnabled: false, updatedAt: new Date() },
+    });
 
-    await query(
-      `
-      DELETE FROM users
-      WHERE email = ANY($1::text[]);
-      `,
-      [[registeredEmail, userEmail, adminEmail, deactivatedEmail]],
-    );
+    const allEmails = [registeredEmail, userEmail, adminEmail, deactivatedEmail];
+    await prisma.user.deleteMany({
+      where: { email: { in: allEmails } },
+    });
 
     userId = await insertUser(userEmail, "user", "active");
     adminId = await insertUser(adminEmail, "admin", "active");
     deactivatedUserId = await insertUser(deactivatedEmail, "user", "deactivated");
 
-    await query(`DELETE FROM notifications WHERE user_id = ANY($1::uuid[]);`, [
-      [userId, adminId, deactivatedUserId],
-    ]);
+    await prisma.notification.deleteMany({
+      where: { userId: { in: [userId, adminId, deactivatedUserId] } },
+    });
   });
 
   afterAll(async () => {
-    await query(
-      `
-      DELETE FROM users
-      WHERE email = ANY($1::text[]);
-      `,
-      [[registeredEmail, userEmail, adminEmail, deactivatedEmail]],
-    );
-    await pool.end();
+    const allEmails = [registeredEmail, userEmail, adminEmail, deactivatedEmail];
+    await prisma.user.deleteMany({
+      where: { email: { in: allEmails } },
+    });
+    await prisma.$disconnect();
   });
 
   it("registers a user with hashed password and issues a token", async () => {
@@ -97,16 +89,12 @@ describe("Milestone 2/3 auth and events integration", () => {
     expect(registerResponse.body.user.role).toBe("user");
     expect(registerResponse.body.user.status).toBe("active");
 
-    const storedUser = await query<{ password_hash: string }>(
-      `
-      SELECT password_hash
-      FROM users
-      WHERE email = $1;
-      `,
-      [registeredEmail],
-    );
+    const storedUser = await prisma.user.findFirst({
+      where: { email: registeredEmail },
+      select: { passwordHash: true },
+    });
 
-    const hash = storedUser.rows[0]?.password_hash;
+    const hash = storedUser?.passwordHash;
     expect(hash).toBeTruthy();
     expect(hash).not.toBe(password);
     expect(await bcrypt.compare(password, hash!)).toBe(true);
@@ -190,7 +178,10 @@ describe("Milestone 2/3 auth and events integration", () => {
     });
     const token = (activeLogin.body as LoginResponse).token;
 
-    await query(`UPDATE users SET status = 'deactivated' WHERE email = $1;`, [userEmail]);
+    await prisma.user.update({
+      where: { email: userEmail },
+      data: { status: "deactivated" },
+    });
 
     const meResponse = await request(app)
       .get("/api/auth/me")
@@ -198,7 +189,10 @@ describe("Milestone 2/3 auth and events integration", () => {
 
     expect(meResponse.status).toBe(403);
 
-    await query(`UPDATE users SET status = 'active' WHERE email = $1;`, [userEmail]);
+    await prisma.user.update({
+      where: { email: userEmail },
+      data: { status: "active" },
+    });
   });
 
   it("rejects unauthorized SSE stream requests", async () => {
