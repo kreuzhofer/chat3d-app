@@ -317,6 +317,24 @@ export function ChatPage() {
     setStreamingAssistantItemId(null);
   }, [activeContext?.chat3dModelId, activeContext?.conversationModelId, activeContextId]);
 
+  // Refresh sidebar when a context is renamed (independent of activeContextId)
+  const lastHandledRenameIdRef = useRef(0);
+  useEffect(() => {
+    if (notifications.length === 0) {
+      return;
+    }
+
+    const hasRename = notifications.some(
+      (n) => n.id > lastHandledRenameIdRef.current && n.eventType === "chat.context.renamed",
+    );
+
+    lastHandledRenameIdRef.current = Math.max(lastHandledRenameIdRef.current, notifications[0].id);
+
+    if (hasRename) {
+      void refreshContexts().catch((loadError) => setError(toErrorMessage(loadError)));
+    }
+  }, [notifications, refreshContexts]);
+
   useEffect(() => {
     if (!activeContextId || notifications.length === 0) {
       return;

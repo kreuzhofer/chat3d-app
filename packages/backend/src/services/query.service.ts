@@ -5,7 +5,7 @@ import { withLlmRetry } from "../utils/llm-retry.js";
 import { query } from "../db/connection.js";
 import { notificationService } from "./notification.service.js";
 import { sseService } from "./sse.service.js";
-import { createChatItem, updateChatItem, ChatError } from "./chat.service.js";
+import { createChatItem, updateChatItem, updateChatContext as updateChatContextService, ChatError } from "./chat.service.js";
 import { FileStorageError, readStorageFile, writeStorageFile } from "./file-storage.service.js";
 import {
   generateConversationText,
@@ -502,6 +502,52 @@ function summarizeArtifacts(generatedFiles: Array<{ path: string; filename: stri
 }
 
 /**
+ * Generate a short (max 5 words) chat name from the user's first prompt.
+ * Fire-and-forget — failures are logged but do not affect the query pipeline.
+ */
+async function generateChatName(input: {
+  userId: string;
+  contextId: string;
+  prompt: string;
+}): Promise<void> {
+  try {
+    const cfg = await getModelForPurpose("conversation");
+    const providerModel = createProviderModelFromConfig(cfg);
+
+    const truncatedPrompt = input.prompt.slice(0, 500);
+    const result = await generateText({
+      model: providerModel,
+      prompt: `Summarize the following user request as a short chat title (maximum 5 words, no quotes, no punctuation at the end):\n\n"${truncatedPrompt}"`,
+      maxTokens: 30,
+    });
+
+    const name = result.text.trim().replace(/^["']|["']$/g, "").slice(0, 80);
+    if (!name) {
+      queryLogger.warn({ contextId: input.contextId }, "chat naming returned empty result");
+      return;
+    }
+
+    await updateChatContextService({
+      userId: input.userId,
+      contextId: input.contextId,
+      name,
+    });
+
+    await notificationService.publishToUser(input.userId, "chat.context.renamed", {
+      contextId: input.contextId,
+      name,
+    });
+
+    queryLogger.info({ contextId: input.contextId, name }, "auto-named chat context");
+  } catch (err) {
+    queryLogger.warn(
+      { err: err instanceof Error ? err : String(err), contextId: input.contextId },
+      "failed to auto-name chat context",
+    );
+  }
+}
+
+/**
  * Create user and assistant chat items for a query, returning the IDs immediately.
  * The actual pipeline (conversation → codegen → rendering) runs separately.
  */
@@ -519,6 +565,13 @@ export async function initiateQuery(input: {
 
   const context = await ensureOwnedContext(input.userId, input.contextId);
   await assertAttachmentsAccessible(input.userId, attachments);
+
+  // Detect first prompt before creating items
+  const itemCountResult = await query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM chat_items WHERE chat_context_id = $1 AND owner_id = $2`,
+    [input.contextId, input.userId],
+  );
+  const isFirstPrompt = parseInt(itemCountResult.rows[0]?.count ?? "0", 10) === 0;
 
   const userMessages = [
     { itemType: "message", text: prompt, state: "completed", stateMessage: "" },
@@ -556,6 +609,7 @@ export async function initiateQuery(input: {
     prompt,
     attachments,
     context,
+    isFirstPrompt,
   };
 }
 
@@ -572,10 +626,20 @@ export async function executeQueryPipeline(input: {
   userItemId: string;
   assistantItemId: string;
   stream?: boolean;
+  isFirstPrompt?: boolean;
 }) {
   const { prompt, attachments } = input;
   const context = input.context;
   const assistantItemId = input.assistantItemId;
+
+  // Auto-name the chat from the first prompt (fire-and-forget)
+  if (input.isFirstPrompt) {
+    void generateChatName({
+      userId: input.userId,
+      contextId: input.contextId,
+      prompt: input.prompt,
+    });
+  }
 
   await publishQueryState({
     userId: input.userId,

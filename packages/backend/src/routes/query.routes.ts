@@ -61,6 +61,7 @@ queryRouter.post("/submit", async (req, res) => {
       userItemId: initiated.userItem.id,
       assistantItemId: initiated.assistantItem.id,
       stream: true,
+      isFirstPrompt: initiated.isFirstPrompt,
     });
   } catch (error) {
     sendKnownError(res, error);

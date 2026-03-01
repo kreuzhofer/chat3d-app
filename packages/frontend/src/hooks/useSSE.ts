@@ -19,6 +19,7 @@ const LAST_EVENT_ID_STORAGE_KEY = "chat3d.sse.last_event_id";
 const SUPPORTED_EVENTS = [
   "chat.item.updated",
   "chat.query.state",
+  "chat.context.renamed",
   "notification.created",
   "admin.settings.updated",
   "account.status.changed",
