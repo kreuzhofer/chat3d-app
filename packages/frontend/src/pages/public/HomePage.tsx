@@ -1,5 +1,8 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Box, Cpu, Layout, MessageSquare, Shield, Zap } from "lucide-react";
+import { type RecentModel, getRecentModels } from "../../api/public.api";
+import { RecentModelsCarousel } from "../../components/RecentModelsCarousel";
 
 interface HomePageProps {
   waitlistEnabled: boolean;
@@ -8,6 +11,18 @@ interface HomePageProps {
 export function HomePage({ waitlistEnabled }: HomePageProps) {
   const primaryPath = waitlistEnabled ? "/waitlist" : "/register";
   const primaryLabel = waitlistEnabled ? "Join Waitlist" : "Start Building";
+
+  const [recentModels, setRecentModels] = useState<RecentModel[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    getRecentModels().then((models) => {
+      if (mounted) setRecentModels(models);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <div className="space-y-16">
@@ -86,6 +101,9 @@ export function HomePage({ waitlistEnabled }: HomePageProps) {
           </div>
         </div>
       </section>
+
+      {/* Recent Models Showcase */}
+      {recentModels.length > 0 && <RecentModelsCarousel models={recentModels} />}
 
       {/* How It Works */}
       <section id="how-it-works" className="space-y-6">

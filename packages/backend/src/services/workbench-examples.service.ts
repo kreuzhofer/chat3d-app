@@ -439,6 +439,50 @@ export async function cleanupExamplesForPrompt(promptId: string): Promise<{
   return { keptId: keeper.id, deleted: toPurge.length, filesDeleted };
 }
 
+// ── Public: recent approved models ───────────────────────────────────
+
+export interface RecentApprovedModel {
+  id: string;
+  promptText: string;
+  categoryName: string;
+  evalScore: number | null;
+  createdAt: Date;
+}
+
+export async function listRecentApprovedExamples(limit = 20): Promise<RecentApprovedModel[]> {
+  const result = await pool.query<{
+    id: string;
+    prompt_text: string;
+    category_name: string;
+    eval_score: number | null;
+    created_at: Date;
+  }>(
+    `SELECT
+       e.id,
+       p.prompt AS prompt_text,
+       c.name AS category_name,
+       e.eval_score,
+       e.created_at
+     FROM workbench_examples e
+     JOIN workbench_example_prompts p ON p.id = e.prompt_id
+     JOIN workbench_categories c ON c.id = p.category_id
+     WHERE e.approval_status IN ('auto_approved', 'human_approved')
+       AND e.render_status = 'success'
+       AND e.screenshot_iso IS NOT NULL
+     ORDER BY e.created_at DESC
+     LIMIT $1`,
+    [limit],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    promptText: row.prompt_text,
+    categoryName: row.category_name,
+    evalScore: row.eval_score,
+    createdAt: row.created_at,
+  }));
+}
+
 // ── Export stats ─────────────────────────────────────────────────────
 
 interface CategoryStatRow {
