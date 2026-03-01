@@ -6,7 +6,11 @@
  */
 
 import { pool } from "../db/connection.js";
+import { createLogger } from "../utils/logger.js";
+import { deleteStorageFile } from "./file-storage.service.js";
 import { WorkbenchSeederError } from "./workbench-seeder.service.js";
+
+const logger = createLogger("workbench-examples");
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -325,6 +329,114 @@ export async function deleteExamplesForCategory(categoryId: string): Promise<{ d
     [categoryId],
   );
   return { deleted: result.rowCount ?? 0 };
+}
+
+// ── Cleanup (keep best, purge rest) ──────────────────────────────────
+
+interface CleanupExampleRow {
+  id: string;
+  stl_path: string | null;
+  step_path: string | null;
+  threemf_path: string | null;
+  screenshot_front: string | null;
+  screenshot_back: string | null;
+  screenshot_left: string | null;
+  screenshot_right: string | null;
+  screenshot_top: string | null;
+  screenshot_bottom: string | null;
+  screenshot_ortho_45: string | null;
+  screenshot_ortho_45_bottom: string | null;
+  screenshot_iso: string | null;
+  screenshot_iso_back: string | null;
+  category_id: string;
+}
+
+/**
+ * Collect all non-null file paths from an example row, including the .b123d code file.
+ */
+function collectFilePaths(row: CleanupExampleRow): string[] {
+  const paths: string[] = [];
+  if (row.stl_path) paths.push(row.stl_path);
+  if (row.step_path) paths.push(row.step_path);
+  if (row.threemf_path) paths.push(row.threemf_path);
+  if (row.screenshot_front) paths.push(row.screenshot_front);
+  if (row.screenshot_back) paths.push(row.screenshot_back);
+  if (row.screenshot_left) paths.push(row.screenshot_left);
+  if (row.screenshot_right) paths.push(row.screenshot_right);
+  if (row.screenshot_top) paths.push(row.screenshot_top);
+  if (row.screenshot_bottom) paths.push(row.screenshot_bottom);
+  if (row.screenshot_ortho_45) paths.push(row.screenshot_ortho_45);
+  if (row.screenshot_ortho_45_bottom) paths.push(row.screenshot_ortho_45_bottom);
+  if (row.screenshot_iso) paths.push(row.screenshot_iso);
+  if (row.screenshot_iso_back) paths.push(row.screenshot_iso_back);
+  // .b123d code file follows the same prefix pattern
+  paths.push(`workbench/${row.category_id}/${row.id}.b123d`);
+  return paths;
+}
+
+/**
+ * For a single prompt: keep the best example, delete all others + their files.
+ *
+ * Retention priority:
+ * 1. approval_status: human_approved > auto_approved > pending > rejected
+ * 2. eval_score DESC (highest wins)
+ * 3. created_at DESC (most recent wins)
+ */
+export async function cleanupExamplesForPrompt(promptId: string): Promise<{
+  keptId: string | null;
+  deleted: number;
+  filesDeleted: number;
+}> {
+  const result = await pool.query<CleanupExampleRow>(
+    `SELECT e.id, e.stl_path, e.step_path, e.threemf_path,
+            e.screenshot_front, e.screenshot_back, e.screenshot_left, e.screenshot_right,
+            e.screenshot_top, e.screenshot_bottom, e.screenshot_ortho_45, e.screenshot_ortho_45_bottom,
+            e.screenshot_iso, e.screenshot_iso_back,
+            p.category_id
+     FROM workbench_examples e
+     JOIN workbench_example_prompts p ON p.id = e.prompt_id
+     WHERE e.prompt_id = $1
+     ORDER BY
+       CASE e.approval_status
+         WHEN 'human_approved' THEN 1
+         WHEN 'auto_approved' THEN 2
+         WHEN 'pending' THEN 3
+         WHEN 'rejected' THEN 4
+       END ASC,
+       e.eval_score DESC NULLS LAST,
+       e.created_at DESC`,
+    [promptId],
+  );
+
+  if (result.rows.length <= 1) {
+    return { keptId: result.rows[0]?.id ?? null, deleted: 0, filesDeleted: 0 };
+  }
+
+  const [keeper, ...toPurge] = result.rows;
+  let filesDeleted = 0;
+
+  for (const row of toPurge) {
+    // Delete storage files
+    const paths = collectFilePaths(row);
+    for (const filePath of paths) {
+      try {
+        await deleteStorageFile({ relativePath: filePath });
+        filesDeleted++;
+      } catch {
+        // File may already be missing — ignore
+      }
+    }
+
+    // Delete DB row
+    await pool.query(`DELETE FROM workbench_examples WHERE id = $1`, [row.id]);
+  }
+
+  logger.info(
+    { promptId, kept: keeper.id, deleted: toPurge.length, filesDeleted },
+    "cleaned up examples for prompt",
+  );
+
+  return { keptId: keeper.id, deleted: toPurge.length, filesDeleted };
 }
 
 // ── Export stats ─────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Loader2, Play, RotateCcw, Sparkles, Square, Trash2, Zap } from "lucide-react";
+import { ArrowLeft, Loader2, Play, RotateCcw, Scissors, Sparkles, Square, Trash2, Zap } from "lucide-react";
 import {
   cancelJob,
   deleteExamplesForCategory,
@@ -8,6 +8,7 @@ import {
   getRunningJobsForCategory,
   listCategories,
   listPromptsForCategory,
+  startBatchCleanup,
   startBatchJob,
   startBatchReRender,
   startGenerate,
@@ -85,6 +86,7 @@ export function WorkbenchCategoryPage() {
   const [singleJobs, setSingleJobs] = useState<Map<string, BatchJobSummary>>(new Map());
   const [batchJob, setBatchJob] = useState<BatchJobSummary | null>(null);
   const [confirmResetCategory, setConfirmResetCategory] = useState(false);
+  const [confirmCleanup, setConfirmCleanup] = useState(false);
   const pendingScrollRestore = useRef(false);
 
   // Restore scroll position after initial data load renders the list
@@ -312,6 +314,24 @@ export function WorkbenchCategoryPage() {
     }
   }, [categoryId, loadData, pushToast, token]);
 
+  const handleCleanup = useCallback(async () => {
+    if (!token || !categoryId) return;
+    setError(null);
+    try {
+      const job = await startBatchCleanup(token, categoryId);
+      setBatchJob(job);
+      setConfirmCleanup(false);
+      pushToast({
+        tone: "info",
+        title: "Cleanup started",
+        description: `Cleaning up ${job.total} prompts — keeping best example each...`,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setConfirmCleanup(false);
+    }
+  }, [categoryId, pushToast, token]);
+
   return (
     <section className="space-y-4">
       <PageHeader
@@ -353,6 +373,15 @@ export function WorkbenchCategoryPage() {
                   Re-Render All
                 </Button>
                 <Button
+                  variant="outline"
+                  size="sm"
+                  iconLeft={<Scissors className="h-3.5 w-3.5" />}
+                  disabled={anySingleRunning}
+                  onClick={() => setConfirmCleanup(true)}
+                >
+                  Cleanup
+                </Button>
+                <Button
                   variant="destructive"
                   size="sm"
                   iconLeft={<Trash2 className="h-3.5 w-3.5" />}
@@ -386,7 +415,7 @@ export function WorkbenchCategoryPage() {
           <div className="flex items-center gap-2 text-sm">
             <Loader2 className="h-4 w-4 animate-spin text-[hsl(var(--primary))]" />
             <span className="font-medium">
-              {batchJob.type === "batch-re-render" ? "Re-Render" : "Batch"}: {batchJob.completed + batchJob.failed} / {batchJob.total}
+              {batchJob.type === "batch-re-render" ? "Re-Render" : batchJob.type === "batch-cleanup" ? "Cleanup" : "Batch"}: {batchJob.completed + batchJob.failed} / {batchJob.total}
             </span>
             {batchJob.failed > 0 ? (
               <Badge tone="danger">{batchJob.failed} failed</Badge>
@@ -522,6 +551,27 @@ export function WorkbenchCategoryPage() {
             onClick={() => void handleResetCategory()}
           >
             Delete All Examples
+          </Button>
+        </div>
+      </Dialog>
+
+      {/* Cleanup confirmation */}
+      <Dialog
+        open={confirmCleanup}
+        title="Cleanup category"
+        description={`Keep only the best example per prompt in "${category?.name ?? ""}" and delete all others including their files. This cannot be undone.`}
+        onClose={() => setConfirmCleanup(false)}
+      >
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={() => setConfirmCleanup(false)}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => void handleCleanup()}
+          >
+            Cleanup
           </Button>
         </div>
       </Dialog>

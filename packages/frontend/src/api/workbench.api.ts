@@ -252,6 +252,16 @@ export function startBatchReRender(
   });
 }
 
+export function startBatchCleanup(
+  token: string,
+  categoryId: string,
+): Promise<BatchJobSummary> {
+  return requestJson<BatchJobSummary>(token, "/cleanup/batch", {
+    method: "POST",
+    body: JSON.stringify({ categoryId }),
+  });
+}
+
 export function getJobStatus(token: string, jobId: string): Promise<BatchJobSummary> {
   return requestJson<BatchJobSummary>(token, `/jobs/${encodeURIComponent(jobId)}`, {
     method: "GET",

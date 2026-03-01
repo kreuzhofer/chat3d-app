@@ -42,6 +42,7 @@ import {
   getJobStatus,
   getRunningJobs,
   listJobs,
+  startBatchCleanup,
   startBatchJob,
   startBatchReRender,
   startSingleJob,
@@ -465,6 +466,29 @@ workbenchRouter.post("/re-render/batch", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "Batch re-render failed", detail: String(error) });
+  }
+});
+
+workbenchRouter.post("/cleanup/batch", async (req, res) => {
+  try {
+    const { categoryId } = req.body as { categoryId?: string };
+    if (!categoryId || typeof categoryId !== "string") {
+      res.status(400).json({ error: "categoryId is required" });
+      return;
+    }
+    const job = await startBatchCleanup(categoryId);
+    res.status(202).json(job);
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (statusCode && statusCode >= 400 && statusCode < 600) {
+      res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    res.status(500).json({ error: "Batch cleanup failed", detail: String(error) });
   }
 });
 

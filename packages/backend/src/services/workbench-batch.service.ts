@@ -13,13 +13,14 @@ import { pool } from "../db/connection.js";
 import { ProviderQuotaExhaustedError } from "../utils/llm-errors.js";
 import { generateForPrompt, reRenderForExample, type GenerateResult } from "./workbench-codegen.service.js";
 import { embedAndStorePrompt } from "./workbench-embeddings.service.js";
+import { cleanupExamplesForPrompt } from "./workbench-examples.service.js";
 import { createLogger } from "../utils/logger.js";
 
 const logger = createLogger("workbench-batch");
 
 // ── Types ────────────────────────────────────────────────────────────
 
-export type JobType = "batch" | "batch-re-render" | "generate" | "retry" | "re-render";
+export type JobType = "batch" | "batch-re-render" | "batch-cleanup" | "generate" | "retry" | "re-render";
 
 export interface BatchJob {
   jobId: string;
@@ -102,7 +103,7 @@ function evictStaleJobs(): void {
  */
 export function getRunningJobForCategory(categoryId: string): BatchJobSummary | null {
   for (const job of jobs.values()) {
-    if (job.categoryId === categoryId && job.status === "running" && (job.type === "batch" || job.type === "batch-re-render")) {
+    if (job.categoryId === categoryId && job.status === "running" && (job.type === "batch" || job.type === "batch-re-render" || job.type === "batch-cleanup")) {
       return toSummary(job);
     }
   }
@@ -732,5 +733,139 @@ async function runBatchReRender(
   logger.info(
     { jobId: job.jobId, status: job.status, completed: job.completed, failed: job.failed, deletedOriginals: originalIdsToDelete.length },
     "batch re-render finished",
+  );
+}
+
+// ── Batch Cleanup ─────────────────────────────────────────────────────
+
+/**
+ * Start a batch cleanup job for a category.
+ * For each prompt, keeps only the best example (by approval, score, date)
+ * and deletes all others including their stored files.
+ */
+export async function startBatchCleanup(categoryId: string): Promise<BatchJobSummary> {
+  const existing = getRunningJobForCategory(categoryId);
+  if (existing) {
+    const err = new Error("A batch job is already running for this category");
+    (err as Error & { statusCode: number }).statusCode = 409;
+    throw err;
+  }
+
+  const catResult = await pool.query<{ name: string }>(
+    `SELECT name FROM workbench_categories WHERE id = $1`,
+    [categoryId],
+  );
+  if (catResult.rows.length === 0) {
+    throw new Error("Category not found");
+  }
+  const categoryName = catResult.rows[0].name;
+
+  // Find prompts that have more than 1 example (nothing to clean if only 1)
+  const promptResult = await pool.query<{ id: string; prompt: string }>(
+    `SELECT p.id, p.prompt
+     FROM workbench_example_prompts p
+     WHERE p.category_id = $1
+       AND (SELECT COUNT(*) FROM workbench_examples e WHERE e.prompt_id = p.id) > 1
+     ORDER BY p.index ASC`,
+    [categoryId],
+  );
+
+  const prompts = promptResult.rows;
+  if (prompts.length === 0) {
+    throw new Error("No prompts with multiple examples found — nothing to clean up");
+  }
+
+  const jobId = generateJobId("batch-cleanup");
+  const job: BatchJob = {
+    jobId,
+    type: "batch-cleanup",
+    categoryId,
+    categoryName,
+    status: "running",
+    total: prompts.length,
+    completed: 0,
+    failed: 0,
+    skipped: 0,
+    currentPromptId: null,
+    currentPromptText: null,
+    exampleId: null,
+    results: [],
+    error: null,
+    createdAt: new Date().toISOString(),
+    finishedAt: null,
+    pendingPromptIds: new Set(prompts.map((p) => p.id)),
+  };
+
+  jobs.set(jobId, job);
+
+  void runBatchCleanup(job, prompts);
+
+  logger.info(
+    { jobId, categoryId, total: prompts.length },
+    "batch cleanup started",
+  );
+
+  return toSummary(job);
+}
+
+async function runBatchCleanup(
+  job: BatchJob,
+  prompts: Array<{ id: string; prompt: string }>,
+): Promise<void> {
+  let totalDeleted = 0;
+  let totalFilesDeleted = 0;
+
+  for (const prompt of prompts) {
+    if (job.status === "cancelled") {
+      break;
+    }
+
+    job.currentPromptId = prompt.id;
+    job.currentPromptText = prompt.prompt;
+    job.pendingPromptIds.delete(prompt.id);
+
+    try {
+      const result = await cleanupExamplesForPrompt(prompt.id);
+      totalDeleted += result.deleted;
+      totalFilesDeleted += result.filesDeleted;
+
+      job.completed += 1;
+      job.results.push({
+        promptId: prompt.id,
+        promptText: prompt.prompt,
+        status: "success",
+        exampleId: result.keptId,
+        evalScore: null,
+        approvalStatus: null,
+        error: null,
+      });
+    } catch (error) {
+      job.failed += 1;
+      job.results.push({
+        promptId: prompt.id,
+        promptText: prompt.prompt,
+        status: "error",
+        exampleId: null,
+        evalScore: null,
+        approvalStatus: null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      logger.error(
+        { err: error, promptId: prompt.id },
+        "cleanup failed for prompt",
+      );
+    }
+  }
+
+  job.currentPromptId = null;
+  job.currentPromptText = null;
+  if (job.status === "running") {
+    job.status = "completed";
+  }
+  job.finishedAt = new Date().toISOString();
+
+  logger.info(
+    { jobId: job.jobId, status: job.status, completed: job.completed, failed: job.failed, totalDeleted, totalFilesDeleted },
+    "batch cleanup finished",
   );
 }
