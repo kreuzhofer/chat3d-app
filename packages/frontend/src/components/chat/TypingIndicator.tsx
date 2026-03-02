@@ -1,3 +1,4 @@
+import { Bell, LoaderCircle } from "lucide-react";
 import type { QueryState } from "../../hooks/useStreamingQuery";
 
 export interface TypingIndicatorProps {
@@ -6,6 +7,12 @@ export interface TypingIndicatorProps {
   detail?: string | null;
   /** Whether the pipeline has been running for more than 60 seconds. */
   isLongRunning?: boolean;
+  /** Whether to show the "Enable notifications" pill button. */
+  showEnableNotifications?: boolean;
+  /** Whether the enable-notifications action is in progress. */
+  busyNotifications?: boolean;
+  /** Called when the user clicks the "Enable notifications" pill. */
+  onEnableNotifications?: () => void;
 }
 
 /** Fallback labels when the backend doesn't send a detail string. */
@@ -39,7 +46,7 @@ const VISIBLE_STATES = new Set<QueryState>([
  *
  * Validates: Requirements 2.1, 2.2, 2.3, 2.4
  */
-export function TypingIndicator({ queryState, detail, isLongRunning }: TypingIndicatorProps) {
+export function TypingIndicator({ queryState, detail, isLongRunning, showEnableNotifications, busyNotifications, onEnableNotifications }: TypingIndicatorProps) {
   if (!queryState || !VISIBLE_STATES.has(queryState)) {
     return null;
   }
@@ -62,9 +69,27 @@ export function TypingIndicator({ queryState, detail, isLongRunning }: TypingInd
         <span className="text-sm text-[hsl(var(--muted-foreground))]">{label}</span>
       </div>
       {isLongRunning ? (
-        <p className="text-xs leading-relaxed text-[hsl(var(--muted-foreground)_/_0.7)]">
-          This is taking a while — your model is still being generated. Feel free to leave and come back. You'll get a notification when it's ready.
-        </p>
+        <div className="space-y-1.5">
+          <p className="text-xs leading-relaxed text-[hsl(var(--muted-foreground)_/_0.7)]">
+            This is taking a while — your model is still being generated. Feel free to leave and come back.
+            {showEnableNotifications
+              ? " Enable notifications to know when it's ready."
+              : " You'll get a notification when it's ready."}
+          </p>
+          {showEnableNotifications ? (
+            <button
+              type="button"
+              disabled={busyNotifications}
+              onClick={onEnableNotifications}
+              className="inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--primary)_/_0.3)] bg-[hsl(var(--primary)_/_0.08)] px-3 py-1 text-xs font-medium text-[hsl(var(--primary))] transition active:scale-95 active:bg-[hsl(var(--primary)_/_0.2)] hover:bg-[hsl(var(--primary)_/_0.15)] disabled:opacity-50"
+            >
+              {busyNotifications
+                ? <LoaderCircle className="h-3 w-3 animate-spin" />
+                : <Bell className="h-3 w-3" />}
+              {busyNotifications ? "Enabling..." : "Enable notifications"}
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

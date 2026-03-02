@@ -120,6 +120,15 @@ export async function unsubscribeFromPush(token: string): Promise<boolean> {
 }
 
 /**
+ * Get the current browser notification permission state.
+ * Returns "unsupported" if push is not available in this browser.
+ */
+export function getNotificationPermission(): "granted" | "denied" | "default" | "unsupported" {
+  if (!isPushSupported()) return "unsupported";
+  return Notification.permission;
+}
+
+/**
  * Check if user currently has an active push subscription.
  */
 export async function isPushSubscribed(): Promise<boolean> {

@@ -33,6 +33,7 @@ import { TypingIndicator } from "./chat/TypingIndicator";
 import { ExamplePrompts } from "./chat/ExamplePrompts";
 import { CapabilityHints } from "./chat/CapabilityHints";
 import { PushToggle } from "./chat/PushToggle";
+import { getNotificationPermission, isPushSubscribed, subscribeToPush } from "../services/push";
 
 type MobilePane = "contexts" | "thread" | "workbench";
 
@@ -133,6 +134,8 @@ export function ChatPage() {
   const [detailLevel, setDetailLevel] = useState<"low" | "medium" | "high">("medium");
   const [advancedPrompt, setAdvancedPrompt] = useState("");
   const [streamingAssistantItemId, setStreamingAssistantItemId] = useState<string | null>(null);
+  const [pushSubscribed, setPushSubscribed] = useState(true); // assume subscribed to avoid flash
+  const [pushBusy, setPushBusy] = useState(false);
 
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
   /** Tracks whether isStreaming was ever true for the current streamingAssistantItemId.
@@ -296,6 +299,27 @@ export function ChatPage() {
   const showTypingIndicator = isStreaming
     && !streamingError
     && (streamingText.length === 0 || (queryState !== null && POST_CONVERSATION_STATES.has(queryState)));
+
+  // Check push subscription on mount
+  useEffect(() => {
+    void isPushSubscribed().then(setPushSubscribed);
+  }, []);
+
+  const notificationPermission = getNotificationPermission();
+  const showEnableNotifications = !pushSubscribed
+    && notificationPermission !== "denied"
+    && notificationPermission !== "unsupported";
+
+  const handleEnableNotifications = useCallback(async () => {
+    if (!token || pushBusy) return;
+    setPushBusy(true);
+    try {
+      const success = await subscribeToPush(token);
+      if (success) setPushSubscribed(true);
+    } finally {
+      setPushBusy(false);
+    }
+  }, [token, pushBusy]);
 
   const refreshContexts = useCallback(async () => {
     if (!token) {
@@ -897,7 +921,16 @@ export function ChatPage() {
                 );
               })}
 
-              {showTypingIndicator ? <TypingIndicator queryState={queryState} detail={queryStateDetail} isLongRunning={isLongRunning} /> : null}
+              {showTypingIndicator ? (
+                <TypingIndicator
+                  queryState={queryState}
+                  detail={queryStateDetail}
+                  isLongRunning={isLongRunning}
+                  showEnableNotifications={showEnableNotifications}
+                  busyNotifications={pushBusy}
+                  onEnableNotifications={() => void handleEnableNotifications()}
+                />
+              ) : null}
 
               {optimisticPrompt ? (
                 <>
