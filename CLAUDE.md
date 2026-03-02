@@ -71,6 +71,8 @@ Copy `example.env` to `.env` and configure:
 | `SEED_ADMIN_EMAIL` | Admin account email created on first bootstrap (default: `admin@chat3d.local`) |
 | `SEED_ADMIN_PASSWORD` | Admin account password (default: `change-admin-password`) |
 | `SEED_ADMIN_DISPLAY_NAME` | Admin display name (default: `Initial Admin`) |
+| `FRONTEND_PORT` | Host port for the frontend (default: `80`) |
+| `BACKEND_PORT` | Host port for the backend API (default: `3001`) |
 | `LOG_LEVEL` | Logging level: `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` (default: `info`) |
 | `LOG_FORMAT` | Log output format: `json` (structured, default in Docker) or `pretty` (human-readable) |
 

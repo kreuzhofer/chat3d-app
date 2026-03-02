@@ -106,7 +106,7 @@ services:
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@chat3d.local}
     ports:
-      - "3001:3001"
+      - "${BACKEND_PORT:-3001}:3001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -152,7 +152,7 @@ services:
       dockerfile: Dockerfile
     container_name: chat3d-frontend
     ports:
-      - "80:80"
+      - "${FRONTEND_PORT:-80}:80"
     depends_on:
       - backend
 
