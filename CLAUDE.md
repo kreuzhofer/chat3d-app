@@ -65,18 +65,18 @@ Copy `.env.example` to `.env` and configure:
 | `DB_PASSWORD` | PostgreSQL password |
 | `JWT_SECRET` | Secret key for JWT signing |
 | `BUILD123D_URL` | URL of the Build123d rendering service |
-| `BUILD123D_PORT` | Port for the Build123d service (default: `30222`) |
-| `SCREENSHOT_SERVICE_PROVIDER` | Which service renders STL screenshots for VLM evaluation: `stl-rendering-service` (Puppeteer, default) or `build123d` (pyrender, no extra container needed) |
-| `STL_RENDERING_SERVICE_URL` | URL of the STL rendering service (default: `http://stl-rendering-service:3002`) |
-| `OLLAMA_BASE_URL` | Ollama server URL (default: `http://host.docker.internal:11434`) |
-| `OLLAMA_TOKEN` | Auth bearer token for Ollama server (if required) |
-| `LOG_LEVEL` | Logging level: `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` (default: `info`) |
-| `LOG_FORMAT` | Log output format: `json` (structured, default in Docker) or `pretty` (human-readable) |
+| `SCREENSHOT_SERVICE_URL` | URL of the screenshot rendering service (default: `http://screenshot-service:80`) |
+| `QUERY_CONVERSATION_PROVIDER` | LLM provider for conversation (`openai`, `anthropic`, `xai`, `ollama`) |
+| `QUERY_CONVERSATION_MODEL` | Model name for conversation (e.g. `gpt-4o-mini`) |
+| `QUERY_CODEGEN_PROVIDER` | LLM provider for code generation |
+| `QUERY_CODEGEN_MODEL` | Model name for code generation (e.g. `gpt-5.2-codex`) |
 | `SEED_ADMIN_EMAIL` | Admin account email created on first bootstrap (default: `admin@chat3d.local`) |
 | `SEED_ADMIN_PASSWORD` | Admin account password (default: `change-admin-password`) |
 | `SEED_ADMIN_DISPLAY_NAME` | Admin display name (default: `Initial Admin`) |
+| `LOG_LEVEL` | Logging level: `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` (default: `info`) |
+| `LOG_FORMAT` | Log output format: `json` (structured, default in Docker) or `pretty` (human-readable) |
 
-> **LLM API Keys:** API keys and endpoint URLs for LLM providers (OpenAI, Anthropic, xAI, etc.) are managed via the **Admin UI → Providers tab**, not environment variables. The `llm_providers` database table stores per-provider `api_key` and `endpoint_url`. Environment variables like `OPENAI_API_KEY` are only used as SDK-level fallbacks when the provider row has no key set.
+> **LLM Provider Configuration:** API keys, endpoint URLs, model assignments, and purpose mappings (conversation, codegen, VLM evaluation, embeddings, etc.) are all managed via the **Admin UI → Providers tab**. The `llm_providers`, `llm_models`, and `llm_purpose_map` database tables store the full configuration. No LLM-related environment variables are needed.
 
 ## Default Admin Credentials
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { config } from "../config.js";
-import { extractExecutableCode, generateConversationText, generateConversationTextStream, listLlmModels } from "../services/llm.service.js";
+import { extractExecutableCode, generateConversationTextStream, listLlmModels } from "../services/llm.service.js";
 
 const originalQueryConfig = {
   llmMode: config.query.llmMode,
@@ -8,7 +8,6 @@ const originalQueryConfig = {
   codegenProvider: config.query.codegenProvider,
   conversationModelName: config.query.conversationModelName,
   codegenModelName: config.query.codegenModelName,
-  openAiApiKey: config.query.openAiApiKey,
 };
 
 afterEach(() => {
@@ -17,7 +16,6 @@ afterEach(() => {
   config.query.codegenProvider = originalQueryConfig.codegenProvider;
   config.query.conversationModelName = originalQueryConfig.conversationModelName;
   config.query.codegenModelName = originalQueryConfig.codegenModelName;
-  config.query.openAiApiKey = originalQueryConfig.openAiApiKey;
 });
 
 describe("llm service provider routing", () => {
@@ -31,20 +29,6 @@ describe("llm service provider routing", () => {
     const models = listLlmModels();
     expect(models.some((model) => model.id === "conversation-anthropic-claude-3-5-haiku-latest")).toBe(true);
     expect(models.some((model) => model.id === "codegen-xai-grok-2-latest")).toBe(true);
-  });
-
-  it("fails fast when openai provider is configured without API key", async () => {
-    config.query.llmMode = "live";
-    config.query.conversationProvider = "openai";
-    config.query.conversationModelName = "gpt-4o-mini";
-    config.query.openAiApiKey = "";
-
-    await expect(
-      generateConversationText({
-        contextName: "LLM test context",
-        prompt: "Generate a short answer",
-      }),
-    ).rejects.toThrow("OPENAI_API_KEY is required for OpenAI provider");
   });
 
   it("extracts fenced python code for executable build123d payloads", () => {
@@ -79,18 +63,4 @@ with BuildPart() as model:
     expect(result.usage).toBeDefined();
   });
 
-  it("fails fast when openai streaming is configured without API key", async () => {
-    config.query.llmMode = "live";
-    config.query.conversationProvider = "openai";
-    config.query.conversationModelName = "gpt-4o-mini";
-    config.query.openAiApiKey = "";
-
-    await expect(
-      generateConversationTextStream({
-        contextName: "Stream test context",
-        prompt: "Hello streaming",
-        onToken: () => {},
-      }),
-    ).rejects.toThrow("OPENAI_API_KEY is required for OpenAI provider");
-  });
 });

@@ -111,7 +111,6 @@ Copy `.env.example` to `.env` and configure:
 |----------|---------|
 | `DB_PASSWORD` | PostgreSQL password |
 | `JWT_SECRET` | Secret key for JWT signing |
-| `OLLAMA_BASE_URL` | Ollama server URL (default: `http://host.docker.internal:11434`) |
 | `QUERY_CONVERSATION_PROVIDER` | LLM provider for conversation (`openai`, `anthropic`, `xai`, `ollama`) |
 | `QUERY_CONVERSATION_MODEL` | Model name for conversation (e.g. `gpt-4o-mini`) |
 | `QUERY_CODEGEN_PROVIDER` | LLM provider for code generation |
@@ -123,7 +122,7 @@ Copy `.env.example` to `.env` and configure:
 | `LOG_LEVEL` | Logging level: `fatal`, `error`, `warn`, `info` (default), `debug`, `trace`, `silent` |
 | `LOG_FORMAT` | Log output format: `json` (default in Docker) or `pretty` (human-readable) |
 
-> **LLM API Keys:** API keys for LLM providers (OpenAI, Anthropic, xAI, etc.) are managed via the **Admin UI → Providers tab**, not environment variables.
+> **LLM Provider Configuration:** API keys, endpoint URLs, model assignments, and purpose mappings are all managed via the **Admin UI → Providers tab**, not environment variables.
 
 See `.env.example` for the full list including SMTP, Redis, concurrency, security, and worker configuration.
 

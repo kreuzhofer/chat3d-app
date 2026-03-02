@@ -15,7 +15,6 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createXai } from "@ai-sdk/xai";
 import { createMinimax } from "vercel-minimax-ai-provider";
 import { prisma } from "../db/prisma.js";
-import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
 
 const logger = createLogger("llm-config");
@@ -266,11 +265,10 @@ export function createProviderModel(cfg: LlmModelConfig): any {
   const { provider, modelName, endpointUrl, apiKey } = cfg;
 
   if (provider === "openai") {
-    const baseURL = endpointUrl ?? config.query.openAiBaseUrl;
     if (!apiKey) {
       throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
     }
-    return createOpenAI({ apiKey, baseURL })(modelName);
+    return createOpenAI({ apiKey, ...(endpointUrl ? { baseURL: endpointUrl } : {}) })(modelName);
   }
 
   if (provider === "anthropic") {
@@ -302,8 +300,10 @@ export function createProviderModel(cfg: LlmModelConfig): any {
   }
 
   if (provider === "ollama") {
-    const baseUrl = endpointUrl ?? config.query.ollamaBaseUrl;
-    const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+    if (!endpointUrl) {
+      throw new Error(`Endpoint URL missing for ${cfg.label} — configure it in Admin → Providers`);
+    }
+    const normalizedBaseUrl = endpointUrl.replace(/\/+$/, "");
     const baseUrlWithVersion = normalizedBaseUrl.endsWith("/v1")
       ? normalizedBaseUrl
       : `${normalizedBaseUrl}/v1`;
@@ -336,11 +336,10 @@ export function createEmbeddingModel(cfg: LlmModelConfig): any {
   const { provider, modelName, endpointUrl, apiKey } = cfg;
 
   if (provider === "openai") {
-    const baseURL = endpointUrl ?? config.query.openAiBaseUrl;
     if (!apiKey) {
       throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
     }
-    return createOpenAI({ apiKey, baseURL }).embedding(modelName);
+    return createOpenAI({ apiKey, ...(endpointUrl ? { baseURL: endpointUrl } : {}) }).embedding(modelName);
   }
 
   if (provider === "deepseek") {
@@ -351,8 +350,10 @@ export function createEmbeddingModel(cfg: LlmModelConfig): any {
   }
 
   if (provider === "ollama") {
-    const baseUrl = endpointUrl ?? config.query.ollamaBaseUrl;
-    const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+    if (!endpointUrl) {
+      throw new Error(`Endpoint URL missing for ${cfg.label} — configure it in Admin → Providers`);
+    }
+    const normalizedBaseUrl = endpointUrl.replace(/\/+$/, "");
     const baseUrlWithVersion = normalizedBaseUrl.endsWith("/v1")
       ? normalizedBaseUrl
       : `${normalizedBaseUrl}/v1`;
