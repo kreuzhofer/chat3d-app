@@ -8,6 +8,7 @@ import {
   type PropsWithChildren,
 } from "react";
 import * as authApi from "../auth/auth.api";
+import { submitSetup } from "../api/public.api";
 import type { AuthUser } from "../auth/types";
 
 const TOKEN_STORAGE_KEY = "chat3d.auth.token";
@@ -19,6 +20,7 @@ export interface AuthContextValue {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, displayName?: string, registrationToken?: string) => Promise<void>;
+  setupAdmin: (email: string, password: string, displayName?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -78,6 +80,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
     [applyAuthenticatedState],
   );
 
+  const setupAdmin = useCallback(
+    async (email: string, password: string, displayName?: string) => {
+      const response = await submitSetup({ email, password, displayName });
+      applyAuthenticatedState(response.token, response.user);
+    },
+    [applyAuthenticatedState],
+  );
+
   const logout = useCallback(async () => {
     if (token) {
       try {
@@ -131,10 +141,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
       isAuthenticated: user?.status === "active",
       login,
       register,
+      setupAdmin,
       logout,
       refreshProfile,
     }),
-    [isLoading, login, logout, refreshProfile, register, token, user],
+    [isLoading, login, logout, refreshProfile, register, setupAdmin, token, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

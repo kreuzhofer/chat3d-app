@@ -8,8 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "db:migrate": "npx prisma migrate deploy",
-    "db:seed": "tsx src/db/seed.ts",
-    "db:bootstrap": "npm run db:migrate && npm run db:seed",
+    "db:bootstrap": "npm run db:migrate",
     "worker:account-deletion": "tsx src/workers/account-deletion.worker.ts",
     "test": "npm run db:migrate && vitest run",
     "test:integration": "npm run db:migrate && vitest run src/__tests__/auth.integration.test.ts src/__tests__/waitlist.integration.test.ts src/__tests__/invitations.integration.test.ts src/__tests__/admin.integration.test.ts src/__tests__/account-lifecycle.integration.test.ts src/__tests__/chat-files.integration.test.ts src/__tests__/query.integration.test.ts src/__tests__/hardening.integration.test.ts"

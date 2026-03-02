@@ -68,23 +68,19 @@ Copy `example.env` to `.env` and configure:
 | `SCREENSHOT_SERVICE_URL` | URL of the screenshot rendering service (default: `http://screenshot-service:80`) |
 | `QUERY_RENDER_MODE` | `live` (default) or `mock` — controls whether Build123d rendering is real or stubbed |
 | `QUERY_LLM_MODE` | `live` (default) or `mock` — controls whether LLM calls are real or stubbed |
-| `SEED_ADMIN_EMAIL` | Admin account email created on first bootstrap (default: `admin@chat3d.local`) |
-| `SEED_ADMIN_PASSWORD` | Admin account password (default: `change-admin-password`) |
-| `SEED_ADMIN_DISPLAY_NAME` | Admin display name (default: `Initial Admin`) |
 | `FRONTEND_PORT` | Host port for the frontend (default: `80`) |
 | `LOG_LEVEL` | Logging level: `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` (default: `info`) |
 | `LOG_FORMAT` | Log output format: `json` (structured, default in Docker) or `pretty` (human-readable) |
 
 > **LLM Provider Configuration:** API keys, endpoint URLs, model assignments, and purpose mappings (conversation, codegen, VLM evaluation, embeddings, etc.) are all managed via the **Admin UI → Providers tab**. The `llm_providers`, `llm_models`, and `llm_purpose_map` database tables store the full configuration. No LLM-related environment variables are needed.
 
-## Default Admin Credentials
+## First-Run Setup
 
-A default admin account is seeded on first bootstrap using values from `example.env`. Unless overridden in `.env`:
-- **Email:** `admin@chat3d.local`
-- **Password:** `change-admin-password`
+On first launch with an empty database, the app shows an interactive setup page instead of the login screen. The setup page collects admin email, password, and display name, then creates the first user as admin and auto-logs in. Once any user exists, the setup page never appears again.
 
 ## API Routes
 
+- `POST /api/setup/init` — Initial setup (creates first admin, no auth required, 409 if users exist)
 - `POST /api/auth/register` — Create account
 - `POST /api/auth/login` — Login, returns JWT
 - `GET /api/auth/me` — Current user profile

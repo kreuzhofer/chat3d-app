@@ -93,15 +93,9 @@ docker compose up --build
 
 This starts PostgreSQL, Redis, the Build123d rendering service, the backend API, and the frontend (nginx).
 
-### 4. Bootstrap the database
+### 4. Open the app
 
-```bash
-npm --workspace @chat3d/backend run db:bootstrap
-```
-
-### 5. Open the app
-
-Navigate to [http://localhost](http://localhost). A default admin account is created from the `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` env vars.
+Navigate to [http://localhost](http://localhost). On first launch, a setup wizard will guide you through creating the admin account.
 
 ## Environment Variables
 
@@ -111,8 +105,6 @@ Copy `example.env` to `.env` and configure:
 |----------|---------|
 | `DB_PASSWORD` | PostgreSQL password |
 | `JWT_SECRET` | Secret key for JWT signing |
-| `SEED_ADMIN_EMAIL` | Admin account email created on first bootstrap |
-| `SEED_ADMIN_PASSWORD` | Admin account password |
 | `BUILD123D_URL` | Build123d service URL (default: `http://build123d:80`) |
 | `SCREENSHOT_SERVICE_URL` | Screenshot service URL (default: `http://screenshot-service:80`) |
 | `QUERY_RENDER_MODE` | `live` (default) or `mock` — controls real vs stubbed 3D rendering |
@@ -186,6 +178,7 @@ All routes (except auth) require `Authorization: Bearer <token>`.
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `POST` | `/api/setup/init` | Initial setup (creates first admin) |
 | `POST` | `/api/auth/register` | Create account |
 | `POST` | `/api/auth/login` | Login (returns JWT) |
 | `GET` | `/api/auth/me` | Current user profile |

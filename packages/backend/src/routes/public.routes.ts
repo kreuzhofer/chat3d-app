@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import { isWaitlistEnabled } from "../services/app-settings.service.js";
+import { isSetupRequired } from "../services/setup.service.js";
 import { listRecentApprovedExamples } from "../services/workbench-examples.service.js";
 import { FileStorageError, readStorageFile } from "../services/file-storage.service.js";
 
@@ -11,8 +12,9 @@ export const publicRouter = Router();
 
 publicRouter.get("/config", async (_req, res) => {
   try {
-    const waitlistEnabled = await isWaitlistEnabled();
-    res.status(200).json({ waitlistEnabled });
+    const setupRequired = await isSetupRequired();
+    const waitlistEnabled = setupRequired ? false : await isWaitlistEnabled();
+    res.status(200).json({ setupRequired, waitlistEnabled });
   } catch (error) {
     res.status(500).json({ error: "Failed to load public configuration", detail: String(error) });
   }

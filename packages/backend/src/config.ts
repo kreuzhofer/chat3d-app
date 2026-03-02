@@ -117,9 +117,6 @@ export const config = {
   },
   auth: {
     jwtSecret: readEnv("JWT_SECRET", "change-this"),
-    seedAdminEmail: readEnv("SEED_ADMIN_EMAIL", "admin@chat3d.local"),
-    seedAdminPassword: readEnv("SEED_ADMIN_PASSWORD", "change-admin-password"),
-    seedAdminDisplayName: process.env.SEED_ADMIN_DISPLAY_NAME ?? "Initial Admin",
   },
   waitlist: {
     confirmationTokenTtlHours: readNumber("WAITLIST_CONFIRMATION_TOKEN_TTL_HOURS", "24"),

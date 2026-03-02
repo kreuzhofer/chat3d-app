@@ -25,6 +25,7 @@ import { LoginPage } from "./pages/public/LoginPage";
 import { PricingPage } from "./pages/public/PricingPage";
 import { PublicShell } from "./pages/public/PublicShell";
 import { RegisterPage } from "./pages/public/RegisterPage";
+import { SetupPage } from "./pages/public/SetupPage";
 import { WaitlistPage } from "./pages/public/WaitlistPage";
 
 const AdminPanel = lazy(async () => {
@@ -294,27 +295,30 @@ function AuthenticatedApp() {
 }
 
 function PublicApp() {
+  const [setupRequired, setSetupRequired] = useState(false);
   const [waitlistEnabled, setWaitlistEnabled] = useState(false);
-  const [waitlistState, setWaitlistState] = useState<"loading" | "ready" | "error">("loading");
+  const [configState, setConfigState] = useState<"loading" | "ready" | "error">("loading");
 
   useEffect(() => {
     let mounted = true;
 
     async function loadConfig() {
-      setWaitlistState("loading");
+      setConfigState("loading");
       try {
         const config = await getPublicConfig();
         if (!mounted) {
           return;
         }
+        setSetupRequired(config.setupRequired);
         setWaitlistEnabled(config.waitlistEnabled);
-        setWaitlistState("ready");
+        setConfigState("ready");
       } catch {
         if (!mounted) {
           return;
         }
+        setSetupRequired(false);
         setWaitlistEnabled(false);
-        setWaitlistState("error");
+        setConfigState("error");
       }
     }
 
@@ -326,12 +330,20 @@ function PublicApp() {
   }, []);
 
   const resolvedWaitlistEnabled = useMemo(
-    () => (waitlistState === "error" ? false : waitlistEnabled),
-    [waitlistEnabled, waitlistState],
+    () => (configState === "error" ? false : waitlistEnabled),
+    [waitlistEnabled, configState],
   );
 
+  if (configState === "loading") {
+    return <LoadingView label="Loading..." />;
+  }
+
+  if (setupRequired) {
+    return <SetupPage />;
+  }
+
   return (
-    <PublicShell waitlistEnabled={resolvedWaitlistEnabled} waitlistState={waitlistState}>
+    <PublicShell waitlistEnabled={resolvedWaitlistEnabled} waitlistState={configState}>
       <Routes>
         <Route path="/" element={<HomePage waitlistEnabled={resolvedWaitlistEnabled} />} />
         <Route path="/pricing" element={<PricingPage waitlistEnabled={resolvedWaitlistEnabled} />} />

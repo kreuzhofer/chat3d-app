@@ -82,9 +82,6 @@ services:
       EVENT_BUS_MODE: ${EVENT_BUS_MODE:-redis}
       REDIS_EVENT_CHANNEL: ${REDIS_EVENT_CHANNEL:-chat3d.notifications}
       JWT_SECRET: ${JWT_SECRET:-change-this}
-      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@chat3d.local}
-      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-change-admin-password}
-      SEED_ADMIN_DISPLAY_NAME: ${SEED_ADMIN_DISPLAY_NAME:-Initial Admin}
       BUILD123D_URL: ${BUILD123D_URL:-http://build123d:80}
       SCREENSHOT_SERVICE_URL: ${SCREENSHOT_SERVICE_URL:-http://screenshot-service:80}
       QUERY_RENDER_MODE: ${QUERY_RENDER_MODE:-live}

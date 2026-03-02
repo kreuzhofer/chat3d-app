@@ -13,6 +13,7 @@ import { llmRouter } from "./routes/llm.routes.js";
 import { publicRouter } from "./routes/public.routes.js";
 import { profileRouter } from "./routes/profile.routes.js";
 import { queryRouter } from "./routes/query.routes.js";
+import { setupRouter } from "./routes/setup.routes.js";
 import { waitlistRouter } from "./routes/waitlist.routes.js";
 import { pushRouter } from "./routes/push.routes.js";
 import { workbenchRouter } from "./routes/workbench.routes.js";
@@ -49,6 +50,7 @@ export function createApp() {
   app.use("/api/public", publicRouter);
   app.use("/api/profile", profileRouter);
   app.use("/api/push", pushRouter);
+  app.use("/api/setup", setupRouter);
   app.use("/api/query", queryRouter);
   app.use("/api/waitlist", waitlistRouter);
   app.use("/api/admin/workbench", workbenchRouter);
