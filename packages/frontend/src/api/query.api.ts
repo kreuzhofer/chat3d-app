@@ -112,3 +112,17 @@ export function regenerateQuery(input: {
     }),
   });
 }
+
+export function stopQuery(input: {
+  token: string;
+  assistantItemId: string;
+}): Promise<{ ok: boolean; wasRunning: boolean }> {
+  return requestJson<{ ok: boolean; wasRunning: boolean }>(`${QUERY_API_BASE}/stop`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ assistantItemId: input.assistantItemId }),
+  });
+}

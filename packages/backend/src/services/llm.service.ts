@@ -238,6 +238,7 @@ function buildUsageMetadata(input: {
 async function generateWithConfig(
   cfg: LlmModelConfig,
   prompt: string,
+  abortSignal?: AbortSignal,
 ): Promise<ProviderGenerationResult> {
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
@@ -266,6 +267,7 @@ async function generateWithConfig(
         const stream = streamText({
           model: providerModel,
           prompt,
+          abortSignal,
           ...extraOpts,
         });
 
@@ -313,6 +315,7 @@ async function generateWithConfig(
         const result = await generateText({
           model: providerModel,
           prompt,
+          abortSignal,
           ...extraOpts,
         });
 
@@ -360,6 +363,7 @@ async function streamWithConfig(
   cfg: LlmModelConfig,
   prompt: string,
   onToken: (token: string) => void,
+  abortSignal?: AbortSignal,
 ): Promise<ProviderGenerationResult> {
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
@@ -375,6 +379,7 @@ async function streamWithConfig(
       const result = streamText({
         model: providerModel,
         prompt,
+        abortSignal,
         ...extraOpts,
       });
 
@@ -540,6 +545,7 @@ export async function generateConversationText(input: {
   prompt: string;
   contextName: string;
   conversationHistory?: ConversationHistoryEntry[];
+  abortSignal?: AbortSignal;
 }): Promise<ConversationGenerationResult> {
   const { def: model, cfg: modelCfg } = await resolveModelForStage("conversation");
   const prompt = buildConversationPrompt(input);
@@ -559,7 +565,7 @@ export async function generateConversationText(input: {
     };
   }
 
-  const result = await generateWithConfig(modelCfg, prompt);
+  const result = await generateWithConfig(modelCfg, prompt, input.abortSignal);
 
   return {
     model,
@@ -579,6 +585,7 @@ export async function generateConversationTextStream(input: {
   contextName: string;
   onToken: (token: string) => void;
   conversationHistory?: ConversationHistoryEntry[];
+  abortSignal?: AbortSignal;
 }): Promise<ConversationGenerationResult> {
   const { def: model, cfg: modelCfg } = await resolveModelForStage("conversation");
   const prompt = buildConversationPrompt(input);
@@ -602,7 +609,7 @@ export async function generateConversationTextStream(input: {
     };
   }
 
-  const result = await streamWithConfig(modelCfg, prompt, input.onToken);
+  const result = await streamWithConfig(modelCfg, prompt, input.onToken, input.abortSignal);
 
   return {
     model,

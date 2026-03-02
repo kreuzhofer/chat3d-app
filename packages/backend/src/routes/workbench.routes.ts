@@ -217,7 +217,7 @@ workbenchRouter.post("/generate", async (req, res) => {
       res.status(400).json({ error: "promptId is required" });
       return;
     }
-    const job = await startSingleJob(promptId, "generate");
+    const job = await startSingleJob(promptId, "generate", undefined, req.authUser!.id);
     res.status(202).json(job);
   } catch (error) {
     if (error instanceof WorkbenchSeederError) {
@@ -372,7 +372,7 @@ workbenchRouter.patch("/examples/:id/code", async (req, res) => {
 workbenchRouter.post("/examples/:id/retry", async (req, res) => {
   try {
     const example = await getExample(req.params.id);
-    const job = await startSingleJob(example.promptId, "retry");
+    const job = await startSingleJob(example.promptId, "retry", undefined, req.authUser!.id);
     res.status(202).json(job);
   } catch (error) {
     if (error instanceof WorkbenchSeederError) {
@@ -386,7 +386,7 @@ workbenchRouter.post("/examples/:id/retry", async (req, res) => {
 workbenchRouter.post("/examples/:id/re-render", async (req, res) => {
   try {
     const example = await getExample(req.params.id);
-    const job = await startSingleJob(example.promptId, "re-render", req.params.id);
+    const job = await startSingleJob(example.promptId, "re-render", req.params.id, req.authUser!.id);
     res.status(202).json(job);
   } catch (error) {
     if (error instanceof WorkbenchSeederError) {
@@ -409,7 +409,7 @@ workbenchRouter.post("/generate/batch", async (req, res) => {
       res.status(400).json({ error: "categoryId is required" });
       return;
     }
-    const job = await startBatchJob(categoryId, { skipApproved: skipApproved ?? true });
+    const job = await startBatchJob(categoryId, { skipApproved: skipApproved ?? true }, req.authUser!.id);
     res.status(202).json(job);
   } catch (error) {
     if (error instanceof WorkbenchSeederError) {

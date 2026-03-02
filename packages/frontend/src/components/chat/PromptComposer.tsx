@@ -5,6 +5,7 @@ import {
   Paperclip,
   RefreshCw,
   Send,
+  Square,
   Upload,
   X,
 } from "lucide-react";
@@ -23,6 +24,7 @@ export interface PromptComposerProps {
   /** When true, the send button is disabled to prevent concurrent submissions. */
   isStreaming?: boolean;
   onSubmit: () => void;
+  onStop?: () => void;
   onAttachFiles: (files: File[]) => void;
   onRemoveAttachment: (path: string) => void;
   onRegenerate: () => void;
@@ -37,6 +39,7 @@ export function PromptComposer({
   activeContextId,
   isStreaming = false,
   onSubmit,
+  onStop,
   onAttachFiles,
   onRemoveAttachment,
   onRegenerate,
@@ -135,14 +138,24 @@ export function PromptComposer({
           ) : null}
           <CapabilityHints />
         </div>
-        <Button
-          iconLeft={<Send className="h-4 w-4" />}
-          loading={busyAction === "submit-prompt"}
-          disabled={busyAction !== null || isStreaming || prompt.trim() === ""}
-          onClick={onSubmit}
-        >
-          Send
-        </Button>
+        {isStreaming ? (
+          <Button
+            variant="destructive"
+            iconLeft={<Square className="h-4 w-4" />}
+            onClick={onStop}
+          >
+            Stop
+          </Button>
+        ) : (
+          <Button
+            iconLeft={<Send className="h-4 w-4" />}
+            loading={busyAction === "submit-prompt"}
+            disabled={busyAction !== null || prompt.trim() === ""}
+            onClick={onSubmit}
+          >
+            Send
+          </Button>
+        )}
       </div>
     </div>
   );

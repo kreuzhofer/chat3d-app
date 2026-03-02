@@ -79,6 +79,13 @@ export function wrapInTemplate(rawCode: string, baseFileName: string): string {
 
 // ── Types ────────────────────────────────────────────────────────────
 
+/**
+ * Stage-level progress callback for SSE publishing.
+ * The codegen service calls this at each major pipeline stage.
+ * The caller (batch service) wires it to SSE publishing.
+ */
+export type ProgressCallback = (state: string, detail: string) => void;
+
 export interface GenerateResult {
   exampleId: string;
   promptId: string;
@@ -658,7 +665,7 @@ async function persistWorkbenchFiles(opts: {
 
 // ── Main pipeline ────────────────────────────────────────────────────
 
-export async function generateForPrompt(promptId: string): Promise<GenerateResult> {
+export async function generateForPrompt(promptId: string, onProgress?: ProgressCallback): Promise<GenerateResult> {
   logger.info({ promptId }, "starting generation for prompt");
 
   // Pipeline-level timeout — aborts the entire pipeline if it takes too long
@@ -666,13 +673,13 @@ export async function generateForPrompt(promptId: string): Promise<GenerateResul
   const pipelineTimeout = setTimeout(() => pipelineController.abort(), PIPELINE_TIMEOUT_MS);
 
   try {
-    return await _generateForPromptInner(promptId, pipelineController.signal);
+    return await _generateForPromptInner(promptId, pipelineController.signal, onProgress);
   } finally {
     clearTimeout(pipelineTimeout);
   }
 }
 
-async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSignal): Promise<GenerateResult> {
+async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSignal, onProgress?: ProgressCallback): Promise<GenerateResult> {
 
   // 1. Load context and resolve model
   const ctx = await loadPromptContext(promptId);
@@ -682,9 +689,11 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
   logger.info({ model: llmModelLabel }, "codegen model resolved");
 
   // 2. Validate prompt before expensive codegen pipeline
+  onProgress?.("validating", "Validating prompt...");
   const validation = await validatePrompt(ctx.prompt);
   if (!validation.valid) {
     logger.info({ reason: validation.reason }, "prompt rejected by validation");
+    onProgress?.("failed", `Prompt validation failed: ${validation.reason}`);
     const exampleId = crypto.randomUUID();
     await insertExample({
       id: exampleId,
@@ -766,6 +775,12 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
   for (let iteration = 1; iteration <= MAX_FIX_ITERATIONS; iteration++) {
     logger.info({ iteration, maxIterations: MAX_FIX_ITERATIONS }, "starting iteration");
 
+    const isFirst = iteration === 1;
+    onProgress?.(
+      isFirst ? "codegen" : "fixing",
+      isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${MAX_FIX_ITERATIONS})...`,
+    );
+
     // 2. Generate code
     const prompt =
       iteration === 1
@@ -804,6 +819,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
 
     // 3. Render with Build123d — wrap raw code in template for execution
     //    Uses infrastructure retry to avoid wasting iterations on service hiccups.
+    onProgress?.("rendering", "Rendering 3D model...");
     const baseFileName = `wb-${ctx.promptId.slice(0, 8)}-iter${iteration}`;
     const executableCode = wrapInTemplate(currentCode, baseFileName);
     logger.debug({ code: executableCode }, "executable code for Build123d");
@@ -837,6 +853,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
 
       // If this is the last iteration, persist the failure and return
       if (iteration >= MAX_FIX_ITERATIONS) {
+        onProgress?.("failed", renderError ?? "Render failed");
         const exampleId = crypto.randomUUID();
         await insertExample({
           id: exampleId,
@@ -889,6 +906,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     }
 
     // 4. Screenshot via STL rendering service (STL only — faster, no ZIP decompression)
+    onProgress?.("screenshots", "Taking screenshots...");
     let screenshotFailed = false;
     const stlFile = findFileByExtension(renderedFiles, ".stl");
     if (stlFile) {
@@ -911,6 +929,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     }
 
     // 5. VLM Evaluate — send labeled images, exclude isometric (thumbnail-only)
+    onProgress?.("evaluating", `Evaluating quality (attempt ${iteration}/${MAX_FIX_ITERATIONS})...`);
     const vlmImages = screenshots
       .filter((s) => s.angle !== "isometric")
       .map((s) => ({ angle: s.angle, base64: s.base64 }));
@@ -1020,6 +1039,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     const shouldStop = (approved && !hasIssues) || iteration >= MAX_FIX_ITERATIONS;
 
     if (shouldStop) {
+      onProgress?.("completed", "Done");
       // Use the best result across all iterations (guards against regressions)
       const final = best ?? {
         code: currentCode,
@@ -1113,7 +1133,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
  * runs VLM evaluation once (no fix loop), and persists as a new example.
  * If rendering fails, stops immediately — no AI retry.
  */
-export async function reRenderForExample(exampleId: string): Promise<GenerateResult> {
+export async function reRenderForExample(exampleId: string, onProgress?: ProgressCallback): Promise<GenerateResult> {
   logger.info({ exampleId }, "starting re-render for example");
 
   // 1. Load existing example to get the code and prompt context
@@ -1129,6 +1149,7 @@ export async function reRenderForExample(exampleId: string): Promise<GenerateRes
   logger.info({ prompt: ctx.prompt.slice(0, 80), category: ctx.categoryName }, "loaded prompt context for re-render");
 
   // 2. Render with Build123d — wrap raw code in template for execution
+  onProgress?.("rendering", "Rendering 3D model...");
   const baseFileName = `wb-${ctx.promptId.slice(0, 8)}-rerender`;
   const executableCode = wrapInTemplate(code, baseFileName);
   logger.debug({ code: executableCode }, "executable code for Build123d re-render");
@@ -1145,6 +1166,7 @@ export async function reRenderForExample(exampleId: string): Promise<GenerateRes
     logger.info({ fileCount: renderedFiles.length, files: renderedFiles.map((f) => f.filename) }, "Build123d re-render success");
   } catch (error) {
     renderError = error instanceof Error ? error.message : String(error);
+    onProgress?.("failed", renderError);
     logger.warn({ exampleId, renderError }, "re-render failed — stopping (no AI retry)");
 
     // Persist failure as a new example and return immediately
@@ -1196,6 +1218,7 @@ export async function reRenderForExample(exampleId: string): Promise<GenerateRes
   }
 
   // 3. Screenshot via STL rendering service
+  onProgress?.("screenshots", "Taking screenshots...");
   let screenshots: RenderedScreenshot[] = [];
   const stlFile = findFileByExtension(renderedFiles, ".stl");
   if (stlFile) {
@@ -1217,6 +1240,7 @@ export async function reRenderForExample(exampleId: string): Promise<GenerateRes
   }
 
   // 4. VLM Evaluate — single pass, no loop — send labeled images, exclude isometric (thumbnail-only)
+  onProgress?.("evaluating", "Evaluating quality...");
   let evalResult: EvaluationResult | null = null;
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
@@ -1281,6 +1305,7 @@ export async function reRenderForExample(exampleId: string): Promise<GenerateRes
     completionTokens: totalCompletionTokens,
   });
 
+  onProgress?.("completed", "Done");
   logger.info(
     { exampleId: newExampleId, promptId: ctx.promptId, score, status: approved ? "auto_approved" : "pending" },
     "re-render example persisted",

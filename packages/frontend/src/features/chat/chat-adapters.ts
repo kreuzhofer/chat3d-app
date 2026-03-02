@@ -1,6 +1,6 @@
 import type { ChatItem } from "../../api/chat.api";
 
-export type ChatMessageState = "pending" | "completed" | "error" | "unknown";
+export type ChatMessageState = "pending" | "completed" | "cancelled" | "error" | "unknown";
 export type ChatSegmentKind = "message" | "error" | "meta" | "model" | "attachment" | "suggestions" | "code";
 
 export interface ChatFileEntry {
@@ -46,7 +46,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function toMessageState(value: unknown): ChatMessageState {
-  if (value === "pending" || value === "completed" || value === "error") {
+  if (value === "pending" || value === "completed" || value === "cancelled" || value === "error") {
     return value;
   }
   return "unknown";

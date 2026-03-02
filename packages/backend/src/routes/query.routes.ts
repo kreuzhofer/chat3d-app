@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
-import { QueryServiceError, initiateQuery, executeQueryPipeline, resolvePromptForRegeneration } from "../services/query.service.js";
+import { QueryServiceError, initiateQuery, executeQueryPipeline, resolvePromptForRegeneration, cancelPipeline } from "../services/query.service.js";
 
 export const queryRouter = Router();
 
@@ -123,4 +123,21 @@ queryRouter.post("/regenerate", async (req, res) => {
   } catch (error) {
     sendKnownError(res, error);
   }
+});
+
+queryRouter.post("/stop", async (req, res) => {
+  const authUser = req.authUser;
+  if (!authUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const assistantItemId = typeof req.body?.assistantItemId === "string" ? req.body.assistantItemId : "";
+  if (!assistantItemId) {
+    res.status(400).json({ error: "assistantItemId is required" });
+    return;
+  }
+
+  const wasRunning = cancelPipeline(assistantItemId, authUser.id);
+  res.status(200).json({ ok: true, wasRunning });
 });

@@ -3,7 +3,8 @@ export type SseEventType =
   | "chat.query.state"
   | "notification.created"
   | "admin.settings.updated"
-  | "account.status.changed";
+  | "account.status.changed"
+  | "workbench.job.progress";
 
 export interface SseEventPayload {
   type: SseEventType;

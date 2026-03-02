@@ -11,10 +11,11 @@
 
 import { prisma } from "../db/prisma.js";
 import { ProviderQuotaExhaustedError } from "../utils/llm-errors.js";
-import { generateForPrompt, reRenderForExample, type GenerateResult } from "./workbench-codegen.service.js";
+import { generateForPrompt, reRenderForExample, type GenerateResult, type ProgressCallback } from "./workbench-codegen.service.js";
 import { embedAndStorePrompt } from "./workbench-embeddings.service.js";
 import { cleanupExamplesForPrompt } from "./workbench-examples.service.js";
 import { createLogger } from "../utils/logger.js";
+import { sseService } from "./sse.service.js";
 
 const logger = createLogger("workbench-batch");
 
@@ -42,6 +43,8 @@ export interface BatchJob {
   finishedAt: string | null;
   /** Prompt IDs still pending processing (batch jobs only). */
   pendingPromptIds: Set<string>;
+  /** Admin user ID for SSE progress events. */
+  userId: string | null;
 }
 
 export interface BatchPromptResult {
@@ -171,6 +174,7 @@ export function getRunningJobs(): BatchJobSummary[] {
 export async function startBatchJob(
   categoryId: string,
   options: { skipApproved?: boolean } = {},
+  userId?: string,
 ): Promise<BatchJobSummary> {
   // Prevent double-starts
   const existing = getRunningJobForCategory(categoryId);
@@ -237,6 +241,7 @@ export async function startBatchJob(
     createdAt: new Date().toISOString(),
     finishedAt: null,
     pendingPromptIds: new Set(promptsToProcess.map((p) => p.id)),
+    userId: userId ?? null,
   };
 
   jobs.set(jobId, job);
@@ -319,6 +324,7 @@ export async function startBatchReRender(categoryId: string): Promise<BatchJobSu
     createdAt: new Date().toISOString(),
     finishedAt: null,
     pendingPromptIds: new Set(),
+    userId: null,
   };
 
   jobs.set(jobId, job);
@@ -343,6 +349,7 @@ export async function startSingleJob(
   promptId: string,
   type: "generate" | "retry" | "re-render",
   exampleId?: string,
+  userId?: string,
 ): Promise<BatchJobSummary> {
   evictStaleJobs();
 
@@ -384,6 +391,7 @@ export async function startSingleJob(
     createdAt: new Date().toISOString(),
     finishedAt: null,
     pendingPromptIds: new Set(),
+    userId: userId ?? null,
   };
 
   jobs.set(jobId, job);
@@ -441,6 +449,20 @@ export function listJobs(): BatchJobSummary[] {
 
 // ── Internal ─────────────────────────────────────────────────────────
 
+/** Build a progress callback that publishes ephemeral SSE events to the admin user. */
+function buildProgressCallback(job: BatchJob, promptId: string): ProgressCallback | undefined {
+  if (!job.userId) return undefined;
+  const userId = job.userId;
+  return (state: string, detail: string) => {
+    sseService.publishEphemeral(userId, "workbench.job.progress", {
+      jobId: job.jobId,
+      promptId,
+      state,
+      detail,
+    });
+  };
+}
+
 function toSummary(job: BatchJob): BatchJobSummary {
   return {
     jobId: job.jobId,
@@ -477,7 +499,7 @@ async function runBatchJob(
 
     let result: GenerateResult | null = null;
     try {
-      result = await generateForPrompt(prompt.id);
+      result = await generateForPrompt(prompt.id, buildProgressCallback(job, prompt.id));
 
       if (result.approvalStatus === "rejected") {
         // Prompt was rejected by validation — count as completed (not failed)
@@ -582,11 +604,12 @@ async function runSingleJob(
 ): Promise<void> {
   try {
     let result: GenerateResult;
+    const onProgress = buildProgressCallback(job, promptId);
 
     if (type === "re-render" && exampleId) {
-      result = await reRenderForExample(exampleId);
+      result = await reRenderForExample(exampleId, onProgress);
     } else {
-      result = await generateForPrompt(promptId);
+      result = await generateForPrompt(promptId, onProgress);
     }
 
     if (result.approvalStatus === "rejected") {
@@ -675,7 +698,7 @@ async function runBatchReRender(
     job.exampleId = example.id;
 
     try {
-      const result = await reRenderForExample(example.id);
+      const result = await reRenderForExample(example.id, buildProgressCallback(job, example.prompt_id));
 
       job.completed += 1;
       job.results.push({
@@ -796,6 +819,7 @@ export async function startBatchCleanup(categoryId: string): Promise<BatchJobSum
     createdAt: new Date().toISOString(),
     finishedAt: null,
     pendingPromptIds: new Set(prompts.map((p) => p.id)),
+    userId: null,
   };
 
   jobs.set(jobId, job);

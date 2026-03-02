@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Check, Lightbulb, Loader2, Pencil, Play, RefreshCw, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
+import { ArrowLeft, Check, Lightbulb, Pencil, Play, RefreshCw, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 import {
   approveExample,
   deleteExample as apiDeleteExample,
@@ -23,6 +23,8 @@ import {
   type WorkbenchPrompt,
 } from "../api/workbench.api";
 import { useAuth } from "../hooks/useAuth";
+import { useWorkbenchJobProgress } from "../hooks/useWorkbenchJobProgress";
+import { TypingIndicator } from "./chat/TypingIndicator";
 import { InlineAlert } from "./layout/InlineAlert";
 import { PageHeader } from "./layout/PageHeader";
 import { SectionCard } from "./layout/SectionCard";
@@ -93,6 +95,11 @@ export function WorkbenchPromptPage() {
   const [improveVariations, setImproveVariations] = useState<string[]>([]);
   const [improveBusy, setImproveBusy] = useState(false);
   const promptSectionRef = useRef<HTMLDivElement>(null);
+
+  // Real-time progress from SSE events during generation
+  const { queryState: jobProgressState, detail: jobProgressDetail } = useWorkbenchJobProgress(
+    activeJob?.status === "running" ? activeJob.jobId : null,
+  );
 
   // Derive busy from either an active generation job or a quick action in progress
   const busy = actionBusy || (activeJob?.status === "running");
@@ -426,17 +433,15 @@ export function WorkbenchPromptPage() {
       {isLoading ? <InlineAlert tone="info">Loading...</InlineAlert> : null}
 
       {activeJob?.status === "running" ? (
-        <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3">
-          <div className="flex items-center gap-2 text-sm">
-            <Loader2 className="h-4 w-4 animate-spin text-[hsl(var(--primary))]" />
-            <span className="font-medium">
-              {activeJob.type === "batch" ? "Batch processing this prompt..." :
-               activeJob.type === "re-render" ? "Re-rendering..." :
-               activeJob.type === "retry" ? "Retrying generation..." :
-               "Generating..."}
-            </span>
-          </div>
-        </div>
+        <TypingIndicator
+          queryState={jobProgressState ?? "queued"}
+          detail={jobProgressDetail ?? (
+            activeJob.type === "batch" ? "Batch processing this prompt..." :
+            activeJob.type === "re-render" ? "Re-rendering..." :
+            activeJob.type === "retry" ? "Retrying generation..." :
+            "Starting..."
+          )}
+        />
       ) : null}
 
       {/* Example history */}

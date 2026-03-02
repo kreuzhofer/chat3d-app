@@ -45,7 +45,7 @@ function mapSseToNotification(message: SseMessage): NotificationRecord {
 }
 
 /** Event types that are ephemeral (high-frequency, not persisted). */
-const EPHEMERAL_EVENTS = new Set(["stream-token"]);
+const EPHEMERAL_EVENTS = new Set(["stream-token", "workbench.job.progress"]);
 
 export function NotificationsProvider({ children }: PropsWithChildren) {
   const { token, isAuthenticated } = useAuth();

@@ -68,7 +68,7 @@ interface UserPromptRow {
   messages: unknown;
 }
 
-export type QueryState = "queued" | "conversation" | "codegen" | "rendering" | "evaluating" | "fixing" | "retrying" | "completed" | "failed";
+export type QueryState = "queued" | "conversation" | "codegen" | "rendering" | "evaluating" | "fixing" | "retrying" | "completed" | "failed" | "cancelled";
 
 export interface StreamTokenEvent {
   type: "stream-token";
@@ -113,6 +113,39 @@ export class QueryServiceError extends Error {
   ) {
     super(message);
   }
+}
+
+// ── Pipeline cancellation ──
+
+export class PipelineCancelledError extends Error {
+  constructor() { super("Pipeline cancelled by user"); }
+}
+
+/** In-memory registry of running query pipelines. Key: assistantItemId. */
+const runningPipelines = new Map<string, { controller: AbortController; userId: string }>();
+
+function registerPipeline(assistantItemId: string, userId: string): AbortController {
+  const existing = runningPipelines.get(assistantItemId);
+  if (existing) existing.controller.abort();
+  const controller = new AbortController();
+  runningPipelines.set(assistantItemId, { controller, userId });
+  return controller;
+}
+
+function unregisterPipeline(assistantItemId: string): void {
+  runningPipelines.delete(assistantItemId);
+}
+
+/**
+ * Cancel a running pipeline. Returns true if a pipeline was found and aborted.
+ * Verifies that the requesting user owns the pipeline.
+ */
+export function cancelPipeline(assistantItemId: string, userId: string): boolean {
+  const entry = runningPipelines.get(assistantItemId);
+  if (!entry) return false;
+  if (entry.userId !== userId) return false;
+  entry.controller.abort();
+  return true;
 }
 
 // --- Conversation history for iterative refinement (Req 10) ---
@@ -454,6 +487,98 @@ export async function resolvePromptForRegeneration(input: {
   return prompt;
 }
 
+/**
+ * Resume pipelines for assistant items that were pending when the server last
+ * shut down. Only items updated within the last `maxAgeMinutes` are resumed —
+ * older items are assumed to be stuck for other reasons.
+ *
+ * Called once on server startup, after Prisma is connected.
+ */
+export async function resumeStalePipelines(maxAgeMinutes = 5): Promise<void> {
+  const cutoff = new Date(Date.now() - maxAgeMinutes * 60 * 1000);
+
+  // Find assistant items whose messages JSONB contains a segment with state "pending"
+  // and were updated recently enough to be worth resuming.
+  const staleItems = await prisma.chatItem.findMany({
+    where: {
+      role: "assistant",
+      updatedAt: { gte: cutoff },
+    },
+    select: {
+      id: true,
+      chatContextId: true,
+      ownerId: true,
+      messages: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 20, // Safety cap
+  });
+
+  // Filter to items that actually have a pending segment (Prisma can't query inside JSONB arrays)
+  const pendingItems = staleItems.filter((item) => {
+    if (!Array.isArray(item.messages)) return false;
+    return (item.messages as Array<Record<string, unknown>>).some(
+      (seg) => seg.state === "pending",
+    );
+  });
+
+  if (pendingItems.length === 0) {
+    queryLogger.info("no stale pending pipelines to resume");
+    return;
+  }
+
+  queryLogger.info({ count: pendingItems.length }, "resuming stale pending pipelines");
+
+  for (const item of pendingItems) {
+    try {
+      // Resolve original prompt from the preceding user message
+      const userRow = await prisma.chatItem.findFirst({
+        where: {
+          chatContextId: item.chatContextId,
+          ownerId: item.ownerId,
+          role: "user",
+          createdAt: { lte: item.createdAt },
+        },
+        select: { id: true, messages: true },
+        orderBy: { createdAt: "desc" },
+      });
+
+      const prompt = extractPromptFromMessages(userRow?.messages);
+      if (!prompt || !userRow) {
+        queryLogger.warn({ assistantItemId: item.id }, "cannot resolve prompt for stale item — skipping");
+        continue;
+      }
+
+      const context = await prisma.chatContext.findFirst({
+        where: { id: item.chatContextId, ownerId: item.ownerId },
+        select: { id: true, name: true },
+      });
+      if (!context) {
+        queryLogger.warn({ assistantItemId: item.id }, "context not found for stale item — skipping");
+        continue;
+      }
+
+      queryLogger.info({ assistantItemId: item.id, contextId: item.chatContextId }, "re-firing pipeline for stale item");
+
+      void executeQueryPipeline({
+        userId: item.ownerId,
+        contextId: item.chatContextId,
+        prompt,
+        attachments: [],
+        context,
+        userItemId: userRow.id,
+        assistantItemId: item.id,
+        stream: true,
+        isFirstPrompt: false,
+      });
+    } catch (err) {
+      queryLogger.error({ err, assistantItemId: item.id }, "failed to resume stale pipeline");
+    }
+  }
+}
+
 function selectPreviewFile(files: Array<{ path: string; filename: string }>) {
   const priority = [".3mf", ".stl"];
   for (const extension of priority) {
@@ -625,6 +750,16 @@ export async function executeQueryPipeline(input: {
   const context = input.context;
   const assistantItemId = input.assistantItemId;
 
+  const pipelineController = registerPipeline(assistantItemId, input.userId);
+  const pipelineSignal = pipelineController.signal;
+
+  function checkAborted() {
+    if (pipelineSignal.aborted) throw new PipelineCancelledError();
+  }
+
+  // Track partial conversation text for persistence on cancellation
+  let accumulatedConversationText = "";
+
   // Auto-name the chat from the first prompt (fire-and-forget)
   if (input.isFirstPrompt) {
     void generateChatName({
@@ -654,6 +789,16 @@ export async function executeQueryPipeline(input: {
     let tagBuffer = "";
     let tagStripped = false;
 
+    const emitToken = (t: string) => {
+      accumulatedConversationText += t;
+      sseService.publishStreamToken(input.userId, {
+        contextId: input.contextId,
+        assistantItemId,
+        token: t,
+        done: false,
+      });
+    };
+
     const onToken = input.stream
       ? (token: string) => {
           if (!tagStripped) {
@@ -665,46 +810,24 @@ export async function executeQueryPipeline(input: {
             if (match) {
               tagStripped = true;
               const remainder = tagBuffer.slice(match[0].length);
-              if (remainder) {
-                sseService.publishStreamToken(input.userId, {
-                  contextId: input.contextId,
-                  assistantItemId,
-                  token: remainder,
-                  done: false,
-                });
-              }
+              if (remainder) emitToken(remainder);
               return;
             }
             // If buffer doesn't start with '[', it's not a tag — flush everything
             if (!tagBuffer.startsWith("[")) {
               tagStripped = true;
-              sseService.publishStreamToken(input.userId, {
-                contextId: input.contextId,
-                assistantItemId,
-                token: tagBuffer,
-                done: false,
-              });
+              emitToken(tagBuffer);
               return;
             }
             // Still accumulating — wait for more tokens (max reasonable tag length ~20 chars)
             if (tagBuffer.length > 20) {
               // Tag too long, not a valid tag — flush buffer
               tagStripped = true;
-              sseService.publishStreamToken(input.userId, {
-                contextId: input.contextId,
-                assistantItemId,
-                token: tagBuffer,
-                done: false,
-              });
+              emitToken(tagBuffer);
             }
             return;
           }
-          sseService.publishStreamToken(input.userId, {
-            contextId: input.contextId,
-            assistantItemId,
-            token,
-            done: false,
-          });
+          emitToken(token);
         }
       : undefined;
 
@@ -721,17 +844,21 @@ export async function executeQueryPipeline(input: {
       [input.userItemId, assistantItemId],
     );
 
+    checkAborted();
+
     const conversation = input.stream && onToken
       ? await generateConversationTextStream({
           prompt: conversationPrompt,
           contextName: context.name,
           onToken,
           conversationHistory,
+          abortSignal: pipelineSignal,
         })
       : await generateConversationText({
           prompt: conversationPrompt,
           contextName: context.name,
           conversationHistory,
+          abortSignal: pipelineSignal,
         });
 
     if (input.stream) {
@@ -788,6 +915,8 @@ export async function executeQueryPipeline(input: {
 
     await persistPhase("Generating 3D model...");
 
+    checkAborted();
+
     // ── Workbench-style iteration loop: codegen → render → VLM eval → fix ──
 
     let epSystemPromptContent = "";
@@ -828,6 +957,7 @@ export async function executeQueryPipeline(input: {
     let epBest: { code: string; score: number | null; evalState: EpEvalState | null; renderedFiles: Array<{ filename: string; contentBase64: string }>; screenshots: RenderedScreenshot[]; iteration: number } | null = null;
 
     for (let iteration = 1; iteration <= MAX_FIX_ITERATIONS; iteration++) {
+      checkAborted();
       const isFirst = iteration === 1;
       await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: isFirst ? "codegen" : "fixing", detail: isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${MAX_FIX_ITERATIONS})...` });
       await persistPhase(isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${MAX_FIX_ITERATIONS})...`);
@@ -935,6 +1065,7 @@ export async function executeQueryPipeline(input: {
       epRenderErrorCtx = null;
       epEvalState = null;
 
+      checkAborted();
       await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "rendering", detail: "Rendering 3D model..." });
       await persistPhase("Rendering 3D model...");
 
@@ -1000,6 +1131,7 @@ export async function executeQueryPipeline(input: {
         }
       }
 
+      checkAborted();
       if (epScreenshots.length > 0) {
         await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "evaluating", detail: `Evaluating quality (attempt ${iteration}/${MAX_FIX_ITERATIONS})...` });
         await persistPhase(`Evaluating quality (attempt ${iteration}/${MAX_FIX_ITERATIONS})...`);
@@ -1127,6 +1259,37 @@ export async function executeQueryPipeline(input: {
       url: `/chat/${input.contextId}`,
     }).catch(() => {/* ignore push errors */});
   } catch (error) {
+    // Handle cancellation: either our own PipelineCancelledError (from checkAborted()
+    // at stage boundaries) or an AbortError thrown by the Vercel AI SDK when the
+    // abort signal fires during an in-flight LLM call.
+    if (error instanceof PipelineCancelledError || pipelineSignal.aborted) {
+      queryLogger.info({ assistantItemId }, "query pipeline cancelled by user");
+
+      const textToSave = accumulatedConversationText.trim() || "Generation was stopped.";
+      await updateChatItem({
+        userId: input.userId,
+        contextId: input.contextId,
+        itemId: assistantItemId,
+        messages: [
+          {
+            itemType: "message",
+            text: textToSave,
+            state: "cancelled",
+            stateMessage: "Stopped by user",
+          },
+        ],
+      });
+
+      await publishQueryState({
+        userId: input.userId,
+        contextId: input.contextId,
+        assistantItemId,
+        state: "cancelled",
+      });
+
+      return;
+    }
+
     queryLogger.error({ err: error }, "query pipeline failed");
     const isQuota = error instanceof ProviderQuotaExhaustedError;
     const errorMessage = isQuota
@@ -1162,6 +1325,8 @@ export async function executeQueryPipeline(input: {
       tag: `query-${assistantItemId}`,
       url: `/chat/${input.contextId}`,
     }).catch(() => {/* ignore push errors */});
+  } finally {
+    unregisterPipeline(assistantItemId);
   }
 }
 

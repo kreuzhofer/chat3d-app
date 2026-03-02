@@ -14,13 +14,12 @@ import {
   updateChatItem,
 } from "../api/chat.api";
 import { downloadFileBinary, uploadFileBase64 } from "../api/files.api";
-import { listLlmModels, regenerateQuery, submitQuery, type LlmModel, type QueryAttachment } from "../api/query.api";
+import { listLlmModels, regenerateQuery, stopQuery, submitQuery, type LlmModel, type QueryAttachment } from "../api/query.api";
 import { EmptyState } from "./layout/EmptyState";
 import { InlineAlert } from "./layout/InlineAlert";
 import { useNotifications } from "../contexts/NotificationsContext";
 import { useAuth } from "../hooks/useAuth";
 import { adaptChatItem } from "../features/chat/chat-adapters";
-import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 import { toErrorMessage, fileExtension, uniqueFilesByPath, buildModelVersionEntries } from "./chat/utils";
@@ -138,9 +137,13 @@ export function ChatPage() {
   const [pushBusy, setPushBusy] = useState(false);
 
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
-  /** Tracks whether isStreaming was ever true for the current streamingAssistantItemId.
-   *  Prevents the clearing effect from firing before useStreamingQuery has activated. */
-  const wasStreamingRef = useRef(false);
+  /** Tracks which assistantItemId was "activated" (isStreaming became true for it).
+   *  The clearing effect only clears streamingAssistantItemId when its value matches
+   *  this ref — preventing premature clears when a new ID is set but useStreamingQuery
+   *  hasn't confirmed streaming yet (isStreaming is stale for one render). */
+  const streamingActivatedForIdRef = useRef<string | null>(null);
+  const streamingAssistantItemIdRef = useRef<string | null>(null);
+  streamingAssistantItemIdRef.current = streamingAssistantItemId;
   const lastHandledNotificationIdRef = useRef(0);
   const prevAssistantItemCountRef = useRef<number | null>(null);
 
@@ -246,17 +249,27 @@ export function ChatPage() {
   });
 
   // Clear streamingAssistantItemId when streaming finishes.
-  // We use wasStreamingRef to avoid a race: in the render where
-  // streamingAssistantItemId is first set, isStreaming is still false
-  // (useStreamingQuery's setIsStreaming(true) hasn't been reflected yet).
-  // Without the guard, this effect would immediately clear the ID.
+  //
+  // Race-condition guard: when streamingAssistantItemId is first set,
+  // isStreaming is still false for one render (useStreamingQuery's effect
+  // hasn't committed yet). The old boolean `wasStreamingRef` approach
+  // broke when IDs changed rapidly (regenerate after cancel) because
+  // the boolean from a previous session could cause premature clears.
+  //
+  // Fix: track WHICH item ID streaming was activated for. The clearing
+  // condition only fires when isStreaming goes false for the SAME ID
+  // that was previously activated, preventing cross-session interference.
   useEffect(() => {
-    if (isStreaming) {
-      wasStreamingRef.current = true;
+    if (isStreaming && streamingAssistantItemId) {
+      streamingActivatedForIdRef.current = streamingAssistantItemId;
     }
-    if (streamingAssistantItemId && !isStreaming && wasStreamingRef.current) {
+    if (
+      streamingAssistantItemId &&
+      !isStreaming &&
+      streamingActivatedForIdRef.current === streamingAssistantItemId
+    ) {
       setStreamingAssistantItemId(null);
-      wasStreamingRef.current = false;
+      streamingActivatedForIdRef.current = null;
     }
   }, [streamingAssistantItemId, isStreaming]);
 
@@ -269,10 +282,16 @@ export function ChatPage() {
   //    is authoritative.
   useEffect(() => {
     if (!streamingAssistantItemId) {
-      // No active streaming — look for a pending item (reload recovery)
+      // No active streaming — look for a pending item (reload recovery).
+      // Skip items whose updatedAt is older than 5 minutes — the backend
+      // auto-resumes recent pending items on startup; anything older is
+      // certainly dead. Uses updatedAt (not createdAt) so that resumed
+      // pipelines (old createdAt but recently updated) are still picked up.
+      const STALE_THRESHOLD_MS = 5 * 60 * 1000;
       const pendingItem = timelineItems.find(
         (item) => item.role === "assistant" &&
-          item.segments.some((seg) => seg.kind === "message" && seg.state === "pending"),
+          item.segments.some((seg) => seg.kind === "message" && seg.state === "pending") &&
+          (Date.now() - Date.parse(item.updatedAt)) < STALE_THRESHOLD_MS,
       );
       if (pendingItem) setStreamingAssistantItemId(pendingItem.id);
     } else {
@@ -285,8 +304,13 @@ export function ChatPage() {
         if (!stillPending) {
           // Item completed in DB — clear streaming regardless of SSE event
           setStreamingAssistantItemId(null);
-          wasStreamingRef.current = false;
+          streamingActivatedForIdRef.current = null;
         }
+      } else if (timelineItems.length > 0) {
+        // Item not found in timeline — likely switched context. Clear to avoid
+        // stale streaming state blocking navigation.
+        setStreamingAssistantItemId(null);
+        streamingActivatedForIdRef.current = null;
       }
     }
   }, [timelineItems, streamingAssistantItemId]);
@@ -407,17 +431,39 @@ export function ChatPage() {
     }
 
     const latestId = notifications[0].id;
-    const hasRelevantUpdate = notifications.some((notification) => {
+    let hasRelevantUpdate = false;
+
+    const ACTIVE_PIPELINE_STATES = new Set(["queued", "conversation", "codegen", "rendering", "evaluating", "fixing", "retrying"]);
+
+    for (const notification of notifications) {
       if (notification.id <= lastHandledNotificationIdRef.current) {
-        return false;
+        break;
       }
 
       if (notification.eventType !== "chat.item.updated" && notification.eventType !== "chat.query.state") {
-        return false;
+        continue;
       }
 
-      return asContextId(notification.payload.contextId) === activeContextId;
-    });
+      if (asContextId(notification.payload.contextId) !== activeContextId) {
+        continue;
+      }
+
+      hasRelevantUpdate = true;
+
+      // Auto-activate streaming when an active pipeline state event arrives
+      // for an item not currently tracked. This handles resumed pipelines
+      // (old createdAt) and any case where the frontend missed the initial setup.
+      if (
+        notification.eventType === "chat.query.state" &&
+        !streamingAssistantItemIdRef.current
+      ) {
+        const state = typeof notification.payload.state === "string" ? notification.payload.state : "";
+        const itemId = typeof notification.payload.assistantItemId === "string" ? notification.payload.assistantItemId : "";
+        if (ACTIVE_PIPELINE_STATES.has(state) && itemId) {
+          setStreamingAssistantItemId(itemId);
+        }
+      }
+    }
 
     lastHandledNotificationIdRef.current = Math.max(lastHandledNotificationIdRef.current, latestId);
 
@@ -557,6 +603,11 @@ export function ChatPage() {
     try {
       await deleteChatContext(token, context.id);
       if (activeContextId === context.id) {
+        // Clear context-specific state immediately to prevent stale renders
+        setItems([]);
+        setSelectedAssistantItemId(null);
+        setStreamingAssistantItemId(null);
+        setOptimisticPrompt(null);
         navigate("/chat", { replace: true });
       }
       await refreshContexts();
@@ -678,6 +729,23 @@ export function ChatPage() {
     }
   }
 
+  async function stopQueryAction() {
+    if (!token || !streamingAssistantItemId) return;
+    try {
+      const result = await stopQuery({ token, assistantItemId: streamingAssistantItemId });
+      if (!result.wasRunning) {
+        // Pipeline not found — server restarted or already finished.
+        // Force-clear streaming state so the UI isn't stuck.
+        setStreamingAssistantItemId(null);
+        streamingActivatedForIdRef.current = null;
+      }
+    } catch {
+      // Network error — force-clear as best effort
+      setStreamingAssistantItemId(null);
+      streamingActivatedForIdRef.current = null;
+    }
+  }
+
   async function downloadFileAction(filePath: string) {
     if (!token) {
       return;
@@ -794,7 +862,9 @@ export function ChatPage() {
         assistantItemId,
       });
 
-      // Start listening for streaming events — same pattern as submitPromptAction
+      // Start listening for streaming events — same pattern as submitPromptAction.
+      // No ref reset needed: streamingActivatedForIdRef is ID-scoped, so the
+      // clearing effect won't fire until isStreaming has been true for THIS ID.
       setStreamingAssistantItemId(result.assistantItem.id);
 
       // Load items to show the pending assistant item in the timeline
@@ -821,7 +891,6 @@ export function ChatPage() {
             {activeContext ? activeContext.name : "New conversation"}
           </h2>
           <div className="flex items-center gap-2">
-            {lastQueryState ? <Badge tone="info">query: {lastQueryState.state}</Badge> : null}
           </div>
         </div>
       </header>
@@ -977,6 +1046,7 @@ export function ChatPage() {
               activeContextId={activeContextId}
               isStreaming={isStreaming}
               onSubmit={() => void submitPromptAction()}
+              onStop={() => void stopQueryAction()}
               onAttachFiles={(files) => void uploadSelectedFilesAction(files)}
               onRemoveAttachment={(path) => setQueuedAttachments((current) => current.filter((a) => a.path !== path))}
               onRegenerate={() => {

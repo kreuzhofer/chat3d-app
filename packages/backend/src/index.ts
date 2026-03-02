@@ -2,12 +2,18 @@ import { config } from "./config.js";
 import { createApp } from "./app.js";
 import { createLogger } from "./utils/logger.js";
 import { prisma } from "./db/prisma.js";
+import { resumeStalePipelines } from "./services/query.service.js";
 const logger = createLogger("backend");
 
 const app = createApp();
 
 const server = app.listen(config.port, () => {
   logger.info("listening on %d", config.port);
+
+  // Resume pipelines that were interrupted by the last shutdown
+  void resumeStalePipelines().catch((err) => {
+    logger.error({ err }, "failed to resume stale pipelines on startup");
+  });
 });
 
 function shutdown(signal: string) {

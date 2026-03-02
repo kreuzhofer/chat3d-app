@@ -12,7 +12,8 @@ export type QueryState =
   | "fixing"
   | "retrying"
   | "completed"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export interface StreamTokenPayload {
   contextId: string;
@@ -109,7 +110,7 @@ export function useStreamingQuery({
       setQueryState(state);
       setQueryStateDetail(payload.detail ?? null);
 
-      if (state === "completed") {
+      if (state === "completed" || state === "cancelled") {
         setIsStreaming(false);
       } else if (state === "failed") {
         setIsStreaming(false);
