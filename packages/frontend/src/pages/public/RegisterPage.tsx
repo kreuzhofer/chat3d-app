@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Box, Eye, EyeOff, UserPlus } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -27,7 +27,6 @@ function getPasswordStrength(password: string): { score: number; label: string; 
 
 export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
   const location = useLocation();
-  const navigate = useNavigate();
   const { register } = useAuth();
 
   const [displayName, setDisplayName] = useState("");
@@ -53,7 +52,8 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
     setError("");
     try {
       await register(email, password, displayName || undefined, registrationToken || undefined);
-      navigate("/chat", { replace: true });
+      // Navigation is handled by App: once isAuthenticated becomes true,
+      // AuthenticatedApp's wildcard route redirects to /chat.
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {

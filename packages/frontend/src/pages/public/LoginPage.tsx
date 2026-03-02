@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Box, Eye, EyeOff, LogIn } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -12,7 +12,6 @@ interface LoginPageProps {
 }
 
 export function LoginPage({ waitlistEnabled }: LoginPageProps) {
-  const navigate = useNavigate();
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,7 +25,8 @@ export function LoginPage({ waitlistEnabled }: LoginPageProps) {
     setError("");
     try {
       await login(email, password);
-      navigate("/chat", { replace: true });
+      // Navigation is handled by App: once isAuthenticated becomes true,
+      // AuthenticatedApp's wildcard route redirects to /chat.
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {
