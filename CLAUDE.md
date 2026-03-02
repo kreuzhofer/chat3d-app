@@ -58,7 +58,7 @@ cd packages/backend && npx knex migrate:latest
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and configure:
+Copy `example.env` to `.env` and configure:
 
 | Variable | Purpose |
 |----------|---------|
@@ -80,7 +80,7 @@ Copy `.env.example` to `.env` and configure:
 
 ## Default Admin Credentials
 
-A default admin account is seeded on first bootstrap using values from `.env.example`. Unless overridden in `.env`:
+A default admin account is seeded on first bootstrap using values from `example.env`. Unless overridden in `.env`:
 - **Email:** `admin@chat3d.local`
 - **Password:** `change-admin-password`
 

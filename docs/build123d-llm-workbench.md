@@ -690,7 +690,7 @@ Split into incremental sub-phases. Each sub-phase produces a working, buildable 
 #### Phase 3c — Visual Evaluation Service ✅
 
 - [x] `visual-eval.service.ts`: adapted from `chat3d-docker` (`visualEval.ts` + prompt), Vercel AI SDK `generateText()` with image content parts, multi-provider (Anthropic/OpenAI), three-level JSON response parsing fallback, retry logic (2 retries)
-- [x] New env vars: `EVAL_VLM_PROVIDER`, `EVAL_VLM_MODEL` in config + docker-compose + .env.example
+- [x] New env vars: `EVAL_VLM_PROVIDER`, `EVAL_VLM_MODEL` in config + docker-compose + example.env
 - [x] Build verification
 
 #### Phase 3d — Code Generation Pipeline ✅

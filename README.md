@@ -80,7 +80,7 @@ npm install
 ### 2. Configure environment
 
 ```bash
-cp .env.example .env
+cp example.env .env
 ```
 
 Edit `.env` and set your LLM API keys and other configuration. See [Environment Variables](#environment-variables) below.
@@ -105,7 +105,7 @@ Navigate to [http://localhost](http://localhost). A default admin account is cre
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and configure:
+Copy `example.env` to `.env` and configure:
 
 | Variable | Purpose |
 |----------|---------|
@@ -124,7 +124,7 @@ Copy `.env.example` to `.env` and configure:
 
 > **LLM Provider Configuration:** API keys, endpoint URLs, model assignments, and purpose mappings are all managed via the **Admin UI → Providers tab**, not environment variables.
 
-See `.env.example` for the full list including SMTP, Redis, concurrency, security, and worker configuration.
+See `example.env` for the full list including SMTP, Redis, concurrency, security, and worker configuration.
 
 ## Docker Services
 
