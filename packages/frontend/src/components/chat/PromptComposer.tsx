@@ -2,14 +2,14 @@ import { useRef } from "react";
 import {
   Image as ImageIcon,
   File as FileIcon,
+  Loader2,
   Paperclip,
-  RefreshCw,
   Send,
   Square,
-  Upload,
+  AlertCircle,
   X,
 } from "lucide-react";
-import type { QueryAttachment } from "../../api/query.api";
+import type { PendingFile } from "../../api/query.api";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { CapabilityHints } from "./CapabilityHints";
@@ -17,34 +17,32 @@ import { CapabilityHints } from "./CapabilityHints";
 export interface PromptComposerProps {
   prompt: string;
   onPromptChange: (value: string) => void;
-  queuedAttachments: QueryAttachment[];
+  pendingFiles: PendingFile[];
   busyAction: string | null;
-  hasAssistantItems: boolean;
   activeContextId: string | null;
   /** When true, the send button is disabled to prevent concurrent submissions. */
   isStreaming?: boolean;
   onSubmit: () => void;
   onStop?: () => void;
   onAttachFiles: (files: File[]) => void;
-  onRemoveAttachment: (path: string) => void;
-  onRegenerate: () => void;
+  onRemoveFile: (id: string) => void;
 }
 
 export function PromptComposer({
   prompt,
   onPromptChange,
-  queuedAttachments,
+  pendingFiles,
   busyAction,
-  hasAssistantItems,
   activeContextId,
   isStreaming = false,
   onSubmit,
   onStop,
   onAttachFiles,
-  onRemoveAttachment,
-  onRegenerate,
+  onRemoveFile,
 }: PromptComposerProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const hasUploading = pendingFiles.some((f) => f.status === "uploading");
 
   return (
     <div className="space-y-2 rounded-lg border border-[hsl(var(--border)_/_0.5)] bg-[hsl(var(--surface-2))] p-3">
@@ -61,42 +59,62 @@ export function PromptComposer({
           if (nextFiles.length > 0) {
             onAttachFiles(nextFiles);
           }
+          // Reset value so re-selecting the same file triggers onChange again
+          if (event.target) {
+            event.target.value = "";
+          }
         }}
       />
 
-      {/* Queued attachments — compact pills */}
-      {queuedAttachments.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {queuedAttachments.map((attachment) => (
-            <span
-              key={attachment.path}
-              className="inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-2.5 py-1 text-xs"
-            >
-              {attachment.kind === "image" ? (
-                <ImageIcon className="h-3 w-3 text-[hsl(var(--info))]" />
+      {/* Pending file thumbnails / pills */}
+      {pendingFiles.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {pendingFiles.map((pending) => (
+            <div key={pending.id} className="group relative">
+              {pending.kind === "image" && pending.previewUrl ? (
+                <div className="relative">
+                  <img
+                    src={pending.previewUrl}
+                    alt={pending.file.name}
+                    className="h-16 w-16 rounded-md border border-[hsl(var(--border))] object-cover"
+                  />
+                  {pending.status === "uploading" ? (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-md bg-black/40">
+                      <Loader2 className="h-4 w-4 animate-spin text-white" />
+                    </div>
+                  ) : null}
+                  {pending.status === "error" ? (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-md bg-black/40">
+                      <AlertCircle className="h-4 w-4 text-red-400" />
+                    </div>
+                  ) : null}
+                </div>
               ) : (
-                <FileIcon className="h-3 w-3 text-[hsl(var(--muted-foreground))]" />
+                <div className="flex h-16 w-16 flex-col items-center justify-center gap-1 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))]">
+                  {pending.status === "uploading" ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-[hsl(var(--muted-foreground))]" />
+                  ) : pending.status === "error" ? (
+                    <AlertCircle className="h-4 w-4 text-red-400" />
+                  ) : (
+                    <FileIcon className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
+                  )}
+                  <span className="max-w-[56px] truncate text-[9px] text-[hsl(var(--muted-foreground))]">
+                    {pending.file.name}
+                  </span>
+                </div>
               )}
-              <span className="max-w-[120px] truncate">{attachment.filename}</span>
+              {/* Remove button — always visible on hover */}
               <button
                 type="button"
-                className="ml-0.5 rounded-full p-0.5 text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
-                onClick={() => onRemoveAttachment(attachment.path)}
-                aria-label={`Remove ${attachment.filename}`}
+                className="absolute -right-1.5 -top-1.5 hidden rounded-full bg-[hsl(var(--destructive))] p-0.5 text-white shadow-sm group-hover:block"
+                onClick={() => onRemoveFile(pending.id)}
+                aria-label={`Remove ${pending.file.name}`}
               >
                 <X className="h-3 w-3" />
               </button>
-            </span>
+            </div>
           ))}
         </div>
-      ) : null}
-
-      {/* Pending upload indicator */}
-      {busyAction === "upload-attachments" ? (
-        <p className="flex items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
-          <Upload className="h-3 w-3 animate-pulse" />
-          Uploading files...
-        </p>
       ) : null}
 
       <Textarea
@@ -120,22 +138,10 @@ export function PromptComposer({
             size="icon"
             variant="ghost"
             aria-label="Attach files"
-            disabled={busyAction === "upload-attachments"}
             onClick={() => fileInputRef.current?.click()}
           >
             <Paperclip className="h-4 w-4" />
           </Button>
-          {activeContextId && hasAssistantItems ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              iconLeft={<RefreshCw className="h-3.5 w-3.5" />}
-              disabled={busyAction !== null}
-              onClick={onRegenerate}
-            >
-              Regenerate
-            </Button>
-          ) : null}
           <CapabilityHints />
         </div>
         {isStreaming ? (
@@ -150,7 +156,7 @@ export function PromptComposer({
           <Button
             iconLeft={<Send className="h-4 w-4" />}
             loading={busyAction === "submit-prompt"}
-            disabled={busyAction !== null || prompt.trim() === ""}
+            disabled={busyAction !== null || prompt.trim() === "" || hasUploading}
             onClick={onSubmit}
           >
             Send

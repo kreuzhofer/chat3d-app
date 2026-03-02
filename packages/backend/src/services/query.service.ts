@@ -6,7 +6,7 @@ import { prisma } from "../db/prisma.js";
 import { notificationService } from "./notification.service.js";
 import { sseService } from "./sse.service.js";
 import { createChatItem, updateChatItem, updateChatContext as updateChatContextService, ChatError } from "./chat.service.js";
-import { FileStorageError, readStorageFile, writeStorageFile } from "./file-storage.service.js";
+import { FileStorageError, moveStorageFile, readStorageFile, writeStorageFile } from "./file-storage.service.js";
 import {
   generateConversationText,
   generateConversationTextStream,
@@ -14,6 +14,7 @@ import {
   extractExecutableCode,
   findMostRecentCode,
   formatConversationHistory,
+  buildMultimodalUserContent,
   LlmServiceError,
   type LlmUsageMetadata,
 } from "./llm.service.js";
@@ -146,6 +147,64 @@ export function cancelPipeline(assistantItemId: string, userId: string): boolean
   if (entry.userId !== userId) return false;
   entry.controller.abort();
   return true;
+}
+
+/**
+ * Cancel any running pipeline in the given context for the given user.
+ * Used before starting a new pipeline to ensure only one runs per context.
+ */
+function cancelPipelinesInContext(contextId: string, userId: string): void {
+  for (const [itemId, entry] of runningPipelines) {
+    if (entry.userId === userId) {
+      // We don't store contextId in the map, so we abort all pipelines for this user.
+      // In practice, a user runs at most one pipeline at a time.
+      entry.controller.abort();
+      queryLogger.info({ assistantItemId: itemId, contextId }, "cancelled existing pipeline before starting new one");
+    }
+  }
+}
+
+/**
+ * Mark stale pending assistant items as failed in the database.
+ * Called when loading items for a context — any pending item that isn't
+ * actively running (not in runningPipelines) is considered orphaned.
+ */
+export async function markStalePendingItems(contextId: string, userId: string): Promise<number> {
+  const pendingItems = await prisma.chatItem.findMany({
+    where: {
+      chatContextId: contextId,
+      ownerId: userId,
+      role: "assistant",
+    },
+    select: { id: true, messages: true },
+  });
+
+  let markedCount = 0;
+  for (const item of pendingItems) {
+    if (!Array.isArray(item.messages)) continue;
+    const msgs = item.messages as Array<Record<string, unknown>>;
+    const hasPending = msgs.some((seg) => seg.state === "pending");
+    if (!hasPending) continue;
+
+    // If this item has an active in-memory pipeline, skip it
+    if (runningPipelines.has(item.id)) continue;
+
+    // Mark as failed — update all pending segments
+    const updatedMessages = msgs.map((seg) =>
+      seg.state === "pending"
+        ? { ...seg, state: "failed", stateMessage: "Pipeline interrupted by server restart" }
+        : seg,
+    );
+
+    await prisma.chatItem.update({
+      where: { id: item.id },
+      data: { messages: updatedMessages as object[] },
+    });
+    markedCount++;
+    queryLogger.info({ assistantItemId: item.id, contextId }, "marked stale pending item as failed");
+  }
+
+  return markedCount;
 }
 
 // --- Conversation history for iterative refinement (Req 10) ---
@@ -407,6 +466,130 @@ async function assertAttachmentsAccessible(_userId: string, attachments: QueryAt
   }
 }
 
+// --- Image collection for multimodal LLM calls ---
+
+/** A base64-encoded image ready to be sent to a vision-capable LLM. */
+export interface CollectedImage {
+  base64: string;
+  mimeType: string;
+  filename: string;
+}
+
+/**
+ * Extract image attachment storage paths from a chat item's JSONB messages array.
+ * Returns paths for segments with `itemType: "attachment"` and `attachmentKind: "image"`.
+ */
+function extractImageRefsFromMessages(messages: unknown): Array<{ path: string; filename: string; mimeType: string }> {
+  if (!Array.isArray(messages)) return [];
+  const refs: Array<{ path: string; filename: string; mimeType: string }> = [];
+  for (const segment of messages) {
+    if (!segment || typeof segment !== "object") continue;
+    const rec = segment as Record<string, unknown>;
+    if (rec.itemType !== "attachment" || rec.attachmentKind !== "image") continue;
+    const path = typeof rec.attachment === "string" ? rec.attachment : "";
+    if (!path) continue;
+    refs.push({
+      path,
+      filename: typeof rec.filename === "string" ? rec.filename : path.split("/").pop() || "image",
+      mimeType: typeof rec.mimeType === "string" ? rec.mimeType : "image/png",
+    });
+  }
+  return refs;
+}
+
+/**
+ * Read image files from storage and return as base64-encoded CollectedImage[].
+ * Silently skips files that cannot be read (e.g. deleted).
+ */
+async function readImagesFromStorage(
+  refs: Array<{ path: string; filename: string; mimeType: string }>,
+): Promise<CollectedImage[]> {
+  const images: CollectedImage[] = [];
+  for (const ref of refs) {
+    try {
+      const buffer = await readStorageFile({ relativePath: ref.path });
+      images.push({
+        base64: buffer.toString("base64"),
+        mimeType: ref.mimeType,
+        filename: ref.filename,
+      });
+    } catch (err) {
+      queryLogger.warn({ err: err instanceof Error ? err.message : String(err), path: ref.path }, "skipping unreadable image attachment");
+    }
+  }
+  return images;
+}
+
+/**
+ * Collect all images for a pipeline run: current-turn attachments + images from previous turns.
+ * Deduplicates by storage path. Returns images ordered: historical first, then current turn.
+ */
+async function collectAllImages(
+  contextId: string,
+  userId: string,
+  currentAttachments: QueryAttachmentInput[],
+  excludeItemIds: string[],
+): Promise<CollectedImage[]> {
+  // Gather image refs from current turn
+  const currentImageRefs = currentAttachments
+    .filter((a) => a.kind === "image")
+    .map((a) => ({ path: a.path, filename: a.filename, mimeType: a.mimeType }));
+
+  // Gather image refs from previous user items in this context
+  const previousItems = await prisma.chatItem.findMany({
+    where: {
+      chatContextId: contextId,
+      ownerId: userId,
+      role: "user",
+      ...(excludeItemIds.length > 0 ? { id: { notIn: excludeItemIds } } : {}),
+    },
+    select: { messages: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const historicalRefs: Array<{ path: string; filename: string; mimeType: string }> = [];
+  for (const item of previousItems) {
+    historicalRefs.push(...extractImageRefsFromMessages(item.messages));
+  }
+
+  // Deduplicate by path (historical first, then current)
+  const seen = new Set<string>();
+  const allRefs: Array<{ path: string; filename: string; mimeType: string }> = [];
+  for (const ref of [...historicalRefs, ...currentImageRefs]) {
+    if (!seen.has(ref.path)) {
+      seen.add(ref.path);
+      allRefs.push(ref);
+    }
+  }
+
+  if (allRefs.length === 0) return [];
+
+  queryLogger.info({ totalImages: allRefs.length, historical: historicalRefs.length, current: currentImageRefs.length }, "collected images for pipeline");
+  return readImagesFromStorage(allRefs);
+}
+
+/**
+ * Move attachments from tmp/ to chat/{contextId}/ and update paths in-place.
+ * Files already in chat/ are left as-is.
+ */
+async function relocateTempAttachments(
+  contextId: string,
+  attachments: QueryAttachmentInput[],
+): Promise<void> {
+  for (const attachment of attachments) {
+    if (!attachment.path.startsWith("tmp/")) continue;
+    const ext = attachment.path.includes(".") ? attachment.path.substring(attachment.path.lastIndexOf(".")) : "";
+    const uniqueId = crypto.randomUUID();
+    const newPath = `chat/${contextId}/${contextId}-${uniqueId}${ext}`;
+    try {
+      await moveStorageFile({ fromPath: attachment.path, toPath: newPath });
+      attachment.path = newPath;
+    } catch (err) {
+      queryLogger.warn({ err: err instanceof Error ? err.message : String(err), from: attachment.path, to: newPath }, "failed to relocate temp attachment");
+    }
+  }
+}
+
 function summarizeUsage(usageRecords: LlmUsageMetadata[]): QueryUsageSummary {
   return usageRecords.reduce<QueryUsageSummary>(
     (summary, usage) => ({
@@ -426,6 +609,29 @@ function summarizeUsage(usageRecords: LlmUsageMetadata[]): QueryUsageSummary {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+/**
+ * Extract attachment metadata from a user chat item's JSONB messages array.
+ * Used by `resumeStalePipelines` to reconstruct the attachments parameter.
+ */
+function extractAttachmentsFromMessages(messages: unknown): QueryAttachmentInput[] {
+  if (!Array.isArray(messages)) return [];
+  const attachments: QueryAttachmentInput[] = [];
+  for (const segment of messages) {
+    if (!segment || typeof segment !== "object") continue;
+    const rec = segment as Record<string, unknown>;
+    if (rec.itemType !== "attachment") continue;
+    const path = typeof rec.attachment === "string" ? rec.attachment : "";
+    if (!path) continue;
+    attachments.push({
+      path,
+      filename: typeof rec.filename === "string" ? rec.filename : path.split("/").pop() || "file",
+      mimeType: typeof rec.mimeType === "string" ? rec.mimeType : "application/octet-stream",
+      kind: rec.attachmentKind === "image" ? "image" : "file",
+    });
+  }
+  return attachments;
 }
 
 function extractPromptFromMessages(messages: unknown): string | null {
@@ -494,7 +700,7 @@ export async function resolvePromptForRegeneration(input: {
  *
  * Called once on server startup, after Prisma is connected.
  */
-export async function resumeStalePipelines(maxAgeMinutes = 5): Promise<void> {
+export async function resumeStalePipelines(maxAgeMinutes = 15): Promise<void> {
   const cutoff = new Date(Date.now() - maxAgeMinutes * 60 * 1000);
 
   // Find assistant items whose messages JSONB contains a segment with state "pending"
@@ -551,6 +757,10 @@ export async function resumeStalePipelines(maxAgeMinutes = 5): Promise<void> {
         continue;
       }
 
+      // Reconstruct attachments from the user item's persisted messages JSONB
+      // so that images and files are available to the resumed pipeline.
+      const attachments = extractAttachmentsFromMessages(userRow.messages);
+
       const context = await prisma.chatContext.findFirst({
         where: { id: item.chatContextId, ownerId: item.ownerId },
         select: { id: true, name: true },
@@ -560,13 +770,16 @@ export async function resumeStalePipelines(maxAgeMinutes = 5): Promise<void> {
         continue;
       }
 
-      queryLogger.info({ assistantItemId: item.id, contextId: item.chatContextId }, "re-firing pipeline for stale item");
+      queryLogger.info(
+        { assistantItemId: item.id, contextId: item.chatContextId, attachmentCount: attachments.length },
+        "re-firing pipeline for stale item",
+      );
 
       void executeQueryPipeline({
         userId: item.ownerId,
         contextId: item.chatContextId,
         prompt,
-        attachments: [],
+        attachments,
         context,
         userItemId: userRow.id,
         assistantItemId: item.id,
@@ -683,7 +896,12 @@ export async function initiateQuery(input: {
   const attachments = normalizeQueryAttachments(input.attachments);
 
   const context = await ensureOwnedContext(input.userId, input.contextId);
+  // Move files from tmp/ to chat/{contextId}/ and update attachment paths
+  await relocateTempAttachments(input.contextId, attachments);
   await assertAttachmentsAccessible(input.userId, attachments);
+
+  // Cancel any running pipeline in this context before starting a new one
+  cancelPipelinesInContext(input.contextId, input.userId);
 
   // Detect first prompt before creating items
   const itemCount = await prisma.chatItem.count({
@@ -844,6 +1062,14 @@ export async function executeQueryPipeline(input: {
       [input.userItemId, assistantItemId],
     );
 
+    // Collect images from current turn + all previous turns for multimodal LLM calls
+    const pipelineImages = await collectAllImages(
+      input.contextId,
+      input.userId,
+      attachments,
+      [input.userItemId, assistantItemId],
+    );
+
     checkAborted();
 
     const conversation = input.stream && onToken
@@ -852,12 +1078,14 @@ export async function executeQueryPipeline(input: {
           contextName: context.name,
           onToken,
           conversationHistory,
+          images: pipelineImages.length > 0 ? pipelineImages : undefined,
           abortSignal: pipelineSignal,
         })
       : await generateConversationText({
           prompt: conversationPrompt,
           contextName: context.name,
           conversationHistory,
+          images: pipelineImages.length > 0 ? pipelineImages : undefined,
           abortSignal: pipelineSignal,
         });
 
@@ -968,6 +1196,15 @@ export async function executeQueryPipeline(input: {
             : buildInitialPrompt(epSystemPromptContent, epFewShots, prompt))
         : buildFixPrompt(epSystemPromptContent, epFewShots, prompt, epCurrentCode, iteration - 1, epRenderError, epEvalState?.issues ?? null, epEvalState?.suggestions ?? null, epRenderErrorCtx);
 
+      // When codegen model supports vision and images are available, send via messages
+      const cgUseVision = pipelineImages.length > 0 && epCodegenConfig.supportsVision;
+      const cgCallOpts = cgUseVision
+        ? { messages: [{ role: "user" as const, content: buildMultimodalUserContent(cgPrompt, pipelineImages) }], ...epExtraOpts }
+        : { prompt: cgPrompt, ...epExtraOpts };
+      if (cgUseVision) {
+        queryLogger.info({ iteration, imageCount: pipelineImages.length }, "codegen using multimodal call with images");
+      }
+
       queryLogger.info({ iteration, maxIterations: MAX_FIX_ITERATIONS, isFirst, promptLength: cgPrompt.length }, "codegen iteration starting");
       const epUseFallbackStream = epCodegenConfig.provider === "bedrock" && epCodegenConfig.supportsThinking && epCodegenConfig.thinkingEffort;
       const epLlmSemaphore = getLlmSemaphore(epCodegenConfig.provider, epCodegenConfig.maxConcurrent);
@@ -977,10 +1214,11 @@ export async function executeQueryPipeline(input: {
             if (epUseFallbackStream) {
               // Bedrock's synchronous API does not support thinking — use streaming via fullStream
               // so we can track both reasoning and text progress.
-              const stream = streamText({ model: epCodegenModel, prompt: cgPrompt, ...epExtraOpts });
+              const stream = streamText({ model: epCodegenModel, ...cgCallOpts });
               let text = "";
               let reasoningChars = 0;
               let lastUpdateLen = 0;
+              let lastPersistMs = Date.now();
               let phase: "thinking" | "generating" = "thinking";
               const stateLabel = isFirst ? "codegen" : "fixing" as const;
 
@@ -994,6 +1232,11 @@ export async function executeQueryPipeline(input: {
                       : `Thinking (attempt ${iteration}/${MAX_FIX_ITERATIONS})... (${reasoningChars} chars)`;
                     void publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: stateLabel, detail });
                     queryLogger.debug({ iteration, reasoningChars }, "codegen thinking progress");
+                    // Periodically persist to DB so the item stays fresh for resume detection
+                    if (Date.now() - lastPersistMs >= 60_000) {
+                      lastPersistMs = Date.now();
+                      void persistPhase(detail);
+                    }
                   }
                 } else if (part.type === "text-delta") {
                   if (phase === "thinking") {
@@ -1009,6 +1252,11 @@ export async function executeQueryPipeline(input: {
                       : `Writing code (attempt ${iteration}/${MAX_FIX_ITERATIONS})... (${text.length} chars)`;
                     void publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: stateLabel, detail });
                     queryLogger.debug({ iteration, chars: text.length }, "codegen text progress");
+                    // Periodically persist to DB so the item stays fresh for resume detection
+                    if (Date.now() - lastPersistMs >= 60_000) {
+                      lastPersistMs = Date.now();
+                      void persistPhase(detail);
+                    }
                   }
                 }
               }
@@ -1024,7 +1272,7 @@ export async function executeQueryPipeline(input: {
               }
               return { text, reasoningText: finalResult.reasoningText, reasoning: finalResult.reasoning, usage: finalResult.usage };
             }
-            return generateText({ model: epCodegenModel, prompt: cgPrompt, ...epExtraOpts });
+            return generateText({ model: epCodegenModel, ...cgCallOpts });
           },
           { provider: epCodegenConfig.provider },
         ),

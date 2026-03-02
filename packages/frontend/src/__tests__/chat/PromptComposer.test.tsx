@@ -39,14 +39,12 @@ describe("PromptComposer — Property 2: disabled state consistency", () => {
           <PromptComposer
             prompt={prompt}
             onPromptChange={noop}
-            queuedAttachments={[]}
+            pendingFiles={[]}
             busyAction={busyAction}
-            hasAssistantItems={false}
             activeContextId={null}
             onSubmit={noop}
             onAttachFiles={noop}
-            onRemoveAttachment={noop}
-            onRegenerate={noop}
+            onRemoveFile={noop}
           />,
         );
 

@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { config } from "../config.js";
 
@@ -111,6 +111,28 @@ export async function deleteStorageDirectory(input: { relativePath: string }): P
     }
     throw error;
   }
+}
+
+/**
+ * Move (rename) a file within the storage root.
+ */
+export async function moveStorageFile(input: {
+  fromPath: string;
+  toPath: string;
+}): Promise<{ path: string }> {
+  const fromAbsolute = resolveStoragePath(input.fromPath);
+  const toAbsolute = resolveStoragePath(input.toPath);
+  try {
+    await stat(fromAbsolute);
+  } catch (error: unknown) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+      throw new FileStorageError("Source file not found", 404);
+    }
+    throw error;
+  }
+  await mkdir(path.dirname(toAbsolute), { recursive: true });
+  await rename(fromAbsolute, toAbsolute);
+  return { path: assertSafeRelativePath(input.toPath) };
 }
 
 // ── Legacy user-scoped storage (@deprecated) ─────────────────────────

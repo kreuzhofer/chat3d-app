@@ -1,13 +1,107 @@
+import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { AlertTriangle, Bot, Loader2, MessageCircleWarning, RefreshCw, ThumbsDown, ThumbsUp, User } from "lucide-react";
+import { AlertTriangle, Bell, Bot, ImageIcon, LoaderCircle, Loader2, MessageCircleWarning, RefreshCw, ThumbsDown, ThumbsUp, User } from "lucide-react";
 import type { ChatTimelineItem } from "../../features/chat/chat-adapters";
+import { downloadFileBinary } from "../../api/files.api";
 import { Button } from "../ui/button";
 import { InlineModelViewer } from "./InlineModelViewer";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { DownloadPillGroup } from "./DownloadPill";
 import { SuggestionPills } from "./SuggestionPills";
 import { fileExtension, formatEstimatedCostUsd, uniqueFilesByPath } from "./utils";
+
+function InlineImagePreview({ filePath, token }: { filePath: string; token: string }) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let revoked = false;
+    downloadFileBinary({ token, path: filePath })
+      .then(({ blob }) => {
+        if (revoked) return;
+        setObjectUrl(URL.createObjectURL(blob));
+      })
+      .catch(() => {
+        if (!revoked) setError(true);
+      });
+    return () => {
+      revoked = true;
+      setObjectUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+    };
+  }, [filePath, token]);
+
+  if (error) {
+    return (
+      <div className="flex h-24 w-32 items-center justify-center rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted)_/_0.3)]">
+        <ImageIcon className="h-6 w-6 text-[hsl(var(--muted-foreground))]" />
+      </div>
+    );
+  }
+
+  if (!objectUrl) {
+    return (
+      <div className="flex h-24 w-32 items-center justify-center rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted)_/_0.3)]">
+        <Loader2 className="h-4 w-4 animate-spin text-[hsl(var(--muted-foreground))]" />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={objectUrl}
+      alt="Uploaded image"
+      className="max-h-64 max-w-xs rounded-md border border-[hsl(var(--border))] object-contain"
+    />
+  );
+}
+
+function InlinePipelineProgress({ detail, isLongRunning, showEnableNotifications, busyNotifications, onEnableNotifications }: {
+  detail: string;
+  isLongRunning?: boolean;
+  showEnableNotifications?: boolean;
+  busyNotifications?: boolean;
+  onEnableNotifications?: () => void;
+}) {
+  return (
+    <div className="mt-2 space-y-1.5" data-testid="inline-pending-indicator">
+      <div className="flex items-center gap-2">
+        <span className="flex items-center gap-1" aria-hidden="true">
+          <span className="typing-dot h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />
+          <span className="typing-dot typing-dot-delay-1 h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />
+          <span className="typing-dot typing-dot-delay-2 h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />
+        </span>
+        <span className="text-xs text-[hsl(var(--muted-foreground))]">{detail}</span>
+      </div>
+      {isLongRunning ? (
+        <div className="space-y-1.5">
+          <p className="text-xs leading-relaxed text-[hsl(var(--muted-foreground)_/_0.7)]">
+            This is taking a while — your model is still being generated. Feel free to leave and come back.
+            {showEnableNotifications
+              ? " Enable notifications to know when it's ready."
+              : " You'll get a notification when it's ready."}
+          </p>
+          {showEnableNotifications && onEnableNotifications ? (
+            <button
+              type="button"
+              disabled={busyNotifications}
+              onClick={onEnableNotifications}
+              className="inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--primary)_/_0.3)] bg-[hsl(var(--primary)_/_0.08)] px-3 py-1 text-xs font-medium text-[hsl(var(--primary))] transition active:scale-95 active:bg-[hsl(var(--primary)_/_0.2)] hover:bg-[hsl(var(--primary)_/_0.15)] disabled:opacity-50"
+            >
+              {busyNotifications
+                ? <LoaderCircle className="h-3 w-3 animate-spin" />
+                : <Bell className="h-3 w-3" />}
+              {busyNotifications ? "Enabling..." : "Enable notifications"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export interface MessageBubbleProps {
   item: ChatTimelineItem;
@@ -21,6 +115,20 @@ export interface MessageBubbleProps {
   streamingError?: string | null;
   /** Whether streaming is currently active for this message. */
   isStreaming?: boolean;
+  /** Live pipeline progress detail from SSE (e.g. "Thinking... (5000 chars)"). */
+  queryStateDetail?: string | null;
+  /** Whether the pipeline has been running for a long time. */
+  isLongRunning?: boolean;
+  /** Whether to show "Enable notifications" button. */
+  showEnableNotifications?: boolean;
+  /** Whether the notification enable action is busy. */
+  busyNotifications?: boolean;
+  /** Called when user clicks "Enable notifications". */
+  onEnableNotifications?: () => void;
+  /** True only for the most recent assistant item — controls regenerate visibility. */
+  isLatestAssistant?: boolean;
+  /** True when any pipeline is actively running (disables regenerate). */
+  isPipelineActive?: boolean;
   onSelect: (itemId: string) => void;
   onRate: (item: { id: string; rating: -1 | 0 | 1 }, rating: -1 | 1) => void;
   onRegenerate: (assistantItemId: string) => void;
@@ -36,6 +144,13 @@ export function MessageBubble({
   streamingText,
   streamingError,
   isStreaming,
+  queryStateDetail,
+  isLongRunning,
+  showEnableNotifications,
+  busyNotifications,
+  onEnableNotifications,
+  isLatestAssistant,
+  isPipelineActive,
   onSelect,
   onRate,
   onRegenerate,
@@ -111,9 +226,20 @@ export function MessageBubble({
       <div className="space-y-1.5">
         {/* When streaming is active, render streaming text with markdown (incremental append) */}
         {hasStreamingContent ? (
-          <div className="rounded-md px-1" data-testid="streaming-content">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
-          </div>
+          <>
+            <div className="rounded-md px-1" data-testid="streaming-content">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
+            </div>
+            {queryStateDetail ? (
+              <InlinePipelineProgress
+                detail={queryStateDetail}
+                isLongRunning={isLongRunning}
+                showEnableNotifications={showEnableNotifications}
+                busyNotifications={busyNotifications}
+                onEnableNotifications={onEnableNotifications}
+              />
+            ) : null}
+          </>
         ) : null}
 
         {/* When stream is interrupted, show partial text + inline error */}
@@ -174,40 +300,30 @@ export function MessageBubble({
                   className="rounded-md px-1"
                 >
                   {isAttachment ? (
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium">
-                        {segment.text || `${segment.attachmentKind === "image" ? "Image" : "File"} attachment`}
-                      </p>
+                    <div className="space-y-1.5">
+                      {segment.attachmentKind === "image" && segment.attachmentPath && token ? (
+                        <InlineImagePreview filePath={segment.attachmentPath} token={token} />
+                      ) : (
+                        <p className="text-sm font-medium">
+                          {segment.text || "File attachment"}
+                        </p>
+                      )}
                       <p className="text-xs text-[hsl(var(--muted-foreground))]">
                         {segment.attachmentFilename || segment.attachmentPath}
-                        {segment.attachmentMimeType ? ` · ${segment.attachmentMimeType}` : ""}
                       </p>
-                      {segment.attachmentPath ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={busyAction !== null}
-                          onClick={() => {
-                            onDownloadFile(segment.attachmentPath);
-                          }}
-                        >
-                          Download Attachment
-                        </Button>
-                      ) : null}
                     </div>
                   ) : segment.text ? (
                     <>
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>
-                      {/* Inline progress indicator for pending segments (pipeline still running after reload) */}
-                      {segment.state === "pending" && segment.stateMessage ? (
-                        <div className="mt-2 flex items-center gap-2" data-testid="inline-pending-indicator">
-                          <span className="flex items-center gap-1" aria-hidden="true">
-                            <span className="typing-dot h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />
-                            <span className="typing-dot typing-dot-delay-1 h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />
-                            <span className="typing-dot typing-dot-delay-2 h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />
-                          </span>
-                          <span className="text-xs text-[hsl(var(--muted-foreground))]">{segment.stateMessage}</span>
-                        </div>
+                      {/* Inline progress indicator for pending segments (pipeline still running) */}
+                      {segment.state === "pending" && (queryStateDetail || segment.stateMessage) ? (
+                        <InlinePipelineProgress
+                          detail={queryStateDetail || segment.stateMessage!}
+                          isLongRunning={isLongRunning}
+                          showEnableNotifications={showEnableNotifications}
+                          busyNotifications={busyNotifications}
+                          onEnableNotifications={onEnableNotifications}
+                        />
                       ) : null}
                     </>
                   ) : (
@@ -239,8 +355,8 @@ export function MessageBubble({
                     </CollapsibleSection>
                   ) : null}
 
-                  {/* File list wrapped in CollapsibleSection for progressive disclosure */}
-                  {hasFiles ? (
+                  {/* File list wrapped in CollapsibleSection for progressive disclosure (assistant only) */}
+                  {hasFiles && item.role === "assistant" ? (
                     <div className="mt-2">
                       <CollapsibleSection title="Files" defaultExpanded={false}>
                         <ul className="list-disc pl-5 text-sm">
@@ -308,18 +424,20 @@ export function MessageBubble({
           >
             {item.rating === -1 ? "Disliked" : ""}
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            iconLeft={<RefreshCw className="h-3.5 w-3.5" />}
-            disabled={busyAction !== null}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRegenerate(item.id);
-            }}
-          >
-            Regenerate
-          </Button>
+          {isLatestAssistant ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              iconLeft={<RefreshCw className="h-3.5 w-3.5" />}
+              disabled={busyAction !== null || isPipelineActive}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRegenerate(item.id);
+              }}
+            >
+              Regenerate
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </article>

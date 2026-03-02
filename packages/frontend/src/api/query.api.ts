@@ -43,6 +43,19 @@ export interface QueryAttachment {
   kind: "file" | "image";
 }
 
+/** A file selected by the user, being uploaded or ready. */
+export interface PendingFile {
+  /** Unique client-side ID for keying and removal. */
+  id: string;
+  file: File;
+  kind: "image" | "file";
+  /** Local blob URL for image preview (revoke on removal). */
+  previewUrl: string | null;
+  /** Server storage path, set once upload completes. */
+  serverPath: string | null;
+  status: "uploading" | "ready" | "error";
+}
+
 const LLM_API_BASE = "/api/llm";
 const QUERY_API_BASE = "/api/query";
 

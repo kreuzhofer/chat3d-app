@@ -24,15 +24,13 @@ describe("PromptComposer — Property 2: Send button disabled during streaming",
           createElement(PromptComposer, {
             prompt: "Design a spur gear",
             onPromptChange: noop,
-            queuedAttachments: [],
+            pendingFiles: [],
             busyAction: null,
-            hasAssistantItems: false,
             activeContextId: null,
             isStreaming,
             onSubmit: noop,
             onAttachFiles: noop,
-            onRemoveAttachment: noop,
-            onRegenerate: noop,
+            onRemoveFile: noop,
           }),
         );
 

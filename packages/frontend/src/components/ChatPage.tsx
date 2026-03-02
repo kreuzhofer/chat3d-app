@@ -14,7 +14,7 @@ import {
   updateChatItem,
 } from "../api/chat.api";
 import { downloadFileBinary, uploadFileBase64 } from "../api/files.api";
-import { listLlmModels, regenerateQuery, stopQuery, submitQuery, type LlmModel, type QueryAttachment } from "../api/query.api";
+import { listLlmModels, regenerateQuery, stopQuery, submitQuery, type LlmModel, type QueryAttachment, type PendingFile } from "../api/query.api";
 import { EmptyState } from "./layout/EmptyState";
 import { InlineAlert } from "./layout/InlineAlert";
 import { useNotifications } from "../contexts/NotificationsContext";
@@ -61,11 +61,6 @@ function toBase64(buffer: ArrayBuffer): string {
   return globalThis.btoa(binary);
 }
 
-function sanitizeUploadFilename(value: string): string {
-  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
-  return normalized.replace(/^-+|-+$/g, "") || "upload.bin";
-}
-
 function inferAttachmentKind(file: File): "image" | "file" {
   if (file.type.startsWith("image/")) {
     return "image";
@@ -106,7 +101,7 @@ function groupContexts(contexts: ChatContext[]): Record<ContextBucket, ChatConte
 }
 
 export function ChatPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { notifications } = useNotifications();
   const navigate = useNavigate();
   const { contextId: contextIdParam } = useParams<{ contextId?: string }>();
@@ -122,8 +117,7 @@ export function ChatPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [optimisticPrompt, setOptimisticPrompt] = useState<string | null>(null);
-  const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
-  const [queuedAttachments, setQueuedAttachments] = useState<QueryAttachment[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [visibleTimelineCount, setVisibleTimelineCount] = useState(80);
   const [conversationModelId, setConversationModelId] = useState("");
   const [codegenModelId, setCodegenModelId] = useState("");
@@ -283,11 +277,11 @@ export function ChatPage() {
   useEffect(() => {
     if (!streamingAssistantItemId) {
       // No active streaming — look for a pending item (reload recovery).
-      // Skip items whose updatedAt is older than 5 minutes — the backend
+      // Skip items whose updatedAt is older than 15 minutes — the backend
       // auto-resumes recent pending items on startup; anything older is
       // certainly dead. Uses updatedAt (not createdAt) so that resumed
       // pipelines (old createdAt but recently updated) are still picked up.
-      const STALE_THRESHOLD_MS = 5 * 60 * 1000;
+      const STALE_THRESHOLD_MS = 15 * 60 * 1000;
       const pendingItem = timelineItems.find(
         (item) => item.role === "assistant" &&
           item.segments.some((seg) => seg.kind === "message" && seg.state === "pending") &&
@@ -315,14 +309,14 @@ export function ChatPage() {
     }
   }, [timelineItems, streamingAssistantItemId]);
 
-  // Show typing indicator:
-  // - Before conversation tokens arrive (queued / early conversation)
-  // - During all post-conversation pipeline stages (codegen → rendering → evaluating → fixing → retrying)
-  //   even when conversation text has already been rendered in the MessageBubble.
-  const POST_CONVERSATION_STATES = new Set(["codegen", "rendering", "evaluating", "fixing", "retrying"]);
+  // Show typing indicator only before conversation tokens arrive (queued / early conversation
+  // when the assistant item hasn't been created yet or has no content).
+  // Post-conversation stages (codegen, rendering, etc.) are shown inline in the MessageBubble
+  // via queryStateDetail to avoid duplicate progress displays.
   const showTypingIndicator = isStreaming
     && !streamingError
-    && (streamingText.length === 0 || (queryState !== null && POST_CONVERSATION_STATES.has(queryState)));
+    && streamingText.length === 0
+    && !streamingAssistantItemId;
 
   // Check push subscription on mount
   useEffect(() => {
@@ -353,6 +347,7 @@ export function ChatPage() {
 
     const loaded = await listChatContexts(token);
     setContexts(loaded);
+    setError("");
   }, [token]);
 
   const refreshItems = useCallback(async () => {
@@ -363,6 +358,7 @@ export function ChatPage() {
 
     const loaded = await listChatItems(token, activeContextId);
     setItems(loaded);
+    setError("");
   }, [activeContextId, token]);
 
   const refreshModels = useCallback(async () => {
@@ -373,6 +369,7 @@ export function ChatPage() {
 
     const loaded = await listLlmModels(token);
     setModels(loaded);
+    setError("");
   }, [token]);
 
   useEffect(() => {
@@ -400,8 +397,7 @@ export function ChatPage() {
     setConversationModelId(activeContext?.conversationModelId ?? "");
     setCodegenModelId(activeContext?.chat3dModelId ?? "");
     setVisibleTimelineCount(80);
-    setSelectedUploadFiles([]);
-    setQueuedAttachments([]);
+    setPendingFiles((prev) => { prev.forEach((f) => { if (f.previewUrl) URL.revokeObjectURL(f.previewUrl); }); return []; });
     setStreamingAssistantItemId(null);
     setError("");
     setMessage("");
@@ -683,6 +679,17 @@ export function ChatPage() {
     return `${basePrompt}\n\n[Generation Preferences]\n${lines.join("\n")}`;
   }
 
+  function buildAttachmentsFromPending(): QueryAttachment[] {
+    return pendingFiles
+      .filter((f) => f.status === "ready" && f.serverPath)
+      .map((f) => ({
+        path: f.serverPath!,
+        filename: f.file.name,
+        mimeType: f.file.type || "application/octet-stream",
+        kind: f.kind,
+      }));
+  }
+
   async function submitPromptAction() {
     if (!token) {
       return;
@@ -705,11 +712,14 @@ export function ChatPage() {
         throw new Error("Unable to create or resolve context.");
       }
 
+      // Build attachments from already-uploaded pending files (tmp/ paths — backend will relocate)
+      const attachments = buildAttachmentsFromPending();
+
       const result = await submitQuery({
         token,
         contextId: targetContextId,
         prompt: buildEffectivePrompt(trimmedPrompt),
-        attachments: queuedAttachments.length > 0 ? queuedAttachments : undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
       });
 
       // Start listening for streaming events immediately — the backend now returns
@@ -719,7 +729,7 @@ export function ChatPage() {
       // Load items to show the pending assistant item in the timeline
       const loaded = await listChatItems(token, targetContextId);
       setItems(loaded);
-      setQueuedAttachments([]);
+      setPendingFiles((prev) => { prev.forEach((f) => { if (f.previewUrl) URL.revokeObjectURL(f.previewUrl); }); return []; });
       setMobilePane("thread");
     } catch (actionError) {
       setError(toErrorMessage(actionError));
@@ -774,52 +784,36 @@ export function ChatPage() {
     }
   }
 
-  async function uploadSelectedFilesAction(filesToUpload?: File[]) {
-    const files = filesToUpload ?? selectedUploadFiles;
-    if (!token || files.length === 0) {
-      return;
-    }
+  function addPendingFiles(files: File[]) {
+    if (!token || !user) return;
+    const userId = user.id;
 
-    setBusyAction("upload-attachments");
-    setError("");
-    setMessage("");
-    try {
-      const uploaded: QueryAttachment[] = [];
-      for (const file of files) {
-        const fileBuffer = await file.arrayBuffer();
-        const extension = fileExtension(file.name) || ".bin";
-        const uniqueName = `${Date.now()}-${Math.random().toString(16).slice(2)}-${sanitizeUploadFilename(file.name)}`;
-        const path = `uploads/${uniqueName}${uniqueName.endsWith(extension) ? "" : extension}`;
-        const saved = await uploadFileBase64({
-          token,
-          path,
-          contentBase64: toBase64(fileBuffer),
-          contentType: file.type || undefined,
+    const newPending: PendingFile[] = files.map((file) => ({
+      id: crypto.randomUUID(),
+      file,
+      kind: inferAttachmentKind(file),
+      previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+      serverPath: null,
+      status: "uploading" as const,
+    }));
+    setPendingFiles((current) => [...current, ...newPending]);
+
+    // Auto-upload each file to tmp/{userId}/
+    for (const pending of newPending) {
+      const extension = fileExtension(pending.file.name) || ".bin";
+      const tmpPath = `tmp/${userId}/${pending.id}${extension}`;
+      pending.file.arrayBuffer()
+        .then((buf) => uploadFileBase64({ token, path: tmpPath, contentBase64: toBase64(buf) }))
+        .then((saved) => {
+          setPendingFiles((current) =>
+            current.map((f) => f.id === pending.id ? { ...f, serverPath: saved.path, status: "ready" as const } : f),
+          );
+        })
+        .catch(() => {
+          setPendingFiles((current) =>
+            current.map((f) => f.id === pending.id ? { ...f, status: "error" as const } : f),
+          );
         });
-
-        uploaded.push({
-          path: saved.path,
-          filename: file.name,
-          mimeType: file.type || "application/octet-stream",
-          kind: inferAttachmentKind(file),
-        });
-      }
-
-      setQueuedAttachments((current) => {
-        const next = [...current];
-        for (const entry of uploaded) {
-          if (!next.some((existing) => existing.path === entry.path)) {
-            next.push(entry);
-          }
-        }
-        return next;
-      });
-      setSelectedUploadFiles([]);
-      setMessage(`Uploaded ${uploaded.length} attachment${uploaded.length === 1 ? "" : "s"}.`);
-    } catch (actionError) {
-      setError(toErrorMessage(actionError));
-    } finally {
-      setBusyAction(null);
     }
   }
 
@@ -968,7 +962,9 @@ export function ChatPage() {
                 </>
               ) : null}
 
-              {visibleTimelineItems.map((item) => {
+              {(() => {
+                const lastAssistantId = [...visibleTimelineItems].reverse().find((i) => i.role === "assistant")?.id ?? null;
+                return visibleTimelineItems.map((item) => {
                 const isStreamingItem = item.role === "assistant" && item.id === streamingAssistantItemId;
                 return (
                   <MessageBubble
@@ -980,6 +976,13 @@ export function ChatPage() {
                     streamingText={isStreamingItem ? streamingText : undefined}
                     streamingError={isStreamingItem ? streamingError : undefined}
                     isStreaming={isStreamingItem ? isStreaming : undefined}
+                    queryStateDetail={isStreamingItem ? queryStateDetail : undefined}
+                    isLongRunning={isStreamingItem ? isLongRunning : undefined}
+                    showEnableNotifications={isStreamingItem ? showEnableNotifications : undefined}
+                    busyNotifications={isStreamingItem ? pushBusy : undefined}
+                    onEnableNotifications={isStreamingItem ? () => void handleEnableNotifications() : undefined}
+                    isLatestAssistant={item.role === "assistant" && item.id === lastAssistantId}
+                    isPipelineActive={!!streamingAssistantItemId}
                     onSelect={(itemId) => {
                       setSelectedAssistantItemId(itemId);
                       setMobilePane("workbench");
@@ -990,7 +993,8 @@ export function ChatPage() {
                     onSelectSuggestion={(s) => setPrompt(s)}
                   />
                 );
-              })}
+              });
+              })()}
 
               {showTypingIndicator ? (
                 <TypingIndicator
@@ -1040,20 +1044,19 @@ export function ChatPage() {
             <PromptComposer
               prompt={prompt}
               onPromptChange={setPrompt}
-              queuedAttachments={queuedAttachments}
+              pendingFiles={pendingFiles}
               busyAction={busyAction}
-              hasAssistantItems={activeAssistantItems.length > 0}
               activeContextId={activeContextId}
               isStreaming={isStreaming}
               onSubmit={() => void submitPromptAction()}
               onStop={() => void stopQueryAction()}
-              onAttachFiles={(files) => void uploadSelectedFilesAction(files)}
-              onRemoveAttachment={(path) => setQueuedAttachments((current) => current.filter((a) => a.path !== path))}
-              onRegenerate={() => {
-                const latest = activeAssistantItems[activeAssistantItems.length - 1];
-                if (latest) {
-                  void regenerateAction(latest.id);
-                }
+              onAttachFiles={addPendingFiles}
+              onRemoveFile={(id) => {
+                setPendingFiles((current) => {
+                  const removed = current.find((f) => f.id === id);
+                  if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+                  return current.filter((f) => f.id !== id);
+                });
               }}
             />
           </div>

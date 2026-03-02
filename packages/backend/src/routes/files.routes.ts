@@ -65,7 +65,7 @@ function basename(relativePath: string): string {
  *
  * Returns null if the path doesn't match any known domain prefix.
  */
-function parseDomainPath(relativePath: string): { domain: "chat"; scope: string } | { domain: "workbench" } | null {
+function parseDomainPath(relativePath: string): { domain: "chat"; scope: string } | { domain: "workbench" } | { domain: "tmp"; scope: string } | null {
   const segments = relativePath.replace(/\\/g, "/").split("/");
 
   if (segments[0] === "chat" && segments.length >= 3 && segments[1]) {
@@ -74,6 +74,11 @@ function parseDomainPath(relativePath: string): { domain: "chat"; scope: string 
 
   if (segments[0] === "workbench" && segments.length >= 2) {
     return { domain: "workbench" };
+  }
+
+  // tmp/{userId}/... — temporary upload folder, scoped to the authenticated user
+  if (segments[0] === "tmp" && segments.length >= 3 && segments[1]) {
+    return { domain: "tmp", scope: segments[1] };
   }
 
   return null;
@@ -96,13 +101,18 @@ filesRouter.post("/upload", async (req, res) => {
   // Validate domain-scoped path and authorize
   const domainInfo = parseDomainPath(relativePath);
   if (!domainInfo) {
-    res.status(403).json({ error: "Path must start with chat/{contextId}/ or workbench/" });
+    res.status(403).json({ error: "Path must start with chat/{contextId}/, workbench/, or tmp/{userId}/" });
     return;
   }
 
   try {
     if (domainInfo.domain === "chat") {
       await getOwnedContext(authUser.id, domainInfo.scope);
+    } else if (domainInfo.domain === "tmp") {
+      if (domainInfo.scope !== authUser.id) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
     } else if (authUser.role !== "admin") {
       res.status(403).json({ error: "Forbidden" });
       return;
@@ -131,13 +141,18 @@ filesRouter.get("/download", async (req, res) => {
   // Validate domain-scoped path and authorize
   const domainInfo = parseDomainPath(relativePath);
   if (!domainInfo) {
-    res.status(403).json({ error: "Path must start with chat/{contextId}/ or workbench/" });
+    res.status(403).json({ error: "Path must start with chat/{contextId}/, workbench/, or tmp/{userId}/" });
     return;
   }
 
   try {
     if (domainInfo.domain === "chat") {
       await getOwnedContext(authUser.id, domainInfo.scope);
+    } else if (domainInfo.domain === "tmp") {
+      if (domainInfo.scope !== authUser.id) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
     } else if (authUser.role !== "admin") {
       res.status(403).json({ error: "Forbidden" });
       return;

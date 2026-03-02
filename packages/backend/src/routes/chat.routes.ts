@@ -11,6 +11,7 @@ import {
   updateChatContext,
   updateChatItem,
 } from "../services/chat.service.js";
+import { markStalePendingItems } from "../services/query.service.js";
 
 export const chatRouter = Router();
 
@@ -140,6 +141,11 @@ chatRouter.get("/contexts/:contextId/items", async (req, res) => {
   }
 
   try {
+    // Mark orphaned pending items as failed before returning the list.
+    // This handles items left in "pending" after a server restart where
+    // the pipeline was not resumed (e.g. too old for resume window).
+    await markStalePendingItems(contextId, authUser.id);
+
     const items = await listChatItems({
       userId: authUser.id,
       contextId,
