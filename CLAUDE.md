@@ -72,7 +72,6 @@ Copy `example.env` to `.env` and configure:
 | `SEED_ADMIN_PASSWORD` | Admin account password (default: `change-admin-password`) |
 | `SEED_ADMIN_DISPLAY_NAME` | Admin display name (default: `Initial Admin`) |
 | `FRONTEND_PORT` | Host port for the frontend (default: `80`) |
-| `BACKEND_PORT` | Host port for the backend API (default: `3001`) |
 | `LOG_LEVEL` | Logging level: `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` (default: `info`) |
 | `LOG_FORMAT` | Log output format: `json` (structured, default in Docker) or `pretty` (human-readable) |
 
@@ -143,7 +142,7 @@ Files stored at `/data/storage` (Docker volume):
 | Service | Image | Port | Depends On |
 |---------|-------|------|-----------|
 | postgres | postgres:16-alpine | 5432 | — |
-| backend | Custom (Node 20 Alpine) | 3001 | postgres |
+| backend | Custom (Node 20 Alpine) | internal | postgres |
 | frontend | Custom (nginx Alpine) | 80 | backend |
 
 ## Verification After Changes

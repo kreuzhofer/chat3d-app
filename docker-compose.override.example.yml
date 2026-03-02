@@ -1,0 +1,8 @@
+# Optional overrides for local development.
+# Copy to docker-compose.override.yml to activate (auto-loaded by Docker Compose).
+#
+# Example: expose the backend API on the host for direct access / debugging.
+services:
+  backend:
+    ports:
+      - "3001:3001"

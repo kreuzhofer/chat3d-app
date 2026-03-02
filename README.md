@@ -118,7 +118,6 @@ Copy `example.env` to `.env` and configure:
 | `QUERY_RENDER_MODE` | `live` (default) or `mock` — controls real vs stubbed 3D rendering |
 | `QUERY_LLM_MODE` | `live` (default) or `mock` — controls real vs stubbed LLM calls |
 | `FRONTEND_PORT` | Host port for the frontend (default: `80`) |
-| `BACKEND_PORT` | Host port for the backend API (default: `3001`) |
 | `LOG_LEVEL` | Logging level: `fatal`, `error`, `warn`, `info` (default), `debug`, `trace`, `silent` |
 | `LOG_FORMAT` | Log output format: `json` (default in Docker) or `pretty` (human-readable) |
 
@@ -134,8 +133,8 @@ See `example.env` for the full list including SMTP, Redis, concurrency, security
 | `redis` | SSE event bus | 6379 |
 | `build123d` | Build123d Python rendering service (2 replicas) | internal |
 | `screenshot-service` | Pyrender STL screenshot service (2 replicas) | internal |
-| `backend` | Express API server | 3001 |
-| `frontend` | React SPA served via nginx | 80 |
+| `backend` | Express API server (proxied via nginx, not exposed to host) | internal |
+| `frontend` | React SPA + API reverse proxy (nginx) | 80 |
 | `account-deletion-worker` | Scheduled cleanup of deactivated accounts | -- |
 
 ## Development
