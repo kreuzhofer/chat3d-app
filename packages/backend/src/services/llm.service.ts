@@ -9,10 +9,12 @@ import {
   createProviderModel as createProviderModelFromConfig,
   buildGenerateOptions,
   calculateCostUsd,
+  listAllModels,
   type LlmModelConfig,
 } from "./llm-config.service.js";
 import { createLogger } from "../utils/logger.js";
-import type { ConversationHistoryEntry } from "./query.service.js";
+import type { CoreMessage } from "ai";
+import type { ConversationHistoryEntry, CollectedImage } from "./query.service.js";
 
 const logger = createLogger("llm");
 
@@ -46,22 +48,6 @@ export interface LlmUsageMetadata {
   estimatedCostUsd: number;
 }
 
-const MODEL_REGISTRY: LlmModelDefinition[] = (["conversation", "codegen"] as const).flatMap((stage) => {
-  const entries: Array<{ provider: LlmProvider; modelName: string }> = [
-    { provider: "mock", modelName: stage === "conversation" ? "mock-conversation" : "mock-codegen" },
-    { provider: "openai", modelName: stage === "conversation" ? "gpt-4o-mini" : "gpt-5.2-codex" },
-    { provider: "anthropic", modelName: "claude-3-5-haiku-latest" },
-    { provider: "xai", modelName: "grok-2-latest" },
-    { provider: "ollama", modelName: "llama3.1" },
-  ];
-
-  return entries.map((entry) => ({
-    id: `${stage}-${entry.provider}-${entry.modelName}`,
-    provider: entry.provider,
-    stage,
-    modelName: entry.modelName,
-  }));
-});
 
 export class LlmServiceError extends Error {
   constructor(
@@ -354,6 +340,112 @@ async function generateWithConfig(
 }
 
 /**
+ * Generate text using the DB-driven model config with a messages array (multimodal support).
+ * Used when images need to be sent alongside text prompts.
+ */
+async function generateWithMessages(
+  cfg: LlmModelConfig,
+  system: string,
+  messages: CoreMessage[],
+  abortSignal?: AbortSignal,
+): Promise<ProviderGenerationResult> {
+  const providerModel = createProviderModelFromConfig(cfg);
+  const extraOpts = buildGenerateOptions(cfg);
+
+  logger.info(
+    { provider: cfg.provider, model: cfg.modelName, messageCount: messages.length },
+    "generateText (messages) call",
+  );
+
+  const semaphore = getLlmSemaphore(cfg.provider, cfg.maxConcurrent);
+  return semaphore.run(() =>
+    withLlmRetry(async () => {
+      const result = await generateText({
+        model: providerModel,
+        system,
+        messages,
+        abortSignal,
+        ...extraOpts,
+      });
+
+      if (!result.text || result.text.trim() === "") {
+        throw new LlmServiceError("LLM returned empty output", 502);
+      }
+
+      return {
+        text: result.text.trim(),
+        usageRaw: result.usage,
+      };
+    }, { provider: cfg.provider }),
+  );
+}
+
+/**
+ * Stream text using the DB-driven model config with a messages array (multimodal support).
+ * Used when images need to be sent alongside text prompts.
+ */
+async function streamWithMessages(
+  cfg: LlmModelConfig,
+  system: string,
+  messages: CoreMessage[],
+  onToken: (token: string) => void,
+  abortSignal?: AbortSignal,
+): Promise<ProviderGenerationResult> {
+  const providerModel = createProviderModelFromConfig(cfg);
+  const extraOpts = buildGenerateOptions(cfg);
+
+  logger.info(
+    { provider: cfg.provider, model: cfg.modelName, messageCount: messages.length },
+    "streamText (messages) call",
+  );
+
+  const semaphore = getLlmSemaphore(cfg.provider, cfg.maxConcurrent);
+  return semaphore.run(async () => {
+    try {
+      const result = streamText({
+        model: providerModel,
+        system,
+        messages,
+        abortSignal,
+        ...extraOpts,
+      });
+
+      let fullText = "";
+      for await (const chunk of result.textStream) {
+        fullText += chunk;
+        onToken(chunk);
+      }
+
+      let finalResult;
+      try {
+        finalResult = await result;
+      } catch (awaitError) {
+        if (awaitError instanceof NoOutputGeneratedError) {
+          throw new LlmServiceError("LLM returned empty output (no text generated)", 502);
+        }
+        throw awaitError;
+      }
+
+      if (fullText.trim() === "") {
+        throw new LlmServiceError("LLM returned empty output", 502);
+      }
+
+      return {
+        text: fullText.trim(),
+        usageRaw: finalResult.usage,
+      };
+    } catch (error) {
+      if (error instanceof NoOutputGeneratedError) {
+        throw new LlmServiceError("LLM returned empty output (no text generated)", 502);
+      }
+      const quotaError = asQuotaError(error, cfg.provider);
+      if (quotaError) throw quotaError;
+      throw error;
+    }
+  });
+}
+
+/**
  * Stream text using the DB-driven model config.
  * Wrapped with per-provider semaphore (concurrency limit).
  * No retry for streaming — rate limit errors are returned before tokens flow,
@@ -434,28 +526,18 @@ async function streamWithConfig(
   });
 }
 
-export function listLlmModels(): LlmModelDefinition[] {
-  // Keep MODEL_REGISTRY for backward compatibility with /api/llm/models endpoint
-  const configuredConversation = {
-    id: `conversation-${config.query.conversationProvider}-${config.query.conversationModelName}`,
-    provider: config.query.conversationProvider,
-    stage: "conversation" as const,
-    modelName: config.query.conversationModelName,
-  };
+export async function listLlmModels(): Promise<LlmModelDefinition[]> {
+  const dbModels = await listAllModels();
+  const activeModels = dbModels.filter((m) => m.is_active);
 
-  const configuredCodegen = {
-    id: `codegen-${config.query.codegenProvider}-${config.query.codegenModelName}`,
-    provider: config.query.codegenProvider,
-    stage: "codegen" as const,
-    modelName: config.query.codegenModelName,
-  };
-
-  const unique = new Map<string, LlmModelDefinition>();
-  for (const model of [...MODEL_REGISTRY, configuredConversation, configuredCodegen]) {
-    unique.set(model.id, model);
-  }
-
-  return [...unique.values()];
+  return (["conversation", "codegen"] as const).flatMap((stage) =>
+    activeModels.map((m) => ({
+      id: `${stage}-${m.provider}-${m.model_name}`,
+      provider: m.provider as LlmProvider,
+      stage,
+      modelName: m.model_name,
+    })),
+  );
 }
 
 /**
@@ -505,10 +587,31 @@ const CONVERSATION_SYSTEM_PROMPT = [
   "  Good example: '[CODEGEN_NEEDED]\\nI'll generate an L-shaped mounting bracket with your specified dimensions and bolt holes.'",
   "  Bad example: '[CODEGEN_NEEDED]\\nHere is the code: ```python from build123d import * ...```'",
   "- When you respond with [CHAT_ONLY], provide a helpful conversational response.",
+  "- When images are attached, analyze them carefully to understand the shape, geometry, dimensions, and features shown. Use this visual information to inform your response and any 3D model generation.",
   "",
   "Examples of [CHAT_ONLY]: greetings, questions about capabilities, requests for tips, feedback on previous results without requesting changes.",
-  "Examples of [CODEGEN_NEEDED]: 'design a gear', 'make it taller', 'add a fillet', 'create an enclosure', any request that implies generating or modifying 3D geometry.",
+  "Examples of [CODEGEN_NEEDED]: 'design a gear', 'make it taller', 'add a fillet', 'create an enclosure', any request that implies generating or modifying 3D geometry. Attaching an image of a part and asking to create/model it also counts as [CODEGEN_NEEDED].",
 ].join("\n");
+
+/**
+ * Build a multimodal user content array from text prompt and images.
+ * Follows the Vercel AI SDK pattern: array of {type: "text"} and {type: "image"} parts.
+ */
+export function buildMultimodalUserContent(
+  textPrompt: string,
+  images: CollectedImage[],
+): Array<{ type: "text"; text: string } | { type: "image"; image: string }> {
+  const content: Array<{ type: "text"; text: string } | { type: "image"; image: string }> = [];
+
+  // Add images first so the model sees them before reading the text prompt
+  for (const img of images) {
+    content.push({ type: "text", text: `[Attached image: ${img.filename}]` });
+    content.push({ type: "image", image: img.base64 });
+  }
+
+  content.push({ type: "text", text: textPrompt });
+  return content;
+}
 
 function buildConversationPrompt(input: {
   prompt: string;
@@ -522,6 +625,33 @@ function buildConversationPrompt(input: {
     historyBlock,
     `User request: ${input.prompt}`,
   ].filter(Boolean).join("\n\n");
+}
+
+/**
+ * Build conversation prompt data for multimodal (vision) calls.
+ * Returns a system prompt and a messages array with images.
+ */
+function buildConversationMultimodal(input: {
+  prompt: string;
+  contextName: string;
+  conversationHistory?: ConversationHistoryEntry[];
+  images: CollectedImage[];
+}): { system: string; messages: CoreMessage[] } {
+  const historyBlock = formatConversationHistory(input.conversationHistory);
+  const system = CONVERSATION_SYSTEM_PROMPT;
+
+  const textPrompt = [
+    `Chat context: ${input.contextName}`,
+    historyBlock,
+    `User request: ${input.prompt}`,
+  ].filter(Boolean).join("\n\n");
+
+  const userContent = buildMultimodalUserContent(textPrompt, input.images);
+
+  return {
+    system,
+    messages: [{ role: "user" as const, content: userContent }],
+  };
 }
 
 /**
@@ -545,10 +675,12 @@ export async function generateConversationText(input: {
   prompt: string;
   contextName: string;
   conversationHistory?: ConversationHistoryEntry[];
+  images?: CollectedImage[];
   abortSignal?: AbortSignal;
 }): Promise<ConversationGenerationResult> {
   const { def: model, cfg: modelCfg } = await resolveModelForStage("conversation");
   const prompt = buildConversationPrompt(input);
+  const useVision = (input.images?.length ?? 0) > 0 && modelCfg.supportsVision;
 
   if (model.provider === "mock") {
     const text = `[CODEGEN_NEEDED]\nMock assistant response for context "${input.contextName}": ${input.prompt}`;
@@ -561,6 +693,26 @@ export async function generateConversationText(input: {
         prompt,
         outputText: text,
         providerUsageRaw: null,
+      }),
+    };
+  }
+
+  if (useVision) {
+    logger.info({ imageCount: input.images!.length, model: modelCfg.modelName }, "using multimodal conversation call");
+    const { system, messages } = buildConversationMultimodal({
+      ...input,
+      images: input.images!,
+    });
+    const result = await generateWithMessages(modelCfg, system, messages, input.abortSignal);
+    return {
+      model,
+      text: result.text,
+      usage: buildUsageMetadata({
+        model,
+        modelConfig: modelCfg,
+        prompt,
+        outputText: result.text,
+        providerUsageRaw: result.usageRaw,
       }),
     };
   }
@@ -585,10 +737,12 @@ export async function generateConversationTextStream(input: {
   contextName: string;
   onToken: (token: string) => void;
   conversationHistory?: ConversationHistoryEntry[];
+  images?: CollectedImage[];
   abortSignal?: AbortSignal;
 }): Promise<ConversationGenerationResult> {
   const { def: model, cfg: modelCfg } = await resolveModelForStage("conversation");
   const prompt = buildConversationPrompt(input);
+  const useVision = (input.images?.length ?? 0) > 0 && modelCfg.supportsVision;
 
   if (model.provider === "mock") {
     const text = `[CODEGEN_NEEDED]\nMock assistant response for context "${input.contextName}": ${input.prompt}`;
@@ -605,6 +759,26 @@ export async function generateConversationTextStream(input: {
         prompt,
         outputText: text,
         providerUsageRaw: null,
+      }),
+    };
+  }
+
+  if (useVision) {
+    logger.info({ imageCount: input.images!.length, model: modelCfg.modelName }, "using multimodal streaming conversation call");
+    const { system, messages } = buildConversationMultimodal({
+      ...input,
+      images: input.images!,
+    });
+    const result = await streamWithMessages(modelCfg, system, messages, input.onToken, input.abortSignal);
+    return {
+      model,
+      text: result.text,
+      usage: buildUsageMetadata({
+        model,
+        modelConfig: modelCfg,
+        prompt,
+        outputText: result.text,
+        providerUsageRaw: result.usageRaw,
       }),
     };
   }

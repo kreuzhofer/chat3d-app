@@ -111,14 +111,12 @@ Copy `example.env` to `.env` and configure:
 |----------|---------|
 | `DB_PASSWORD` | PostgreSQL password |
 | `JWT_SECRET` | Secret key for JWT signing |
-| `QUERY_CONVERSATION_PROVIDER` | LLM provider for conversation (`openai`, `anthropic`, `xai`, `ollama`) |
-| `QUERY_CONVERSATION_MODEL` | Model name for conversation (e.g. `gpt-4o-mini`) |
-| `QUERY_CODEGEN_PROVIDER` | LLM provider for code generation |
-| `QUERY_CODEGEN_MODEL` | Model name for code generation (e.g. `gpt-5.2-codex`) |
 | `SEED_ADMIN_EMAIL` | Admin account email created on first bootstrap |
 | `SEED_ADMIN_PASSWORD` | Admin account password |
 | `BUILD123D_URL` | Build123d service URL (default: `http://build123d:80`) |
 | `SCREENSHOT_SERVICE_URL` | Screenshot service URL (default: `http://screenshot-service:80`) |
+| `QUERY_RENDER_MODE` | `live` (default) or `mock` — controls real vs stubbed 3D rendering |
+| `QUERY_LLM_MODE` | `live` (default) or `mock` — controls real vs stubbed LLM calls |
 | `LOG_LEVEL` | Logging level: `fatal`, `error`, `warn`, `info` (default), `debug`, `trace`, `silent` |
 | `LOG_FORMAT` | Log output format: `json` (default in Docker) or `pretty` (human-readable) |
 

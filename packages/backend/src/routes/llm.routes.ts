@@ -6,8 +6,11 @@ export const llmRouter = Router();
 
 llmRouter.use(requireAuth);
 
-llmRouter.get("/models", (_req, res) => {
-  res.status(200).json({
-    models: listLlmModels(),
-  });
+llmRouter.get("/models", async (_req, res, next) => {
+  try {
+    const models = await listLlmModels();
+    res.status(200).json({ models });
+  } catch (err) {
+    next(err);
+  }
 });

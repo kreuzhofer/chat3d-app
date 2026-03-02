@@ -66,10 +66,8 @@ Copy `example.env` to `.env` and configure:
 | `JWT_SECRET` | Secret key for JWT signing |
 | `BUILD123D_URL` | URL of the Build123d rendering service |
 | `SCREENSHOT_SERVICE_URL` | URL of the screenshot rendering service (default: `http://screenshot-service:80`) |
-| `QUERY_CONVERSATION_PROVIDER` | LLM provider for conversation (`openai`, `anthropic`, `xai`, `ollama`) |
-| `QUERY_CONVERSATION_MODEL` | Model name for conversation (e.g. `gpt-4o-mini`) |
-| `QUERY_CODEGEN_PROVIDER` | LLM provider for code generation |
-| `QUERY_CODEGEN_MODEL` | Model name for code generation (e.g. `gpt-5.2-codex`) |
+| `QUERY_RENDER_MODE` | `live` (default) or `mock` — controls whether Build123d rendering is real or stubbed |
+| `QUERY_LLM_MODE` | `live` (default) or `mock` — controls whether LLM calls are real or stubbed |
 | `SEED_ADMIN_EMAIL` | Admin account email created on first bootstrap (default: `admin@chat3d.local`) |
 | `SEED_ADMIN_PASSWORD` | Admin account password (default: `change-admin-password`) |
 | `SEED_ADMIN_DISPLAY_NAME` | Admin display name (default: `Initial Admin`) |

@@ -67,14 +67,6 @@ function readEventBusMode(): "local" | "redis" {
   return "redis";
 }
 
-function readQueryProviderEnv(name: string, fallback: string): "mock" | "openai" | "anthropic" | "xai" | "ollama" {
-  const value = readEnv(name, fallback);
-  if (value === "mock" || value === "openai" || value === "anthropic" || value === "xai" || value === "ollama") {
-    return value;
-  }
-  throw new Error(`${name} must be one of: mock, openai, anthropic, xai, ollama`);
-}
-
 function readLogLevel(): "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent" {
   const value = process.env.LOG_LEVEL;
   if (!value) return process.env.NODE_ENV === "production" ? "info" : "debug";
@@ -140,16 +132,6 @@ export const config = {
     build123dUrl: readEnv("BUILD123D_URL", "http://localhost:30222"),
     renderMode: readEnv("QUERY_RENDER_MODE", process.env.NODE_ENV === "test" ? "mock" : "live"),
     llmMode: readEnv("QUERY_LLM_MODE", process.env.NODE_ENV === "test" ? "mock" : "live"),
-    conversationProvider: readQueryProviderEnv(
-      "QUERY_CONVERSATION_PROVIDER",
-      process.env.NODE_ENV === "test" ? "mock" : "openai",
-    ),
-    codegenProvider: readQueryProviderEnv(
-      "QUERY_CODEGEN_PROVIDER",
-      process.env.NODE_ENV === "test" ? "mock" : "openai",
-    ),
-    conversationModelName: readEnv("QUERY_CONVERSATION_MODEL", "gpt-4o-mini"),
-    codegenModelName: readEnv("QUERY_CODEGEN_MODEL", "gpt-5.2-codex"),
   },
   screenshotService: {
     url: readEnv("SCREENSHOT_SERVICE_URL", "http://screenshot-service:80"),
