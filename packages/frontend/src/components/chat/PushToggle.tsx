@@ -2,7 +2,7 @@
  * PushToggle Component
  * A bell icon button that toggles push notifications.
  * Shows filled bell when subscribed, bell-off when not.
- * Hidden entirely if browser doesn't support push.
+ * Always tappable — shows a message when push is not supported.
  */
 
 import { useState, useEffect } from "react";
@@ -17,6 +17,7 @@ export function PushToggle({ token }: PushToggleProps) {
   const [supported, setSupported] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
 
   useEffect(() => {
     const check = async () => {
@@ -28,11 +29,17 @@ export function PushToggle({ token }: PushToggleProps) {
     void check();
   }, []);
 
-  // Hide entirely if browser doesn't support push or no auth token
-  if (!supported || !token) return null;
+  if (!token) return null;
 
   const handleToggle = async () => {
     if (busy) return;
+
+    if (!supported) {
+      setHint("Notifications are not supported in this browser. Try adding the app to your Home Screen first.");
+      return;
+    }
+
+    setHint(null);
     setBusy(true);
     try {
       if (subscribed) {
@@ -40,30 +47,43 @@ export function PushToggle({ token }: PushToggleProps) {
         setSubscribed(false);
       } else {
         const success = await subscribeToPush(token);
-        setSubscribed(success);
+        if (success) {
+          setSubscribed(true);
+        } else {
+          setHint("Could not enable notifications. Check your browser permissions.");
+        }
       }
     } catch {
-      // Silently ignore toggle errors
+      setHint("Something went wrong. Please try again.");
     } finally {
       setBusy(false);
     }
   };
 
+  const label = subscribed ? "Notifications on" : "Notifications off";
+
   return (
-    <button
-      type="button"
-      onClick={() => void handleToggle()}
-      disabled={busy}
-      className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))] disabled:opacity-50"
-      title={subscribed ? "Disable push notifications" : "Enable push notifications"}
-      aria-label={subscribed ? "Disable push notifications" : "Enable push notifications"}
-    >
-      {subscribed ? (
-        <Bell className="h-3.5 w-3.5" />
-      ) : (
-        <BellOff className="h-3.5 w-3.5" />
-      )}
-      <span>{subscribed ? "Notifications on" : "Notifications off"}</span>
-    </button>
+    <div className="flex flex-col items-end gap-1">
+      <button
+        type="button"
+        onClick={() => void handleToggle()}
+        disabled={busy}
+        className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[hsl(var(--muted-foreground))] transition active:scale-95 hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))] disabled:opacity-50"
+        title={subscribed ? "Disable push notifications" : "Enable push notifications"}
+        aria-label={subscribed ? "Disable push notifications" : "Enable push notifications"}
+      >
+        {subscribed ? (
+          <Bell className="h-3.5 w-3.5" />
+        ) : (
+          <BellOff className="h-3.5 w-3.5" />
+        )}
+        <span>{label}</span>
+      </button>
+      {hint ? (
+        <p className="max-w-[240px] rounded border border-[hsl(var(--warning)_/_0.3)] bg-[hsl(var(--warning)_/_0.08)] px-2 py-1 text-[10px] leading-tight text-[hsl(var(--warning))]">
+          {hint}
+        </p>
+      ) : null}
+    </div>
   );
 }

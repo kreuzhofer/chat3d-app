@@ -58,7 +58,7 @@ export interface UseStreamingQueryResult {
 const ACTIVE_STATES = new Set<QueryState>(["queued", "conversation", "codegen", "rendering", "evaluating", "fixing", "retrying"]);
 
 /** Threshold in ms after which the pipeline is considered "long-running". */
-const LONG_RUNNING_THRESHOLD_MS = 60_000;
+const LONG_RUNNING_THRESHOLD_MS = 10_000;
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 

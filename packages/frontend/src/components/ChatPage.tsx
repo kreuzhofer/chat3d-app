@@ -379,6 +379,8 @@ export function ChatPage() {
     setSelectedUploadFiles([]);
     setQueuedAttachments([]);
     setStreamingAssistantItemId(null);
+    setError("");
+    setMessage("");
   }, [activeContext?.chat3dModelId, activeContext?.conversationModelId, activeContextId]);
 
   // Refresh sidebar when a context is renamed (independent of activeContextId)
@@ -554,10 +556,10 @@ export function ChatPage() {
 
     try {
       await deleteChatContext(token, context.id);
-      await refreshContexts();
       if (activeContextId === context.id) {
-        navigate("/chat");
+        navigate("/chat", { replace: true });
       }
+      await refreshContexts();
       setMessage("Context deleted.");
     } catch (actionError) {
       setError(toErrorMessage(actionError));
@@ -819,7 +821,6 @@ export function ChatPage() {
             {activeContext ? activeContext.name : "New conversation"}
           </h2>
           <div className="flex items-center gap-2">
-            <PushToggle token={token} />
             {lastQueryState ? <Badge tone="info">query: {lastQueryState.state}</Badge> : null}
           </div>
         </div>
@@ -877,6 +878,7 @@ export function ChatPage() {
               <h3 className="text-sm font-medium text-[hsl(var(--muted-foreground))]">
                 {activeContext ? "Conversation" : "New draft — context created on first send"}
               </h3>
+              <PushToggle token={token} />
             </div>
 
             <div className="max-h-[58vh] space-y-4 overflow-y-auto pr-1">
