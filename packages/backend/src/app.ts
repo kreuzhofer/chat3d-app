@@ -1,5 +1,6 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import { prisma } from "./db/prisma.js";
+import { createLogger } from "./utils/logger.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { securityHeaders } from "./middleware/security-headers.js";
@@ -59,7 +60,9 @@ export function createApp() {
     res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
   });
 
-  app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  const appLogger = createLogger("app");
+  app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
+    appLogger.error({ err: error, method: req.method, path: req.path }, "unhandled route error");
     res.status(500).json({ error: "Internal server error", detail: String(error) });
   });
 
