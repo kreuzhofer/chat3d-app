@@ -3,7 +3,6 @@ import {
   CheckCircle2,
   Clock,
   ListChecks,
-  Shield,
   TrendingUp,
   UserCheck,
   UserMinus,
@@ -15,6 +14,7 @@ import { EmptyState } from "../layout/EmptyState";
 import { SectionCard } from "../layout/SectionCard";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Switch } from "../ui/switch";
 import { formatPct, toWaitlistTone, type ConfirmState } from "./utils";
 
 export interface DashboardKpis {
@@ -35,7 +35,7 @@ export interface DashboardTabProps {
   onSwitchTab: (tab: string) => void;
   onOpenConfirm: (state: ConfirmState) => void;
   onApproveEntry: (entry: AdminWaitlistEntry) => Promise<void>;
-  onToggleWaitlist: (currentEnabled: boolean) => void;
+  onToggleWaitlist: (enabled: boolean) => void;
   onSetStatusFilter: (filter: string) => void;
   settingsDraftWaitlistEnabled: boolean;
 }
@@ -159,15 +159,18 @@ export function DashboardTab({
           >
             Open Deactivated Users
           </Button>
-          <Button
-            variant="destructive"
-            iconLeft={<Shield className="h-3.5 w-3.5" />}
-            onClick={() => {
-              onToggleWaitlist(settingsDraftWaitlistEnabled);
-            }}
-          >
-            Toggle Waitlist
-          </Button>
+          <label className="flex items-center gap-2 rounded-md border border-[hsl(var(--border))] px-3 py-1.5">
+            <Switch
+              checked={settingsDraftWaitlistEnabled}
+              onCheckedChange={(checked) => onToggleWaitlist(checked)}
+            />
+            <span className="text-sm font-medium">Waitlist</span>
+            {settingsDraftWaitlistEnabled ? (
+              <Badge tone="warning">Active</Badge>
+            ) : (
+              <Badge tone="neutral">Inactive</Badge>
+            )}
+          </label>
         </div>
       </SectionCard>
 

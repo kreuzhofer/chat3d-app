@@ -10,6 +10,7 @@ import { SectionCard } from "./layout/SectionCard";
 import { Button } from "./ui/button";
 import { FormField } from "./ui/form";
 import { Input } from "./ui/input";
+import { Switch } from "./ui/switch";
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -72,7 +73,7 @@ export function WaitlistPanel({ compact = false }: WaitlistPanelProps) {
         setJoined(true);
         setMessage({
           kind: "success",
-          text: "Check your email to confirm your spot on the waitlist.",
+          text: "Check your email to confirm your spot on the waitlist. If you don't receive it within 1–2 minutes, please check your spam folder.",
         });
       })
       .catch((error) => {
@@ -114,17 +115,16 @@ export function WaitlistPanel({ compact = false }: WaitlistPanelProps) {
           </div>
 
           <div>
-            <label className="flex items-start gap-2 text-sm text-[hsl(var(--muted-foreground))]">
-              <input
-                type="checkbox"
+            <label className="flex items-start gap-3 text-sm text-[hsl(var(--muted-foreground))]">
+              <Switch
                 checked={marketingConsent}
-                onChange={(event) => {
-                  setMarketingConsent(event.target.checked);
-                  if (event.target.checked) {
+                onCheckedChange={(checked) => {
+                  setMarketingConsent(checked);
+                  if (checked) {
                     setConsentError(false);
                   }
                 }}
-                className="mt-1 shrink-0 rounded border-[hsl(var(--border))]"
+                className="mt-0.5 shrink-0"
               />
               <span>
                 By providing my details, I consent to receiving emails and sms messages in accordance with the{" "}

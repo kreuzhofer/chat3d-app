@@ -171,20 +171,7 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
                 </div>
               )}
             </FormField>
-            <FormField
-              label={t("pages:register.registrationToken")}
-              htmlFor="register-token"
-              helperText={waitlistEnabled ? t("pages:register.registrationTokenHelperWaitlist") : t("pages:register.registrationTokenHelperOpen")}
-              required={waitlistEnabled}
-            >
-              <Input
-                id="register-token"
-                value={registrationToken}
-                onChange={(event) => setRegistrationToken(event.target.value)}
-                placeholder={waitlistEnabled ? t("pages:register.registrationTokenPlaceholderWaitlist") : t("pages:register.registrationTokenPlaceholderOpen")}
-                required={waitlistEnabled}
-              />
-            </FormField>
+
             <label className="flex items-start gap-2.5 text-sm">
               <input
                 type="checkbox"

@@ -402,32 +402,6 @@ export function AdminPanel() {
     [pushToast, runWaitlistAction, token],
   );
 
-  const handleToggleWaitlist = useCallback(
-    (currentEnabled: boolean) => {
-      const next = !currentEnabled;
-      openConfirm({
-        title: `${next ? "Enable" : "Disable"} waitlist`,
-        description:
-          "This changes how new users enter the system. Confirm this high-impact policy update.",
-        confirmLabel: next ? "Enable waitlist" : "Disable waitlist",
-        danger: true,
-        onConfirm: async () => {
-          await applySettingsPatch({ waitlistEnabled: next });
-          pushToast({
-            tone: "warning",
-            title: `Waitlist ${next ? "enabled" : "disabled"}`,
-            description: "Use undo to restore previous state.",
-            actionLabel: "Undo",
-            onAction: async () => {
-              await applySettingsPatch({ waitlistEnabled: currentEnabled });
-            },
-          });
-        },
-      });
-    },
-    [applySettingsPatch, openConfirm, pushToast],
-  );
-
   const handleDirectToggleWaitlist = useCallback(
     async (enabled: boolean) => {
       setIsTogglingWaitlist(true);
@@ -506,7 +480,7 @@ export function AdminPanel() {
           onSwitchTab={(tab) => setActiveTab(tab as AdminTab)}
           onOpenConfirm={openConfirm}
           onApproveEntry={handleApproveEntry}
-          onToggleWaitlist={handleToggleWaitlist}
+          onToggleWaitlist={(enabled) => void handleDirectToggleWaitlist(enabled)}
           onSetStatusFilter={(filter) => setStatusFilter(filter as UserStatusFilter)}
           settingsDraftWaitlistEnabled={settingsDraft.waitlistEnabled}
         />
