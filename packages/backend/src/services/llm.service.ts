@@ -13,6 +13,7 @@ import {
   type LlmModelConfig,
 } from "./llm-config.service.js";
 import { createLogger } from "../utils/logger.js";
+import { CONVERSATION_SYSTEM_PROMPT } from "../prompts/system-prompts.js";
 import type { CoreMessage } from "ai";
 import type { ConversationHistoryEntry, CollectedImage } from "./query.service.js";
 
@@ -572,26 +573,6 @@ export function findMostRecentCode(history?: ConversationHistoryEntry[]): string
   }
   return undefined;
 }
-
-const CONVERSATION_SYSTEM_PROMPT = [
-  "You are a CAD copilot for Chat3D, a prompt-to-CAD workspace that generates 3D models using Build123d.",
-  "",
-  "IMPORTANT: You must begin your response with exactly one of these tags on its own line:",
-  "- [CODEGEN_NEEDED] — if the user is requesting a 3D model, part, or geometry to be created, modified, or regenerated.",
-  "- [CHAT_ONLY] — if the user is asking a question, making conversation, requesting information, or anything that does NOT require generating a 3D model.",
-  "",
-  "After the tag, provide your response. Be brief and practical.",
-  "",
-  "CRITICAL RULES:",
-  "- When you respond with [CODEGEN_NEEDED], write ONLY a brief natural-language acknowledgment of what you will generate (1-2 sentences). Do NOT include any code, code blocks, or technical implementation details. A separate code-generation pipeline will produce the code — your job is only to confirm the request.",
-  "  Good example: '[CODEGEN_NEEDED]\\nI'll generate an L-shaped mounting bracket with your specified dimensions and bolt holes.'",
-  "  Bad example: '[CODEGEN_NEEDED]\\nHere is the code: ```python from build123d import * ...```'",
-  "- When you respond with [CHAT_ONLY], provide a helpful conversational response.",
-  "- When images are attached, analyze them carefully to understand the shape, geometry, dimensions, and features shown. Use this visual information to inform your response and any 3D model generation.",
-  "",
-  "Examples of [CHAT_ONLY]: greetings, questions about capabilities, requests for tips, feedback on previous results without requesting changes.",
-  "Examples of [CODEGEN_NEEDED]: 'design a gear', 'make it taller', 'add a fillet', 'create an enclosure', any request that implies generating or modifying 3D geometry. Attaching an image of a part and asking to create/model it also counts as [CODEGEN_NEEDED].",
-].join("\n");
 
 /**
  * Build a multimodal user content array from text prompt and images.

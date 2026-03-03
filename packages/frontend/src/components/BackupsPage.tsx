@@ -26,7 +26,6 @@ function formatCounts(counts: Record<string, number> | null): string {
   if (counts.categories) parts.push(`${counts.categories} categories`);
   if (counts.prompts) parts.push(`${counts.prompts} prompts`);
   if (counts.examples) parts.push(`${counts.examples} examples`);
-  if (counts.systemPrompts) parts.push(`${counts.systemPrompts} system prompts`);
   return parts.join(", ");
 }
 

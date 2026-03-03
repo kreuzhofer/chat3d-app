@@ -32,7 +32,7 @@ import {
 } from "./stl-rendering-client.service.js";
 import { evaluateModel } from "./visual-eval.service.js";
 import { pushNotificationService } from "./push-notification.service.js";
-import { getActiveSystemPrompt } from "./workbench-seeder.service.js";
+import { CODEGEN_SYSTEM_PROMPT } from "../prompts/system-prompts.js";
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
 import {
   buildInitialPrompt,
@@ -1147,12 +1147,8 @@ export async function executeQueryPipeline(input: {
 
     // ── Workbench-style iteration loop: codegen → render → VLM eval → fix ──
 
-    let epSystemPromptContent = "";
-    try {
-      const spRow = await getActiveSystemPrompt();
-      epSystemPromptContent = spRow.content;
-      queryLogger.info({ promptLength: epSystemPromptContent.length }, "loaded active system prompt");
-    } catch (err) { queryLogger.warn({ err: err instanceof Error ? err.message : String(err) }, "no active system prompt found, using empty"); }
+    const epSystemPromptContent = CODEGEN_SYSTEM_PROMPT;
+    queryLogger.info({ promptLength: epSystemPromptContent.length }, "system prompt loaded (hard-coded)");
 
     let epFewShots: Array<{ prompt: string; code: string }> = [];
     try {

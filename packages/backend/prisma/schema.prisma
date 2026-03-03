@@ -401,17 +401,6 @@ model WorkbenchExample {
   @@map("workbench_examples")
 }
 
-model WorkbenchSystemPrompt {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  version   Int      @unique
-  label     String   @db.VarChar(255)
-  content   String   @db.Text
-  isActive  Boolean  @default(false) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
-
-  @@map("workbench_system_prompts")
-}
-
 model Backup {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   type        String    @db.VarChar(50)

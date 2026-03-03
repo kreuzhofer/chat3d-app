@@ -176,7 +176,7 @@ export function WorkbenchPage() {
     e.target.value = "";
 
     if (!window.confirm(
-      "⚠️ This will REPLACE ALL existing workbench data (categories, prompts, examples, system prompts). This action cannot be undone.\n\nContinue?",
+      "⚠️ This will REPLACE ALL existing workbench data (categories, prompts, examples). This action cannot be undone.\n\nContinue?",
     )) {
       return;
     }
@@ -477,7 +477,7 @@ function TransferJobCard({
           </span>
         ) : job.status === "completed" && job.counts ? (
           <span className="ml-2 text-[hsl(var(--muted-foreground))]">
-            {job.counts.categories} categories, {job.counts.prompts} prompts, {job.counts.examples} examples, {job.counts.systemPrompts} system prompts
+            {job.counts.categories} categories, {job.counts.prompts} prompts, {job.counts.examples} examples
           </span>
         ) : job.status === "failed" ? (
           <span className="ml-2 text-[hsl(var(--danger))]">{job.error}</span>

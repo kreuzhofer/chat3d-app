@@ -49,7 +49,6 @@ export interface TransferCounts {
   categories: number;
   prompts: number;
   examples: number;
-  systemPrompts: number;
 }
 
 export interface WorkbenchExportData {
@@ -58,7 +57,6 @@ export interface WorkbenchExportData {
   categories: ExportCategory[];
   prompts: ExportPrompt[];
   examples: ExportExample[];
-  systemPrompts: ExportSystemPrompt[];
 }
 
 interface ExportCategory {
@@ -113,15 +111,6 @@ interface ExportExample {
   completion_tokens: number | null;
   created_at: string;
   updated_at: string;
-}
-
-interface ExportSystemPrompt {
-  id: string;
-  version: number;
-  label: string;
-  content: string;
-  is_active: boolean;
-  created_at: string;
 }
 
 /** All 10 screenshot angles with their DB column names and file suffixes. */
@@ -461,21 +450,7 @@ async function runExport(job: TransferJob): Promise<void> {
       examples.push(ex);
     }
 
-    // 4. Query system prompts
-    job.progress = { phase: "querying system prompts", detail: `${examples.length} examples found` };
-    const spRows = await prisma.workbenchSystemPrompt.findMany({
-      orderBy: { version: "asc" },
-    });
-    const systemPrompts: ExportSystemPrompt[] = spRows.map((r) => ({
-      id: r.id,
-      version: r.version,
-      label: r.label,
-      content: r.content,
-      is_active: r.isActive,
-      created_at: r.createdAt.toISOString(),
-    }));
-
-    // 5. Build manifest and write ZIP
+    // 4. Build manifest and write ZIP
     job.progress = { phase: "writing ZIP", detail: `${filesToArchive.length} files to archive` };
     const manifest: WorkbenchExportData = {
       version: 3,
@@ -483,7 +458,6 @@ async function runExport(job: TransferJob): Promise<void> {
       categories,
       prompts,
       examples,
-      systemPrompts,
     };
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -492,24 +466,23 @@ async function runExport(job: TransferJob): Promise<void> {
 
     await writeZipExport(filePath, manifest, filesToArchive, job);
 
-    // 6. Done
+    // 5. Done
     job.filePath = filePath;
     job.counts = {
       categories: categories.length,
       prompts: prompts.length,
       examples: examples.length,
-      systemPrompts: systemPrompts.length,
     };
     job.status = "completed";
     job.finishedAt = new Date().toISOString();
     job.progress = { phase: "done" };
 
     logger.info(
-      { jobId: job.jobId, categories: categories.length, prompts: prompts.length, examples: examples.length, systemPrompts: systemPrompts.length, files: filesToArchive.length, filePath },
+      { jobId: job.jobId, categories: categories.length, prompts: prompts.length, examples: examples.length, files: filesToArchive.length, filePath },
       "ZIP export completed",
     );
 
-    // 7. Create persistent backup record (non-fatal if it fails)
+    // 6. Create persistent backup record (non-fatal if it fails)
     try {
       const fileStat = await fs.stat(filePath);
       await createBackup({
@@ -633,12 +606,12 @@ async function runZipImport(job: TransferJob, filePath: string): Promise<void> {
     throw new Error(`Unexpected manifest version in ZIP: ${data.version} (expected 3)`);
   }
   if (!Array.isArray(data.categories) || !Array.isArray(data.prompts) ||
-      !Array.isArray(data.examples) || !Array.isArray(data.systemPrompts)) {
+      !Array.isArray(data.examples)) {
     throw new Error("Invalid manifest: missing required arrays");
   }
 
   logger.info(
-    { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length, systemPrompts: data.systemPrompts.length },
+    { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length },
     "ZIP import started",
   );
 
@@ -680,7 +653,6 @@ async function runZipImport(job: TransferJob, filePath: string): Promise<void> {
     await tx.workbenchExample.deleteMany();
     await tx.workbenchExamplePrompt.deleteMany();
     await tx.workbenchCategory.deleteMany();
-    await tx.workbenchSystemPrompt.deleteMany();
 
     // Insert categories
     job.progress = { phase: "inserting categories", detail: `${data.categories.length} rows` };
@@ -762,21 +734,6 @@ async function runZipImport(job: TransferJob, filePath: string): Promise<void> {
         },
       });
     }
-
-    // Insert system prompts
-    job.progress = { phase: "inserting system prompts", detail: `${data.systemPrompts.length} rows` };
-    for (const sp of data.systemPrompts) {
-      await tx.workbenchSystemPrompt.create({
-        data: {
-          id: sp.id,
-          version: sp.version,
-          label: sp.label,
-          content: sp.content,
-          isActive: sp.is_active,
-          createdAt: new Date(sp.created_at),
-        },
-      });
-    }
   }, { timeout: 120000 });
 
   // 5. Done
@@ -784,14 +741,13 @@ async function runZipImport(job: TransferJob, filePath: string): Promise<void> {
     categories: data.categories.length,
     prompts: data.prompts.length,
     examples: data.examples.length,
-    systemPrompts: data.systemPrompts.length,
   };
   job.status = "completed";
   job.finishedAt = new Date().toISOString();
   job.progress = { phase: "done" };
 
   logger.info(
-    { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length, systemPrompts: data.systemPrompts.length, files: extractedCount },
+    { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length, files: extractedCount },
     "ZIP import completed",
   );
 }
@@ -822,12 +778,12 @@ async function runJsonImport(job: TransferJob, filePath: string): Promise<void> 
   }
   const isV2 = data.version === 2;
   if (!Array.isArray(data.categories) || !Array.isArray(data.prompts) ||
-      !Array.isArray(data.examples) || !Array.isArray(data.systemPrompts)) {
+      !Array.isArray(data.examples)) {
     throw new Error("Invalid export file: missing required arrays");
   }
 
   logger.info(
-    { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length, systemPrompts: data.systemPrompts.length },
+    { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length },
     "JSON import started",
   );
 
@@ -884,7 +840,6 @@ async function runJsonImport(job: TransferJob, filePath: string): Promise<void> 
     await tx.workbenchExample.deleteMany();
     await tx.workbenchExamplePrompt.deleteMany();
     await tx.workbenchCategory.deleteMany();
-    await tx.workbenchSystemPrompt.deleteMany();
 
     // Insert categories
     job.progress = { phase: "inserting categories", detail: `${data.categories.length} rows` };
@@ -978,21 +933,6 @@ async function runJsonImport(job: TransferJob, filePath: string): Promise<void> 
         },
       });
     }
-
-    // Insert system prompts
-    job.progress = { phase: "inserting system prompts", detail: `${data.systemPrompts.length} rows` };
-    for (const sp of data.systemPrompts) {
-      await tx.workbenchSystemPrompt.create({
-        data: {
-          id: sp.id,
-          version: sp.version,
-          label: sp.label,
-          content: sp.content,
-          isActive: sp.is_active,
-          createdAt: new Date(sp.created_at),
-        },
-      });
-    }
   }, { timeout: 120000 });
 
   // 4. Done
@@ -1000,14 +940,13 @@ async function runJsonImport(job: TransferJob, filePath: string): Promise<void> 
     categories: data.categories.length,
     prompts: data.prompts.length,
     examples: data.examples.length,
-    systemPrompts: data.systemPrompts.length,
   };
   job.status = "completed";
   job.finishedAt = new Date().toISOString();
   job.progress = { phase: "done" };
 
   logger.info(
-    { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length, systemPrompts: data.systemPrompts.length },
+    { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length },
     "JSON import completed",
   );
 }

@@ -90,15 +90,6 @@ export interface WorkbenchExample {
   updatedAt: string;
 }
 
-export interface WorkbenchSystemPrompt {
-  id: string;
-  version: number;
-  label: string;
-  content: string;
-  isActive: boolean;
-  createdAt: string;
-}
-
 export interface ExportStats {
   categories: Array<{
     categoryId: string;
@@ -340,18 +331,6 @@ export function deleteExamplesForCategory(token: string, categoryId: string): Pr
   });
 }
 
-// ── System Prompts ───────────────────────────────────────────────────
-
-export function listSystemPrompts(token: string): Promise<WorkbenchSystemPrompt[]> {
-  return requestJson<WorkbenchSystemPrompt[]>(token, "/system-prompts", { method: "GET" });
-}
-
-export function activateSystemPrompt(token: string, promptId: string): Promise<{ ok: true }> {
-  return requestJson<{ ok: true }>(token, `/system-prompts/${encodeURIComponent(promptId)}/activate`, {
-    method: "POST",
-  });
-}
-
 // ── Embeddings ───────────────────────────────────────────────────────
 
 export interface EmbeddingStatus {
@@ -391,7 +370,6 @@ export interface TransferCounts {
   categories: number;
   prompts: number;
   examples: number;
-  systemPrompts: number;
 }
 
 export interface TransferJob {

@@ -29,7 +29,8 @@ import {
   type RenderedScreenshot,
 } from "./stl-rendering-client.service.js";
 import { evaluateModel, type EvaluationResult } from "./visual-eval.service.js";
-import { getActiveSystemPrompt, WorkbenchSeederError } from "./workbench-seeder.service.js";
+import { CODEGEN_SYSTEM_PROMPT } from "../prompts/system-prompts.js";
+import { WorkbenchSeederError } from "./workbench-seeder.service.js";
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
 import { validatePrompt } from "./workbench-prompt-validation.service.js";
 import {
@@ -744,9 +745,8 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     };
   }
 
-  // 3. Load system prompt and few-shot examples
-  const systemPromptRow = await getActiveSystemPrompt();
-  logger.info({ chars: systemPromptRow.content.length }, "system prompt loaded");
+  // 3. Load few-shot examples (system prompt is a hard-coded constant)
+  logger.info({ chars: CODEGEN_SYSTEM_PROMPT.length }, "system prompt loaded");
 
   const fewShots = await fetchFewShotExamples(ctx.prompt, ctx.categoryId);
   logger.info({ count: fewShots.length }, "few-shot examples loaded");
@@ -787,9 +787,9 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     // 2. Generate code
     const prompt =
       iteration === 1
-        ? buildInitialPrompt(systemPromptRow.content, fewShots, ctx.prompt)
+        ? buildInitialPrompt(CODEGEN_SYSTEM_PROMPT, fewShots, ctx.prompt)
         : buildFixPrompt(
-            systemPromptRow.content,
+            CODEGEN_SYSTEM_PROMPT,
             fewShots,
             ctx.prompt,
             currentCode,

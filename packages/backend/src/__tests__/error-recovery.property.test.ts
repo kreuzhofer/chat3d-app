@@ -111,8 +111,9 @@ vi.mock("../services/llm-config.service.js", () => ({
   calculateCostUsd: vi.fn().mockReturnValue(0.001),
 }));
 
-vi.mock("../services/workbench-seeder.service.js", () => ({
-  getActiveSystemPrompt: vi.fn().mockResolvedValue({ content: "sys" }),
+vi.mock("../prompts/system-prompts.js", () => ({
+  CODEGEN_SYSTEM_PROMPT: "sys",
+  CONVERSATION_SYSTEM_PROMPT: "conversation-sys",
 }));
 
 vi.mock("../services/workbench-embeddings.service.js", () => ({

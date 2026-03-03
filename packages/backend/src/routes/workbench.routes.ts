@@ -9,11 +9,8 @@ import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
 import { FileStorageError, readStorageFile } from "../services/file-storage.service.js";
 import {
-  activateSystemPrompt,
-  getActiveSystemPrompt,
   listCategories,
   listPromptsForCategory,
-  listSystemPrompts,
   updatePromptText,
   WorkbenchSeederError,
 } from "../services/workbench-seeder.service.js";
@@ -181,43 +178,6 @@ workbenchRouter.post("/prompts/:id/improve", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "Failed to generate prompt improvements", detail: String(error) });
-  }
-});
-
-// ── System Prompts ────────────────────────────────────────────────────
-
-workbenchRouter.get("/system-prompts", async (_req, res) => {
-  try {
-    const prompts = await listSystemPrompts();
-    res.status(200).json(prompts);
-  } catch (error) {
-    res.status(500).json({ error: "Failed to list system prompts", detail: String(error) });
-  }
-});
-
-workbenchRouter.get("/system-prompts/active", async (_req, res) => {
-  try {
-    const prompt = await getActiveSystemPrompt();
-    res.status(200).json(prompt);
-  } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
-      res.status(error.statusCode).json({ error: error.message });
-      return;
-    }
-    res.status(500).json({ error: "Failed to get active system prompt", detail: String(error) });
-  }
-});
-
-workbenchRouter.post("/system-prompts/:id/activate", async (req, res) => {
-  try {
-    await activateSystemPrompt(req.params.id);
-    res.status(200).json({ ok: true });
-  } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
-      res.status(error.statusCode).json({ error: error.message });
-      return;
-    }
-    res.status(500).json({ error: "Failed to activate system prompt", detail: String(error) });
   }
 });
 
