@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import type { LlmProviderRow } from "../../api/admin.api";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
@@ -81,6 +82,7 @@ export function ProviderFormDialog({ provider, saving, onSave, onClose }: Provid
   const isEdit = provider !== null;
   const canSubmit = form.name.trim() !== "";
 
+  const [showApiKey, setShowApiKey] = useState(false);
   const hasExistingKey = isEdit && provider.api_key !== null;
   const meta = getProviderMeta(form.name);
 
@@ -163,14 +165,25 @@ export function ProviderFormDialog({ provider, saving, onSave, onClose }: Provid
               : meta?.apiKeyHint ?? "Enter the API key for this provider."
           }
         >
-          <Input
-            id="provider-api-key"
-            type="password"
-            value={form.apiKey}
-            placeholder={hasExistingKey ? "Leave empty to keep current key" : "Enter API key"}
-            onChange={(e) => patch({ apiKey: e.target.value })}
-            autoComplete="off"
-          />
+          <div className="relative">
+            <Input
+              id="provider-api-key"
+              type={showApiKey ? "text" : "password"}
+              value={form.apiKey}
+              placeholder={hasExistingKey ? "Leave empty to keep current key" : "Enter API key"}
+              onChange={(e) => patch({ apiKey: e.target.value })}
+              className="pr-10"
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-[hsl(var(--muted-foreground))] transition hover:text-[hsl(var(--foreground))]"
+              onClick={() => setShowApiKey((prev) => !prev)}
+              aria-label={showApiKey ? "Hide API key" : "Show API key"}
+            >
+              {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
         </FormField>
 
         {/* Actions */}
