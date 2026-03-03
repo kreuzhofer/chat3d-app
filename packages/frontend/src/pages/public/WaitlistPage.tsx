@@ -17,7 +17,7 @@ export function WaitlistPage({ waitlistEnabled }: WaitlistPageProps) {
           <div>
             <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Waitlist</h1>
             <p className="text-sm text-[hsl(var(--muted-foreground))]">
-              Join, confirm your email, and track approval status.
+              Join the waitlist to get early access.
             </p>
           </div>
         </div>

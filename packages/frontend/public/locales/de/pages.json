@@ -14,7 +14,6 @@
     "createAccount": "Erstellen Sie Ihr Chat3D-Konto",
     "subtitle": "Erstellen Sie 3D-Modelle mit KI",
     "title": "Registrieren",
-    "waitlistWarning": "Der Wartelistenmodus ist aktiv. Für die Registrierung ist ein gültiger Aktivierungstoken erforderlich, der nach der Genehmigung per E-Mail gesendet wird.",
     "displayNameHelper": "Optional.",
     "registrationToken": "Registrierungstoken",
     "registrationTokenHelperWaitlist": "Erforderlich, solange der Wartelistenmodus aktiviert ist.",
@@ -150,10 +149,7 @@
     "resendButton": "Bestätigung erneut senden",
     "resendSuccess": "Falls ein Konto mit dieser E-Mail-Adresse auf Bestätigung wartet, wurde ein neuer Link gesendet."
   },
-  "publicShell": {
-    "checkingRegistration": "Registrierungsmodus wird geprüft...",
-    "waitlistBanner": "Der Wartelistenmodus ist aktiv. Neue Benutzer können sich auf die Warteliste setzen und erhalten nach Genehmigung einen Registrierungslink."
-  },
+  "publicShell": {},
   "legal": {
     "title": "Rechtliches",
     "subtitle": "Rechtliche Informationen, Richtlinien und regulatorische Angaben.",

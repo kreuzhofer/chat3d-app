@@ -71,12 +71,6 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
         <p className="text-sm text-[hsl(var(--muted-foreground))]">{t("pages:register.subtitle")}</p>
       </div>
 
-      {waitlistEnabled ? (
-        <p className="mb-4 rounded-lg border border-[hsl(var(--warning)_/_0.3)] bg-[hsl(var(--warning)_/_0.08)] p-3 text-sm text-[hsl(var(--warning))]">
-          {t("pages:register.waitlistWarning")}
-        </p>
-      ) : null}
-
       <Card>
         <CardHeader>
           <CardTitle>{t("pages:register.title")}</CardTitle>

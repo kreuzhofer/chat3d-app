@@ -11,16 +11,6 @@ export interface WaitlistJoinResponse {
   status: WaitlistStatus;
 }
 
-export interface WaitlistStatusResponse {
-  entryId: string;
-  email: string;
-  status: WaitlistStatus;
-  marketingConsent: boolean;
-  emailConfirmedAt: string | null;
-  approvedAt: string | null;
-  createdAt: string;
-}
-
 async function requestWaitlistJson<T>(
   path: string,
   init: Omit<RequestInit, "headers"> & { headers?: HeadersInit } = {},
@@ -56,15 +46,3 @@ export function confirmWaitlistEmail(token: string): Promise<WaitlistJoinRespons
   });
 }
 
-export function getWaitlistStatus(input: { email?: string; token?: string }): Promise<WaitlistStatusResponse> {
-  const params = new URLSearchParams();
-  if (input.email) {
-    params.set("email", input.email);
-  }
-  if (input.token) {
-    params.set("token", input.token);
-  }
-  return requestWaitlistJson<WaitlistStatusResponse>(`/status?${params.toString()}`, {
-    method: "GET",
-  });
-}

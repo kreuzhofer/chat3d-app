@@ -86,6 +86,7 @@ export function AdminPanel() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isTogglingWaitlist, setIsTogglingWaitlist] = useState(false);
   const [busyUserIds, setBusyUserIds] = useState<Set<string>>(new Set());
   const [busyWaitlistEntryIds, setBusyWaitlistEntryIds] = useState<Set<string>>(new Set());
   const lastHandledNotificationIdRef = useRef<number>(0);
@@ -427,6 +428,24 @@ export function AdminPanel() {
     [applySettingsPatch, openConfirm, pushToast],
   );
 
+  const handleDirectToggleWaitlist = useCallback(
+    async (enabled: boolean) => {
+      setIsTogglingWaitlist(true);
+      try {
+        await applySettingsPatch({ waitlistEnabled: enabled });
+        pushToast({
+          tone: enabled ? "warning" : "info",
+          title: `Waitlist ${enabled ? "enabled" : "disabled"}`,
+        });
+      } catch (toggleError) {
+        setError(toErrorMessage(toggleError));
+      } finally {
+        setIsTogglingWaitlist(false);
+      }
+    },
+    [applySettingsPatch, pushToast],
+  );
+
   const handleResetDraft = useCallback(() => {
     if (!settings) {
       return;
@@ -514,6 +533,9 @@ export function AdminPanel() {
           moderationReason={moderationReason}
           busyWaitlistEntryIds={busyWaitlistEntryIds}
           token={token}
+          waitlistEnabled={settingsDraft.waitlistEnabled}
+          isTogglingWaitlist={isTogglingWaitlist}
+          onToggleWaitlist={(enabled) => void handleDirectToggleWaitlist(enabled)}
           onQueueIndexChange={setQueueIndex}
           onModerationReasonChange={setModerationReason}
           onOpenConfirm={openConfirm}

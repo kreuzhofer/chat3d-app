@@ -14,7 +14,6 @@
     "createAccount": "Create your Chat3D account",
     "subtitle": "Start building 3D models with AI",
     "title": "Register",
-    "waitlistWarning": "Waitlist mode is active. Registration requires a valid activation token sent by email after approval.",
     "displayNameHelper": "Optional.",
     "registrationToken": "Registration token",
     "registrationTokenHelperWaitlist": "Required while waitlist mode is enabled.",
@@ -150,10 +149,7 @@
     "resendButton": "Resend confirmation",
     "resendSuccess": "If an account with that email is pending confirmation, a new link has been sent."
   },
-  "publicShell": {
-    "checkingRegistration": "Checking registration mode...",
-    "waitlistBanner": "Waitlist mode is active. New users can join the waitlist and will receive a registration link after approval."
-  },
+  "publicShell": {},
   "legal": {
     "title": "Legal",
     "subtitle": "Legal information, policies, and regulatory disclosures.",

@@ -10,6 +10,7 @@ import { SectionCard } from "../layout/SectionCard";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { FormField } from "../ui/form";
+import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { toWaitlistTone, type ConfirmState } from "./utils";
 
@@ -21,6 +22,9 @@ export interface WaitlistTabProps {
   moderationReason: string;
   busyWaitlistEntryIds: Set<string>;
   token: string | null;
+  waitlistEnabled: boolean;
+  isTogglingWaitlist: boolean;
+  onToggleWaitlist: (enabled: boolean) => void;
   onQueueIndexChange: (index: number) => void;
   onModerationReasonChange: (value: string) => void;
   onOpenConfirm: (state: ConfirmState) => void;
@@ -36,6 +40,9 @@ export function WaitlistTab({
   moderationReason,
   busyWaitlistEntryIds,
   token,
+  waitlistEnabled,
+  isTogglingWaitlist,
+  onToggleWaitlist,
   onQueueIndexChange,
   onModerationReasonChange,
   onOpenConfirm,
@@ -44,7 +51,27 @@ export function WaitlistTab({
 }: WaitlistTabProps) {
   return (
     <div className="space-y-4">
-      <SectionCard title="Moderation queue" description="Single-item moderation workflow (bulk is intentionally deferred).">
+      <SectionCard title="Waitlist mode">
+        <label className="flex items-center gap-3">
+          <Switch
+            checked={waitlistEnabled}
+            disabled={isTogglingWaitlist}
+            onCheckedChange={onToggleWaitlist}
+          />
+          <span className="text-sm">
+            {waitlistEnabled ? (
+              <Badge tone="warning">Active</Badge>
+            ) : (
+              <Badge tone="neutral">Inactive</Badge>
+            )}
+          </span>
+        </label>
+        <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
+          When active, new users must join the waitlist and be approved before they can register.
+        </p>
+      </SectionCard>
+
+      <SectionCard title="Moderation queue">
         {!queueEntry ? (
           <EmptyState title="Queue empty" description="No waitlist entries are pending admin approval." />
         ) : (

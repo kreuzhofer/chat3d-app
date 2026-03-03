@@ -108,15 +108,6 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
           </div>
         ) : null}
 
-        {waitlistState === "loading" ? (
-          <p className="border-t border-[hsl(var(--border))] px-4 py-2 text-xs text-[hsl(var(--muted-foreground))] md:px-6">
-            {t("pages:publicShell.checkingRegistration")}
-          </p>
-        ) : waitlistEnabled ? (
-          <p className="border-t border-[hsl(var(--warning)_/_0.2)] bg-[hsl(var(--warning)_/_0.08)] px-4 py-2 text-xs text-[hsl(var(--warning))] md:px-6">
-            {t("pages:publicShell.waitlistBanner")}
-          </p>
-        ) : null}
       </header>
 
       <main className="mx-auto w-full max-w-7xl px-4 py-8 md:px-6 md:py-10">{children}</main>
