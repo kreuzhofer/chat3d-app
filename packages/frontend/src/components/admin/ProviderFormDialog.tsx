@@ -25,7 +25,7 @@ const SUPPORTED_PROVIDERS: ProviderMeta[] = [
   { value: "deepseek", label: "DeepSeek", endpointHint: "Leave empty for default.", endpointPlaceholder: "", apiKeyHint: "Enter the DeepSeek API key." },
   { value: "minimax", label: "MiniMax", endpointHint: "Leave empty for default.", endpointPlaceholder: "", apiKeyHint: "Enter the MiniMax API key." },
   { value: "ollama", label: "Ollama", endpointHint: "Ollama server URL. Leave empty for default (http://host.docker.internal:11434).", endpointPlaceholder: "http://host.docker.internal:11434", apiKeyHint: "Auth token (optional). Leave empty if not required." },
-  { value: "bedrock", label: "Amazon Bedrock", endpointHint: "AWS region (e.g. us-east-1). Leave empty for SDK default.", endpointPlaceholder: "us-east-1", apiKeyHint: "Enter the Amazon Bedrock API key." },
+  { value: "bedrock", label: "Amazon Bedrock", endpointHint: "AWS region (e.g. us-east-1). Defaults to us-east-1 if left empty.", endpointPlaceholder: "us-east-1", apiKeyHint: "Enter the Amazon Bedrock API key." },
 ];
 
 const PROVIDER_SELECT_OPTIONS = SUPPORTED_PROVIDERS.map((p) => ({ value: p.value, label: p.label }));

@@ -321,7 +321,7 @@ export function createProviderModel(cfg: LlmModelConfig): any {
     }
     return createAmazonBedrock({
       apiKey,
-      region: endpointUrl || undefined,
+      region: endpointUrl || "us-east-1",
     })(modelName);
   }
 
@@ -371,7 +371,7 @@ export function createEmbeddingModel(cfg: LlmModelConfig): any {
     }
     return createAmazonBedrock({
       apiKey,
-      region: endpointUrl || undefined,
+      region: endpointUrl || "us-east-1",
     }).embedding(modelName);
   }
 
@@ -479,12 +479,18 @@ export async function createProvider(input: {
   apiKey?: string | null;
   endpointUrl?: string | null;
 }): Promise<LlmProviderRow> {
+  // Default Bedrock region to us-east-1 if not specified
+  const endpointUrl =
+    input.name === "bedrock" && !input.endpointUrl
+      ? "us-east-1"
+      : (input.endpointUrl ?? null);
+
   const row = await prisma.llmProvider.create({
     data: {
       name: input.name,
       displayName: input.displayName ?? null,
       apiKey: input.apiKey ?? null,
-      endpointUrl: input.endpointUrl ?? null,
+      endpointUrl,
     },
   });
   return maskProviderApiKey(toProviderRow(row));
