@@ -19,6 +19,7 @@ interface SmtpSendInput {
 
 interface SmtpTransportLike {
   sendMail(input: SmtpSendInput): Promise<unknown>;
+  verify(): Promise<true>;
 }
 
 interface EmailServiceOptions {
@@ -114,6 +115,26 @@ export class EmailService {
 
   clearSentEmailsForTest(): void {
     this.sentEmails = [];
+  }
+
+  async verifyConnection(): Promise<{ configured: boolean; mode: string; smtpOk?: boolean; error?: string }> {
+    if (this.options.mode === "memory") {
+      return { configured: true, mode: "memory" };
+    }
+
+    const smtp = this.options.smtp;
+    if (!smtp?.host || !smtp.from) {
+      return { configured: false, mode: "smtp", error: "SMTP_HOST or MAIL_FROM not set" };
+    }
+
+    try {
+      const transport = this.getSmtpTransport();
+      await transport.verify();
+      return { configured: true, mode: "smtp", smtpOk: true };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return { configured: true, mode: "smtp", smtpOk: false, error: reason };
+    }
   }
 
   private getSmtpTransport(): SmtpTransportLike {

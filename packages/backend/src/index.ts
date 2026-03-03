@@ -4,10 +4,20 @@ import { createLogger } from "./utils/logger.js";
 import { prisma } from "./db/prisma.js";
 import { resumeStalePipelines } from "./services/query.service.js";
 import { initializeI18n } from "./i18n/config.js";
+import { emailService } from "./services/email.service.js";
 const logger = createLogger("backend");
 
 await initializeI18n();
 logger.info("i18n initialized");
+
+const emailStatus = await emailService.verifyConnection();
+if (!emailStatus.configured) {
+  logger.warn({ email: emailStatus }, "email is not configured — email features will fail");
+} else if (emailStatus.smtpOk === false) {
+  logger.warn({ email: emailStatus }, "email SMTP authentication failed");
+} else {
+  logger.info({ email: emailStatus }, "email is configured and ready");
+}
 
 const app = createApp();
 
