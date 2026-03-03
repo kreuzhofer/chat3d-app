@@ -7,7 +7,10 @@
     "emailAlreadyRegistered": "Email is already registered",
     "registrationTokenRequired": "A valid registration token is required while waitlist is enabled",
     "registrationFailed": "Failed to register user",
-    "authenticationRequired": "Authentication required"
+    "authenticationRequired": "Authentication required",
+    "emailRequired": "Email is required",
+    "tokenAndPasswordRequired": "Token and new password are required",
+    "passwordResetFailed": "Failed to reset password"
   },
   "chat": {
     "invalidContextId": "Invalid context id",
@@ -28,7 +31,8 @@
     "accountDeleteFailed": "Failed to request account delete",
     "accountReactivationFailed": "Failed to request account reactivation",
     "languageUpdateFailed": "Failed to update language",
-    "confirmActionFailed": "Failed to confirm action"
+    "confirmActionFailed": "Failed to confirm action",
+    "displayNameUpdateFailed": "Failed to update display name"
   },
   "setup": {
     "failed": "Setup failed"

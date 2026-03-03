@@ -9,7 +9,14 @@ import {
   normalizeEmail,
   verifyPassword,
 } from "../services/auth.service.js";
-import { isWaitlistEnabled } from "../services/app-settings.service.js";
+import {
+  AccountLifecycleError,
+  completeForgotPasswordReset,
+  requestEmailConfirmation,
+  requestForgotPasswordReset,
+  resendEmailConfirmation,
+} from "../services/account-lifecycle.service.js";
+import { isEmailConfirmationEnabled, isWaitlistEnabled } from "../services/app-settings.service.js";
 import { recordSecurityEvent } from "../services/security-audit.service.js";
 import { consumeRegistrationToken, WaitlistError } from "../services/waitlist.service.js";
 
@@ -34,11 +41,16 @@ authRouter.post("/register", async (req, res) => {
 
   const normalizedEmail = normalizeEmail(email);
   const waitlistEnabled = await isWaitlistEnabled();
+  const emailConfirmationEnabled = await isEmailConfirmationEnabled();
 
   if (waitlistEnabled && !registrationToken) {
     res.status(403).json({ error: req.t("errors:auth.registrationTokenRequired") });
     return;
   }
+
+  // Email confirmation is required when: enabled AND no registration token was provided
+  // (registration tokens from waitlist/invitations already imply email verification)
+  const requireEmailConfirmation = emailConfirmationEnabled && !registrationToken;
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -68,7 +80,7 @@ authRouter.post("/register", async (req, res) => {
           passwordHash,
           displayName: normalizedDisplayName,
           role: "user",
-          status: "active",
+          status: requireEmailConfirmation ? "pending_registration" : "active",
         },
         select: { id: true, email: true, displayName: true, role: true, status: true },
       });
@@ -81,6 +93,12 @@ authRouter.post("/register", async (req, res) => {
         status: inserted.status,
       };
     });
+
+    if (requireEmailConfirmation) {
+      await requestEmailConfirmation({ userId: result.id, email: result.email });
+      res.status(201).json({ status: "pending_email_confirmation", user: result });
+      return;
+    }
 
     const token = await issueAuthToken(result);
     res.status(201).json({ token, user: result });
@@ -185,4 +203,74 @@ authRouter.post("/logout", requireAuth, async (req, res) => {
   });
 
   res.status(204).send();
+});
+
+authRouter.post("/forgot-password", async (req, res) => {
+  const email = typeof req.body?.email === "string" ? req.body.email : "";
+  if (!email) {
+    res.status(400).json({ error: req.t("errors:auth.emailRequired") });
+    return;
+  }
+
+  try {
+    await recordSecurityEvent({
+      eventType: "auth.forgot_password.requested",
+      ipAddress: req.ip,
+      path: req.path,
+      metadata: { email },
+    });
+
+    await requestForgotPasswordReset({ email });
+    res.status(202).json({ status: "pending_confirmation" });
+  } catch {
+    // Always return 202 to prevent email enumeration
+    res.status(202).json({ status: "pending_confirmation" });
+  }
+});
+
+authRouter.post("/reset-password", async (req, res) => {
+  const token = typeof req.body?.token === "string" ? req.body.token : "";
+  const newPassword = typeof req.body?.newPassword === "string" ? req.body.newPassword : "";
+
+  if (!token || !newPassword) {
+    res.status(400).json({ error: req.t("errors:auth.tokenAndPasswordRequired") });
+    return;
+  }
+
+  try {
+    await completeForgotPasswordReset({ token, newPassword });
+    await recordSecurityEvent({
+      eventType: "auth.forgot_password.completed",
+      ipAddress: req.ip,
+      path: req.path,
+    });
+    res.status(200).json({ status: "completed" });
+  } catch (error) {
+    await recordSecurityEvent({
+      eventType: "auth.forgot_password.invalid_token",
+      ipAddress: req.ip,
+      path: req.path,
+    });
+    if (error instanceof AccountLifecycleError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: req.t("errors:auth.passwordResetFailed") });
+  }
+});
+
+authRouter.post("/resend-confirmation", async (req, res) => {
+  const email = typeof req.body?.email === "string" ? req.body.email : "";
+  if (!email) {
+    res.status(400).json({ error: req.t("errors:auth.emailRequired") });
+    return;
+  }
+
+  try {
+    await resendEmailConfirmation({ email });
+  } catch {
+    // Silently ignore errors to prevent enumeration
+  }
+
+  res.status(202).json({ status: "pending_confirmation" });
 });

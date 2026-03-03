@@ -164,6 +164,35 @@ profileRouter.patch("/language", requireAuth, async (req, res) => {
   }
 });
 
+profileRouter.patch("/display-name", requireAuth, async (req, res) => {
+  const authUser = req.authUser;
+  if (!authUser) {
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
+    return;
+  }
+
+  const displayName = typeof req.body?.displayName === "string" ? req.body.displayName.trim() : "";
+  if (!displayName) {
+    res.status(400).json({ error: req.t("validation:fields.displayNameRequired") });
+    return;
+  }
+
+  if (displayName.length > 255) {
+    res.status(400).json({ error: req.t("validation:fields.displayNameTooLong") });
+    return;
+  }
+
+  try {
+    await prisma.user.update({
+      where: { id: authUser.id },
+      data: { displayName, updatedAt: new Date() },
+    });
+    res.status(200).json({ status: "updated", displayName });
+  } catch (error) {
+    res.status(500).json({ error: req.t("errors:profile.displayNameUpdateFailed"), detail: String(error) });
+  }
+});
+
 profileRouter.get("/actions/confirm", async (req, res) => {
   const token = typeof req.query.token === "string" ? req.query.token : "";
 

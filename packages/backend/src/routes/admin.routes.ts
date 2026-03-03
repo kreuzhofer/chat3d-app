@@ -63,6 +63,12 @@ function validateSettingsPatchBody(body: unknown) {
   ) {
     return { valid: false as const, error: "invitationQuotaPerUser must be a non-negative integer" };
   }
+  if (
+    payload.emailConfirmationEnabled !== undefined &&
+    typeof payload.emailConfirmationEnabled !== "boolean"
+  ) {
+    return { valid: false as const, error: "emailConfirmationEnabled must be a boolean" };
+  }
 
   return {
     valid: true as const,
@@ -78,6 +84,10 @@ function validateSettingsPatchBody(body: unknown) {
       invitationQuotaPerUser:
         payload.invitationQuotaPerUser !== undefined
           ? (payload.invitationQuotaPerUser as number)
+          : undefined,
+      emailConfirmationEnabled:
+        payload.emailConfirmationEnabled !== undefined
+          ? (payload.emailConfirmationEnabled as boolean)
           : undefined,
     },
   };

@@ -1,17 +1,21 @@
 import type { Prisma } from "@prisma/client";
 import { config } from "../config.js";
 import { prisma } from "../db/prisma.js";
+import { createLogger } from "../utils/logger.js";
 import { generateOpaqueToken, hashToken } from "../utils/token.js";
 import { assertValidPassword, hashPassword, normalizeEmail } from "./auth.service.js";
 import { emailService } from "./email.service.js";
 import { notificationService } from "./notification.service.js";
+
+const logger = createLogger("account-lifecycle");
 
 type AccountActionType =
   | "password_reset"
   | "email_change"
   | "data_export"
   | "account_delete"
-  | "account_reactivate";
+  | "account_reactivate"
+  | "email_confirmation";
 
 export class AccountLifecycleError extends Error {
   constructor(
@@ -292,6 +296,159 @@ export async function requestAccountReactivation(input: { email: string }) {
   });
 }
 
+export async function requestForgotPasswordReset(input: { email: string }) {
+  const normalizedEmail = normalizeEmail(input.email);
+  if (!isValidEmail(normalizedEmail)) {
+    return;
+  }
+
+  const action = await prisma.$transaction(async (tx) => {
+    const user = await findUserByEmailForUpdate(tx, normalizedEmail);
+    if (!user || user.status !== "active") {
+      return null;
+    }
+
+    await cancelPendingAction(tx, user.id, "password_reset");
+
+    const token = generateOpaqueToken();
+    const tokenHash = hashToken(token);
+
+    const created = await tx.accountAction.create({
+      data: {
+        userId: user.id,
+        actionType: "password_reset",
+        tokenHash,
+        payload: { source: "forgot" },
+        status: "pending",
+        expiresAt: new Date(Date.now() + 1 * 3600 * 1000),
+      },
+      select: { id: true },
+    });
+
+    return { actionId: created.id, token };
+  });
+
+  if (!action) {
+    logger.debug({ email: normalizedEmail }, "forgot password request for unknown/inactive user — silently ignored");
+    return;
+  }
+
+  const resetUrl = appUrl(`/forgot-password/reset?token=${encodeURIComponent(action.token)}`);
+  await emailService.sendTransactionalEmail({
+    to: normalizedEmail,
+    subject: "Reset your password",
+    text: `Reset your password by opening: ${resetUrl}\n\nThis link expires in 1 hour. If you did not request this, you can safely ignore this email.`,
+  });
+}
+
+export async function completeForgotPasswordReset(input: { token: string; newPassword: string }) {
+  if (!assertValidPassword(input.newPassword)) {
+    throw new AccountLifecycleError("Password must be at least 8 characters", 400);
+  }
+
+  const tokenHash = hashToken(input.token);
+  const newPasswordHash = await hashPassword(input.newPassword);
+
+  await prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<Array<{
+      id: string;
+      user_id: string;
+      action_type: string;
+      payload: Record<string, unknown>;
+      status: string;
+      expires_at: Date | null;
+    }>>`
+      SELECT a.id, a.user_id, a.action_type, a.payload, a.status, a.expires_at
+      FROM account_actions a
+      WHERE a.token_hash = ${tokenHash}
+      FOR UPDATE
+    `;
+
+    const action = rows[0];
+    if (!action) {
+      throw new AccountLifecycleError("Invalid or expired reset token", 400);
+    }
+
+    if (action.status !== "pending") {
+      throw new AccountLifecycleError("This token has already been used", 409);
+    }
+
+    if (action.action_type !== "password_reset") {
+      throw new AccountLifecycleError("Invalid reset token", 400);
+    }
+
+    if (action.expires_at && action.expires_at.getTime() < Date.now()) {
+      await tx.accountAction.update({
+        where: { id: action.id },
+        data: { status: "expired" },
+      });
+      throw new AccountLifecycleError("This reset token has expired", 400);
+    }
+
+    await tx.user.update({
+      where: { id: action.user_id },
+      data: { passwordHash: newPasswordHash, updatedAt: new Date() },
+    });
+
+    await tx.accountAction.update({
+      where: { id: action.id },
+      data: { status: "completed", completedAt: new Date() },
+    });
+  });
+}
+
+export async function requestEmailConfirmation(input: { userId: string; email: string }) {
+  const action = await prisma.$transaction(async (tx) => {
+    return createAccountAction({
+      tx,
+      userId: input.userId,
+      actionType: "email_confirmation",
+      payload: {},
+      expiresInHours: 24,
+    });
+  });
+
+  const confirmUrl = appUrl(`/confirm-email?token=${encodeURIComponent(action.token)}`);
+  await emailService.sendTransactionalEmail({
+    to: input.email,
+    subject: "Confirm your email address",
+    text: `Confirm your email address by opening: ${confirmUrl}\n\nThis link expires in 24 hours.`,
+  });
+}
+
+export async function resendEmailConfirmation(input: { email: string }) {
+  const normalizedEmail = normalizeEmail(input.email);
+  if (!isValidEmail(normalizedEmail)) {
+    return;
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const user = await findUserByEmailForUpdate(tx, normalizedEmail);
+    if (!user || user.status !== "pending_registration") {
+      return null;
+    }
+
+    return createAccountAction({
+      tx,
+      userId: user.id,
+      actionType: "email_confirmation",
+      payload: {},
+      expiresInHours: 24,
+    });
+  });
+
+  if (!result) {
+    return;
+  }
+
+  const confirmUrl = appUrl(`/confirm-email?token=${encodeURIComponent(result.token)}`);
+  await emailService.sendTransactionalEmail({
+    to: normalizedEmail,
+    subject: "Confirm your email address",
+    text: `Confirm your email address by opening: ${confirmUrl}\n\nThis link expires in 24 hours.`,
+  });
+}
+
 function parsePayloadString(payload: Record<string, unknown>, key: string): string | null {
   const value = payload[key];
   if (typeof value !== "string" || value.trim() === "") {
@@ -427,6 +584,21 @@ export async function confirmAccountAction(rawToken: string) {
           data: {
             status: "active",
             deactivatedUntil: null,
+            updatedAt: new Date(),
+          },
+        });
+        break;
+      }
+
+      case "email_confirmation": {
+        if (action.user_status !== "pending_registration") {
+          throw new AccountLifecycleError("Account is not pending confirmation", 409);
+        }
+
+        await tx.user.update({
+          where: { id: action.user_id },
+          data: {
+            status: "active",
             updatedAt: new Date(),
           },
         });

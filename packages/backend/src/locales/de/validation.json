@@ -5,6 +5,8 @@
     "newEmailRequired": "newEmail ist erforderlich",
     "emailRequired": "E-Mail ist erforderlich",
     "languageRequired": "Sprache ist erforderlich",
-    "invalidLanguage": "Nicht unterstützte Sprache: {{language}}"
+    "invalidLanguage": "Nicht unterstützte Sprache: {{language}}",
+    "displayNameRequired": "Anzeigename ist erforderlich",
+    "displayNameTooLong": "Anzeigename darf maximal 255 Zeichen lang sein"
   }
 }

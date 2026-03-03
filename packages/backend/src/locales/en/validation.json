@@ -5,6 +5,8 @@
     "newEmailRequired": "newEmail is required",
     "emailRequired": "email is required",
     "languageRequired": "language is required",
-    "invalidLanguage": "Unsupported language: {{language}}"
+    "invalidLanguage": "Unsupported language: {{language}}",
+    "displayNameRequired": "Display name is required",
+    "displayNameTooLong": "Display name must be at most 255 characters"
   }
 }

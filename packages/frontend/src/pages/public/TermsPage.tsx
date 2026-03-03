@@ -2,8 +2,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useLegalMarkdown } from "../../hooks/useLegalMarkdown";
 
-export function ImprintPage() {
-  const { content, error } = useLegalMarkdown("imprint.md");
+export function TermsPage() {
+  const { content, error } = useLegalMarkdown("terms.md");
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-6">

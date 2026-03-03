@@ -59,7 +59,10 @@
   },
   "footer": {
     "imprint": "Imprint",
-    "legal": "Legal"
+    "legal": "Legal",
+    "terms": "Terms",
+    "privacy": "Privacy",
+    "dataDeletion": "Data Deletion"
   },
   "groups": {
     "workspace": "Workspace",
@@ -100,5 +103,12 @@
   "drawer": {
     "navigationTitle": "Navigation",
     "navigationDescription": "Switch primary workflow areas"
+  },
+  "cookieBanner": {
+    "title": "Cookie Preferences",
+    "description": "We use essential cookies to keep you signed in and remember your language preference. No analytics or advertising cookies are used at this time.",
+    "acceptAll": "Accept All",
+    "essentialOnly": "Essential Only",
+    "learnMore": "Learn more in our Privacy Policy"
   }
 }

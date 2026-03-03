@@ -6,6 +6,7 @@ import {
   requestDataExport,
   requestEmailChange,
   requestPasswordReset,
+  updateDisplayName,
 } from "../api/profile.api";
 import { useAuth } from "../hooks/useAuth";
 import { InvitationManager } from "./InvitationManager";
@@ -24,8 +25,9 @@ function toErrorMessage(error: unknown): string {
 }
 
 export function ProfilePanel() {
-  const { token, user } = useAuth();
+  const { token, user, refreshProfile } = useAuth();
 
+  const [editDisplayName, setEditDisplayName] = useState(user?.displayName ?? "");
   const [newPassword, setNewPassword] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [reactivationEmail, setReactivationEmail] = useState(user?.email ?? "");
@@ -101,6 +103,32 @@ export function ProfilePanel() {
           {message.text}
         </InlineAlert>
       ) : null}
+
+      <SectionCard title="Display Name" description="Update your public display name.">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <FormField label="Display name" htmlFor="edit-display-name" helperText="Visible to other users in shared contexts.">
+            <Input
+              id="edit-display-name"
+              value={editDisplayName}
+              onChange={(event) => setEditDisplayName(event.target.value)}
+              placeholder="Your display name"
+            />
+          </FormField>
+          <Button
+            disabled={!isAuthenticated || busyAction !== null || editDisplayName.trim() === ""}
+            onClick={() =>
+              runAction("display-name", async () => {
+                if (!token) return;
+                await updateDisplayName(token, editDisplayName.trim());
+                setMessage({ kind: "success", text: "Display name updated." });
+                await refreshProfile();
+              })
+            }
+          >
+            Save
+          </Button>
+        </div>
+      </SectionCard>
 
       <SectionCard title="Security" description="Password and credential controls.">
         <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">

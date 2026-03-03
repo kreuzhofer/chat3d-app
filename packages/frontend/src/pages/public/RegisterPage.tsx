@@ -1,29 +1,17 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { useTranslation } from "react-i18next";
-import { Box, Eye, EyeOff, UserPlus } from "lucide-react";
+import { Trans, useTranslation } from "react-i18next";
+import { Box, Eye, EyeOff, Mail, UserPlus } from "lucide-react";
+import * as authApi from "../../auth/auth.api";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { FormField } from "../../components/ui/form";
 import { Input } from "../../components/ui/input";
 import { useAuth } from "../../hooks/useAuth";
+import { getPasswordStrength } from "../../utils/password-strength";
 
 interface RegisterPageProps {
   waitlistEnabled: boolean;
-}
-
-function getPasswordStrength(password: string, t: (key: string) => string): { score: number; label: string; color: string } {
-  let score = 0;
-  if (password.length >= 8) score++;
-  if (password.length >= 12) score++;
-  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score++;
-  if (/\d/.test(password)) score++;
-  if (/[^a-zA-Z\d]/.test(password)) score++;
-
-  if (score <= 1) return { score, label: t("common:passwordStrength.weak"), color: "bg-[hsl(var(--destructive))]" };
-  if (score <= 2) return { score, label: t("common:passwordStrength.fair"), color: "bg-[hsl(var(--warning))]" };
-  if (score <= 3) return { score, label: t("common:passwordStrength.good"), color: "bg-[hsl(var(--info))]" };
-  return { score, label: t("common:passwordStrength.strong"), color: "bg-[hsl(var(--success))]" };
 }
 
 export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
@@ -36,8 +24,12 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [registrationToken, setRegistrationToken] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [pendingConfirmation, setPendingConfirmation] = useState(false);
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendMessage, setResendMessage] = useState("");
 
   const passwordStrength = useMemo(() => getPasswordStrength(password, t), [password, t]);
 
@@ -50,10 +42,17 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!termsAccepted) {
+      setError(t("pages:register_termsRequired"));
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      await register(email, password, displayName || undefined, registrationToken || undefined);
+      const result = await register(email, password, displayName || undefined, registrationToken || undefined);
+      if (result.pendingConfirmation) {
+        setPendingConfirmation(true);
+      }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {
@@ -83,6 +82,43 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
           <CardTitle>{t("pages:register.title")}</CardTitle>
         </CardHeader>
         <CardContent>
+          {pendingConfirmation ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 rounded-md border border-[hsl(var(--success)_/_0.3)] bg-[hsl(var(--success)_/_0.06)] p-3">
+                <Mail className="h-5 w-5 shrink-0 text-[hsl(var(--success))]" />
+                <p className="text-sm text-[hsl(var(--foreground))]">
+                  {t("pages:register.confirmationSent", { email })}
+                </p>
+              </div>
+              {resendMessage ? (
+                <p className="rounded-md border border-[hsl(var(--success)_/_0.3)] bg-[hsl(var(--success)_/_0.06)] p-2.5 text-sm text-[hsl(var(--foreground))]">
+                  {resendMessage}
+                </p>
+              ) : null}
+              <Button
+                variant="outline"
+                loading={resendBusy}
+                disabled={resendBusy}
+                onClick={() => {
+                  setResendBusy(true);
+                  setResendMessage("");
+                  void authApi.resendConfirmation(email)
+                    .then(() => setResendMessage(t("pages:register.confirmationResent")))
+                    .catch(() => setResendMessage(t("pages:register.confirmationResent")))
+                    .finally(() => setResendBusy(false));
+                }}
+                iconLeft={<Mail className="h-4 w-4" />}
+              >
+                {t("pages:register.resendConfirmation")}
+              </Button>
+              <p className="text-center text-sm text-[hsl(var(--muted-foreground))]">
+                <Link className="font-medium text-[hsl(var(--primary))] underline" to="/login">
+                  {t("pages:register.signIn")}
+                </Link>
+              </p>
+            </div>
+          ) : (
+          <>
           <form className="space-y-4" onSubmit={(event) => void onSubmit(event)}>
             <FormField label={t("common:labels.displayName")} htmlFor="register-name" helperText={t("pages:register.displayNameHelper")}>
               <Input
@@ -155,6 +191,23 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
                 required={waitlistEnabled}
               />
             </FormField>
+            <label className="flex items-start gap-2.5 text-sm">
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(event) => setTermsAccepted(event.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-[hsl(var(--border))] accent-[hsl(var(--primary))]"
+              />
+              <span className="text-[hsl(var(--foreground))]">
+                <Trans
+                  i18nKey="pages:register_acceptTerms"
+                  components={{
+                    termsLink: <a className="font-medium text-[hsl(var(--primary))] underline" href="/terms" target="_blank" rel="noopener noreferrer" />,
+                    privacyLink: <a className="font-medium text-[hsl(var(--primary))] underline" href="/privacy" target="_blank" rel="noopener noreferrer" />,
+                  }}
+                />
+              </span>
+            </label>
             {error ? (
               <p className="rounded-md border border-[hsl(var(--destructive)_/_0.3)] bg-[hsl(var(--destructive)_/_0.06)] p-2.5 text-sm text-[hsl(var(--destructive))]">
                 {error}
@@ -186,6 +239,8 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
               </>
             ) : null}
           </p>
+          </>
+          )}
         </CardContent>
       </Card>
     </div>

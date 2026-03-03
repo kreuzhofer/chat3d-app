@@ -21,14 +21,21 @@ import { LanguageSelector } from "./components/LanguageSelector";
 import { useNotifications } from "./contexts/NotificationsContext";
 import { useAuth } from "./hooks/useAuth";
 import { AdminRouteGuard } from "./components/AdminRouteGuard";
+import { CookieBanner } from "./components/CookieBanner";
+import { DataDeletionPage } from "./pages/public/DataDeletionPage";
 import { HomePage } from "./pages/public/HomePage";
 import { ImprintPage } from "./pages/public/ImprintPage";
 import { LegalPage } from "./pages/public/LegalPage";
+import { ConfirmEmailPage } from "./pages/public/ConfirmEmailPage";
+import { ForgotPasswordPage } from "./pages/public/ForgotPasswordPage";
 import { LoginPage } from "./pages/public/LoginPage";
 import { PricingPage } from "./pages/public/PricingPage";
+import { PrivacyPage } from "./pages/public/PrivacyPage";
 import { PublicShell } from "./pages/public/PublicShell";
 import { RegisterPage } from "./pages/public/RegisterPage";
+import { ResetPasswordPage } from "./pages/public/ResetPasswordPage";
 import { SetupPage } from "./pages/public/SetupPage";
+import { TermsPage } from "./pages/public/TermsPage";
 import { WaitlistPage } from "./pages/public/WaitlistPage";
 
 const AdminPanel = lazy(async () => {
@@ -366,10 +373,16 @@ function PublicApp() {
         <Route path="/pricing" element={<PricingPage waitlistEnabled={resolvedWaitlistEnabled} />} />
         <Route path="/login" element={<LoginPage waitlistEnabled={resolvedWaitlistEnabled} />} />
         <Route path="/register" element={<RegisterPage waitlistEnabled={resolvedWaitlistEnabled} />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/forgot-password/reset" element={<ResetPasswordPage />} />
+        <Route path="/confirm-email" element={<ConfirmEmailPage />} />
         <Route path="/waitlist" element={<WaitlistPage waitlistEnabled={resolvedWaitlistEnabled} />} />
         <Route path="/waitlist/confirm" element={<WaitlistPage waitlistEnabled={resolvedWaitlistEnabled} />} />
         <Route path="/legal" element={<LegalPage />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/imprint" element={<ImprintPage />} />
+        <Route path="/data-deletion" element={<DataDeletionPage />} />
         <Route path="*" element={<Navigate replace to="/" />} />
       </Routes>
     </PublicShell>
@@ -384,5 +397,10 @@ export function App() {
     return <LoadingView label={t("common:labels.loadingSession")} />;
   }
 
-  return isAuthenticated ? <AuthenticatedApp /> : <PublicApp />;
+  return (
+    <>
+      {isAuthenticated ? <AuthenticatedApp /> : <PublicApp />}
+      <CookieBanner />
+    </>
+  );
 }

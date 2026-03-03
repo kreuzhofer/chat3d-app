@@ -128,9 +128,18 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
             <span className="font-medium text-[hsl(var(--foreground))]">Chat3D</span>
             <span className="text-xs">{t("common:tagline")}</span>
           </div>
-          <div className="flex items-center gap-4 text-[hsl(var(--muted-foreground))]">
+          <div className="flex flex-wrap items-center gap-4 text-[hsl(var(--muted-foreground))]">
             <Link className="transition hover:text-[hsl(var(--foreground))]" to="/imprint">
               {t("common:footer.imprint")}
+            </Link>
+            <Link className="transition hover:text-[hsl(var(--foreground))]" to="/terms">
+              {t("common:footer.terms")}
+            </Link>
+            <Link className="transition hover:text-[hsl(var(--foreground))]" to="/privacy">
+              {t("common:footer.privacy")}
+            </Link>
+            <Link className="transition hover:text-[hsl(var(--foreground))]" to="/data-deletion">
+              {t("common:footer.dataDeletion")}
             </Link>
             <Link className="transition hover:text-[hsl(var(--foreground))]" to="/legal">
               {t("common:footer.legal")}

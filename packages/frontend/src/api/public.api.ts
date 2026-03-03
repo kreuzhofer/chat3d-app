@@ -3,6 +3,7 @@ import type { AuthResponse } from "../auth/types";
 export interface PublicConfig {
   setupRequired: boolean;
   waitlistEnabled: boolean;
+  emailConfirmationEnabled: boolean;
 }
 
 const PUBLIC_API_BASE = "/api/public";

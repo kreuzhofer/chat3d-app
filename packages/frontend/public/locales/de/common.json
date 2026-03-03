@@ -59,7 +59,10 @@
   },
   "footer": {
     "imprint": "Impressum",
-    "legal": "Rechtliches"
+    "legal": "Rechtliches",
+    "terms": "AGB",
+    "privacy": "Datenschutz",
+    "dataDeletion": "Datenlöschung"
   },
   "groups": {
     "workspace": "Arbeitsbereich",
@@ -100,5 +103,12 @@
   "drawer": {
     "navigationTitle": "Navigation",
     "navigationDescription": "Zwischen Arbeitsbereichen wechseln"
+  },
+  "cookieBanner": {
+    "title": "Cookie-Einstellungen",
+    "description": "Wir verwenden essentielle Cookies, um Sie angemeldet zu halten und Ihre Sprachpräferenz zu speichern. Derzeit werden keine Analyse- oder Werbe-Cookies verwendet.",
+    "acceptAll": "Alle akzeptieren",
+    "essentialOnly": "Nur essentielle",
+    "learnMore": "Mehr erfahren in unserer Datenschutzerklärung"
   }
 }

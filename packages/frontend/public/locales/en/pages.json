@@ -7,7 +7,8 @@
     "noAccount": "No account yet?",
     "createOne": "Create one now",
     "waitlistGated": "Registration is currently gated.",
-    "joinWaitlist": "Join the waitlist"
+    "joinWaitlist": "Join the waitlist",
+    "forgotPassword": "Forgot password?"
   },
   "register": {
     "createAccount": "Create your Chat3D account",
@@ -24,7 +25,10 @@
     "alreadyRegistered": "Already registered?",
     "signIn": "Sign in",
     "needAccess": "Need access first?",
-    "joinWaitlist": "Join waitlist"
+    "joinWaitlist": "Join waitlist",
+    "confirmationSent": "We've sent a confirmation email to {{email}}. Please check your inbox and click the link to activate your account.",
+    "confirmationResent": "Confirmation email resent. Please check your inbox.",
+    "resendConfirmation": "Resend confirmation email"
   },
   "setup": {
     "welcome": "Welcome to Chat3D",
@@ -109,8 +113,57 @@
     "artifacts": "Artifacts: {{previewStatus}} · {{detail}}",
     "tokens": "{{count}} tokens · ~${{cost}}"
   },
+  "register_acceptTerms": "I agree to the <termsLink>Terms of Service</termsLink> and <privacyLink>Privacy Policy</privacyLink>",
+  "register_termsRequired": "You must accept the Terms of Service and Privacy Policy to create an account.",
+  "forgotPassword": {
+    "title": "Forgot your password?",
+    "subtitle": "We'll send you a reset link",
+    "heading": "Reset Password",
+    "sendResetLink": "Send reset link",
+    "successMessage": "If an account with that email exists, you'll receive a password reset link shortly.",
+    "backToLogin": "Back to sign in",
+    "rememberPassword": "Remember your password?",
+    "signIn": "Sign in"
+  },
+  "resetPassword": {
+    "title": "Set a new password",
+    "subtitle": "Choose a strong password for your account",
+    "heading": "New Password",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm password",
+    "resetButton": "Reset password",
+    "successMessage": "Your password has been reset successfully. You can now sign in with your new password.",
+    "goToLogin": "Go to sign in",
+    "passwordsMismatch": "Passwords do not match.",
+    "missingToken": "Missing reset token. Please use the link from your email.",
+    "linkExpired": "Link not working?",
+    "requestNewLink": "Request a new reset link"
+  },
+  "confirmEmail": {
+    "title": "Email Confirmation",
+    "heading": "Confirm Your Email",
+    "verifying": "Verifying your email address...",
+    "successMessage": "Your email has been confirmed! You can now sign in.",
+    "goToLogin": "Go to sign in",
+    "missingToken": "Missing confirmation token. Please use the link from your email.",
+    "resendPrompt": "Need a new confirmation link? Enter your email below.",
+    "resendButton": "Resend confirmation",
+    "resendSuccess": "If an account with that email is pending confirmation, a new link has been sent."
+  },
   "publicShell": {
     "checkingRegistration": "Checking registration mode...",
     "waitlistBanner": "Waitlist mode is active. New users can join the waitlist and will receive a registration link after approval."
+  },
+  "legal": {
+    "title": "Legal",
+    "subtitle": "Legal information, policies, and regulatory disclosures.",
+    "termsTitle": "Terms of Service",
+    "termsDescription": "Rules governing access and usage of Chat3D.",
+    "privacyTitle": "Privacy Policy",
+    "privacyDescription": "How we collect, use, and protect your personal data.",
+    "imprintTitle": "Imprint",
+    "imprintDescription": "Provider identification as required by German law.",
+    "dataDeletionTitle": "Data Deletion",
+    "dataDeletionDescription": "How to request deletion of your personal data."
   }
 }

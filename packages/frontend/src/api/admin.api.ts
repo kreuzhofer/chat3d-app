@@ -31,6 +31,7 @@ export interface AdminSettings {
   invitationsEnabled: boolean;
   invitationWaitlistRequired: boolean;
   invitationQuotaPerUser: number;
+  emailConfirmationEnabled: boolean;
   updatedAt: string;
 }
 
@@ -39,6 +40,7 @@ export interface AdminSettingsPatch {
   invitationsEnabled?: boolean;
   invitationWaitlistRequired?: boolean;
   invitationQuotaPerUser?: number;
+  emailConfirmationEnabled?: boolean;
 }
 
 const ADMIN_API_BASE = "/api/admin";

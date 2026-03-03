@@ -64,6 +64,7 @@ enum AccountActionType {
   data_export
   account_delete
   account_reactivate
+  email_confirmation
 
   @@map("account_action_type")
 }
@@ -152,13 +153,14 @@ model ChatItem {
 }
 
 model AppSettings {
-  id                        Boolean  @id @default(true) @db.Boolean
-  waitlistEnabled           Boolean  @default(false) @map("waitlist_enabled")
-  invitationsEnabled        Boolean  @default(true) @map("invitations_enabled")
-  invitationWaitlistRequired Boolean @default(false) @map("invitation_waitlist_required")
-  invitationQuotaPerUser    Int      @default(3) @map("invitation_quota_per_user")
-  updatedBy                 String?  @map("updated_by") @db.Uuid
-  updatedAt                 DateTime @default(now()) @map("updated_at") @db.Timestamptz()
+  id                         Boolean  @id @default(true) @db.Boolean
+  waitlistEnabled            Boolean  @default(false) @map("waitlist_enabled")
+  invitationsEnabled         Boolean  @default(true) @map("invitations_enabled")
+  invitationWaitlistRequired Boolean  @default(false) @map("invitation_waitlist_required")
+  invitationQuotaPerUser     Int      @default(3) @map("invitation_quota_per_user")
+  emailConfirmationEnabled   Boolean  @default(true) @map("email_confirmation_enabled")
+  updatedBy                  String?  @map("updated_by") @db.Uuid
+  updatedAt                  DateTime @default(now()) @map("updated_at") @db.Timestamptz()
 
   // Relations
   updatedByUser User? @relation(fields: [updatedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)

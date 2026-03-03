@@ -82,6 +82,11 @@ export function LoginPage({ waitlistEnabled }: LoginPageProps) {
                 </button>
               </div>
             </FormField>
+            <div className="text-right">
+              <Link className="text-sm font-medium text-[hsl(var(--primary))] underline" to="/forgot-password">
+                {t("pages:login.forgotPassword")}
+              </Link>
+            </div>
             {error ? (
               <p className="rounded-md border border-[hsl(var(--destructive)_/_0.3)] bg-[hsl(var(--destructive)_/_0.06)] p-2.5 text-sm text-[hsl(var(--destructive))]">
                 {error}

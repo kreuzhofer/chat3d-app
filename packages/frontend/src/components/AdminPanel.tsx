@@ -72,6 +72,7 @@ export function AdminPanel() {
     invitationsEnabled: true,
     invitationWaitlistRequired: false,
     invitationQuotaPerUser: 3,
+    emailConfirmationEnabled: true,
   });
   const [moderationReason, setModerationReason] = useState("");
   const [queueIndex, setQueueIndex] = useState(0);
@@ -110,6 +111,7 @@ export function AdminPanel() {
           invitationsEnabled: nextSettings.invitationsEnabled,
           invitationWaitlistRequired: nextSettings.invitationWaitlistRequired,
           invitationQuotaPerUser: nextSettings.invitationQuotaPerUser,
+          emailConfirmationEnabled: nextSettings.emailConfirmationEnabled,
         });
       } catch (loadError) {
         setError(toErrorMessage(loadError));
@@ -203,6 +205,7 @@ export function AdminPanel() {
         invitationsEnabled: updated.invitationsEnabled,
         invitationWaitlistRequired: updated.invitationWaitlistRequired,
         invitationQuotaPerUser: updated.invitationQuotaPerUser,
+        emailConfirmationEnabled: updated.emailConfirmationEnabled,
       });
       await loadAdminData(search);
     },
@@ -324,7 +327,8 @@ export function AdminPanel() {
       settings.waitlistEnabled !== settingsDraft.waitlistEnabled ||
       settings.invitationsEnabled !== settingsDraft.invitationsEnabled ||
       settings.invitationWaitlistRequired !== settingsDraft.invitationWaitlistRequired ||
-      settings.invitationQuotaPerUser !== settingsDraft.invitationQuotaPerUser
+      settings.invitationQuotaPerUser !== settingsDraft.invitationQuotaPerUser ||
+      settings.emailConfirmationEnabled !== settingsDraft.emailConfirmationEnabled
     );
   }, [settings, settingsDraft]);
 
@@ -343,6 +347,7 @@ export function AdminPanel() {
         invitationsEnabled: updated.invitationsEnabled,
         invitationWaitlistRequired: updated.invitationWaitlistRequired,
         invitationQuotaPerUser: updated.invitationQuotaPerUser,
+        emailConfirmationEnabled: updated.emailConfirmationEnabled,
       });
       await loadAdminData(search);
       pushToast({
@@ -426,6 +431,7 @@ export function AdminPanel() {
       invitationsEnabled: settings.invitationsEnabled,
       invitationWaitlistRequired: settings.invitationWaitlistRequired,
       invitationQuotaPerUser: settings.invitationQuotaPerUser,
+      emailConfirmationEnabled: settings.emailConfirmationEnabled,
     });
   }, [settings]);
 

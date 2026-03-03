@@ -67,3 +67,24 @@ export function me(token: string): Promise<AuthUser> {
     },
   });
 }
+
+export function forgotPassword(email: string): Promise<{ status: string }> {
+  return requestJson<{ status: string }>(`${API_BASE}/forgot-password`, {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function resetPassword(token: string, newPassword: string): Promise<{ status: string }> {
+  return requestJson<{ status: string }>(`${API_BASE}/reset-password`, {
+    method: "POST",
+    body: JSON.stringify({ token, newPassword }),
+  });
+}
+
+export function resendConfirmation(email: string): Promise<{ status: string }> {
+  return requestJson<{ status: string }>(`${API_BASE}/resend-confirmation`, {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}

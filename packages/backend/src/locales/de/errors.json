@@ -7,7 +7,10 @@
     "emailAlreadyRegistered": "Diese E-Mail ist bereits registriert",
     "registrationTokenRequired": "Ein gültiger Registrierungstoken ist erforderlich, solange die Warteliste aktiviert ist",
     "registrationFailed": "Benutzerregistrierung fehlgeschlagen",
-    "authenticationRequired": "Authentifizierung erforderlich"
+    "authenticationRequired": "Authentifizierung erforderlich",
+    "emailRequired": "E-Mail ist erforderlich",
+    "tokenAndPasswordRequired": "Token und neues Passwort sind erforderlich",
+    "passwordResetFailed": "Passwort konnte nicht zurückgesetzt werden"
   },
   "chat": {
     "invalidContextId": "Ungültige Kontext-ID",
@@ -28,7 +31,8 @@
     "accountDeleteFailed": "Kontolöschung konnte nicht angefordert werden",
     "accountReactivationFailed": "Kontoreaktivierung konnte nicht angefordert werden",
     "languageUpdateFailed": "Sprache konnte nicht aktualisiert werden",
-    "confirmActionFailed": "Aktion konnte nicht bestätigt werden"
+    "confirmActionFailed": "Aktion konnte nicht bestätigt werden",
+    "displayNameUpdateFailed": "Anzeigename konnte nicht aktualisiert werden"
   },
   "setup": {
     "failed": "Einrichtung fehlgeschlagen"

@@ -7,7 +7,8 @@
     "noAccount": "Noch kein Konto?",
     "createOne": "Jetzt erstellen",
     "waitlistGated": "Die Registrierung ist derzeit eingeschränkt.",
-    "joinWaitlist": "Der Warteliste beitreten"
+    "joinWaitlist": "Der Warteliste beitreten",
+    "forgotPassword": "Passwort vergessen?"
   },
   "register": {
     "createAccount": "Erstellen Sie Ihr Chat3D-Konto",
@@ -24,7 +25,10 @@
     "alreadyRegistered": "Bereits registriert?",
     "signIn": "Anmelden",
     "needAccess": "Zugang benötigt?",
-    "joinWaitlist": "Warteliste beitreten"
+    "joinWaitlist": "Warteliste beitreten",
+    "confirmationSent": "Wir haben eine Bestätigungs-E-Mail an {{email}} gesendet. Bitte prüfen Sie Ihren Posteingang und klicken Sie auf den Link, um Ihr Konto zu aktivieren.",
+    "confirmationResent": "Bestätigungs-E-Mail erneut gesendet. Bitte prüfen Sie Ihren Posteingang.",
+    "resendConfirmation": "Bestätigungs-E-Mail erneut senden"
   },
   "setup": {
     "welcome": "Willkommen bei Chat3D",
@@ -109,8 +113,57 @@
     "artifacts": "Artefakte: {{previewStatus}} · {{detail}}",
     "tokens": "{{count}} Token · ~${{cost}}"
   },
+  "register_acceptTerms": "Ich stimme den <termsLink>Nutzungsbedingungen</termsLink> und der <privacyLink>Datenschutzerklärung</privacyLink> zu",
+  "register_termsRequired": "Sie müssen die Nutzungsbedingungen und die Datenschutzerklärung akzeptieren, um ein Konto zu erstellen.",
+  "forgotPassword": {
+    "title": "Passwort vergessen?",
+    "subtitle": "Wir senden Ihnen einen Link zum Zurücksetzen",
+    "heading": "Passwort zurücksetzen",
+    "sendResetLink": "Link zum Zurücksetzen senden",
+    "successMessage": "Falls ein Konto mit dieser E-Mail-Adresse existiert, erhalten Sie in Kürze einen Link zum Zurücksetzen des Passworts.",
+    "backToLogin": "Zurück zur Anmeldung",
+    "rememberPassword": "Passwort wieder eingefallen?",
+    "signIn": "Anmelden"
+  },
+  "resetPassword": {
+    "title": "Neues Passwort festlegen",
+    "subtitle": "Wählen Sie ein sicheres Passwort für Ihr Konto",
+    "heading": "Neues Passwort",
+    "newPassword": "Neues Passwort",
+    "confirmPassword": "Passwort bestätigen",
+    "resetButton": "Passwort zurücksetzen",
+    "successMessage": "Ihr Passwort wurde erfolgreich zurückgesetzt. Sie können sich jetzt mit Ihrem neuen Passwort anmelden.",
+    "goToLogin": "Zur Anmeldung",
+    "passwordsMismatch": "Passwörter stimmen nicht überein.",
+    "missingToken": "Fehlender Reset-Token. Bitte verwenden Sie den Link aus Ihrer E-Mail.",
+    "linkExpired": "Link funktioniert nicht?",
+    "requestNewLink": "Neuen Link anfordern"
+  },
+  "confirmEmail": {
+    "title": "E-Mail-Bestätigung",
+    "heading": "E-Mail bestätigen",
+    "verifying": "Ihre E-Mail-Adresse wird überprüft...",
+    "successMessage": "Ihre E-Mail wurde bestätigt! Sie können sich jetzt anmelden.",
+    "goToLogin": "Zur Anmeldung",
+    "missingToken": "Fehlender Bestätigungstoken. Bitte verwenden Sie den Link aus Ihrer E-Mail.",
+    "resendPrompt": "Neuen Bestätigungslink benötigt? Geben Sie Ihre E-Mail-Adresse ein.",
+    "resendButton": "Bestätigung erneut senden",
+    "resendSuccess": "Falls ein Konto mit dieser E-Mail-Adresse auf Bestätigung wartet, wurde ein neuer Link gesendet."
+  },
   "publicShell": {
     "checkingRegistration": "Registrierungsmodus wird geprüft...",
     "waitlistBanner": "Der Wartelistenmodus ist aktiv. Neue Benutzer können sich auf die Warteliste setzen und erhalten nach Genehmigung einen Registrierungslink."
+  },
+  "legal": {
+    "title": "Rechtliches",
+    "subtitle": "Rechtliche Informationen, Richtlinien und regulatorische Angaben.",
+    "termsTitle": "Nutzungsbedingungen",
+    "termsDescription": "Regeln für den Zugang und die Nutzung von Chat3D.",
+    "privacyTitle": "Datenschutzerklärung",
+    "privacyDescription": "Wie wir Ihre personenbezogenen Daten erheben, verwenden und schützen.",
+    "imprintTitle": "Impressum",
+    "imprintDescription": "Anbieterkennzeichnung gemäß deutschem Recht.",
+    "dataDeletionTitle": "Datenlöschung",
+    "dataDeletionDescription": "Wie Sie die Löschung Ihrer personenbezogenen Daten beantragen können."
   }
 }

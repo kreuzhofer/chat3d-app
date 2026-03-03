@@ -14,13 +14,17 @@ import type { AuthUser } from "../auth/types";
 
 const TOKEN_STORAGE_KEY = "chat3d.auth.token";
 
+export interface RegisterResult {
+  pendingConfirmation: boolean;
+}
+
 export interface AuthContextValue {
   user: AuthUser | null;
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, displayName?: string, registrationToken?: string) => Promise<void>;
+  register: (email: string, password: string, displayName?: string, registrationToken?: string) => Promise<RegisterResult>;
   setupAdmin: (email: string, password: string, displayName?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -77,9 +81,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [applyAuthenticatedState]);
 
   const register = useCallback(
-    async (email: string, password: string, displayName?: string, registrationToken?: string) => {
+    async (email: string, password: string, displayName?: string, registrationToken?: string): Promise<RegisterResult> => {
       const response = await authApi.register({ email, password, displayName, registrationToken });
-      applyAuthenticatedState(response.token, response.user);
+      if (response.token) {
+        applyAuthenticatedState(response.token, response.user);
+        return { pendingConfirmation: false };
+      }
+      // No token means email confirmation is required
+      return { pendingConfirmation: true };
     },
     [applyAuthenticatedState],
   );

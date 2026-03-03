@@ -2,7 +2,7 @@ const PROFILE_API_BASE = "/api/profile";
 
 export interface ProfileActionConfirmResult {
   status: "completed";
-  actionType: "password_reset" | "email_change" | "data_export" | "account_delete" | "account_reactivate" | null;
+  actionType: "password_reset" | "email_change" | "data_export" | "account_delete" | "account_reactivate" | "email_confirmation" | null;
 }
 
 async function requestProfileJson<T>(
@@ -87,5 +87,15 @@ export function updateLanguage(authToken: string, language: string): Promise<{ s
       Authorization: `Bearer ${authToken}`,
     },
     body: JSON.stringify({ language }),
+  });
+}
+
+export function updateDisplayName(authToken: string, displayName: string): Promise<{ status: string; displayName: string }> {
+  return requestProfileJson<{ status: string; displayName: string }>("/display-name", {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify({ displayName }),
   });
 }

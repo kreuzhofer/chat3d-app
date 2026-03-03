@@ -12,6 +12,7 @@ export interface SettingsDraft {
   invitationsEnabled: boolean;
   invitationWaitlistRequired: boolean;
   invitationQuotaPerUser: number;
+  emailConfirmationEnabled: boolean;
 }
 
 export interface SettingsTabProps {
@@ -92,6 +93,25 @@ export function SettingsTab({
                 }
               />
               Waitlist invited users
+            </label>
+          </div>
+
+          <div className="rounded-md border border-[hsl(var(--border))] p-3">
+            <h3 className="font-medium">Email confirmation</h3>
+            <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+              When enabled, new users must confirm their email before they can sign in.
+            </p>
+            <label className="mt-3 flex items-center gap-2 text-sm">
+              <Switch
+                checked={draft.emailConfirmationEnabled}
+                onCheckedChange={(checked) =>
+                  onDraftChange({
+                    ...draft,
+                    emailConfirmationEnabled: checked,
+                  })
+                }
+              />
+              Require email confirmation
             </label>
           </div>
 

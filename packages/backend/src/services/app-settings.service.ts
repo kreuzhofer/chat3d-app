@@ -6,6 +6,11 @@ export async function isWaitlistEnabled(): Promise<boolean> {
   return row ? row.waitlistEnabled : false;
 }
 
+export async function isEmailConfirmationEnabled(): Promise<boolean> {
+  const row = await prisma.appSettings.findUnique({ where: { id: true }, select: { emailConfirmationEnabled: true } });
+  return row ? row.emailConfirmationEnabled : true;
+}
+
 export interface InvitationPolicy {
   invitationsEnabled: boolean;
   invitationWaitlistRequired: boolean;

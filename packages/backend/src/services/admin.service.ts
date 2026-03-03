@@ -58,6 +58,7 @@ export async function getAdminSettings() {
       invitationsEnabled: true,
       invitationWaitlistRequired: true,
       invitationQuotaPerUser: true,
+      emailConfirmationEnabled: true,
       updatedAt: true,
     },
   });
@@ -68,6 +69,7 @@ export async function getAdminSettings() {
       invitationsEnabled: true,
       invitationWaitlistRequired: false,
       invitationQuotaPerUser: 3,
+      emailConfirmationEnabled: true,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -77,6 +79,7 @@ export async function getAdminSettings() {
     invitationsEnabled: row.invitationsEnabled,
     invitationWaitlistRequired: row.invitationWaitlistRequired,
     invitationQuotaPerUser: row.invitationQuotaPerUser,
+    emailConfirmationEnabled: row.emailConfirmationEnabled,
     updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -95,6 +98,7 @@ export async function updateAdminSettings(input: {
   invitationsEnabled?: boolean;
   invitationWaitlistRequired?: boolean;
   invitationQuotaPerUser?: number;
+  emailConfirmationEnabled?: boolean;
 }) {
   const existing = await getAdminSettings();
 
@@ -110,6 +114,10 @@ export async function updateAdminSettings(input: {
     input.invitationQuotaPerUser !== undefined
       ? input.invitationQuotaPerUser
       : existing.invitationQuotaPerUser;
+  const nextEmailConfirmationEnabled =
+    input.emailConfirmationEnabled !== undefined
+      ? input.emailConfirmationEnabled
+      : existing.emailConfirmationEnabled;
 
   if (!Number.isInteger(nextInvitationQuotaPerUser) || nextInvitationQuotaPerUser < 0) {
     throw new AdminError("invitationQuotaPerUser must be a non-negative integer", 400);
@@ -123,6 +131,7 @@ export async function updateAdminSettings(input: {
       invitationsEnabled: nextInvitationsEnabled,
       invitationWaitlistRequired: nextInvitationWaitlistRequired,
       invitationQuotaPerUser: nextInvitationQuotaPerUser,
+      emailConfirmationEnabled: nextEmailConfirmationEnabled,
       updatedBy: input.adminUserId,
       updatedAt: new Date(),
     },
@@ -131,6 +140,7 @@ export async function updateAdminSettings(input: {
       invitationsEnabled: nextInvitationsEnabled,
       invitationWaitlistRequired: nextInvitationWaitlistRequired,
       invitationQuotaPerUser: nextInvitationQuotaPerUser,
+      emailConfirmationEnabled: nextEmailConfirmationEnabled,
       updatedBy: input.adminUserId,
       updatedAt: new Date(),
     },
@@ -139,6 +149,7 @@ export async function updateAdminSettings(input: {
       invitationsEnabled: true,
       invitationWaitlistRequired: true,
       invitationQuotaPerUser: true,
+      emailConfirmationEnabled: true,
       updatedAt: true,
     },
   });
@@ -151,6 +162,7 @@ export async function updateAdminSettings(input: {
       invitationsEnabled: nextInvitationsEnabled,
       invitationWaitlistRequired: nextInvitationWaitlistRequired,
       invitationQuotaPerUser: nextInvitationQuotaPerUser,
+      emailConfirmationEnabled: nextEmailConfirmationEnabled,
     },
   });
 
@@ -163,6 +175,7 @@ export async function updateAdminSettings(input: {
       invitationsEnabled: nextInvitationsEnabled,
       invitationWaitlistRequired: nextInvitationWaitlistRequired,
       invitationQuotaPerUser: nextInvitationQuotaPerUser,
+      emailConfirmationEnabled: nextEmailConfirmationEnabled,
     });
   }
 
@@ -171,6 +184,7 @@ export async function updateAdminSettings(input: {
     invitationsEnabled: row.invitationsEnabled,
     invitationWaitlistRequired: row.invitationWaitlistRequired,
     invitationQuotaPerUser: row.invitationQuotaPerUser,
+    emailConfirmationEnabled: row.emailConfirmationEnabled,
     updatedAt: row.updatedAt.toISOString(),
   };
 }
