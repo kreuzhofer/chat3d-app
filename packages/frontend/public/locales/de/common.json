@@ -30,6 +30,7 @@
     "back": "Zurück",
     "next": "Weiter",
     "regenerate": "Neu generieren",
+    "revertTo": "Hierhin zurücksetzen",
     "showOlderMessages": "Ältere Nachrichten anzeigen ({{count}})",
     "menu": "Menü",
     "logout": "Abmelden",

@@ -138,3 +138,15 @@ export function deleteChatItem(input: { token: string; contextId: string; itemId
     },
   );
 }
+
+export function revertToItem(input: {
+  token: string;
+  contextId: string;
+  itemId: string;
+}): Promise<{ ok: boolean; deletedCount: number }> {
+  return requestChatJson<{ ok: boolean; deletedCount: number }>(
+    input.token,
+    `/contexts/${encodeURIComponent(input.contextId)}/revert-to/${encodeURIComponent(input.itemId)}`,
+    { method: "POST" },
+  );
+}

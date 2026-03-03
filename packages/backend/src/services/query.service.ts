@@ -5,8 +5,8 @@ import { withLlmRetry } from "../utils/llm-retry.js";
 import { prisma } from "../db/prisma.js";
 import { notificationService } from "./notification.service.js";
 import { sseService } from "./sse.service.js";
-import { createChatItem, updateChatItem, updateChatContext as updateChatContextService, ChatError } from "./chat.service.js";
-import { FileStorageError, moveStorageFile, readStorageFile, writeStorageFile } from "./file-storage.service.js";
+import { createChatItem, updateChatItem, updateChatContext as updateChatContextService, deleteChatItem, ChatError } from "./chat.service.js";
+import { FileStorageError, moveStorageFile, readStorageFile, writeStorageFile, deleteStorageFile } from "./file-storage.service.js";
 import {
   generateConversationText,
   generateConversationTextStream,
@@ -691,6 +691,93 @@ export async function resolvePromptForRegeneration(input: {
   }
 
   return prompt;
+}
+
+/**
+ * Delete the old assistant item (and its generated files), then create a fresh
+ * assistant item to be filled by the pipeline. Returns everything needed by
+ * `executeQueryPipeline`.
+ */
+export async function initiateRegeneration(input: {
+  userId: string;
+  contextId: string;
+  assistantItemId: string;
+}) {
+  // 1. Cancel any running pipeline in the context
+  cancelPipelinesInContext(input.contextId, input.userId);
+
+  // 2. Resolve the assistant item and its preceding user item
+  const assistantItem = await prisma.chatItem.findFirst({
+    where: {
+      id: input.assistantItemId,
+      chatContextId: input.contextId,
+      ownerId: input.userId,
+      role: "assistant",
+    },
+    select: { id: true, createdAt: true, messages: true },
+  });
+
+  if (!assistantItem) {
+    throw new QueryServiceError("Assistant item not found", 404);
+  }
+
+  const userItem = await prisma.chatItem.findFirst({
+    where: {
+      chatContextId: input.contextId,
+      ownerId: input.userId,
+      role: "user",
+      createdAt: { lte: assistantItem.createdAt },
+    },
+    select: { id: true, messages: true },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const prompt = extractPromptFromMessages(userItem?.messages);
+  if (!prompt || !userItem) {
+    throw new QueryServiceError("Unable to resolve original prompt for regeneration", 400);
+  }
+
+  const attachments = extractAttachmentsFromMessages(userItem.messages);
+
+  // 3. Delete generated files from the old assistant item
+  if (Array.isArray(assistantItem.messages)) {
+    for (const segment of assistantItem.messages as Array<Record<string, unknown>>) {
+      const files = segment?.files;
+      if (!Array.isArray(files)) continue;
+      for (const file of files as Array<Record<string, unknown>>) {
+        const filePath = typeof file.path === "string" ? file.path : "";
+        if (!filePath) continue;
+        try {
+          await deleteStorageFile({ relativePath: filePath });
+        } catch {
+          // File may already be gone — ignore
+        }
+      }
+    }
+  }
+
+  // 4. Delete the old assistant item
+  await deleteChatItem({ userId: input.userId, contextId: input.contextId, itemId: input.assistantItemId });
+
+  // 5. Create a new assistant item with pending placeholder
+  const newAssistantItem = await createChatItem({
+    userId: input.userId,
+    contextId: input.contextId,
+    role: "assistant",
+    messages: [{ itemType: "message", text: "Working on your request...", state: "pending", stateMessage: "" }],
+  });
+
+  // 6. Load chat context
+  const context = await ensureOwnedContext(input.userId, input.contextId);
+
+  return {
+    contextId: input.contextId,
+    userItemId: userItem.id,
+    assistantItem: newAssistantItem,
+    prompt,
+    attachments,
+    context,
+  };
 }
 
 /**

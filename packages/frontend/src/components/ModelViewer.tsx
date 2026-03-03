@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
-import { Box, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { downloadFileBinary } from "../api/files.api";
 import { cn } from "../lib/cn";
 import { Button } from "./ui/button";
@@ -48,7 +48,7 @@ function fitCameraToObject(input: {
 export function ModelViewer({ token, filePath }: ModelViewerProps) {
   const [viewerState, setViewerState] = useState<ViewerState>("idle");
   const [errorMessage, setErrorMessage] = useState("");
-  const [isActivated, setIsActivated] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -60,7 +60,6 @@ export function ModelViewer({ token, filePath }: ModelViewerProps) {
   useEffect(() => {
     setViewerState("idle");
     setErrorMessage("");
-    setIsActivated(false);
   }, [filePath]);
 
   const handleResetCamera = useCallback(() => {
@@ -86,10 +85,6 @@ export function ModelViewer({ token, filePath }: ModelViewerProps) {
   }, [isFullscreen]);
 
   useEffect(() => {
-    if (!isActivated) {
-      return;
-    }
-
     if (extension !== ".stl" && extension !== ".3mf") {
       setViewerState("error");
       setErrorMessage(`Preview not supported for ${extension || "this file type"}.`);
@@ -239,23 +234,7 @@ export function ModelViewer({ token, filePath }: ModelViewerProps) {
       }
       host.innerHTML = "";
     };
-  }, [extension, filePath, isActivated, token]);
-
-  if (!isActivated) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] p-8">
-        <Box className="h-10 w-10 text-[hsl(var(--muted-foreground))]" />
-        <p className="text-sm text-[hsl(var(--muted-foreground))]">3D preview available</p>
-        <Button
-          variant="outline"
-          iconLeft={<Box className="h-4 w-4" />}
-          onClick={() => setIsActivated(true)}
-        >
-          Load 3D Preview
-        </Button>
-      </div>
-    );
-  }
+  }, [extension, filePath, retryKey, token]);
 
   return (
     <div
@@ -282,10 +261,7 @@ export function ModelViewer({ token, filePath }: ModelViewerProps) {
             size="sm"
             variant="outline"
             iconLeft={<RefreshCw className="h-3.5 w-3.5" />}
-            onClick={() => {
-              setIsActivated(false);
-              setTimeout(() => setIsActivated(true), 50);
-            }}
+            onClick={() => setRetryKey((k) => k + 1)}
           >
             Retry
           </Button>

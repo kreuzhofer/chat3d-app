@@ -30,6 +30,7 @@
     "back": "Back",
     "next": "Next",
     "regenerate": "Regenerate",
+    "revertTo": "Revert to this",
     "showOlderMessages": "Show Older Messages ({{count}})",
     "menu": "Menu",
     "logout": "Logout",

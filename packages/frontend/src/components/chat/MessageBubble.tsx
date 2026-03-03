@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Bell, Bot, ImageIcon, LoaderCircle, Loader2, MessageCircleWarning, RefreshCw, ThumbsDown, ThumbsUp, User } from "lucide-react";
+import { AlertTriangle, Bell, Bot, ImageIcon, LoaderCircle, Loader2, MessageCircleWarning, RefreshCw, ThumbsDown, ThumbsUp, Undo2, User } from "lucide-react";
 import type { ChatTimelineItem } from "../../features/chat/chat-adapters";
 import { downloadFileBinary } from "../../api/files.api";
 import { Button } from "../ui/button";
@@ -134,6 +134,7 @@ export interface MessageBubbleProps {
   onSelect: (itemId: string) => void;
   onRate: (item: { id: string; rating: -1 | 0 | 1 }, rating: -1 | 1) => void;
   onRegenerate: (assistantItemId: string) => void;
+  onRevertTo: (assistantItemId: string) => void;
   onDownloadFile: (filePath: string) => void;
   onSelectSuggestion?: (prompt: string) => void;
 }
@@ -156,6 +157,7 @@ export function MessageBubble({
   onSelect,
   onRate,
   onRegenerate,
+  onRevertTo,
   onDownloadFile,
   onSelectSuggestion,
 }: MessageBubbleProps) {
@@ -440,7 +442,20 @@ export function MessageBubble({
             >
               {t("common:actions.regenerate")}
             </Button>
-          ) : null}
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              iconLeft={<Undo2 className="h-3.5 w-3.5" />}
+              disabled={busyAction !== null || isPipelineActive}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRevertTo(item.id);
+              }}
+            >
+              {t("common:actions.revertTo")}
+            </Button>
+          )}
         </div>
       ) : null}
     </article>

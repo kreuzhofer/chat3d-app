@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
-import { QueryServiceError, initiateQuery, executeQueryPipeline, resolvePromptForRegeneration, cancelPipeline } from "../services/query.service.js";
+import { QueryServiceError, initiateQuery, executeQueryPipeline, initiateRegeneration, cancelPipeline } from "../services/query.service.js";
 import { extractParametersFromItem, reRenderWithParameters, ParameterTweakError } from "../services/parameter-tweak.service.js";
 
 export const queryRouter = Router();
@@ -88,24 +88,17 @@ queryRouter.post("/regenerate", async (req, res) => {
   }
 
   try {
-    // Resolve the original prompt from the assistant item's preceding user message
-    const prompt = await resolvePromptForRegeneration({
+    // Delete old assistant item, create a fresh one, and resolve the original prompt
+    const initiated = await initiateRegeneration({
       userId: authUser.id,
       contextId,
       assistantItemId,
     });
 
-    // Create new chat items (same pattern as /submit)
-    const initiated = await initiateQuery({
-      userId: authUser.id,
-      contextId,
-      prompt,
-    });
-
     // Return immediately so the frontend can start listening for SSE events
     res.status(202).json({
       contextId: initiated.contextId,
-      userItemId: initiated.userItem.id,
+      userItemId: initiated.userItemId,
       assistantItem: initiated.assistantItem,
       generatedFiles: [],
       llm: { conversationModel: "", codegenModel: "" },
@@ -120,7 +113,7 @@ queryRouter.post("/regenerate", async (req, res) => {
       prompt: initiated.prompt,
       attachments: initiated.attachments,
       context: initiated.context,
-      userItemId: initiated.userItem.id,
+      userItemId: initiated.userItemId,
       assistantItemId: initiated.assistantItem.id,
       stream: true,
       isFirstPrompt: false,

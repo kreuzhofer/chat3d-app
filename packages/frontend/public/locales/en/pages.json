@@ -110,7 +110,8 @@
     "empty": "(empty)",
     "usage": "Usage: {{input}} in / {{output}} out / {{total}} total · est. ${{cost}}",
     "artifacts": "Artifacts: {{previewStatus}} · {{detail}}",
-    "tokens": "{{count}} tokens · ~${{cost}}"
+    "tokens": "{{count}} tokens · ~${{cost}}",
+    "revertToConfirm": "Delete all {{count}} message(s) after this point? This cannot be undone."
   },
   "register_acceptTerms": "I agree to the <termsLink>Terms of Service</termsLink> and <privacyLink>Privacy Policy</privacyLink>",
   "register_termsRequired": "You must accept the Terms of Service and Privacy Policy to create an account.",

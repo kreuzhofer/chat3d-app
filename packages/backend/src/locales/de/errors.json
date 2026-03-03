@@ -22,7 +22,8 @@
     "failedListItems": "Chat-Elemente konnten nicht aufgelistet werden",
     "failedCreateItem": "Chat-Element konnte nicht erstellt werden",
     "failedUpdateItem": "Chat-Element konnte nicht aktualisiert werden",
-    "failedDeleteItem": "Chat-Element konnte nicht gelöscht werden"
+    "failedDeleteItem": "Chat-Element konnte nicht gelöscht werden",
+    "failedRevertToItem": "Fehler beim Zurücksetzen auf Element"
   },
   "profile": {
     "passwordResetFailed": "Passwort-Zurücksetzung konnte nicht angefordert werden",

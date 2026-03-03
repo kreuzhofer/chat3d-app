@@ -9,6 +9,7 @@ import {
   deleteChatContext,
   listChatContexts,
   listChatItems,
+  revertToItem,
   type ChatContext,
   type ChatItem,
   updateChatContext,
@@ -157,6 +158,8 @@ export function ChatPage() {
   streamingAssistantItemIdRef.current = streamingAssistantItemId;
   const lastHandledNotificationIdRef = useRef(0);
   const prevAssistantItemCountRef = useRef<number | null>(null);
+  /** When true, the auto-selection effect will pick the latest assistant item on next refresh. */
+  const selectLatestOnRefreshRef = useRef(false);
 
   const activeContextId = !isDraftRoute ? contextIdParam ?? null : null;
 
@@ -489,6 +492,13 @@ export function ChatPage() {
   useEffect(() => {
     if (activeAssistantItems.length === 0) {
       setSelectedAssistantItemId(null);
+      return;
+    }
+
+    // When the ref flag is set (e.g. after re-render), force-select the latest assistant item
+    if (selectLatestOnRefreshRef.current) {
+      selectLatestOnRefreshRef.current = false;
+      setSelectedAssistantItemId(activeAssistantItems[activeAssistantItems.length - 1].id);
       return;
     }
 
@@ -923,13 +933,40 @@ export function ChatPage() {
         parameters: tweakedValues,
       });
 
-      // Refresh items to show the new user + assistant items
-      const loaded = await listChatItems(token, activeContextId);
-      setItems(loaded);
+      // The 202 response fires before the backend creates new items (fire-and-forget).
+      // Set a ref flag so the auto-selection effect picks the latest assistant item
+      // when the next SSE-driven refresh brings in the new items.
+      selectLatestOnRefreshRef.current = true;
     } catch (actionError) {
       setError(toErrorMessage(actionError));
     } finally {
       setReRenderBusy(false);
+    }
+  }
+
+  async function revertToItemAction(assistantItemId: string) {
+    if (!token || !activeContextId) return;
+
+    // Count items after target for confirmation message
+    const targetIndex = items.findIndex((i) => i.id === assistantItemId);
+    if (targetIndex === -1) return;
+    const countAfter = items.length - targetIndex - 1;
+    if (countAfter === 0) return;
+
+    const confirmed = window.confirm(t("pages:chat.revertToConfirm", { count: countAfter }));
+    if (!confirmed) return;
+
+    setBusyAction("revert");
+    setError("");
+    setMessage("");
+    try {
+      await revertToItem({ token, contextId: activeContextId, itemId: assistantItemId });
+      await refreshItems();
+      setSelectedAssistantItemId(assistantItemId);
+    } catch (actionError) {
+      setError(toErrorMessage(actionError));
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -1051,6 +1088,7 @@ export function ChatPage() {
                     }}
                     onRate={(rateItem, rating) => void rateItemAction(rateItem, rating)}
                     onRegenerate={(assistantItemId) => void regenerateAction(assistantItemId)}
+                    onRevertTo={(assistantItemId) => void revertToItemAction(assistantItemId)}
                     onDownloadFile={(filePath) => void downloadFileAction(filePath)}
                     onSelectSuggestion={(s) => setPrompt(s)}
                   />

@@ -22,7 +22,8 @@
     "failedListItems": "Failed to list chat items",
     "failedCreateItem": "Failed to create chat item",
     "failedUpdateItem": "Failed to update chat item",
-    "failedDeleteItem": "Failed to delete chat item"
+    "failedDeleteItem": "Failed to delete chat item",
+    "failedRevertToItem": "Failed to revert to item"
   },
   "profile": {
     "passwordResetFailed": "Failed to request password reset",

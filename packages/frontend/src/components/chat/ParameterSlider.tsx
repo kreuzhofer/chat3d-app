@@ -27,16 +27,26 @@ export function ParameterSlider({
 }: ParameterSliderProps) {
   const [inputText, setInputText] = useState(String(value));
 
-  // Dynamic slider range based on the original value and current value
+  // Stable slider range based only on originalValue.
+  // Step is computed so the slider always has ~100–200 discrete positions,
+  // giving consistent precision regardless of value magnitude.
   const { min, max, step } = useMemo(() => {
     const absOrig = Math.abs(originalValue);
-    const absVal = Math.abs(value);
-    const rangeMax = Math.max(absOrig * 2, absVal * 1.5, 1);
+    const rangeMax = Math.max(absOrig * 2, 1);
     const rangeMin = originalValue < 0 ? -rangeMax : 0;
-    // Step: for values under 10, use 0.1; otherwise use 1
-    const rangeStep = absOrig < 10 ? 0.1 : 1;
+    const range = rangeMax - rangeMin;
+    const rawStep = range / 200;
+    // Round to a "nice" number (1, 2, or 5 × power of 10)
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const normalized = rawStep / magnitude;
+    let niceMultiplier: number;
+    if (normalized <= 1.5) niceMultiplier = 1;
+    else if (normalized <= 3.5) niceMultiplier = 2;
+    else if (normalized <= 7.5) niceMultiplier = 5;
+    else niceMultiplier = 10;
+    const rangeStep = niceMultiplier * magnitude;
     return { min: rangeMin, max: rangeMax, step: rangeStep };
-  }, [originalValue, value]);
+  }, [originalValue]);
 
   const handleSliderChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {

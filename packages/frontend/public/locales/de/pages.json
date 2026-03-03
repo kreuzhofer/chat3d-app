@@ -110,7 +110,8 @@
     "empty": "(leer)",
     "usage": "Verbrauch: {{input}} ein / {{output}} aus / {{total}} gesamt · ca. ${{cost}}",
     "artifacts": "Artefakte: {{previewStatus}} · {{detail}}",
-    "tokens": "{{count}} Token · ~${{cost}}"
+    "tokens": "{{count}} Token · ~${{cost}}",
+    "revertToConfirm": "Alle {{count}} Nachricht(en) nach diesem Punkt löschen? Dies kann nicht rückgängig gemacht werden."
   },
   "register_acceptTerms": "Ich stimme den <termsLink>Nutzungsbedingungen</termsLink> und der <privacyLink>Datenschutzerklärung</privacyLink> zu",
   "register_termsRequired": "Sie müssen die Nutzungsbedingungen und die Datenschutzerklärung akzeptieren, um ein Konto zu erstellen.",

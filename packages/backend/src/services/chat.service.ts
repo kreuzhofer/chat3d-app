@@ -1,5 +1,9 @@
 import { prisma } from "../db/prisma.js";
 import { notificationService } from "./notification.service.js";
+import { deleteStorageFile } from "./file-storage.service.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("chat");
 
 type ChatItemRole = "user" | "assistant";
 
@@ -278,4 +282,75 @@ export async function deleteChatItem(input: { userId: string; contextId: string;
     contextId: input.contextId,
     itemId: input.itemId,
   });
+}
+
+/**
+ * Extract file paths from a chat item's messages JSONB array.
+ * Each message can have a `files` array with `{ path: string }` entries.
+ */
+function extractFilePathsFromMessages(messages: unknown): string[] {
+  if (!Array.isArray(messages)) return [];
+  const paths: string[] = [];
+  for (const msg of messages) {
+    if (typeof msg === "object" && msg !== null && "files" in msg && Array.isArray((msg as { files: unknown }).files)) {
+      for (const file of (msg as { files: unknown[] }).files) {
+        if (typeof file === "object" && file !== null && "path" in file && typeof (file as { path: unknown }).path === "string") {
+          paths.push((file as { path: string }).path);
+        }
+      }
+    }
+  }
+  return paths;
+}
+
+export async function revertToItem(input: { userId: string; contextId: string; itemId: string }) {
+  await getOwnedContext(input.userId, input.contextId);
+
+  const targetItem = await prisma.chatItem.findFirst({
+    where: { id: input.itemId, chatContextId: input.contextId, ownerId: input.userId },
+  });
+
+  if (!targetItem) {
+    throw new ChatError("Chat item not found", 404);
+  }
+
+  // Find all items created after the target item
+  const itemsToDelete = await prisma.chatItem.findMany({
+    where: {
+      chatContextId: input.contextId,
+      ownerId: input.userId,
+      createdAt: { gt: targetItem.createdAt },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  if (itemsToDelete.length === 0) {
+    return { deletedCount: 0 };
+  }
+
+  // Delete associated files (best-effort, ignore missing)
+  for (const item of itemsToDelete) {
+    const filePaths = extractFilePathsFromMessages(item.messages);
+    for (const filePath of filePaths) {
+      try {
+        await deleteStorageFile({ relativePath: filePath });
+      } catch {
+        logger.debug({ filePath, itemId: item.id }, "file already deleted or missing during revert");
+      }
+    }
+  }
+
+  // Bulk delete items
+  const deleted = await prisma.chatItem.deleteMany({
+    where: {
+      id: { in: itemsToDelete.map((i) => i.id) },
+    },
+  });
+
+  await notificationService.publishToUser(input.userId, "chat.item.updated", {
+    action: "bulk-deleted",
+    contextId: input.contextId,
+  });
+
+  return { deletedCount: deleted.count };
 }

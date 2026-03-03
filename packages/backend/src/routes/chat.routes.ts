@@ -8,6 +8,7 @@ import {
   deleteChatItem,
   listChatContexts,
   listChatItems,
+  revertToItem,
   updateChatContext,
   updateChatItem,
 } from "../services/chat.service.js";
@@ -230,5 +231,31 @@ chatRouter.delete("/contexts/:contextId/items/:itemId", async (req, res) => {
     res.status(204).send();
   } catch (error) {
     sendKnownError(res, error, req.t("errors:chat.failedDeleteItem"));
+  }
+});
+
+chatRouter.post("/contexts/:contextId/revert-to/:itemId", async (req, res) => {
+  const authUser = req.authUser;
+  if (!authUser) {
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
+    return;
+  }
+
+  const contextId = parsePathParam(req.params.contextId);
+  const itemId = parsePathParam(req.params.itemId);
+  if (!contextId || !itemId) {
+    res.status(400).json({ error: req.t("errors:chat.invalidItemId") });
+    return;
+  }
+
+  try {
+    const result = await revertToItem({
+      userId: authUser.id,
+      contextId,
+      itemId,
+    });
+    res.status(200).json({ ok: true, deletedCount: result.deletedCount });
+  } catch (error) {
+    sendKnownError(res, error, req.t("errors:chat.failedRevertToItem"));
   }
 });
