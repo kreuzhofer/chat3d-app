@@ -62,6 +62,7 @@ The app is functionally complete through milestones M1–M15, design upgrades DQ
 - Responsive layout with mobile pane switching
 - Docker Compose deployment (PostgreSQL, Redis, Build123d, backend, frontend)
 - Build123d LLM Workbench design complete — complexity curriculum (11 categories, 1,100 prompts), automated generation/evaluation pipeline, STL rendering service, and VLM scoring architecture specified ([design doc](build123d-llm-workbench.md))
+- Backup management system — workbench exports tracked in DB as persistent backups, admin page for listing/downloading/deleting backups
 
 ### Design Upgrade Status (DQ1–DQ6)
 

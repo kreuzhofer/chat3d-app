@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This specification addresses the five remaining UX gaps identified in the Chat3D product vision (#[[file:docs/product-vision.md]]). The app is functionally complete but the experience doesn't yet feel like a polished conversational CAD tool. These requirements cover: making the conversation feel interactive (streaming, auto-preview, progressive disclosure), improving model generation quality (Build123d API enrichment, error recovery), enabling iterative refinement within a thread, guiding new users with example prompts, and making the 3D preview more prominent and controllable.
+This specification addresses the five remaining UX gaps identified in the Chat3D product vision (#[[file:docs/roadmap.md]]). The app is functionally complete but the experience doesn't yet feel like a polished conversational CAD tool. These requirements cover: making the conversation feel interactive (streaming, auto-preview, progressive disclosure), improving model generation quality (Build123d API enrichment, error recovery), enabling iterative refinement within a thread, guiding new users with example prompts, and making the 3D preview more prominent and controllable.
 
 Additionally, this specification addresses navigation and layout cleanup to focus the chat experience. The product vision's first design principle — "Conversation is primary" — demands that the chat page use the full viewport for its three-pane workspace (ContextSidebar, thread, workbench) without an application-level sidebar competing for space. Developer-oriented pages (Query Workbench, Notifications) are restricted to admin users, and navigation to Profile and Admin is consolidated into the header username dropdown.
 

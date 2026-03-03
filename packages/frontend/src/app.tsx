@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
+  ArchiveRestore,
   Bell,
   FlaskConical,
   MessageSquare,
@@ -31,6 +32,10 @@ import { WaitlistPage } from "./pages/public/WaitlistPage";
 const AdminPanel = lazy(async () => {
   const module = await import("./components/AdminPanel");
   return { default: module.AdminPanel };
+});
+const BackupsPage = lazy(async () => {
+  const module = await import("./components/BackupsPage");
+  return { default: module.BackupsPage };
 });
 const ChatPage = lazy(async () => {
   const module = await import("./components/ChatPage");
@@ -96,6 +101,7 @@ function authenticatedNavGroups(isAdmin: boolean): NavGroup[] {
             items: [
               { path: "/admin", label: "Admin", routePrefix: "/admin", icon: Shield },
               { path: "/workbench", label: "Workbench", routePrefix: "/workbench", icon: FlaskConical },
+              { path: "/backups", label: "Backups", routePrefix: "/backups", icon: ArchiveRestore },
             ],
           },
         ]
@@ -276,6 +282,7 @@ function AuthenticatedApp() {
             <Route path="/workbench" element={<AdminRouteGuard><WorkbenchPage /></AdminRouteGuard>} />
             <Route path="/workbench/:categoryId" element={<AdminRouteGuard><WorkbenchCategoryPage /></AdminRouteGuard>} />
             <Route path="/workbench/:categoryId/:promptId" element={<AdminRouteGuard><WorkbenchPromptPage /></AdminRouteGuard>} />
+            <Route path="/backups" element={<AdminRouteGuard><BackupsPage /></AdminRouteGuard>} />
             <Route path="*" element={<Navigate replace to="/chat" />} />
           </Routes>
         </Suspense>

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This design addresses the five remaining UX gaps identified in the product vision (#[[file:docs/product-vision.md]]) and formalized in the requirements document (#[[file:.kiro/specs/ux-gaps-conversational-experience/requirements.md]]). The goal is to transform Chat3D from a functional prompt-to-CAD pipeline into a polished conversational workspace where users iterate on 3D models through natural dialogue.
+This design addresses the five remaining UX gaps identified in the product vision (#[[file:docs/roadmap.md]]) and formalized in the requirements document (#[[file:.kiro/specs/ux-gaps-conversational-experience/requirements.md]]). The goal is to transform Chat3D from a functional prompt-to-CAD pipeline into a polished conversational workspace where users iterate on 3D models through natural dialogue.
 
 The design spans four phases:
 

@@ -27,6 +27,7 @@ import {
   writeStorageFile,
   writeStorageFileFromBuffer,
 } from "./file-storage.service.js";
+import { createBackup, deleteBackupByFilePath } from "./backup.service.js";
 
 const logger = createLogger("data-transfer");
 
@@ -226,7 +227,7 @@ export async function deleteTransferJob(jobId: string): Promise<"deleted" | "not
   if (!job) return "not_found";
   if (job.status === "running") return "still_running";
 
-  // Clean up export file if it exists
+  // Clean up export file and corresponding backup record if they exist
   if (job.filePath) {
     try {
       await fs.unlink(job.filePath);
@@ -234,6 +235,13 @@ export async function deleteTransferJob(jobId: string): Promise<"deleted" | "not
     } catch (err) {
       // File may already be gone — log but don't fail
       logger.debug({ jobId, err }, "export file already removed or inaccessible");
+    }
+
+    // Remove the corresponding backup record (non-fatal)
+    try {
+      await deleteBackupByFilePath(job.filePath);
+    } catch (err) {
+      logger.warn({ jobId, err }, "failed to delete backup record for transfer job (non-fatal)");
     }
   }
 
@@ -500,6 +508,22 @@ async function runExport(job: TransferJob): Promise<void> {
       { jobId: job.jobId, categories: categories.length, prompts: prompts.length, examples: examples.length, systemPrompts: systemPrompts.length, files: filesToArchive.length, filePath },
       "ZIP export completed",
     );
+
+    // 7. Create persistent backup record (non-fatal if it fails)
+    try {
+      const fileStat = await fs.stat(filePath);
+      await createBackup({
+        type: "workbench",
+        label: `Workbench Export ${timestamp}`,
+        fileName,
+        filePath,
+        sizeBytes: BigInt(fileStat.size),
+        counts: job.counts ?? undefined,
+        completedAt: new Date(),
+      });
+    } catch (backupErr) {
+      logger.warn({ jobId: job.jobId, err: backupErr }, "failed to create backup record (non-fatal)");
+    }
   } catch (error) {
     job.status = "failed";
     job.error = error instanceof Error ? error.message : String(error);

@@ -407,6 +407,24 @@ model WorkbenchSystemPrompt {
   @@map("workbench_system_prompts")
 }
 
+model Backup {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type        String    @db.VarChar(50)
+  label       String    @db.VarChar(255)
+  fileName    String    @map("file_name") @db.VarChar(255)
+  filePath    String    @map("file_path") @db.Text
+  sizeBytes   BigInt?   @map("size_bytes")
+  status      String    @default("completed") @db.VarChar(20)
+  counts      Json?     @db.JsonB
+  error       String?   @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  completedAt DateTime? @map("completed_at") @db.Timestamptz()
+
+  @@index([type], map: "idx_backups_type")
+  @@index([createdAt(sort: Desc)], map: "idx_backups_created")
+  @@map("backups")
+}
+
 model LlmProvider {
   name          String   @id @db.VarChar(50)
   displayName   String?  @map("display_name") @db.VarChar(100)

@@ -4,6 +4,8 @@
 
 Chat3D is an AI-powered 3D CAD modeling application. Users create 3D models via natural language chat. The app uses a two-stage LLM pipeline: a conversation LLM decides if a 3D model is needed (via tool_use), then a code-generation LLM produces Build123d Python code, which is rendered by an external service.
 
+See `docs/roadmap.md` for the product roadmap and vision.
+
 ## Architecture
 
 - **Frontend:** React 18 + TypeScript + Vite, served via nginx in Docker

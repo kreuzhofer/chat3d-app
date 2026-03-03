@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Database, Download, FolderOpen, Loader2, RefreshCw, Trash2, Upload } from "lucide-react";
 import {
@@ -113,6 +113,14 @@ export function WorkbenchPage() {
     }, 3000);
     return () => clearInterval(interval);
   }, [runningJobs.size, token]);
+
+  // Only show transfer jobs that are still running or finished within the last 5 minutes
+  const recentTransferJobs = useMemo(
+    () => transferJobs.filter((tj) =>
+      !tj.finishedAt || Date.now() - new Date(tj.finishedAt).getTime() < 5 * 60 * 1000,
+    ),
+    [transferJobs],
+  );
 
   // Poll for active transfer jobs every 2 seconds
   const hasRunningTransfer = transferJobs.some((j) => j.status === "running");
@@ -317,10 +325,10 @@ export function WorkbenchPage() {
 
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
 
-      {/* Transfer job status */}
-      {transferJobs.length > 0 ? (
+      {/* Transfer job status — only show recent jobs (< 5 min old) */}
+      {recentTransferJobs.length > 0 ? (
         <div className="space-y-2">
-          {transferJobs.map((tj) => (
+          {recentTransferJobs.map((tj) => (
             <TransferJobCard key={tj.jobId} job={tj} onDownload={handleDownloadExport} onRefresh={() => void loadData()} onDelete={handleDeleteJob} />
           ))}
         </div>
