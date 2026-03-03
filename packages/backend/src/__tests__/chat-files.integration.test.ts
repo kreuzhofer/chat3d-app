@@ -162,23 +162,24 @@ describe("Milestone 8 chat/files migration", () => {
   it("uploads, downloads and deletes files via local storage endpoints", async () => {
     const fileContent = Buffer.from("milestone-8-file-content", "utf8");
     const base64Content = fileContent.toString("base64");
+    const filePath = `tmp/${ownerId}/m8-note.txt`;
 
     const uploadResponse = await request(app)
       .post("/api/files/upload")
       .set("Authorization", `Bearer ${ownerToken}`)
       .send({
-        path: "upload/m8-note.txt",
+        path: filePath,
         contentBase64: base64Content,
         contentType: "text/plain",
       });
 
     expect(uploadResponse.status).toBe(201);
-    expect(uploadResponse.body.path).toBe("upload/m8-note.txt");
+    expect(uploadResponse.body.path).toBe(filePath);
 
     const downloadResponse = await request(app)
       .get("/api/files/download")
       .set("Authorization", `Bearer ${ownerToken}`)
-      .query({ path: "upload/m8-note.txt" });
+      .query({ path: filePath });
 
     expect(downloadResponse.status).toBe(200);
     expect(downloadResponse.text).toBe("milestone-8-file-content");
@@ -187,26 +188,27 @@ describe("Milestone 8 chat/files migration", () => {
     const deleteResponse = await request(app)
       .delete("/api/files/delete")
       .set("Authorization", `Bearer ${ownerToken}`)
-      .query({ path: "upload/m8-note.txt" });
+      .query({ path: filePath });
 
     expect(deleteResponse.status).toBe(204);
 
     const missingDownload = await request(app)
       .get("/api/files/download")
       .set("Authorization", `Bearer ${ownerToken}`)
-      .query({ path: "upload/m8-note.txt" });
+      .query({ path: filePath });
 
     expect(missingDownload.status).toBe(404);
   });
 
   it("serves binary file downloads with metadata headers", async () => {
     const binaryContent = Buffer.from([1, 2, 3, 4, 5, 6]);
+    const filePath = `tmp/${ownerId}/m8-model.stl`;
 
     const uploadResponse = await request(app)
       .post("/api/files/upload")
       .set("Authorization", `Bearer ${ownerToken}`)
       .send({
-        path: "modelcreator/m8-model.stl",
+        path: filePath,
         contentBase64: binaryContent.toString("base64"),
       });
 
@@ -215,7 +217,7 @@ describe("Milestone 8 chat/files migration", () => {
     const downloadResponse = await request(app)
       .get("/api/files/download")
       .set("Authorization", `Bearer ${ownerToken}`)
-      .query({ path: "modelcreator/m8-model.stl" });
+      .query({ path: filePath });
 
     expect(downloadResponse.status).toBe(200);
     expect(downloadResponse.headers["content-type"]).toContain("application/vnd.ms-pki.stl");
@@ -231,7 +233,7 @@ describe("Milestone 8 chat/files migration", () => {
     const deleteResponse = await request(app)
       .delete("/api/files/delete")
       .set("Authorization", `Bearer ${ownerToken}`)
-      .query({ path: "modelcreator/m8-model.stl" });
+      .query({ path: filePath });
 
     expect(deleteResponse.status).toBe(204);
   });

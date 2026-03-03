@@ -85,7 +85,7 @@ describe("Milestone 9 query pipeline", () => {
   });
 
   it("submits query, emits state transitions, and stores rendered files", async () => {
-    const uploadPath = `uploads/${suffix}-reference.png`;
+    const uploadPath = `tmp/${userId}/${suffix}-reference.png`;
     const uploadResponse = await request(app)
       .post("/api/files/upload")
       .set("Authorization", `Bearer ${token}`)

@@ -203,6 +203,11 @@ filesRouter.delete("/delete", async (req, res) => {
   try {
     if (domainInfo.domain === "chat") {
       await getOwnedContext(authUser.id, domainInfo.scope);
+    } else if (domainInfo.domain === "tmp") {
+      if (domainInfo.scope !== authUser.id) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
     } else if (authUser.role !== "admin") {
       res.status(403).json({ error: "Forbidden" });
       return;
