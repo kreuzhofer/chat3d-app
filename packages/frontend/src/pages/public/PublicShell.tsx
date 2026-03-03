@@ -39,6 +39,12 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
               {t("common:nav.product")}
             </NavLink>
             <NavLink
+              to="/gallery"
+              className="rounded-md px-3 py-2 text-sm text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
+            >
+              {t("common:nav.gallery")}
+            </NavLink>
+            <NavLink
               to="/pricing"
               className="rounded-md px-3 py-2 text-sm text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
             >
@@ -82,6 +88,13 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
                 {t("common:nav.product")}
               </NavLink>
               <NavLink
+                to="/gallery"
+                className="rounded-md px-3 py-2 text-sm text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
+                onClick={() => setMenuOpen(false)}
+              >
+                {t("common:nav.gallery")}
+              </NavLink>
+              <NavLink
                 to="/pricing"
                 className="rounded-md px-3 py-2 text-sm text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
                 onClick={() => setMenuOpen(false)}
@@ -117,7 +130,7 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
             <span className="font-medium text-[hsl(var(--foreground))]">Chat3D</span>
             <span className="text-xs">{t("common:tagline")}</span>
           </div>
-          <div className="flex flex-wrap items-center gap-4 text-[hsl(var(--muted-foreground))]">
+          <div className="flex flex-wrap items-center gap-2 text-[hsl(var(--muted-foreground))] sm:gap-4">
             <Link className="transition hover:text-[hsl(var(--foreground))]" to="/imprint">
               {t("common:footer.imprint")}
             </Link>

@@ -379,6 +379,7 @@ export async function cleanupExamplesForPrompt(promptId: string): Promise<{
 export interface RecentApprovedModel {
   id: string;
   promptText: string;
+  categoryId: string;
   categoryName: string;
   evalScore: number | null;
   createdAt: Date;
@@ -399,9 +400,60 @@ export async function listRecentApprovedExamples(limit = 20): Promise<RecentAppr
   return rows.map((row) => ({
     id: row.id,
     promptText: row.promptRef.prompt,
+    categoryId: row.promptRef.category.id,
     categoryName: row.promptRef.category.name,
     evalScore: row.evalScore,
     createdAt: row.createdAt,
+  }));
+}
+
+interface TopRatedRow {
+  id: string;
+  prompt_text: string;
+  category_id: string;
+  category_name: string;
+  eval_score: number | null;
+  created_at: Date;
+}
+
+export async function listTopRatedByCategory(
+  itemsPerCategory = 2,
+  totalLimit = 20,
+): Promise<RecentApprovedModel[]> {
+  const rows = await prisma.$queryRaw<TopRatedRow[]>`
+    WITH ranked AS (
+      SELECT
+        e.id,
+        p.prompt AS prompt_text,
+        c.id AS category_id,
+        c.name AS category_name,
+        e.eval_score,
+        e.created_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY c.id
+          ORDER BY e.featured DESC, e.eval_score DESC NULLS LAST, e.created_at DESC
+        ) AS rn
+      FROM workbench_examples e
+      JOIN workbench_example_prompts p ON p.id = e.prompt_id
+      JOIN workbench_categories c ON c.id = p.category_id
+      WHERE e.approval_status IN ('auto_approved', 'human_approved')
+        AND e.render_status = 'success'
+        AND e.screenshot_iso IS NOT NULL
+    )
+    SELECT id, prompt_text, category_id, category_name, eval_score, created_at
+    FROM ranked
+    WHERE rn <= ${itemsPerCategory}
+    ORDER BY eval_score DESC NULLS LAST, created_at DESC
+    LIMIT ${totalLimit}
+  `;
+
+  return rows.map((r) => ({
+    id: r.id,
+    promptText: r.prompt_text,
+    categoryId: r.category_id,
+    categoryName: r.category_name,
+    evalScore: r.eval_score,
+    createdAt: r.created_at,
   }));
 }
 

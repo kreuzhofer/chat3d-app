@@ -10,7 +10,8 @@
     "admin": "Admin",
     "workbench": "Werkbank",
     "backups": "Sicherungen",
-    "notifications": "Benachrichtigungen"
+    "notifications": "Benachrichtigungen",
+    "gallery": "Galerie"
   },
   "actions": {
     "send": "Senden",

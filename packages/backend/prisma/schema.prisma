@@ -389,6 +389,7 @@ model WorkbenchExample {
   screenshotRight       String?  @map("screenshot_right") @db.Text
   screenshotOrtho45     String?  @map("screenshot_ortho_45") @db.Text
   screenshotOrtho45Bottom String? @map("screenshot_ortho_45_bottom") @db.Text
+  featured              Boolean  @default(false)
 
   // Relations
   promptRef WorkbenchExamplePrompt @relation(fields: [promptId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -396,6 +397,7 @@ model WorkbenchExample {
   @@index([promptId], map: "idx_wb_examples_prompt")
   @@index([approvalStatus], map: "idx_wb_examples_approval")
   @@index([evalScore], map: "idx_wb_examples_eval_score")
+  @@index([featured], map: "idx_wb_examples_featured")
   @@map("workbench_examples")
 }
 

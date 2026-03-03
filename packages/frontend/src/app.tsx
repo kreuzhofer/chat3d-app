@@ -1,16 +1,18 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   ArchiveRestore,
   Bell,
   FlaskConical,
+  Layers,
   MessageSquare,
   Shield,
   User,
   type LucideIcon,
 } from "lucide-react";
 import { getPublicConfig } from "./api/public.api";
+import { remixModel } from "./api/gallery.api";
 import { AppShell } from "./components/layout/AppShell";
 import { LoadingView } from "./components/layout/StateViews";
 import { Button } from "./components/ui/button";
@@ -73,6 +75,10 @@ const WorkbenchPromptPage = lazy(async () => {
   const module = await import("./components/WorkbenchPromptPage");
   return { default: module.WorkbenchPromptPage };
 });
+const GalleryPage = lazy(async () => {
+  const module = await import("./pages/public/GalleryPage");
+  return { default: module.GalleryPage };
+});
 
 interface NavItem {
   path: string;
@@ -94,6 +100,7 @@ function authenticatedNavGroups(isAdmin: boolean): NavGroup[] {
       labelKey: "common:groups.workspace",
       items: [
         { path: "/chat", labelKey: "common:nav.chat", routePrefix: "/chat", icon: MessageSquare },
+        { path: "/gallery", labelKey: "common:nav.gallery", routePrefix: "/gallery", icon: Layers },
       ],
     },
     {
@@ -167,6 +174,46 @@ function NavigationList({ groups, onNavigate }: { groups: NavGroup[]; onNavigate
       })}
     </div>
   );
+}
+
+/**
+ * Catch-all route for authenticated users. If the URL has a `remixId` query param
+ * (from a gallery remix redirect through login), execute the remix and navigate to the chat.
+ * Otherwise, redirect to /chat.
+ */
+function AuthCatchAllRedirect() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { token } = useAuth();
+  const [processing, setProcessing] = useState(false);
+  const [done, setDone] = useState(false);
+  const { t } = useTranslation("common");
+
+  const remixId = searchParams.get("remixId");
+
+  useEffect(() => {
+    if (done) return;
+
+    if (!remixId || !token) {
+      navigate("/chat", { replace: true });
+      setDone(true);
+      return;
+    }
+
+    if (processing) return;
+    setProcessing(true);
+
+    remixModel(token, remixId)
+      .then(({ contextId }) => {
+        navigate(`/chat/${contextId}`, { replace: true });
+      })
+      .catch(() => {
+        navigate("/chat", { replace: true });
+      })
+      .finally(() => setDone(true));
+  }, [remixId, token, navigate, processing, done]);
+
+  return <LoadingView label={t("common:labels.loading")} />;
 }
 
 function AuthenticatedApp() {
@@ -297,7 +344,9 @@ function AuthenticatedApp() {
             <Route path="/workbench/:categoryId" element={<AdminRouteGuard><WorkbenchCategoryPage /></AdminRouteGuard>} />
             <Route path="/workbench/:categoryId/:promptId" element={<AdminRouteGuard><WorkbenchPromptPage /></AdminRouteGuard>} />
             <Route path="/backups" element={<AdminRouteGuard><BackupsPage /></AdminRouteGuard>} />
-            <Route path="*" element={<Navigate replace to="/chat" />} />
+            <Route path="/gallery" element={<GalleryPage />} />
+            <Route path="/gallery/category/:categoryId" element={<GalleryPage />} />
+            <Route path="*" element={<AuthCatchAllRedirect />} />
           </Routes>
         </Suspense>
       </AppShell>
@@ -369,6 +418,8 @@ function PublicApp() {
       <Routes>
         <Route path="/" element={<HomePage waitlistEnabled={resolvedWaitlistEnabled} />} />
         <Route path="/pricing" element={<PricingPage waitlistEnabled={resolvedWaitlistEnabled} />} />
+        <Route path="/gallery" element={<GalleryPage />} />
+        <Route path="/gallery/category/:categoryId" element={<GalleryPage />} />
         <Route path="/login" element={<LoginPage waitlistEnabled={resolvedWaitlistEnabled} />} />
         <Route path="/register" element={<RegisterPage waitlistEnabled={resolvedWaitlistEnabled} />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />

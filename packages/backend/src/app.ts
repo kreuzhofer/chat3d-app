@@ -20,6 +20,7 @@ import { waitlistRouter } from "./routes/waitlist.routes.js";
 import { pushRouter } from "./routes/push.routes.js";
 import { workbenchRouter } from "./routes/workbench.routes.js";
 import { backupRouter } from "./routes/backup.routes.js";
+import { galleryRouter } from "./routes/gallery.routes.js";
 
 export function createApp() {
   const app = express();
@@ -59,6 +60,7 @@ export function createApp() {
   app.use("/api/waitlist", waitlistRouter);
   app.use("/api/admin/workbench", workbenchRouter);
   app.use("/api/admin/backups", backupRouter);
+  app.use("/api/gallery", galleryRouter);
 
   app.use((req, res) => {
     res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });

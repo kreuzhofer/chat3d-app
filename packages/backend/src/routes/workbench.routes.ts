@@ -34,6 +34,11 @@ import {
   getEmbeddingStatus,
 } from "../services/workbench-embeddings.service.js";
 import {
+  setFeaturedExample,
+  clearFeaturedExample,
+  GalleryServiceError,
+} from "../services/gallery.service.js";
+import {
   cancelJob,
   getActiveJobForPrompt,
   getAllRunningJobsForCategory,
@@ -808,5 +813,44 @@ workbenchRouter.post("/import/upload/:uploadId/complete", async (req, res) => {
       : message.includes("Missing chunk") ? 400
       : 500;
     res.status(status).json({ error: message });
+  }
+});
+
+// ── Featured model management ───────────────────────────────────────
+
+workbenchRouter.patch("/examples/:id/feature", async (req, res) => {
+  try {
+    await setFeaturedExample(req.params.id);
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    if (error instanceof GalleryServiceError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    logger.error({ err: error }, "failed to set featured example");
+    res.status(500).json({ error: "Failed to set featured example" });
+  }
+});
+
+workbenchRouter.delete("/examples/:id/feature", async (req, res) => {
+  try {
+    // Find the example's category to clear featured flag
+    const example = await prisma.workbenchExample.findUnique({
+      where: { id: req.params.id },
+      include: { promptRef: true },
+    });
+    if (!example) {
+      res.status(404).json({ error: "Example not found" });
+      return;
+    }
+    await clearFeaturedExample(example.promptRef.categoryId);
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    if (error instanceof GalleryServiceError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    logger.error({ err: error }, "failed to clear featured example");
+    res.status(500).json({ error: "Failed to clear featured example" });
   }
 });

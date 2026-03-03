@@ -37,6 +37,7 @@ export async function submitSetup(payload: SetupPayload): Promise<AuthResponse> 
 export interface RecentModel {
   id: string;
   promptText: string;
+  categoryId: string;
   categoryName: string;
   evalScore: number | null;
   createdAt: string;

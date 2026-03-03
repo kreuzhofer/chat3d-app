@@ -23,3 +23,46 @@ export interface AuthenticatedUser {
   status: UserStatus;
   language?: string;
 }
+
+// ── Gallery types ──────────────────────────────────────────────────
+
+export interface PaginatedResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
+export interface GalleryModelSummary {
+  id: string;
+  promptText: string;
+  categoryName: string;
+  categoryId: string;
+  evalScore: number | null;
+  createdAt: string;
+}
+
+export interface GalleryCategory {
+  id: string;
+  name: string;
+  description: string;
+  complexity: number;
+  rank: number;
+  modelCount: number;
+  heroModel: GalleryModelSummary | null;
+}
+
+export interface GalleryModelDetail extends GalleryModelSummary {
+  code: string;
+  stlPath: string | null;
+  stepPath: string | null;
+  threemfPath: string | null;
+  screenshotIso: string | null;
+  screenshotFront: string | null;
+  screenshotOrtho45: string | null;
+}
+
+export interface GallerySearchResult extends GalleryModelSummary {
+  similarity: number;
+}

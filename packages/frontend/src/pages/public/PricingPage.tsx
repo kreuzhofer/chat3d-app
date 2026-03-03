@@ -19,7 +19,7 @@ export function PricingPage({ waitlistEnabled }: PricingPageProps) {
       </header>
 
       <section className="grid gap-6 md:grid-cols-2">
-        <article className="rounded-xl border border-[hsl(var(--primary)_/_0.3)] bg-[hsl(var(--surface-1))] p-6 shadow-sm">
+        <article className="rounded-xl border border-[hsl(var(--primary)_/_0.3)] bg-[hsl(var(--surface-1))] p-4 shadow-sm sm:p-6">
           <div className="mb-4 flex items-center gap-2">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[hsl(var(--primary)_/_0.1)] text-[hsl(var(--primary))]">
               <Zap className="h-4 w-4" />
@@ -52,7 +52,7 @@ export function PricingPage({ waitlistEnabled }: PricingPageProps) {
           </Link>
         </article>
 
-        <article className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-6 shadow-sm">
+        <article className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-4 shadow-sm sm:p-6">
           <div className="mb-4 flex items-center gap-2">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[hsl(var(--accent)_/_0.1)] text-[hsl(var(--accent))]">
               <Sparkles className="h-4 w-4" />

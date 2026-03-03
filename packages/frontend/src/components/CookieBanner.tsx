@@ -48,11 +48,11 @@ export function CookieBanner() {
             </p>
           </div>
         </div>
-        <div className="flex shrink-0 gap-2">
-          <Button variant="outline" size="sm" onClick={() => accept("essential")}>
+        <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+          <Button variant="outline" onClick={() => accept("essential")}>
             {t("cookieBanner.essentialOnly")}
           </Button>
-          <Button size="sm" onClick={() => accept("all")}>
+          <Button onClick={() => accept("all")}>
             {t("cookieBanner.acceptAll")}
           </Button>
         </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Box, Cpu, Layout, MessageSquare, Shield, Zap } from "lucide-react";
+import { Box, Cpu, Layers, Layout, MessageSquare, Shield, Zap } from "lucide-react";
 import { type RecentModel, getRecentModels } from "../../api/public.api";
 import { RecentModelsCarousel } from "../../components/RecentModelsCarousel";
 
@@ -27,8 +27,8 @@ export function HomePage({ waitlistEnabled }: HomePageProps) {
   return (
     <div className="space-y-16">
       {/* Hero Section */}
-      <section className="grid gap-8 rounded-2xl bg-[linear-gradient(135deg,#0f172a_0%,#1e293b_40%,#134e4a_100%)] p-8 text-slate-100 md:grid-cols-[1.1fr_0.9fr] md:px-12 md:py-16">
-        <div className="space-y-8">
+      <section className="grid gap-8 rounded-2xl bg-[linear-gradient(135deg,#0f172a_0%,#1e293b_40%,#134e4a_100%)] p-6 text-slate-100 md:grid-cols-[1.1fr_0.9fr] md:px-12 md:py-8">
+        <div className="space-y-5">
           <p className="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-1 text-xs uppercase tracking-[0.2em] text-emerald-200">
             <Box className="h-3.5 w-3.5" />
             Prompt-to-CAD Workspace
@@ -62,10 +62,10 @@ export function HomePage({ waitlistEnabled }: HomePageProps) {
         </div>
 
         {/* Workspace Preview Mockup */}
-        <div className="rounded-xl border border-white/15 bg-black/20 p-5">
+        <div className="hidden rounded-xl border border-white/15 bg-black/20 p-5 sm:block">
           <div className="space-y-2">
             <p className="text-xs uppercase tracking-[0.2em] text-slate-300">Three-Pane Workspace</p>
-            <div className="grid h-64 grid-cols-[0.9fr_1.4fr_1fr] gap-2 text-xs md:h-72">
+            <div className="grid h-36 grid-cols-[0.9fr_1.4fr_1fr] gap-2 text-xs sm:h-44 md:h-56">
               <div className="flex flex-col gap-2 rounded-md bg-white/10 p-3">
                 <div className="flex items-center gap-1.5 font-medium text-emerald-200">
                   <Layout className="h-3 w-3" />
@@ -102,7 +102,20 @@ export function HomePage({ waitlistEnabled }: HomePageProps) {
       </section>
 
       {/* Recent Models Showcase */}
-      {recentModels.length > 0 && <RecentModelsCarousel models={recentModels} />}
+      {recentModels.length > 0 && (
+        <>
+          <RecentModelsCarousel models={recentModels} />
+          <div className="flex justify-center -mt-8">
+            <Link
+              to="/gallery"
+              className="inline-flex items-center gap-2 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-5 py-2.5 text-sm font-medium text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
+            >
+              <Layers className="h-4 w-4 text-[hsl(var(--primary))]" />
+              Explore our library...
+            </Link>
+          </div>
+        </>
+      )}
 
       {/* How It Works */}
       <section id="how-it-works" className="space-y-6">
