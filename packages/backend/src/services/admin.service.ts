@@ -4,6 +4,7 @@ import { emailService } from "./email.service.js";
 import { notificationService } from "./notification.service.js";
 import { generateOpaqueToken, hashToken } from "../utils/token.js";
 import { recordAdminAuditLog } from "./audit.service.js";
+import { assertValidPassword, hashPassword } from "./auth.service.js";
 
 export class AdminError extends Error {
   constructor(
@@ -321,5 +322,48 @@ export async function triggerAdminPasswordReset(input: {
     userId: targetUser.id,
     email: targetUser.email,
     status: "pending",
+  };
+}
+
+export async function setUserPassword(input: {
+  adminUserId: string;
+  targetUserId: string;
+  newPassword: string;
+}) {
+  if (!assertValidPassword(input.newPassword)) {
+    throw new AdminError("Password must be at least 8 characters", 400);
+  }
+
+  const targetUser = await prisma.user.findUnique({
+    where: { id: input.targetUserId },
+    select: { id: true, email: true },
+  });
+
+  if (!targetUser) {
+    throw new AdminError("User not found", 404);
+  }
+
+  const passwordHash = await hashPassword(input.newPassword);
+
+  await prisma.user.update({
+    where: { id: input.targetUserId },
+    data: { passwordHash, updatedAt: new Date() },
+  });
+
+  await recordAdminAuditLog({
+    adminUserId: input.adminUserId,
+    action: "user.password_set",
+    targetUserId: input.targetUserId,
+  });
+
+  await notificationService.publishToUser(input.targetUserId, "notification.created", {
+    domain: "account",
+    action: "password_set_by_admin",
+  });
+
+  return {
+    userId: targetUser.id,
+    email: targetUser.email,
+    status: "completed",
   };
 }

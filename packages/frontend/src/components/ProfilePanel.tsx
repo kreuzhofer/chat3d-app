@@ -241,7 +241,7 @@ export function ProfilePanel() {
         <div className="mt-3 flex flex-wrap gap-2">
           <Button
             variant="destructive"
-            disabled={!isAuthenticated || busyAction !== null}
+            disabled={!isAuthenticated || busyAction !== null || user?.role === "admin"}
             onClick={() =>
               runAction("account-delete", async () => {
                 if (!token) {
@@ -254,6 +254,9 @@ export function ProfilePanel() {
           >
             Request Account Deletion
           </Button>
+          {user?.role === "admin" && (
+            <p className="mt-1 text-sm text-muted-foreground">Admins cannot delete their own account. Another admin must do this.</p>
+          )}
         </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">

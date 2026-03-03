@@ -4,6 +4,7 @@ import {
   KeyRound,
   LayoutDashboard,
   ListChecks,
+  Lock,
   Plug,
   Settings,
   ShieldOff,
@@ -18,6 +19,7 @@ import {
   listAdminUsers,
   listAdminWaitlist,
   rejectAdminWaitlistEntry,
+  setAdminUserPassword,
   triggerAdminPasswordReset,
   updateAdminSettings,
   type AdminSettings,
@@ -78,6 +80,8 @@ export function AdminPanel() {
   const [queueIndex, setQueueIndex] = useState(0);
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [setPasswordDialogUserId, setSetPasswordDialogUserId] = useState<string | null>(null);
+  const [setPasswordValue, setSetPasswordValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -590,7 +594,7 @@ export function AdminPanel() {
               <Button
                 variant="destructive"
                 iconLeft={<ShieldOff className="h-3.5 w-3.5" />}
-                disabled={busyUserIds.has(selectedUser.id) || selectedUser.status === "deactivated"}
+                disabled={busyUserIds.has(selectedUser.id) || selectedUser.status === "deactivated" || selectedUser.id === user?.id}
                 onClick={() => {
                   if (!token) {
                     return;
@@ -655,6 +659,18 @@ export function AdminPanel() {
               >
                 Reset Password
               </Button>
+
+              <Button
+                variant="secondary"
+                iconLeft={<Lock className="h-3.5 w-3.5" />}
+                disabled={busyUserIds.has(selectedUser.id)}
+                onClick={() => {
+                  setSetPasswordValue("");
+                  setSetPasswordDialogUserId(selectedUser.id);
+                }}
+              >
+                Set Password
+              </Button>
             </div>
           </div>
         ) : null}
@@ -691,6 +707,75 @@ export function AdminPanel() {
           >
             {confirmState?.confirmLabel ?? "Confirm"}
           </Button>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={setPasswordDialogUserId !== null}
+        title="Set password"
+        description={`Set a new password for ${selectedUser?.email ?? "this user"}.`}
+        onClose={() => {
+          if (confirmBusy) {
+            return;
+          }
+          setSetPasswordDialogUserId(null);
+          setSetPasswordValue("");
+        }}
+      >
+        <div className="space-y-4">
+          <input
+            type="password"
+            placeholder="New password (min 8 characters)"
+            className="w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-3 py-2 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]"
+            value={setPasswordValue}
+            onChange={(e) => setSetPasswordValue(e.target.value)}
+            minLength={8}
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              disabled={confirmBusy}
+              onClick={() => {
+                setSetPasswordDialogUserId(null);
+                setSetPasswordValue("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              loading={confirmBusy}
+              disabled={confirmBusy || setPasswordValue.length < 8}
+              onClick={() => {
+                if (!token || !setPasswordDialogUserId) {
+                  return;
+                }
+                const targetId = setPasswordDialogUserId;
+                const targetEmail = selectedUser?.email ?? "";
+                setConfirmBusy(true);
+                void runUserAction(targetId, async () => {
+                  if (!token) {
+                    return;
+                  }
+                  await setAdminUserPassword(token, targetId, setPasswordValue);
+                })
+                  .then(() => {
+                    pushToast({
+                      tone: "success",
+                      title: "Password set",
+                      description: `Password updated for ${targetEmail}.`,
+                    });
+                    setSetPasswordDialogUserId(null);
+                    setSetPasswordValue("");
+                  })
+                  .finally(() => {
+                    setConfirmBusy(false);
+                  });
+              }}
+            >
+              Set Password
+            </Button>
+          </div>
         </div>
       </Dialog>
     </section>

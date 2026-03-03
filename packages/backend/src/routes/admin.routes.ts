@@ -7,6 +7,7 @@ import {
   deactivateUser,
   getAdminSettings,
   listUsers,
+  setUserPassword,
   triggerAdminPasswordReset,
   updateAdminSettings,
 } from "../services/admin.service.js";
@@ -181,6 +182,35 @@ const handleResetPassword: RequestHandler = async (req, res) => {
   }
 };
 
+const handleSetPassword: RequestHandler = async (req, res) => {
+  const adminUser = req.authUser;
+  if (!adminUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  const targetUserId = readPathParam(req.params.userId);
+  if (!targetUserId) {
+    res.status(400).json({ error: "Invalid user id" });
+    return;
+  }
+  const newPassword = req.body?.newPassword;
+  if (typeof newPassword !== "string" || newPassword === "") {
+    res.status(400).json({ error: "newPassword is required" });
+    return;
+  }
+
+  try {
+    const result = await setUserPassword({
+      adminUserId: adminUser.id,
+      targetUserId,
+      newPassword,
+    });
+    res.status(200).json(result);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to set password");
+  }
+};
+
 const handleApproveWaitlist: RequestHandler = async (req, res) => {
   const authUser = req.authUser;
 
@@ -244,6 +274,7 @@ adminRouter.patch("/users/:userId/activate", handleActivateUser);
 adminRouter.post("/users/:userId/activate", handleActivateUser);
 adminRouter.post("/users/:userId/reset-password", handleResetPassword);
 adminRouter.post("/users/:userId/password-reset", handleResetPassword);
+adminRouter.post("/users/:userId/set-password", handleSetPassword);
 
 adminRouter.get("/settings", async (_req, res) => {
   try {

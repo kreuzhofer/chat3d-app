@@ -111,6 +111,17 @@ export async function triggerAdminPasswordReset(token: string, userId: string): 
   );
 }
 
+export async function setAdminUserPassword(
+  token: string,
+  userId: string,
+  newPassword: string,
+): Promise<{ userId: string; email: string; status: string }> {
+  return requestAdminJson(token, `/users/${encodeURIComponent(userId)}/set-password`, {
+    method: "POST",
+    body: JSON.stringify({ newPassword }),
+  });
+}
+
 export async function listAdminWaitlist(token: string): Promise<AdminWaitlistEntry[]> {
   const response = await requestAdminJson<{ entries: AdminWaitlistEntry[] }>(token, "/waitlist", {
     method: "GET",

@@ -245,6 +245,11 @@ export async function requestDataExport(input: { userId: string; email: string }
 }
 
 export async function requestAccountDelete(input: { userId: string; email: string }) {
+  const requestingUser = await prisma.user.findUnique({ where: { id: input.userId }, select: { role: true } });
+  if (requestingUser?.role === "admin") {
+    throw new Error("Admins cannot delete their own account. Another admin must do this.");
+  }
+
   const action = await prisma.$transaction(async (tx) => {
     return createAccountAction({
       tx,
