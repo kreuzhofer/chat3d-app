@@ -86,12 +86,12 @@ export interface LlmModelConfig {
 
 /** Purpose assignment joined with model details (for admin API) */
 export interface PurposeAssignment {
-  id: string;
+  id: string | null;
   purpose: string;
-  modelId: string;
-  modelDisplayName: string;
-  modelProvider: string;
-  modelModelName: string;
+  modelId: string | null;
+  modelDisplayName: string | null;
+  modelProvider: string | null;
+  modelModelName: string | null;
   overrideMaxOutputTokens: number | null;
   overrideThinkingEffort: string | null;
 }
@@ -686,16 +686,33 @@ export async function listPurposeAssignments(): Promise<PurposeAssignment[]> {
     orderBy: { purpose: "asc" },
   });
 
-  return rows.map((row) => ({
-    id: row.id,
-    purpose: row.purpose,
-    modelId: row.modelId,
-    modelDisplayName: row.model.displayName ?? `${row.model.provider}/${row.model.modelName}`,
-    modelProvider: row.model.provider,
-    modelModelName: row.model.modelName,
-    overrideMaxOutputTokens: row.overrideMaxOutputTokens,
-    overrideThinkingEffort: row.overrideThinkingEffort,
-  }));
+  const byPurpose = new Map(rows.map((row) => [row.purpose, row]));
+
+  return LLM_PURPOSES.map((purpose) => {
+    const row = byPurpose.get(purpose);
+    if (row) {
+      return {
+        id: row.id,
+        purpose: row.purpose,
+        modelId: row.modelId,
+        modelDisplayName: row.model.displayName ?? `${row.model.provider}/${row.model.modelName}`,
+        modelProvider: row.model.provider,
+        modelModelName: row.model.modelName,
+        overrideMaxOutputTokens: row.overrideMaxOutputTokens,
+        overrideThinkingEffort: row.overrideThinkingEffort,
+      };
+    }
+    return {
+      id: null,
+      purpose,
+      modelId: null,
+      modelDisplayName: null,
+      modelProvider: null,
+      modelModelName: null,
+      overrideMaxOutputTokens: null,
+      overrideThinkingEffort: null,
+    };
+  });
 }
 
 export async function updatePurposeAssignment(
@@ -706,31 +723,30 @@ export async function updatePurposeAssignment(
     overrideThinkingEffort?: string | null;
   },
 ): Promise<PurposeAssignment | null> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data: Record<string, any> = {};
-  let hasChanges = false;
+  if (!patch.modelId) return null;
 
-  if (patch.modelId !== undefined) {
-    data.modelId = patch.modelId;
-    hasChanges = true;
-  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updateData: Record<string, any> = {
+    modelId: patch.modelId,
+    updatedAt: new Date(),
+  };
   if (patch.overrideMaxOutputTokens !== undefined) {
-    data.overrideMaxOutputTokens = patch.overrideMaxOutputTokens;
-    hasChanges = true;
+    updateData.overrideMaxOutputTokens = patch.overrideMaxOutputTokens;
   }
   if (patch.overrideThinkingEffort !== undefined) {
-    data.overrideThinkingEffort = patch.overrideThinkingEffort;
-    hasChanges = true;
+    updateData.overrideThinkingEffort = patch.overrideThinkingEffort;
   }
 
-  if (!hasChanges) return null;
-
-  data.updatedAt = new Date();
-
   try {
-    await prisma.llmPurposeMap.update({
+    await prisma.llmPurposeMap.upsert({
       where: { purpose },
-      data,
+      update: updateData,
+      create: {
+        purpose,
+        modelId: patch.modelId,
+        overrideMaxOutputTokens: patch.overrideMaxOutputTokens ?? null,
+        overrideThinkingEffort: patch.overrideThinkingEffort ?? null,
+      },
     });
   } catch {
     return null;

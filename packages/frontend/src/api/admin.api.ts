@@ -218,12 +218,12 @@ export interface LlmModelRow {
 }
 
 export interface LlmPurposeRow {
-  id: string;
+  id: string | null;
   purpose: string;
-  modelId: string;
-  modelDisplayName: string;
-  modelProvider: string;
-  modelModelName: string;
+  modelId: string | null;
+  modelDisplayName: string | null;
+  modelProvider: string | null;
+  modelModelName: string | null;
   overrideMaxOutputTokens: number | null;
   overrideThinkingEffort: string | null;
 }

@@ -325,8 +325,8 @@ export function ModelsTab({ token }: ModelsTabProps) {
             </thead>
             <tbody>
               {purposes.map((p) => {
-                const currentModelId = purposeEdits[p.purpose] ?? p.modelId;
-                const hasChange = purposeEdits[p.purpose] !== undefined && purposeEdits[p.purpose] !== p.modelId;
+                const currentModelId = purposeEdits[p.purpose] ?? p.modelId ?? "";
+                const hasChange = purposeEdits[p.purpose] !== undefined && purposeEdits[p.purpose] !== (p.modelId ?? "");
                 return (
                   <tr key={p.purpose} className="border-b border-[hsl(var(--border)_/_0.5)] last:border-0">
                     <td className="py-2 pr-3 font-medium">{PURPOSE_LABELS[p.purpose] ?? p.purpose}</td>
@@ -336,6 +336,7 @@ export function ModelsTab({ token }: ModelsTabProps) {
                         value={currentModelId}
                         onChange={(e) => handlePurposeModelChange(p.purpose, e.target.value)}
                       >
+                        <option value="">— Not assigned —</option>
                         {activeModels.map((m) => (
                           <option key={m.id} value={m.id}>
                             {m.provider}/{m.model_name}
