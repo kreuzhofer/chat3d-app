@@ -82,6 +82,7 @@ export function AdminPanel() {
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [setPasswordDialogUserId, setSetPasswordDialogUserId] = useState<string | null>(null);
   const [setPasswordValue, setSetPasswordValue] = useState("");
+  const [setPasswordConfirm, setSetPasswordConfirm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -666,6 +667,7 @@ export function AdminPanel() {
                 disabled={busyUserIds.has(selectedUser.id)}
                 onClick={() => {
                   setSetPasswordValue("");
+                  setSetPasswordConfirm("");
                   setSetPasswordDialogUserId(selectedUser.id);
                 }}
               >
@@ -720,6 +722,7 @@ export function AdminPanel() {
           }
           setSetPasswordDialogUserId(null);
           setSetPasswordValue("");
+          setSetPasswordConfirm("");
         }}
       >
         <div className="space-y-4">
@@ -731,6 +734,17 @@ export function AdminPanel() {
             onChange={(e) => setSetPasswordValue(e.target.value)}
             minLength={8}
           />
+          <input
+            type="password"
+            placeholder="Confirm password"
+            className="w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-3 py-2 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]"
+            value={setPasswordConfirm}
+            onChange={(e) => setSetPasswordConfirm(e.target.value)}
+            minLength={8}
+          />
+          {setPasswordValue.length > 0 && setPasswordConfirm.length > 0 && setPasswordValue !== setPasswordConfirm && (
+            <p className="text-sm text-destructive">Passwords do not match.</p>
+          )}
           <div className="flex justify-end gap-2">
             <Button
               variant="outline"
@@ -738,6 +752,7 @@ export function AdminPanel() {
               onClick={() => {
                 setSetPasswordDialogUserId(null);
                 setSetPasswordValue("");
+                setSetPasswordConfirm("");
               }}
             >
               Cancel
@@ -745,7 +760,7 @@ export function AdminPanel() {
             <Button
               variant="default"
               loading={confirmBusy}
-              disabled={confirmBusy || setPasswordValue.length < 8}
+              disabled={confirmBusy || setPasswordValue.length < 8 || setPasswordValue !== setPasswordConfirm}
               onClick={() => {
                 if (!token || !setPasswordDialogUserId) {
                   return;
@@ -767,6 +782,7 @@ export function AdminPanel() {
                     });
                     setSetPasswordDialogUserId(null);
                     setSetPasswordValue("");
+                    setSetPasswordConfirm("");
                   })
                   .finally(() => {
                     setConfirmBusy(false);
