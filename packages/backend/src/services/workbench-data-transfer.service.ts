@@ -4,19 +4,28 @@
  * Background job-based export and import of all workbench data
  * (categories, prompts, examples, system prompts).
  *
- * Export writes a JSON file to disk; import reads it and replaces
- * the full workbench dataset in a single transaction.
+ * v3 exports produce a ZIP containing manifest.json + all model/screenshot files.
+ * v1/v2 JSON imports are still supported for backwards compatibility.
  *
  * Job pattern mirrors workbench-batch.service.ts — in-memory map
  * with polling from the frontend.
  */
 
 import { promises as fs } from "node:fs";
+import { createWriteStream } from "node:fs";
 import path from "node:path";
+import archiver from "archiver";
+import { Open as unzipperOpen } from "unzipper";
 import { prisma } from "../db/prisma.js";
 import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
-import { readStorageFile, writeStorageFile } from "./file-storage.service.js";
+import {
+  getStorageAbsolutePath,
+  readStorageFile,
+  storageFileExists,
+  writeStorageFile,
+  writeStorageFileFromBuffer,
+} from "./file-storage.service.js";
 
 const logger = createLogger("data-transfer");
 
@@ -82,10 +91,15 @@ interface ExportExample {
   step_path: string | null;
   threemf_path: string | null;
   screenshot_front: string | null;
+  screenshot_back: string | null;
+  screenshot_left: string | null;
+  screenshot_right: string | null;
   screenshot_top: string | null;
+  screenshot_bottom: string | null;
+  screenshot_ortho_45: string | null;
+  screenshot_ortho_45_bottom: string | null;
   screenshot_iso: string | null;
   screenshot_iso_back: string | null;
-  screenshot_bottom: string | null;
   eval_score: number | null;
   eval_issues: unknown | null;
   eval_suggestions: unknown | null;
@@ -107,6 +121,20 @@ interface ExportSystemPrompt {
   is_active: boolean;
   created_at: string;
 }
+
+/** All 10 screenshot angles with their DB column names and file suffixes. */
+const SCREENSHOT_ANGLES = [
+  { column: "screenshotFront" as const, suffix: "front" },
+  { column: "screenshotBack" as const, suffix: "back" },
+  { column: "screenshotLeft" as const, suffix: "left" },
+  { column: "screenshotRight" as const, suffix: "right" },
+  { column: "screenshotTop" as const, suffix: "top" },
+  { column: "screenshotBottom" as const, suffix: "bottom" },
+  { column: "screenshotOrtho45" as const, suffix: "ortho-45" },
+  { column: "screenshotOrtho45Bottom" as const, suffix: "ortho-45-bottom" },
+  { column: "screenshotIso" as const, suffix: "iso" },
+  { column: "screenshotIsoBack" as const, suffix: "iso-back" },
+] as const;
 
 // ── In-memory job store ──────────────────────────────────────────────
 
@@ -227,10 +255,7 @@ export function getExportFilePath(jobId: string): string | null {
 // ── Screenshot file helpers ──────────────────────────────────────────
 
 /**
- * Resolve a screenshot column value for export.
- * If the value is a file path (starts with "workbench/"), read the file
- * from disk and return its base64 content so the export JSON is self-contained.
- * If the value is already base64 (legacy) or null, return as-is.
+ * Resolve a screenshot column value for v2 JSON export (base64 embedded).
  */
 async function resolveScreenshotForExport(value: string | null | undefined): Promise<string | null> {
   if (!value) return null;
@@ -248,9 +273,7 @@ async function resolveScreenshotForExport(value: string | null | undefined): Pro
 }
 
 /**
- * Write a screenshot base64 string to disk during v2 import.
- * Returns the relative file path stored in the DB column.
- * If the base64 is null/empty, returns null (no file to write).
+ * Write a screenshot base64 string to disk during v2 JSON import.
  */
 async function writeScreenshotOnImport(
   categoryId: string,
@@ -269,7 +292,7 @@ async function writeScreenshotOnImport(
   }
 }
 
-// ── Export logic ─────────────────────────────────────────────────────
+// ── Export logic (ZIP — version 3) ───────────────────────────────────
 
 async function runExport(job: TransferJob): Promise<void> {
   try {
@@ -292,7 +315,7 @@ async function runExport(job: TransferJob): Promise<void> {
       updated_at: r.updatedAt.toISOString(),
     }));
 
-    // 2. Query prompts (embedding needs raw SQL — pgvector cast to text for JSON serialization)
+    // 2. Query prompts (embedding needs raw SQL — pgvector cast to text)
     job.progress = { phase: "querying prompts", detail: `${categories.length} categories found` };
     const promptRows = await prisma.$queryRaw<{
       id: string;
@@ -319,17 +342,80 @@ async function runExport(job: TransferJob): Promise<void> {
       created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     }));
 
+    // Build prompt→category lookup for file path construction
+    const promptCategoryMap = new Map<string, string>();
+    for (const p of prompts) {
+      promptCategoryMap.set(p.id, p.category_id);
+    }
+
     // 3. Query examples (largest table)
     job.progress = { phase: "querying examples", detail: `${prompts.length} prompts found` };
     const exampleRows = await prisma.workbenchExample.findMany({
       orderBy: [{ promptId: "asc" }, { iteration: "asc" }],
     });
 
-    // Resolve screenshot values: if they are file paths (start with "workbench/"),
-    // read the file from disk and export as base64 so the export is self-contained.
-    job.progress = { phase: "resolving screenshot files", detail: `${exampleRows.length} examples` };
+    // Build examples for manifest (file paths reference ZIP-internal paths)
+    job.progress = { phase: "building manifest", detail: `${exampleRows.length} examples` };
     const examples: ExportExample[] = [];
+    /** Collect files to add to ZIP: { zipPath, storageRelativePath } */
+    const filesToArchive: Array<{ zipPath: string; storagePath: string }> = [];
+
     for (const r of exampleRows) {
+      const categoryId = promptCategoryMap.get(r.promptId);
+      const filePrefix = categoryId ? `files/workbench/${categoryId}/${r.id}` : null;
+
+      // Collect model files
+      const modelPaths: Array<{ dbPath: string | null; ext: string }> = [
+        { dbPath: r.stlPath, ext: "stl" },
+        { dbPath: r.stepPath, ext: "step" },
+        { dbPath: r.threemfPath, ext: "3mf" },
+      ];
+
+      // Also include b123d source file if it exists
+      if (categoryId) {
+        const b123dRelPath = `workbench/${categoryId}/${r.id}.b123d`;
+        if (await storageFileExists(b123dRelPath)) {
+          filesToArchive.push({
+            zipPath: `files/${b123dRelPath}`,
+            storagePath: b123dRelPath,
+          });
+        }
+      }
+
+      for (const { dbPath, ext } of modelPaths) {
+        if (dbPath && filePrefix) {
+          // Check if the file exists on disk
+          if (await storageFileExists(dbPath)) {
+            filesToArchive.push({
+              zipPath: `files/${dbPath}`,
+              storagePath: dbPath,
+            });
+          }
+        }
+      }
+
+      // Collect screenshot files — build manifest paths referencing ZIP-internal locations
+      const screenshotManifest: Record<string, string | null> = {};
+      for (const angle of SCREENSHOT_ANGLES) {
+        const dbValue = r[angle.column] as string | null | undefined;
+        if (dbValue && dbValue.startsWith("workbench/") && filePrefix) {
+          if (await storageFileExists(dbValue)) {
+            filesToArchive.push({
+              zipPath: `files/${dbValue}`,
+              storagePath: dbValue,
+            });
+            screenshotManifest[angle.suffix] = `files/${dbValue}`;
+          } else {
+            screenshotManifest[angle.suffix] = null;
+          }
+        } else if (dbValue && !dbValue.startsWith("workbench/")) {
+          // Legacy base64 — include as base64 in manifest
+          screenshotManifest[angle.suffix] = dbValue;
+        } else {
+          screenshotManifest[angle.suffix] = null;
+        }
+      }
+
       const ex: ExportExample = {
         id: r.id,
         prompt_id: r.promptId,
@@ -341,11 +427,16 @@ async function runExport(job: TransferJob): Promise<void> {
         stl_path: r.stlPath ?? null,
         step_path: r.stepPath ?? null,
         threemf_path: r.threemfPath ?? null,
-        screenshot_front: await resolveScreenshotForExport(r.screenshotFront),
-        screenshot_top: await resolveScreenshotForExport(r.screenshotTop),
-        screenshot_iso: await resolveScreenshotForExport(r.screenshotIso),
-        screenshot_iso_back: await resolveScreenshotForExport(r.screenshotIsoBack),
-        screenshot_bottom: await resolveScreenshotForExport(r.screenshotBottom),
+        screenshot_front: screenshotManifest["front"] ?? null,
+        screenshot_back: screenshotManifest["back"] ?? null,
+        screenshot_left: screenshotManifest["left"] ?? null,
+        screenshot_right: screenshotManifest["right"] ?? null,
+        screenshot_top: screenshotManifest["top"] ?? null,
+        screenshot_bottom: screenshotManifest["bottom"] ?? null,
+        screenshot_ortho_45: screenshotManifest["ortho-45"] ?? null,
+        screenshot_ortho_45_bottom: screenshotManifest["ortho-45-bottom"] ?? null,
+        screenshot_iso: screenshotManifest["iso"] ?? null,
+        screenshot_iso_back: screenshotManifest["iso-back"] ?? null,
         eval_score: r.evalScore ?? null,
         eval_issues: r.evalIssues ?? null,
         eval_suggestions: r.evalSuggestions ?? null,
@@ -375,10 +466,10 @@ async function runExport(job: TransferJob): Promise<void> {
       created_at: r.createdAt.toISOString(),
     }));
 
-    // 5. Build and write JSON
-    job.progress = { phase: "writing file" };
-    const exportData: WorkbenchExportData = {
-      version: 2,
+    // 5. Build manifest and write ZIP
+    job.progress = { phase: "writing ZIP", detail: `${filesToArchive.length} files to archive` };
+    const manifest: WorkbenchExportData = {
+      version: 3,
       exportedAt: new Date().toISOString(),
       categories,
       prompts,
@@ -387,10 +478,10 @@ async function runExport(job: TransferJob): Promise<void> {
     };
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const fileName = `workbench-export-${timestamp}.json`;
+    const fileName = `workbench-export-${timestamp}.zip`;
     const filePath = path.join(exportsDir, fileName);
 
-    await fs.writeFile(filePath, JSON.stringify(exportData), "utf-8");
+    await writeZipExport(filePath, manifest, filesToArchive, job);
 
     // 6. Done
     job.filePath = filePath;
@@ -405,8 +496,8 @@ async function runExport(job: TransferJob): Promise<void> {
     job.progress = { phase: "done" };
 
     logger.info(
-      { jobId: job.jobId, categories: categories.length, prompts: prompts.length, examples: examples.length, systemPrompts: systemPrompts.length, filePath },
-      "export completed",
+      { jobId: job.jobId, categories: categories.length, prompts: prompts.length, examples: examples.length, systemPrompts: systemPrompts.length, files: filesToArchive.length, filePath },
+      "ZIP export completed",
     );
   } catch (error) {
     job.status = "failed";
@@ -416,186 +507,73 @@ async function runExport(job: TransferJob): Promise<void> {
   }
 }
 
+/**
+ * Create a ZIP file with manifest.json and all referenced files streamed from disk.
+ */
+async function writeZipExport(
+  filePath: string,
+  manifest: WorkbenchExportData,
+  files: Array<{ zipPath: string; storagePath: string }>,
+  job: TransferJob,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const writeStream = createWriteStream(filePath);
+    const archive = archiver("zip", { zlib: { level: 6 } });
+
+    writeStream.on("close", () => resolve());
+    archive.on("error", (err: Error) => reject(err));
+    archive.on("warning", (err: Error) => {
+      logger.warn({ err }, "archiver warning");
+    });
+
+    archive.pipe(writeStream);
+
+    // Add manifest.json
+    archive.append(JSON.stringify(manifest, null, 2), { name: "manifest.json" });
+
+    // Add files from storage — deduplicate by zipPath
+    const added = new Set<string>();
+    let fileCount = 0;
+    for (const { zipPath, storagePath } of files) {
+      if (added.has(zipPath)) continue;
+      added.add(zipPath);
+      try {
+        const absPath = getStorageAbsolutePath(storagePath);
+        archive.file(absPath, { name: zipPath });
+        fileCount++;
+        if (fileCount % 100 === 0) {
+          job.progress = { phase: "writing ZIP", detail: `${fileCount} / ${files.length} files added` };
+        }
+      } catch (err) {
+        logger.warn({ storagePath, err }, "could not add file to ZIP, skipping");
+      }
+    }
+
+    void archive.finalize();
+  });
+}
+
 // ── Import logic ─────────────────────────────────────────────────────
 
 async function runImport(job: TransferJob, filePath: string): Promise<void> {
   try {
-    // 1. Read and parse file
-    job.progress = { phase: "reading file" };
-    const raw = await fs.readFile(filePath, "utf-8");
-
-    job.progress = { phase: "parsing JSON" };
-    const data = JSON.parse(raw) as WorkbenchExportData;
-
-    // 2. Validate structure
-    if (!data.version || (data.version !== 1 && data.version !== 2)) {
-      throw new Error(`Unsupported export version: ${data.version}`);
-    }
-    const isV2 = data.version === 2;
-    if (!Array.isArray(data.categories) || !Array.isArray(data.prompts) ||
-        !Array.isArray(data.examples) || !Array.isArray(data.systemPrompts)) {
-      throw new Error("Invalid export file: missing required arrays");
+    // Detect format: ZIP (PK magic bytes) or JSON
+    job.progress = { phase: "detecting format" };
+    const header = Buffer.alloc(2);
+    const fd = await fs.open(filePath, "r");
+    try {
+      await fd.read(header, 0, 2, 0);
+    } finally {
+      await fd.close();
     }
 
-    logger.info(
-      { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length, systemPrompts: data.systemPrompts.length },
-      "import started",
-    );
+    const isZip = header[0] === 0x50 && header[1] === 0x4B; // "PK"
 
-    // 3. Run destructive import in a single transaction
-    // Build prompt→category lookup so we can construct file paths for v2 imports
-    const promptCategoryMap = new Map<string, string>();
-    for (const p of data.prompts) {
-      promptCategoryMap.set(p.id, p.category_id);
+    if (isZip) {
+      await runZipImport(job, filePath);
+    } else {
+      await runJsonImport(job, filePath);
     }
-
-    // Resolve v2 screenshot files before the transaction (file I/O outside tx)
-    const resolvedScreenshots = new Map<string, {
-      front: string | null;
-      top: string | null;
-      iso: string | null;
-      isoBack: string | null;
-      bottom: string | null;
-    }>();
-
-    if (isV2) {
-      job.progress = { phase: "writing screenshot files", detail: `${data.examples.length} examples` };
-      for (const ex of data.examples) {
-        const categoryId = promptCategoryMap.get(ex.prompt_id);
-        if (categoryId) {
-          resolvedScreenshots.set(ex.id, {
-            front: await writeScreenshotOnImport(categoryId, ex.id, "front", ex.screenshot_front),
-            top: await writeScreenshotOnImport(categoryId, ex.id, "top", ex.screenshot_top),
-            iso: await writeScreenshotOnImport(categoryId, ex.id, "iso", ex.screenshot_iso),
-            isoBack: await writeScreenshotOnImport(categoryId, ex.id, "iso-back", ex.screenshot_iso_back ?? null),
-            bottom: await writeScreenshotOnImport(categoryId, ex.id, "bottom", ex.screenshot_bottom ?? null),
-          });
-        }
-      }
-    }
-
-    await prisma.$transaction(async (tx) => {
-      // Delete in FK order (children first)
-      job.progress = { phase: "clearing existing data" };
-      await tx.workbenchExample.deleteMany();
-      await tx.workbenchExamplePrompt.deleteMany();
-      await tx.workbenchCategory.deleteMany();
-      await tx.workbenchSystemPrompt.deleteMany();
-
-      // Insert categories
-      job.progress = { phase: "inserting categories", detail: `${data.categories.length} rows` };
-      for (const cat of data.categories) {
-        await tx.workbenchCategory.create({
-          data: {
-            id: cat.id,
-            rank: cat.rank,
-            name: cat.name,
-            complexity: cat.complexity,
-            description: cat.description,
-            createdAt: new Date(cat.created_at),
-            updatedAt: new Date(cat.updated_at),
-          },
-        });
-      }
-
-      // Insert prompts (with embeddings — pgvector requires raw SQL)
-      job.progress = { phase: "inserting prompts", detail: `${data.prompts.length} rows` };
-      for (const p of data.prompts) {
-        const embeddingValue = p.embedding
-          ? `[${p.embedding.join(",")}]`
-          : null;
-        if (embeddingValue) {
-          await tx.$executeRaw`
-            INSERT INTO workbench_example_prompts (id, category_id, index, prompt, embedding, embedding_model, created_at)
-            VALUES (${p.id}::uuid, ${p.category_id}::uuid, ${p.index}, ${p.prompt}, ${embeddingValue}::vector, ${p.embedding_model}, ${new Date(p.created_at)})
-          `;
-        } else {
-          await tx.workbenchExamplePrompt.create({
-            data: {
-              id: p.id,
-              categoryId: p.category_id,
-              index: p.index,
-              prompt: p.prompt,
-              embeddingModel: p.embedding_model,
-              createdAt: new Date(p.created_at),
-            },
-          });
-        }
-      }
-
-      // Insert examples
-      job.progress = { phase: "inserting examples", detail: `${data.examples.length} rows` };
-      for (const ex of data.examples) {
-        const ss = resolvedScreenshots.get(ex.id);
-        const ssFront = ss ? ss.front : ex.screenshot_front;
-        const ssTop = ss ? ss.top : ex.screenshot_top;
-        const ssIso = ss ? ss.iso : ex.screenshot_iso;
-        const ssIsoBack = ss ? ss.isoBack : (ex.screenshot_iso_back ?? null);
-        const ssBottom = ss ? ss.bottom : (ex.screenshot_bottom ?? null);
-
-        await tx.workbenchExample.create({
-          data: {
-            id: ex.id,
-            promptId: ex.prompt_id,
-            iteration: ex.iteration,
-            generationSeed: ex.generation_seed,
-            code: ex.code,
-            renderStatus: ex.render_status,
-            renderError: ex.render_error,
-            stlPath: ex.stl_path,
-            stepPath: ex.step_path,
-            threemfPath: ex.threemf_path,
-            screenshotFront: ssFront,
-            screenshotTop: ssTop,
-            screenshotIso: ssIso,
-            screenshotIsoBack: ssIsoBack,
-            screenshotBottom: ssBottom,
-            evalScore: ex.eval_score,
-            evalIssues: ex.eval_issues ? ex.eval_issues as object : undefined,
-            evalSuggestions: ex.eval_suggestions ? ex.eval_suggestions as object : undefined,
-            approvalStatus: ex.approval_status,
-            rejectionNote: ex.rejection_note,
-            llmModel: ex.llm_model,
-            vlmModel: ex.vlm_model,
-            promptTokens: ex.prompt_tokens,
-            completionTokens: ex.completion_tokens,
-            createdAt: new Date(ex.created_at),
-            updatedAt: new Date(ex.updated_at),
-          },
-        });
-      }
-
-      // Insert system prompts
-      job.progress = { phase: "inserting system prompts", detail: `${data.systemPrompts.length} rows` };
-      for (const sp of data.systemPrompts) {
-        await tx.workbenchSystemPrompt.create({
-          data: {
-            id: sp.id,
-            version: sp.version,
-            label: sp.label,
-            content: sp.content,
-            isActive: sp.is_active,
-            createdAt: new Date(sp.created_at),
-          },
-        });
-      }
-    }, { timeout: 120000 });
-
-    // 4. Done
-    job.counts = {
-      categories: data.categories.length,
-      prompts: data.prompts.length,
-      examples: data.examples.length,
-      systemPrompts: data.systemPrompts.length,
-    };
-    job.status = "completed";
-    job.finishedAt = new Date().toISOString();
-    job.progress = { phase: "done" };
-
-    logger.info(
-      { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length, systemPrompts: data.systemPrompts.length },
-      "import completed",
-    );
 
     // Clean up uploaded file
     try {
@@ -609,4 +587,393 @@ async function runImport(job: TransferJob, filePath: string): Promise<void> {
     job.finishedAt = new Date().toISOString();
     logger.error({ jobId: job.jobId, err: job.error }, "import failed");
   }
+}
+
+// ── ZIP Import (v3) ──────────────────────────────────────────────────
+
+async function runZipImport(job: TransferJob, filePath: string): Promise<void> {
+  // 1. Open ZIP and read manifest
+  job.progress = { phase: "reading ZIP manifest" };
+  const directory = await unzipperOpen.file(filePath);
+
+  const manifestEntry = directory.files.find((f) => f.path === "manifest.json");
+  if (!manifestEntry) {
+    throw new Error("ZIP file does not contain manifest.json");
+  }
+
+  const manifestBuffer = await manifestEntry.buffer();
+  const data = JSON.parse(manifestBuffer.toString("utf-8")) as WorkbenchExportData;
+
+  if (data.version !== 3) {
+    throw new Error(`Unexpected manifest version in ZIP: ${data.version} (expected 3)`);
+  }
+  if (!Array.isArray(data.categories) || !Array.isArray(data.prompts) ||
+      !Array.isArray(data.examples) || !Array.isArray(data.systemPrompts)) {
+    throw new Error("Invalid manifest: missing required arrays");
+  }
+
+  logger.info(
+    { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length, systemPrompts: data.systemPrompts.length },
+    "ZIP import started",
+  );
+
+  // 2. Extract files/ entries to storage
+  const fileEntries = directory.files.filter((f) => f.path.startsWith("files/") && f.type === "File");
+  job.progress = { phase: "extracting files", detail: `${fileEntries.length} files` };
+
+  let extractedCount = 0;
+  for (const entry of fileEntries) {
+    // Strip "files/" prefix to get the storage-relative path
+    const relativePath = entry.path.slice("files/".length);
+    if (!relativePath) continue;
+
+    const buffer = await entry.buffer();
+    await writeStorageFileFromBuffer({ relativePath, content: buffer });
+    extractedCount++;
+
+    if (extractedCount % 50 === 0) {
+      job.progress = { phase: "extracting files", detail: `${extractedCount} / ${fileEntries.length}` };
+    }
+  }
+
+  logger.info({ jobId: job.jobId, extractedCount }, "ZIP files extracted to storage");
+
+  // 3. Build lookups
+  const promptCategoryMap = new Map<string, string>();
+  for (const p of data.prompts) {
+    promptCategoryMap.set(p.id, p.category_id);
+  }
+
+  // 4. Run destructive import in a single transaction
+  await prisma.$transaction(async (tx) => {
+    // Delete in FK order (children first)
+    job.progress = { phase: "clearing existing data" };
+    await tx.workbenchExample.deleteMany();
+    await tx.workbenchExamplePrompt.deleteMany();
+    await tx.workbenchCategory.deleteMany();
+    await tx.workbenchSystemPrompt.deleteMany();
+
+    // Insert categories
+    job.progress = { phase: "inserting categories", detail: `${data.categories.length} rows` };
+    for (const cat of data.categories) {
+      await tx.workbenchCategory.create({
+        data: {
+          id: cat.id,
+          rank: cat.rank,
+          name: cat.name,
+          complexity: cat.complexity,
+          description: cat.description,
+          createdAt: new Date(cat.created_at),
+          updatedAt: new Date(cat.updated_at),
+        },
+      });
+    }
+
+    // Insert prompts (with embeddings — pgvector requires raw SQL)
+    job.progress = { phase: "inserting prompts", detail: `${data.prompts.length} rows` };
+    for (const p of data.prompts) {
+      const embeddingValue = p.embedding
+        ? `[${p.embedding.join(",")}]`
+        : null;
+      if (embeddingValue) {
+        await tx.$executeRaw`
+          INSERT INTO workbench_example_prompts (id, category_id, index, prompt, embedding, embedding_model, created_at)
+          VALUES (${p.id}::uuid, ${p.category_id}::uuid, ${p.index}, ${p.prompt}, ${embeddingValue}::vector, ${p.embedding_model}, ${new Date(p.created_at)})
+        `;
+      } else {
+        await tx.workbenchExamplePrompt.create({
+          data: {
+            id: p.id,
+            categoryId: p.category_id,
+            index: p.index,
+            prompt: p.prompt,
+            embeddingModel: p.embedding_model,
+            createdAt: new Date(p.created_at),
+          },
+        });
+      }
+    }
+
+    // Insert examples — map ZIP-internal "files/workbench/..." paths back to "workbench/..."
+    job.progress = { phase: "inserting examples", detail: `${data.examples.length} rows` };
+    for (const ex of data.examples) {
+      await tx.workbenchExample.create({
+        data: {
+          id: ex.id,
+          promptId: ex.prompt_id,
+          iteration: ex.iteration,
+          generationSeed: ex.generation_seed,
+          code: ex.code,
+          renderStatus: ex.render_status,
+          renderError: ex.render_error,
+          stlPath: ex.stl_path,
+          stepPath: ex.step_path,
+          threemfPath: ex.threemf_path,
+          screenshotFront: stripFilesPrefix(ex.screenshot_front),
+          screenshotBack: stripFilesPrefix(ex.screenshot_back),
+          screenshotLeft: stripFilesPrefix(ex.screenshot_left),
+          screenshotRight: stripFilesPrefix(ex.screenshot_right),
+          screenshotTop: stripFilesPrefix(ex.screenshot_top),
+          screenshotBottom: stripFilesPrefix(ex.screenshot_bottom),
+          screenshotOrtho45: stripFilesPrefix(ex.screenshot_ortho_45),
+          screenshotOrtho45Bottom: stripFilesPrefix(ex.screenshot_ortho_45_bottom),
+          screenshotIso: stripFilesPrefix(ex.screenshot_iso),
+          screenshotIsoBack: stripFilesPrefix(ex.screenshot_iso_back),
+          evalScore: ex.eval_score,
+          evalIssues: ex.eval_issues ? ex.eval_issues as object : undefined,
+          evalSuggestions: ex.eval_suggestions ? ex.eval_suggestions as object : undefined,
+          approvalStatus: ex.approval_status,
+          rejectionNote: ex.rejection_note,
+          llmModel: ex.llm_model,
+          vlmModel: ex.vlm_model,
+          promptTokens: ex.prompt_tokens,
+          completionTokens: ex.completion_tokens,
+          createdAt: new Date(ex.created_at),
+          updatedAt: new Date(ex.updated_at),
+        },
+      });
+    }
+
+    // Insert system prompts
+    job.progress = { phase: "inserting system prompts", detail: `${data.systemPrompts.length} rows` };
+    for (const sp of data.systemPrompts) {
+      await tx.workbenchSystemPrompt.create({
+        data: {
+          id: sp.id,
+          version: sp.version,
+          label: sp.label,
+          content: sp.content,
+          isActive: sp.is_active,
+          createdAt: new Date(sp.created_at),
+        },
+      });
+    }
+  }, { timeout: 120000 });
+
+  // 5. Done
+  job.counts = {
+    categories: data.categories.length,
+    prompts: data.prompts.length,
+    examples: data.examples.length,
+    systemPrompts: data.systemPrompts.length,
+  };
+  job.status = "completed";
+  job.finishedAt = new Date().toISOString();
+  job.progress = { phase: "done" };
+
+  logger.info(
+    { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length, systemPrompts: data.systemPrompts.length, files: extractedCount },
+    "ZIP import completed",
+  );
+}
+
+/**
+ * Strip the "files/" prefix from a ZIP-internal path to get the storage-relative path.
+ * Passes through null and non-prefixed values (e.g. legacy base64).
+ */
+function stripFilesPrefix(value: string | null): string | null {
+  if (!value) return null;
+  if (value.startsWith("files/")) return value.slice("files/".length);
+  return value;
+}
+
+// ── JSON Import (v1/v2 — backwards compatible) ──────────────────────
+
+async function runJsonImport(job: TransferJob, filePath: string): Promise<void> {
+  // 1. Read and parse file
+  job.progress = { phase: "reading file" };
+  const raw = await fs.readFile(filePath, "utf-8");
+
+  job.progress = { phase: "parsing JSON" };
+  const data = JSON.parse(raw) as WorkbenchExportData;
+
+  // 2. Validate structure
+  if (!data.version || (data.version !== 1 && data.version !== 2)) {
+    throw new Error(`Unsupported export version: ${data.version}`);
+  }
+  const isV2 = data.version === 2;
+  if (!Array.isArray(data.categories) || !Array.isArray(data.prompts) ||
+      !Array.isArray(data.examples) || !Array.isArray(data.systemPrompts)) {
+    throw new Error("Invalid export file: missing required arrays");
+  }
+
+  logger.info(
+    { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length, systemPrompts: data.systemPrompts.length },
+    "JSON import started",
+  );
+
+  // 3. Run destructive import in a single transaction
+  // Build prompt→category lookup so we can construct file paths for v2 imports
+  const promptCategoryMap = new Map<string, string>();
+  for (const p of data.prompts) {
+    promptCategoryMap.set(p.id, p.category_id);
+  }
+
+  // Resolve v2 screenshot files before the transaction (file I/O outside tx)
+  const resolvedScreenshots = new Map<string, {
+    front: string | null;
+    back: string | null;
+    left: string | null;
+    right: string | null;
+    top: string | null;
+    bottom: string | null;
+    ortho45: string | null;
+    ortho45Bottom: string | null;
+    iso: string | null;
+    isoBack: string | null;
+  }>();
+
+  if (isV2) {
+    job.progress = { phase: "writing screenshot files", detail: `${data.examples.length} examples` };
+    for (const ex of data.examples) {
+      const categoryId = promptCategoryMap.get(ex.prompt_id);
+      if (categoryId) {
+        resolvedScreenshots.set(ex.id, {
+          front: await writeScreenshotOnImport(categoryId, ex.id, "front", ex.screenshot_front),
+          back: await writeScreenshotOnImport(categoryId, ex.id, "back", ex.screenshot_back ?? null),
+          left: await writeScreenshotOnImport(categoryId, ex.id, "left", ex.screenshot_left ?? null),
+          right: await writeScreenshotOnImport(categoryId, ex.id, "right", ex.screenshot_right ?? null),
+          top: await writeScreenshotOnImport(categoryId, ex.id, "top", ex.screenshot_top),
+          bottom: await writeScreenshotOnImport(categoryId, ex.id, "bottom", ex.screenshot_bottom ?? null),
+          ortho45: await writeScreenshotOnImport(categoryId, ex.id, "ortho-45", ex.screenshot_ortho_45 ?? null),
+          ortho45Bottom: await writeScreenshotOnImport(categoryId, ex.id, "ortho-45-bottom", ex.screenshot_ortho_45_bottom ?? null),
+          iso: await writeScreenshotOnImport(categoryId, ex.id, "iso", ex.screenshot_iso),
+          isoBack: await writeScreenshotOnImport(categoryId, ex.id, "iso-back", ex.screenshot_iso_back ?? null),
+        });
+      }
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // Delete in FK order (children first)
+    job.progress = { phase: "clearing existing data" };
+    await tx.workbenchExample.deleteMany();
+    await tx.workbenchExamplePrompt.deleteMany();
+    await tx.workbenchCategory.deleteMany();
+    await tx.workbenchSystemPrompt.deleteMany();
+
+    // Insert categories
+    job.progress = { phase: "inserting categories", detail: `${data.categories.length} rows` };
+    for (const cat of data.categories) {
+      await tx.workbenchCategory.create({
+        data: {
+          id: cat.id,
+          rank: cat.rank,
+          name: cat.name,
+          complexity: cat.complexity,
+          description: cat.description,
+          createdAt: new Date(cat.created_at),
+          updatedAt: new Date(cat.updated_at),
+        },
+      });
+    }
+
+    // Insert prompts (with embeddings — pgvector requires raw SQL)
+    job.progress = { phase: "inserting prompts", detail: `${data.prompts.length} rows` };
+    for (const p of data.prompts) {
+      const embeddingValue = p.embedding
+        ? `[${p.embedding.join(",")}]`
+        : null;
+      if (embeddingValue) {
+        await tx.$executeRaw`
+          INSERT INTO workbench_example_prompts (id, category_id, index, prompt, embedding, embedding_model, created_at)
+          VALUES (${p.id}::uuid, ${p.category_id}::uuid, ${p.index}, ${p.prompt}, ${embeddingValue}::vector, ${p.embedding_model}, ${new Date(p.created_at)})
+        `;
+      } else {
+        await tx.workbenchExamplePrompt.create({
+          data: {
+            id: p.id,
+            categoryId: p.category_id,
+            index: p.index,
+            prompt: p.prompt,
+            embeddingModel: p.embedding_model,
+            createdAt: new Date(p.created_at),
+          },
+        });
+      }
+    }
+
+    // Insert examples
+    job.progress = { phase: "inserting examples", detail: `${data.examples.length} rows` };
+    for (const ex of data.examples) {
+      const ss = resolvedScreenshots.get(ex.id);
+      const ssFront = ss ? ss.front : ex.screenshot_front;
+      const ssBack = ss ? ss.back : (ex.screenshot_back ?? null);
+      const ssLeft = ss ? ss.left : (ex.screenshot_left ?? null);
+      const ssRight = ss ? ss.right : (ex.screenshot_right ?? null);
+      const ssTop = ss ? ss.top : ex.screenshot_top;
+      const ssBottom = ss ? ss.bottom : (ex.screenshot_bottom ?? null);
+      const ssOrtho45 = ss ? ss.ortho45 : (ex.screenshot_ortho_45 ?? null);
+      const ssOrtho45Bottom = ss ? ss.ortho45Bottom : (ex.screenshot_ortho_45_bottom ?? null);
+      const ssIso = ss ? ss.iso : ex.screenshot_iso;
+      const ssIsoBack = ss ? ss.isoBack : (ex.screenshot_iso_back ?? null);
+
+      await tx.workbenchExample.create({
+        data: {
+          id: ex.id,
+          promptId: ex.prompt_id,
+          iteration: ex.iteration,
+          generationSeed: ex.generation_seed,
+          code: ex.code,
+          renderStatus: ex.render_status,
+          renderError: ex.render_error,
+          stlPath: ex.stl_path,
+          stepPath: ex.step_path,
+          threemfPath: ex.threemf_path,
+          screenshotFront: ssFront,
+          screenshotBack: ssBack,
+          screenshotLeft: ssLeft,
+          screenshotRight: ssRight,
+          screenshotTop: ssTop,
+          screenshotBottom: ssBottom,
+          screenshotOrtho45: ssOrtho45,
+          screenshotOrtho45Bottom: ssOrtho45Bottom,
+          screenshotIso: ssIso,
+          screenshotIsoBack: ssIsoBack,
+          evalScore: ex.eval_score,
+          evalIssues: ex.eval_issues ? ex.eval_issues as object : undefined,
+          evalSuggestions: ex.eval_suggestions ? ex.eval_suggestions as object : undefined,
+          approvalStatus: ex.approval_status,
+          rejectionNote: ex.rejection_note,
+          llmModel: ex.llm_model,
+          vlmModel: ex.vlm_model,
+          promptTokens: ex.prompt_tokens,
+          completionTokens: ex.completion_tokens,
+          createdAt: new Date(ex.created_at),
+          updatedAt: new Date(ex.updated_at),
+        },
+      });
+    }
+
+    // Insert system prompts
+    job.progress = { phase: "inserting system prompts", detail: `${data.systemPrompts.length} rows` };
+    for (const sp of data.systemPrompts) {
+      await tx.workbenchSystemPrompt.create({
+        data: {
+          id: sp.id,
+          version: sp.version,
+          label: sp.label,
+          content: sp.content,
+          isActive: sp.is_active,
+          createdAt: new Date(sp.created_at),
+        },
+      });
+    }
+  }, { timeout: 120000 });
+
+  // 4. Done
+  job.counts = {
+    categories: data.categories.length,
+    prompts: data.prompts.length,
+    examples: data.examples.length,
+    systemPrompts: data.systemPrompts.length,
+  };
+  job.status = "completed";
+  job.finishedAt = new Date().toISOString();
+  job.progress = { phase: "done" };
+
+  logger.info(
+    { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length, systemPrompts: data.systemPrompts.length },
+    "JSON import completed",
+  );
 }

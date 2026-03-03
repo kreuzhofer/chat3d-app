@@ -135,6 +135,45 @@ export async function moveStorageFile(input: {
   return { path: assertSafeRelativePath(input.toPath) };
 }
 
+/**
+ * Write a file to the domain-scoped storage layout from a raw Buffer
+ * (no base64 encoding required).
+ */
+export async function writeStorageFileFromBuffer(input: {
+  relativePath: string;
+  content: Buffer;
+}): Promise<{ path: string; sizeBytes: number }> {
+  const absolutePath = resolveStoragePath(input.relativePath);
+  await mkdir(path.dirname(absolutePath), { recursive: true });
+  await writeFile(absolutePath, input.content);
+
+  return {
+    path: assertSafeRelativePath(input.relativePath),
+    sizeBytes: input.content.length,
+  };
+}
+
+/**
+ * Resolve a relative storage path to its absolute path on disk.
+ * Useful when external tools (e.g. archiver) need to read files directly.
+ */
+export function getStorageAbsolutePath(relativePath: string): string {
+  return resolveStoragePath(relativePath);
+}
+
+/**
+ * Check if a file exists in the storage root.
+ */
+export async function storageFileExists(relativePath: string): Promise<boolean> {
+  const absolutePath = resolveStoragePath(relativePath);
+  try {
+    await stat(absolutePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ── Legacy user-scoped storage (@deprecated) ─────────────────────────
 
 /** @deprecated Use resolveStoragePath with domain-scoped paths instead. */

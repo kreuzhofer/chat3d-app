@@ -11,13 +11,13 @@ import {
   listCategories,
   listTransferJobs,
   startFullExport,
-  uploadAndImport,
   type BatchJobSummary,
   type EmbeddingStatus,
   type ExportStats,
   type TransferJob,
   type WorkbenchCategory,
 } from "../api/workbench.api";
+import { chunkedUploadAndImport, type ChunkedUploadProgress } from "../api/chunked-upload";
 import { useAuth } from "../hooks/useAuth";
 import { InlineAlert } from "./layout/InlineAlert";
 import { PageHeader } from "./layout/PageHeader";
@@ -57,6 +57,7 @@ export function WorkbenchPage() {
   const [transferJobs, setTransferJobs] = useState<TransferJob[]>([]);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<ChunkedUploadProgress | null>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
 
   const loadData = useCallback(async () => {
@@ -173,15 +174,21 @@ export function WorkbenchPage() {
     }
 
     setImporting(true);
+    setImportProgress(null);
     setError(null);
     try {
-      const job = await uploadAndImport(token, file);
+      const job = await chunkedUploadAndImport({
+        token,
+        file,
+        onProgress: (progress) => setImportProgress(progress),
+      });
       setTransferJobs((prev) => [job, ...prev]);
       pushToast({ tone: "info", title: "Import started", description: "Background import running…" });
     } catch (e2) {
       setError(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setImporting(false);
+      setImportProgress(null);
     }
   }, [pushToast, token]);
 
@@ -193,11 +200,20 @@ export function WorkbenchPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error("Download failed");
+
+      // Extract filename from Content-Disposition header
+      const disposition = response.headers.get("Content-Disposition");
+      let fileName = "workbench-export.zip";
+      if (disposition) {
+        const match = disposition.match(/filename="?([^";\s]+)"?/);
+        if (match?.[1]) fileName = match[1];
+      }
+
       const blob = await response.blob();
       const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = blobUrl;
-      link.download = `workbench-export.json`;
+      link.download = fileName;
       link.click();
       URL.revokeObjectURL(blobUrl);
       pushToast({ tone: "success", title: "Export downloaded" });
@@ -286,14 +302,18 @@ export function WorkbenchPage() {
               Export Full
             </Button>
             <Button variant="outline" size="sm" iconLeft={<Upload className="h-3.5 w-3.5" />} loading={importing} onClick={handleImportClick}>
-              Import Full
+              {importing && importProgress && importProgress.phase === "uploading"
+                ? `Uploading ${importProgress.percent}%`
+                : importing && importProgress && importProgress.phase === "assembling"
+                ? "Processing…"
+                : "Import Full"}
             </Button>
           </>
         }
       />
 
       {/* Hidden file input for import */}
-      <input ref={importFileRef} type="file" accept=".json" className="hidden" onChange={(e) => void handleImportFile(e)} />
+      <input ref={importFileRef} type="file" accept=".json,.zip" className="hidden" onChange={(e) => void handleImportFile(e)} />
 
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
 

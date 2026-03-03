@@ -55,7 +55,15 @@ import {
   startImport,
 } from "../services/workbench-data-transfer.service.js";
 import { improvePrompt } from "../services/workbench-prompt-improve.service.js";
+import {
+  assembleChunks,
+  deleteUpload,
+  getUploadStatus,
+  initUpload,
+  receiveChunk,
+} from "../services/chunked-upload.service.js";
 import { prisma } from "../db/prisma.js";
+import express from "express";
 
 const logger = createLogger("workbench-routes");
 
@@ -694,8 +702,9 @@ workbenchRouter.get("/transfer-jobs/:jobId/download", async (req, res) => {
     }
     const fileStat = await stat(filePath);
     const fileName = path.basename(filePath);
-    res.setHeader("Content-Type", "application/json");
-    res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
+    const contentType = fileName.endsWith(".zip") ? "application/zip" : "application/json";
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     res.setHeader("Content-Length", fileStat.size);
     createReadStream(filePath).pipe(res);
   } catch (error) {
@@ -719,5 +728,85 @@ workbenchRouter.delete("/transfer-jobs/:jobId", async (req, res) => {
     }
   } catch (error) {
     res.status(500).json({ error: "Failed to delete transfer job", detail: String(error) });
+  }
+});
+
+// ── Chunked Upload Import ────────────────────────────────────────────
+
+workbenchRouter.post("/import/upload/init", async (req, res) => {
+  try {
+    const { fileName, fileSize, chunkSize } = req.body as {
+      fileName?: string;
+      fileSize?: number;
+      chunkSize?: number;
+    };
+    if (!fileName || typeof fileName !== "string") {
+      res.status(400).json({ error: "fileName is required" });
+      return;
+    }
+    if (!fileSize || typeof fileSize !== "number" || fileSize <= 0) {
+      res.status(400).json({ error: "fileSize must be a positive number" });
+      return;
+    }
+
+    const result = await initUpload(fileName, fileSize, chunkSize);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to init upload", detail: String(error) });
+  }
+});
+
+workbenchRouter.put(
+  "/import/upload/:uploadId/chunk/:index",
+  express.raw({ type: "application/octet-stream", limit: "25mb" }),
+  async (req, res) => {
+    try {
+      const { uploadId, index } = req.params;
+      const chunkIndex = parseInt(index, 10);
+      if (isNaN(chunkIndex)) {
+        res.status(400).json({ error: "chunk index must be a number" });
+        return;
+      }
+
+      const data = req.body as Buffer;
+      if (!Buffer.isBuffer(data) || data.length === 0) {
+        res.status(400).json({ error: "chunk data is required (application/octet-stream)" });
+        return;
+      }
+
+      const result = await receiveChunk(uploadId, chunkIndex, data);
+      res.status(200).json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = message.includes("not found") ? 404 : 400;
+      res.status(status).json({ error: message });
+    }
+  },
+);
+
+workbenchRouter.get("/import/upload/:uploadId/status", async (req, res) => {
+  try {
+    const status = getUploadStatus(req.params.uploadId);
+    if (!status) {
+      res.status(404).json({ error: "Upload session not found" });
+      return;
+    }
+    res.status(200).json(status);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to get upload status", detail: String(error) });
+  }
+});
+
+workbenchRouter.post("/import/upload/:uploadId/complete", async (req, res) => {
+  try {
+    const assembledPath = await assembleChunks(req.params.uploadId);
+    const job = startImport(assembledPath);
+    res.status(202).json(job);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const status = message.includes("not found") ? 404
+      : message.includes("Missing chunk") ? 400
+      : 500;
+    res.status(status).json({ error: message });
   }
 });
