@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Box, Cpu, Layers, Layout, MessageSquare, Shield, Zap } from "lucide-react";
+import { Box, Cpu, Layout, MessageSquare, Zap } from "lucide-react";
 import { type RecentModel, getRecentModels } from "../../api/public.api";
 import { RecentModelsCarousel } from "../../components/RecentModelsCarousel";
 
@@ -102,20 +102,7 @@ export function HomePage({ waitlistEnabled }: HomePageProps) {
       </section>
 
       {/* Recent Models Showcase */}
-      {recentModels.length > 0 && (
-        <>
-          <RecentModelsCarousel models={recentModels} />
-          <div className="flex justify-center -mt-8">
-            <Link
-              to="/gallery"
-              className="inline-flex items-center gap-2 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-5 py-2.5 text-sm font-medium text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
-            >
-              <Layers className="h-4 w-4 text-[hsl(var(--primary))]" />
-              Explore our library...
-            </Link>
-          </div>
-        </>
-      )}
+      {recentModels.length > 0 && <RecentModelsCarousel models={recentModels} />}
 
       {/* How It Works */}
       <section id="how-it-works" className="space-y-6">
@@ -152,37 +139,6 @@ export function HomePage({ waitlistEnabled }: HomePageProps) {
             </p>
           </li>
         </ol>
-      </section>
-
-      {/* Feature Cards */}
-      <section id="product" className="grid gap-4 md:grid-cols-3">
-        <article className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-5 transition hover:border-[hsl(var(--primary)_/_0.3)] hover:shadow-sm">
-          <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-[hsl(var(--primary)_/_0.1)] text-[hsl(var(--primary))]">
-            <Layout className="h-5 w-5" />
-          </div>
-          <h2 className="text-base font-semibold">3-Pane Workspace</h2>
-          <p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]">
-            Keep context navigation, thread decisions, and rendered outputs visible without switching apps.
-          </p>
-        </article>
-        <article className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-5 transition hover:border-[hsl(var(--primary)_/_0.3)] hover:shadow-sm">
-          <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-[hsl(var(--accent)_/_0.1)] text-[hsl(var(--accent))]">
-            <Shield className="h-5 w-5" />
-          </div>
-          <h2 className="text-base font-semibold">Admin-Ready Foundation</h2>
-          <p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]">
-            Waitlist policy, invitation controls, and user administration are integrated into the same runtime.
-          </p>
-        </article>
-        <article className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-5 transition hover:border-[hsl(var(--primary)_/_0.3)] hover:shadow-sm">
-          <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-[hsl(var(--success)_/_0.1)] text-[hsl(var(--success))]">
-            <Shield className="h-5 w-5" />
-          </div>
-          <h2 className="text-base font-semibold">Self-Hosted & Reliable</h2>
-          <p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]">
-            Self-hosted runtime with SSE updates, explicit policy controls, and deterministic behavior.
-          </p>
-        </article>
       </section>
 
       {/* Bottom CTA */}

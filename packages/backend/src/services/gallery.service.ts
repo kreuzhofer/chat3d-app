@@ -101,10 +101,10 @@ export async function listGalleryCategories(
     LIMIT ${pageSize} OFFSET ${offset}
   `;
 
-  // For each category, find the hero model
+  // For each category, find top 4 preview models (featured first, then top-rated)
   const categories: GalleryCategory[] = [];
   for (const cat of categoryRows) {
-    const heroRows = await prisma.$queryRaw<HeroRow[]>`
+    const previewRows = await prisma.$queryRaw<HeroRow[]>`
       SELECT e.id, p.prompt AS prompt_text, c.name AS category_name,
              c.id AS category_id, e.eval_score, e.created_at
       FROM workbench_examples e
@@ -118,10 +118,9 @@ export async function listGalleryCategories(
         e.featured DESC,
         e.eval_score DESC NULLS LAST,
         e.created_at DESC
-      LIMIT 1
+      LIMIT 4
     `;
 
-    const hero = heroRows[0];
     categories.push({
       id: cat.id,
       name: cat.name,
@@ -129,16 +128,14 @@ export async function listGalleryCategories(
       complexity: cat.complexity,
       rank: cat.rank,
       modelCount: Number(cat.model_count),
-      heroModel: hero
-        ? {
-            id: hero.id,
-            promptText: hero.prompt_text,
-            categoryName: hero.category_name,
-            categoryId: hero.category_id,
-            evalScore: hero.eval_score,
-            createdAt: hero.created_at.toISOString(),
-          }
-        : null,
+      previewModels: previewRows.map((r) => ({
+        id: r.id,
+        promptText: r.prompt_text,
+        categoryName: r.category_name,
+        categoryId: r.category_id,
+        evalScore: r.eval_score,
+        createdAt: r.created_at.toISOString(),
+      })),
     });
   }
 

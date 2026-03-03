@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { QueryServiceError, initiateQuery, executeQueryPipeline, resolvePromptForRegeneration, cancelPipeline } from "../services/query.service.js";
+import { extractParametersFromItem, reRenderWithParameters, ParameterTweakError } from "../services/parameter-tweak.service.js";
 
 export const queryRouter = Router();
 
@@ -11,6 +12,10 @@ function sendKnownError(
   error: unknown,
 ) {
   if (error instanceof QueryServiceError) {
+    res.status(error.statusCode).json({ error: error.message });
+    return;
+  }
+  if (error instanceof ParameterTweakError) {
     res.status(error.statusCode).json({ error: error.message });
     return;
   }
@@ -140,4 +145,59 @@ queryRouter.post("/stop", async (req, res) => {
 
   const wasRunning = cancelPipeline(assistantItemId, authUser.id);
   res.status(200).json({ ok: true, wasRunning });
+});
+
+queryRouter.get("/parameters/:contextId/:assistantItemId", async (req, res) => {
+  const authUser = req.authUser;
+  if (!authUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const { contextId, assistantItemId } = req.params;
+  if (!contextId || !assistantItemId) {
+    res.status(400).json({ error: "contextId and assistantItemId are required" });
+    return;
+  }
+
+  try {
+    const parameters = await extractParametersFromItem(contextId, assistantItemId);
+    res.status(200).json({ parameters });
+  } catch (error) {
+    sendKnownError(res, error);
+  }
+});
+
+queryRouter.post("/re-render", async (req, res) => {
+  const authUser = req.authUser;
+  if (!authUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const contextId = typeof req.body?.contextId === "string" ? req.body.contextId : "";
+  const sourceAssistantItemId = typeof req.body?.sourceAssistantItemId === "string" ? req.body.sourceAssistantItemId : "";
+  const parameters = req.body?.parameters;
+  if (!contextId || !sourceAssistantItemId) {
+    res.status(400).json({ error: "contextId and sourceAssistantItemId are required" });
+    return;
+  }
+  if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) {
+    res.status(400).json({ error: "parameters must be an object of name-value pairs" });
+    return;
+  }
+
+  try {
+    // Return 202 immediately, process in background (fire-and-forget)
+    res.status(202).json({ contextId, sourceAssistantItemId, status: "accepted" });
+
+    void reRenderWithParameters({
+      userId: authUser.id,
+      contextId,
+      sourceAssistantItemId,
+      parameters: parameters as Record<string, number>,
+    });
+  } catch (error) {
+    sendKnownError(res, error);
+  }
 });

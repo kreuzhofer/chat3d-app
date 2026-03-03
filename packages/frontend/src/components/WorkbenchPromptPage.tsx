@@ -647,7 +647,7 @@ export function WorkbenchPromptPage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="border border-amber-200 text-amber-500 hover:bg-amber-50 hover:text-amber-700"
+                          className="whitespace-nowrap border border-amber-600/40 text-amber-400 hover:bg-amber-400/10 hover:text-amber-300"
                           iconLeft={<Lightbulb className="h-3 w-3" />}
                           loading={improveBusy}
                           disabled={busy}

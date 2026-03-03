@@ -139,3 +139,49 @@ export function stopQuery(input: {
     body: JSON.stringify({ assistantItemId: input.assistantItemId }),
   });
 }
+
+export interface ExtractedParameter {
+  name: string;
+  value: number;
+  line: number;
+  description: string | null;
+}
+
+export function extractParameters(input: {
+  token: string;
+  contextId: string;
+  assistantItemId: string;
+}): Promise<{ parameters: ExtractedParameter[] }> {
+  return requestJson<{ parameters: ExtractedParameter[] }>(
+    `${QUERY_API_BASE}/parameters/${encodeURIComponent(input.contextId)}/${encodeURIComponent(input.assistantItemId)}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${input.token}`,
+      },
+    },
+  );
+}
+
+export function reRenderWithParameters(input: {
+  token: string;
+  contextId: string;
+  sourceAssistantItemId: string;
+  parameters: Record<string, number>;
+}): Promise<{ contextId: string; sourceAssistantItemId: string; status: string }> {
+  return requestJson<{ contextId: string; sourceAssistantItemId: string; status: string }>(
+    `${QUERY_API_BASE}/re-render`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${input.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contextId: input.contextId,
+        sourceAssistantItemId: input.sourceAssistantItemId,
+        parameters: input.parameters,
+      }),
+    },
+  );
+}

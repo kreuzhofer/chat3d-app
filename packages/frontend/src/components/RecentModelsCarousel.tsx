@@ -7,20 +7,24 @@ interface RecentModelsCarouselProps {
   models: RecentModel[];
 }
 
-/** Visible card count per breakpoint. */
-function getVisibleCount(): number {
-  if (typeof window === "undefined") return 5;
-  if (window.innerWidth >= 768) return 5;
-  if (window.innerWidth >= 640) return 3;
-  if (window.innerWidth >= 480) return 2;
-  return 1;
+interface LayoutConfig {
+  columns: number;
+  rows: number;
+}
+
+/** Responsive layout: columns × rows visible at once. */
+function getLayout(): LayoutConfig {
+  if (typeof window === "undefined") return { columns: 5, rows: 1 };
+  if (window.innerWidth >= 768) return { columns: 5, rows: 1 };
+  if (window.innerWidth >= 640) return { columns: 3, rows: 1 };
+  return { columns: 2, rows: 2 }; // 2×2 grid on mobile
 }
 
 export function RecentModelsCarousel({ models }: RecentModelsCarouselProps) {
   const [queue, setQueue] = useState(() => [...models]);
   const [sliding, setSliding] = useState(false);
   const [paused, setPaused] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(getVisibleCount);
+  const [layout, setLayout] = useState(getLayout);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Keep queue in sync if models prop changes
@@ -30,37 +34,39 @@ export function RecentModelsCarousel({ models }: RecentModelsCarouselProps) {
 
   // Track responsive breakpoint
   useEffect(() => {
-    const onResize = () => setVisibleCount(getVisibleCount());
+    const onResize = () => setLayout(getLayout());
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  const { columns, rows } = layout;
+
   const rotate = useCallback(() => {
     setSliding(true);
-    // After the CSS transition completes, reorder the queue and reset
+    // After CSS transition, shift out one column (= `rows` items)
     timerRef.current = setTimeout(() => {
-      setQueue((prev) => [...prev.slice(1), prev[0]]);
+      setQueue((prev) => [...prev.slice(rows), ...prev.slice(0, rows)]);
       setSliding(false);
     }, 500);
-  }, []);
+  }, [rows]);
 
   // Auto-rotation interval
   useEffect(() => {
-    if (paused || queue.length <= visibleCount) return;
+    if (paused || queue.length <= columns * rows) return;
     const id = setInterval(rotate, 5000);
     return () => {
       clearInterval(id);
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [paused, rotate, queue.length, visibleCount]);
+  }, [paused, rotate, queue.length, columns, rows]);
 
   if (models.length === 0) return null;
 
-  // Card width as percentage: each card takes 1/visibleCount of the container
-  // minus the gap (1rem = 16px between cards)
   const gapRem = 1;
-  const cardCalc = `calc((100% - ${(visibleCount - 1) * gapRem}rem) / ${visibleCount})`;
-  const shiftCalc = `calc((100% - ${(visibleCount - 1) * gapRem}rem) / ${visibleCount} + ${gapRem}rem)`;
+  // Column width: each visible column takes 1/columns of container minus gaps between columns
+  const colCalc = `calc((100% - ${(columns - 1) * gapRem}rem) / ${columns})`;
+  // Shift distance: one column width + one gap
+  const shiftCalc = `calc((100% - ${(columns - 1) * gapRem}rem) / ${columns} + ${gapRem}rem)`;
 
   return (
     <section className="rounded-2xl bg-[linear-gradient(135deg,#0f172a_0%,#1e293b_40%,#134e4a_100%)] p-4 text-slate-100 sm:p-6 md:p-8 lg:p-12">
@@ -83,9 +89,13 @@ export function RecentModelsCarousel({ models }: RecentModelsCarouselProps) {
         onMouseLeave={() => setPaused(false)}
       >
         <div
-          className="flex"
           style={{
-            gap: `${gapRem}rem`,
+            display: "grid",
+            gridTemplateRows: `repeat(${rows}, 1fr)`,
+            gridAutoFlow: "column",
+            gridAutoColumns: colCalc,
+            columnGap: `${gapRem}rem`,
+            rowGap: `${rows > 1 ? 0.75 : 0}rem`,
             transform: sliding ? `translateX(calc(-1 * ${shiftCalc}))` : "translateX(0)",
             transition: sliding ? "transform 500ms ease-in-out" : "none",
           }}
@@ -95,7 +105,6 @@ export function RecentModelsCarousel({ models }: RecentModelsCarouselProps) {
               key={model.id}
               to={`/gallery/category/${encodeURIComponent(model.categoryId)}?highlight=${encodeURIComponent(model.id)}`}
               className="shrink-0 rounded-xl border border-white/15 bg-black/20 p-3 transition hover:border-emerald-400/40 hover:bg-black/30"
-              style={{ width: cardCalc }}
             >
               <div className="aspect-square overflow-hidden rounded-lg bg-black/30">
                 <img
@@ -115,6 +124,17 @@ export function RecentModelsCarousel({ models }: RecentModelsCarouselProps) {
             </Link>
           ))}
         </div>
+      </div>
+
+      {/* Explore button */}
+      <div className="mt-4 flex justify-center sm:mt-6">
+        <Link
+          to="/gallery"
+          className="inline-flex items-center gap-2 rounded-md border border-white/20 bg-white/10 px-5 py-2.5 text-sm font-medium text-slate-100 transition hover:bg-white/20"
+        >
+          <Layers className="h-4 w-4 text-emerald-200" />
+          Explore our library...
+        </Link>
       </div>
     </section>
   );

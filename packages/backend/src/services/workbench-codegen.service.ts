@@ -154,6 +154,7 @@ export function buildInitialPrompt(
     "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math`. You may also import `itertools`, `functools`, `copy`, or `numpy`.",
     "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
     "- Use only Build123d classes and functions from the reference above.",
+    "- PARAMETER CONVENTION: Define all dimensional values (lengths, widths, heights, radii, angles, counts) as named variables at the top of your code before any BuildPart/BuildSketch blocks. Use descriptive snake_case names. Add a brief inline comment describing each parameter. Do NOT hardcode numeric values directly in constructors like Box(), Cylinder(), extrude(), fillet(), etc. Instead, assign them to variables first and reference the variables.",
     "",
     `User request: ${userPrompt}`,
   );
@@ -233,6 +234,7 @@ export function buildFixPrompt(
     "## Requirements",
     "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math`. You may also import `itertools`, `functools`, `copy`, or `numpy`.",
     "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
+    "- PARAMETER CONVENTION: Define all dimensional values (lengths, widths, heights, radii, angles, counts) as named variables at the top of your code before any BuildPart/BuildSketch blocks. Use descriptive snake_case names. Add a brief inline comment describing each parameter. Do NOT hardcode numeric values directly in constructors like Box(), Cylinder(), extrude(), fillet(), etc. Instead, assign them to variables first and reference the variables.",
     "",
     `## Original request:`,
     userPrompt,
@@ -303,6 +305,7 @@ export function buildModificationPrompt(
     "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
     "- Use only Build123d classes and functions from the reference above.",
     "- IMPORTANT: Start from the baseline code above and make targeted modifications. Do NOT rewrite from scratch. Preserve all working geometry, dimensions, and features unless the user explicitly asked to change them.",
+    "- PARAMETER CONVENTION: Define all dimensional values (lengths, widths, heights, radii, angles, counts) as named variables at the top of your code before any BuildPart/BuildSketch blocks. Use descriptive snake_case names. Add a brief inline comment describing each parameter. Do NOT hardcode numeric values directly in constructors like Box(), Cylinder(), extrude(), fillet(), etc. Instead, assign them to variables first and reference the variables.",
   );
 
   return sections.join("\n");

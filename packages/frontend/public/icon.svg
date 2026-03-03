@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="96" fill="#1e293b"/>
-  <g transform="translate(256,270)" fill="none" stroke="#38bdf8" stroke-width="18" stroke-linejoin="round">
+  <g transform="translate(256,246)" fill="none" stroke="#34d399" stroke-width="18" stroke-linejoin="round">
     <!-- 3D cube -->
-    <polygon points="0,-120 120,-40 0,40 -120,-40" fill="#38bdf8" fill-opacity="0.15"/>
-    <polygon points="0,40 120,-40 120,60 0,140" fill="#38bdf8" fill-opacity="0.08"/>
-    <polygon points="0,40 -120,-40 -120,60 0,140" fill="#38bdf8" fill-opacity="0.25"/>
+    <polygon points="0,-120 120,-40 0,40 -120,-40" fill="#34d399" fill-opacity="0.15"/>
+    <polygon points="0,40 120,-40 120,60 0,140" fill="#34d399" fill-opacity="0.08"/>
+    <polygon points="0,40 -120,-40 -120,60 0,140" fill="#34d399" fill-opacity="0.25"/>
     <line x1="0" y1="40" x2="0" y2="140"/>
     <line x1="0" y1="40" x2="120" y2="-40"/>
     <line x1="0" y1="40" x2="-120" y2="-40"/>
@@ -16,7 +16,7 @@
     <line x1="0" y1="140" x2="-120" y2="60"/>
   </g>
   <!-- Chat bubble dots -->
-  <circle cx="220" cy="160" r="10" fill="#38bdf8" opacity="0.6"/>
-  <circle cx="256" cy="160" r="10" fill="#38bdf8" opacity="0.6"/>
-  <circle cx="292" cy="160" r="10" fill="#38bdf8" opacity="0.6"/>
+  <circle cx="220" cy="136" r="10" fill="#34d399" opacity="0.6"/>
+  <circle cx="256" cy="136" r="10" fill="#34d399" opacity="0.6"/>
+  <circle cx="292" cy="136" r="10" fill="#34d399" opacity="0.6"/>
 </svg>

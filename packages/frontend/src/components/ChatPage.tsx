@@ -15,7 +15,18 @@ import {
   updateChatItem,
 } from "../api/chat.api";
 import { downloadFileBinary, uploadFileBase64 } from "../api/files.api";
-import { listLlmModels, regenerateQuery, stopQuery, submitQuery, type LlmModel, type QueryAttachment, type PendingFile } from "../api/query.api";
+import {
+  listLlmModels,
+  regenerateQuery,
+  stopQuery,
+  submitQuery,
+  extractParameters as extractParametersApi,
+  reRenderWithParameters,
+  type LlmModel,
+  type QueryAttachment,
+  type PendingFile,
+  type ExtractedParameter,
+} from "../api/query.api";
 import { EmptyState } from "./layout/EmptyState";
 import { InlineAlert } from "./layout/InlineAlert";
 import { useNotifications } from "../contexts/NotificationsContext";
@@ -23,7 +34,7 @@ import { useAuth } from "../hooks/useAuth";
 import { adaptChatItem } from "../features/chat/chat-adapters";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
-import { toErrorMessage, fileExtension, uniqueFilesByPath, buildModelVersionEntries } from "./chat/utils";
+import { toErrorMessage, fileExtension, uniqueFilesByPath } from "./chat/utils";
 import { ContextSidebar } from "./chat/ContextSidebar";
 import { MessageBubble } from "./chat/MessageBubble";
 import { PromptComposer } from "./chat/PromptComposer";
@@ -131,6 +142,10 @@ export function ChatPage() {
   const [streamingAssistantItemId, setStreamingAssistantItemId] = useState<string | null>(null);
   const [pushSubscribed, setPushSubscribed] = useState(true); // assume subscribed to avoid flash
   const [pushBusy, setPushBusy] = useState(false);
+  const [parameters, setParameters] = useState<ExtractedParameter[]>([]);
+  const [tweakedValues, setTweakedValues] = useState<Record<string, number>>({});
+  const [parametersLoading, setParametersLoading] = useState(false);
+  const [reRenderBusy, setReRenderBusy] = useState(false);
 
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
   /** Tracks which assistantItemId was "activated" (isStreaming became true for it).
@@ -149,9 +164,6 @@ export function ChatPage() {
     () => (activeContextId ? contexts.find((context) => context.id === activeContextId) ?? null : null),
     [activeContextId, contexts],
   );
-
-  const conversationModels = useMemo(() => models.filter((model) => model.stage === "conversation"), [models]);
-  const codegenModels = useMemo(() => models.filter((model) => model.stage === "codegen"), [models]);
 
   const queryStates = useMemo(() => {
     if (!activeContextId) {
@@ -186,11 +198,6 @@ export function ChatPage() {
 
   const activeAssistantItems = useMemo(
     () => timelineItems.filter((item) => item.role === "assistant"),
-    [timelineItems],
-  );
-
-  const modelVersions = useMemo(
-    () => buildModelVersionEntries(timelineItems),
     [timelineItems],
   );
 
@@ -401,6 +408,8 @@ export function ChatPage() {
     setVisibleTimelineCount(80);
     setPendingFiles((prev) => { prev.forEach((f) => { if (f.previewUrl) URL.revokeObjectURL(f.previewUrl); }); return []; });
     setStreamingAssistantItemId(null);
+    setParameters([]);
+    setTweakedValues({});
     setError("");
     setMessage("");
   }, [activeContext?.chat3dModelId, activeContext?.conversationModelId, activeContextId]);
@@ -527,6 +536,56 @@ export function ChatPage() {
     }
   }, [activeAssistantItems]);
 
+  // ── Extract parameters when selected assistant item changes ────────
+  useEffect(() => {
+    if (!token || !activeContextId || !selectedAssistantItem) {
+      setParameters([]);
+      setTweakedValues({});
+      return;
+    }
+
+    // Only extract if the item has a completed 3D model segment
+    const has3dModel = selectedAssistantItem.segments.some(
+      (seg) => seg.kind === "model" && seg.state === "completed",
+    );
+    if (!has3dModel) {
+      setParameters([]);
+      setTweakedValues({});
+      return;
+    }
+
+    let cancelled = false;
+    setParametersLoading(true);
+
+    extractParametersApi({
+      token,
+      contextId: activeContextId,
+      assistantItemId: selectedAssistantItem.id,
+    })
+      .then((result) => {
+        if (cancelled) return;
+        setParameters(result.parameters);
+        // Initialize tweaked values from original parameter values
+        const initial: Record<string, number> = {};
+        for (const p of result.parameters) {
+          initial[p.name] = p.value;
+        }
+        setTweakedValues(initial);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setParameters([]);
+        setTweakedValues({});
+      })
+      .finally(() => {
+        if (!cancelled) setParametersLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token, activeContextId, selectedAssistantItem?.id, selectedAssistantItem?.segments]);
+
   async function createContextAction(overrideName?: string) {
     if (!token) {
       return;
@@ -610,29 +669,6 @@ export function ChatPage() {
       }
       await refreshContexts();
       setMessage(t("pages:chat.contextDeleted"));
-    } catch (actionError) {
-      setError(toErrorMessage(actionError));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function saveModelSelectionAction() {
-    if (!token || !activeContextId) {
-      return;
-    }
-
-    setBusyAction("save-model-selection");
-    setError("");
-    setMessage("");
-
-    try {
-      await updateChatContext(token, activeContextId, {
-        conversationModelId: conversationModelId || null,
-        chat3dModelId: codegenModelId || null,
-      });
-      await refreshContexts();
-      setMessage(t("pages:chat.modelSelectionSaved"));
     } catch (actionError) {
       setError(toErrorMessage(actionError));
     } finally {
@@ -873,6 +909,30 @@ export function ChatPage() {
     }
   }
 
+  async function reRenderAction() {
+    if (!token || !activeContextId || !selectedAssistantItem) return;
+
+    setReRenderBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await reRenderWithParameters({
+        token,
+        contextId: activeContextId,
+        sourceAssistantItemId: selectedAssistantItem.id,
+        parameters: tweakedValues,
+      });
+
+      // Refresh items to show the new user + assistant items
+      const loaded = await listChatItems(token, activeContextId);
+      setItems(loaded);
+    } catch (actionError) {
+      setError(toErrorMessage(actionError));
+    } finally {
+      setReRenderBusy(false);
+    }
+  }
+
   const mobilePaneTabs = [
     { id: "contexts", labelKey: "pages:chat.mobileTabs.contexts" },
     { id: "thread", labelKey: "pages:chat.mobileTabs.thread" },
@@ -1069,27 +1129,15 @@ export function ChatPage() {
             selectedAssistantItem={selectedAssistantItem}
             selectedAssistantFiles={selectedAssistantFiles}
             selectedPreviewFile={selectedPreviewFile}
-            queryStates={queryStates}
-            modelVersions={modelVersions}
-            selectedVersionId={selectedAssistantItemId}
-            conversationModels={conversationModels}
-            codegenModels={codegenModels}
-            conversationModelId={conversationModelId}
-            codegenModelId={codegenModelId}
-            outputFormat={outputFormat}
-            detailLevel={detailLevel}
-            advancedPrompt={advancedPrompt}
-            activeContextId={activeContextId}
             busyAction={busyAction}
             token={token}
-            onConversationModelChange={setConversationModelId}
-            onCodegenModelChange={setCodegenModelId}
-            onOutputFormatChange={setOutputFormat}
-            onDetailLevelChange={setDetailLevel}
-            onAdvancedPromptChange={setAdvancedPrompt}
-            onSaveModelSelection={() => void saveModelSelectionAction()}
+            parameters={parameters}
+            tweakedValues={tweakedValues}
+            parametersLoading={parametersLoading}
+            reRenderBusy={reRenderBusy}
+            onParameterChange={(name, value) => setTweakedValues((prev) => ({ ...prev, [name]: value }))}
+            onReRender={() => void reRenderAction()}
             onDownloadFile={(filePath) => void downloadFileAction(filePath)}
-            onSelectVersion={setSelectedAssistantItemId}
           />
         </aside>
       </div>

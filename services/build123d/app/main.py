@@ -1,4 +1,5 @@
-from typing import Union, List
+from typing import Union, List, Optional
+import ast
 import os
 import traceback
 import logging
@@ -67,6 +68,18 @@ class RenderResponse(BaseModel):
     success: bool
     files: List[FileData] = []
     message: str = ""
+
+class ExtractParamsRequest(BaseModel):
+    code: str
+
+class ExtractedParameter(BaseModel):
+    name: str
+    value: float
+    line: int
+    description: Optional[str] = None
+
+class ExtractParamsResponse(BaseModel):
+    parameters: List[ExtractedParameter] = []
 
 @app.get("/")
 def read_root():
@@ -210,3 +223,75 @@ def render_post(request: RenderRequest):
             content=response.dict(),
             status_code=status.HTTP_202_ACCEPTED
         )
+
+# ── Parameter extraction ─────────────────────────────────────────────
+
+# Names that are clearly not user-configurable parameters
+_EXCLUDED_NAMES = frozenset({"root_part", "part", "result", "sketch", "builder"})
+
+@app.post("/extract-params/")
+def extract_params(request: ExtractParamsRequest):
+    """Parse Build123d code and return top-level numeric variable assignments."""
+    try:
+        tree = ast.parse(request.code)
+    except SyntaxError as e:
+        return JSONResponse(
+            content={"parameters": [], "error": f"Syntax error: {e}"},
+            status_code=status.HTTP_200_OK,
+        )
+
+    source_lines = request.code.splitlines()
+    parameters: List[dict] = []
+
+    for node in ast.iter_child_nodes(tree):
+        # Only top-level simple assignments: name = <numeric literal>
+        if not isinstance(node, ast.Assign):
+            continue
+        if len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name):
+            continue
+
+        # Value must be a numeric constant (int or float) or negated numeric
+        value_node = node.value
+        negate = False
+        if isinstance(value_node, ast.UnaryOp) and isinstance(value_node.op, ast.USub):
+            value_node = value_node.operand
+            negate = True
+
+        if not isinstance(value_node, ast.Constant):
+            continue
+        if not isinstance(value_node.value, (int, float)):
+            continue
+
+        name = target.id
+        if name in _EXCLUDED_NAMES or name.startswith("_"):
+            continue
+
+        raw_value = value_node.value
+        if negate:
+            raw_value = -raw_value
+
+        # Extract inline comment from the source line
+        description = None
+        line_idx = node.lineno - 1  # ast uses 1-based line numbers
+        if 0 <= line_idx < len(source_lines):
+            line_text = source_lines[line_idx]
+            hash_pos = line_text.find("#")
+            if hash_pos >= 0:
+                comment = line_text[hash_pos + 1:].strip()
+                if comment:
+                    description = comment
+
+        parameters.append({
+            "name": name,
+            "value": float(raw_value),
+            "line": node.lineno,
+            "description": description,
+        })
+
+    return JSONResponse(
+        content={"parameters": parameters},
+        status_code=status.HTTP_200_OK,
+    )

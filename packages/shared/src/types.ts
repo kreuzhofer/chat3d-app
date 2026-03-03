@@ -50,7 +50,8 @@ export interface GalleryCategory {
   complexity: number;
   rank: number;
   modelCount: number;
-  heroModel: GalleryModelSummary | null;
+  /** Top-rated preview models (up to 4). First item is the featured/hero model. */
+  previewModels: GalleryModelSummary[];
 }
 
 export interface GalleryModelDetail extends GalleryModelSummary {
