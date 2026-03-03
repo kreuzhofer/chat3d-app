@@ -1,7 +1,9 @@
 import { type PropsWithChildren, useMemo, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Box, Menu, X } from "lucide-react";
 import { Button } from "../../components/ui/button";
+import { LanguageSelector } from "../../components/LanguageSelector";
 import { ThemeToggle } from "../../components/ui/theme-toggle";
 
 interface PublicShellProps {
@@ -10,14 +12,15 @@ interface PublicShellProps {
 }
 
 export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsWithChildren<PublicShellProps>) {
+  const { t } = useTranslation(["pages", "common"]);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const cta = useMemo(
     () =>
       waitlistEnabled
-        ? { label: "Join Waitlist", to: "/waitlist" }
-        : { label: "Start Building", to: "/register" },
-    [waitlistEnabled],
+        ? { label: t("common:cta.joinWaitlist"), to: "/waitlist" }
+        : { label: t("common:cta.startBuilding"), to: "/register" },
+    [waitlistEnabled, t],
   );
 
   return (
@@ -34,20 +37,21 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
               to="/#product"
               className="rounded-md px-3 py-2 text-sm text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
             >
-              Product
+              {t("common:nav.product")}
             </NavLink>
             <NavLink
               to="/pricing"
               className="rounded-md px-3 py-2 text-sm text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
             >
-              Pricing
+              {t("common:nav.pricing")}
             </NavLink>
             <NavLink
               to="/login"
               className="rounded-md px-3 py-2 text-sm text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
             >
-              Login
+              {t("common:nav.login")}
             </NavLink>
+            <LanguageSelector />
             <ThemeToggle />
             <Link
               to={cta.to}
@@ -61,7 +65,7 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
             <Button
               variant="ghost"
               size="icon"
-              aria-label={menuOpen ? "Close menu" : "Open menu"}
+              aria-label={menuOpen ? t("common:a11y.closeMenu") : t("common:a11y.openMenu")}
               onClick={() => setMenuOpen((open) => !open)}
             >
               {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -77,21 +81,21 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
                 className="rounded-md px-3 py-2 text-sm text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
                 onClick={() => setMenuOpen(false)}
               >
-                Product
+                {t("common:nav.product")}
               </NavLink>
               <NavLink
                 to="/pricing"
                 className="rounded-md px-3 py-2 text-sm text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
                 onClick={() => setMenuOpen(false)}
               >
-                Pricing
+                {t("common:nav.pricing")}
               </NavLink>
               <NavLink
                 to="/login"
                 className="rounded-md px-3 py-2 text-sm text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
                 onClick={() => setMenuOpen(false)}
               >
-                Login
+                {t("common:nav.login")}
               </NavLink>
               <Link
                 to={cta.to}
@@ -106,11 +110,11 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
 
         {waitlistState === "loading" ? (
           <p className="border-t border-[hsl(var(--border))] px-4 py-2 text-xs text-[hsl(var(--muted-foreground))] md:px-6">
-            Checking registration mode...
+            {t("pages:publicShell.checkingRegistration")}
           </p>
         ) : waitlistEnabled ? (
           <p className="border-t border-[hsl(var(--warning)_/_0.2)] bg-[hsl(var(--warning)_/_0.08)] px-4 py-2 text-xs text-[hsl(var(--warning))] md:px-6">
-            Waitlist mode is active. New users can join the waitlist and will receive a registration link after approval.
+            {t("pages:publicShell.waitlistBanner")}
           </p>
         ) : null}
       </header>
@@ -122,14 +126,14 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
           <div className="flex items-center gap-2 text-[hsl(var(--muted-foreground))]">
             <Box className="h-4 w-4 text-[hsl(var(--primary))]" />
             <span className="font-medium text-[hsl(var(--foreground))]">Chat3D</span>
-            <span className="text-xs">Prompt-to-CAD workspace</span>
+            <span className="text-xs">{t("common:tagline")}</span>
           </div>
           <div className="flex items-center gap-4 text-[hsl(var(--muted-foreground))]">
             <Link className="transition hover:text-[hsl(var(--foreground))]" to="/imprint">
-              Imprint
+              {t("common:footer.imprint")}
             </Link>
             <Link className="transition hover:text-[hsl(var(--foreground))]" to="/legal">
-              Legal
+              {t("common:footer.legal")}
             </Link>
           </div>
         </div>

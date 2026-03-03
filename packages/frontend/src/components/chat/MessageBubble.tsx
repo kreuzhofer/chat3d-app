@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useTranslation } from "react-i18next";
 import { AlertTriangle, Bell, Bot, ImageIcon, LoaderCircle, Loader2, MessageCircleWarning, RefreshCw, ThumbsDown, ThumbsUp, User } from "lucide-react";
 import type { ChatTimelineItem } from "../../features/chat/chat-adapters";
 import { downloadFileBinary } from "../../api/files.api";
@@ -66,6 +67,7 @@ function InlinePipelineProgress({ detail, isLongRunning, showEnableNotifications
   busyNotifications?: boolean;
   onEnableNotifications?: () => void;
 }) {
+  const { t } = useTranslation(["pages", "common"]);
   return (
     <div className="mt-2 space-y-1.5" data-testid="inline-pending-indicator">
       <div className="flex items-center gap-2">
@@ -79,10 +81,10 @@ function InlinePipelineProgress({ detail, isLongRunning, showEnableNotifications
       {isLongRunning ? (
         <div className="space-y-1.5">
           <p className="text-xs leading-relaxed text-[hsl(var(--muted-foreground)_/_0.7)]">
-            This is taking a while — your model is still being generated. Feel free to leave and come back.
+            {t("pages:chat.longRunning.message")}
             {showEnableNotifications
-              ? " Enable notifications to know when it's ready."
-              : " You'll get a notification when it's ready."}
+              ? t("pages:chat.longRunning.enableNotifications")
+              : t("pages:chat.longRunning.willNotify")}
           </p>
           {showEnableNotifications && onEnableNotifications ? (
             <button
@@ -94,7 +96,7 @@ function InlinePipelineProgress({ detail, isLongRunning, showEnableNotifications
               {busyNotifications
                 ? <LoaderCircle className="h-3 w-3 animate-spin" />
                 : <Bell className="h-3 w-3" />}
-              {busyNotifications ? "Enabling..." : "Enable notifications"}
+              {busyNotifications ? t("pages:chat.longRunning.enablingButton") : t("pages:chat.longRunning.enableButton")}
             </button>
           ) : null}
         </div>
@@ -157,6 +159,7 @@ export function MessageBubble({
   onDownloadFile,
   onSelectSuggestion,
 }: MessageBubbleProps) {
+  const { t } = useTranslation(["pages", "common"]);
   const allFiles = uniqueFilesByPath(item.segments.flatMap((segment) => segment.files));
   const hasStreamingContent = isStreaming && typeof streamingText === "string" && streamingText.length > 0;
 
@@ -215,7 +218,7 @@ export function MessageBubble({
               <Bot className="h-3.5 w-3.5" />
             </span>
           )}
-          <span className="font-semibold uppercase tracking-wide">{item.role}</span>
+          <span className="font-semibold uppercase tracking-wide">{t(`common:labels.${item.role}`)}</span>
           {isStreaming ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin text-[hsl(var(--primary))]" />
           ) : null}
@@ -280,7 +283,7 @@ export function MessageBubble({
                   >
                     <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[hsl(var(--warning-foreground,var(--foreground)))]">
                       <MessageCircleWarning className="h-4 w-4 shrink-0 text-[hsl(var(--warning))]" />
-                      <span>Something went wrong while generating your model</span>
+                      <span>{t("pages:chat.error.generationTitle")}</span>
                     </div>
                     {segment.text ? (
                       <p className="mb-2 rounded-md bg-[hsl(var(--warning)_/_0.06)] px-2.5 py-1.5 font-mono text-xs text-[hsl(var(--muted-foreground))]" data-testid="error-detail">
@@ -288,7 +291,7 @@ export function MessageBubble({
                       </p>
                     ) : null}
                     <p className="text-sm text-[hsl(var(--muted-foreground))]" data-testid="error-suggestion">
-                      Try rephrasing your request or ask me to use a different approach.
+                      {t("pages:chat.error.generationSuggestion")}
                     </p>
                   </div>
                 );
@@ -305,7 +308,7 @@ export function MessageBubble({
                         <InlineImagePreview filePath={segment.attachmentPath} token={token} />
                       ) : (
                         <p className="text-sm font-medium">
-                          {segment.text || "File attachment"}
+                          {segment.text || t("pages:chat.fileAttachment")}
                         </p>
                       )}
                       <p className="text-xs text-[hsl(var(--muted-foreground))]">
@@ -327,7 +330,7 @@ export function MessageBubble({
                       ) : null}
                     </>
                   ) : (
-                    <p className="text-sm text-[hsl(var(--muted-foreground))]">(empty)</p>
+                    <p className="text-sm text-[hsl(var(--muted-foreground))]">{t("pages:chat.empty")}</p>
                   )}
 
                   {/* Suggestion pills for clarification responses */}
@@ -340,7 +343,7 @@ export function MessageBubble({
 
                   {/* Meta details wrapped in CollapsibleSection for progressive disclosure */}
                   {isMeta && (segment.usage || segment.artifact) ? (
-                    <CollapsibleSection title="Details" defaultExpanded={false}>
+                    <CollapsibleSection title={t("common:labels.details")} defaultExpanded={false}>
                       {segment.usage ? (
                         <p className="text-xs text-[hsl(var(--muted-foreground))]">
                           Usage: {segment.usage.inputTokens} in / {segment.usage.outputTokens} out / {segment.usage.totalTokens} total ·
@@ -358,7 +361,7 @@ export function MessageBubble({
                   {/* File list wrapped in CollapsibleSection for progressive disclosure (assistant only) */}
                   {hasFiles && item.role === "assistant" ? (
                     <div className="mt-2">
-                      <CollapsibleSection title="Files" defaultExpanded={false}>
+                      <CollapsibleSection title={t("common:labels.files")} defaultExpanded={false}>
                         <ul className="list-disc pl-5 text-sm">
                           {segment.files.map((file) => (
                             <li key={`${segment.id}-${file.path}`}>{file.filename}</li>
@@ -402,27 +405,27 @@ export function MessageBubble({
             size="sm"
             variant={item.rating === 1 ? "default" : "ghost"}
             iconLeft={<ThumbsUp className={`h-3.5 w-3.5 ${item.rating === 1 ? "" : "text-[hsl(var(--muted-foreground))]"}`} />}
-            aria-label="Thumbs up"
+            aria-label={t("common:a11y.thumbsUp")}
             disabled={busyAction !== null}
             onClick={(e) => {
               e.stopPropagation();
               onRate(item, 1);
             }}
           >
-            {item.rating === 1 ? "Liked" : ""}
+            {item.rating === 1 ? t("common:status.liked") : ""}
           </Button>
           <Button
             size="sm"
             variant={item.rating === -1 ? "destructive" : "ghost"}
             iconLeft={<ThumbsDown className={`h-3.5 w-3.5 ${item.rating === -1 ? "" : "text-[hsl(var(--muted-foreground))]"}`} />}
-            aria-label="Thumbs down"
+            aria-label={t("common:a11y.thumbsDown")}
             disabled={busyAction !== null}
             onClick={(e) => {
               e.stopPropagation();
               onRate(item, -1);
             }}
           >
-            {item.rating === -1 ? "Disliked" : ""}
+            {item.rating === -1 ? t("common:status.disliked") : ""}
           </Button>
           {isLatestAssistant ? (
             <Button
@@ -435,7 +438,7 @@ export function MessageBubble({
                 onRegenerate(item.id);
               }}
             >
-              Regenerate
+              {t("common:actions.regenerate")}
             </Button>
           ) : null}
         </div>

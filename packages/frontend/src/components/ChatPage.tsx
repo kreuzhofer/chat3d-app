@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useTranslation } from "react-i18next";
 import { Bot, Box, MessageSquare, Sidebar, User } from "lucide-react";
 import {
   createChatContext,
@@ -101,6 +102,7 @@ function groupContexts(contexts: ChatContext[]): Record<ContextBucket, ChatConte
 }
 
 export function ChatPage() {
+  const { t } = useTranslation(["pages", "common"]);
   const { token, user } = useAuth();
   const { notifications } = useNotifications();
   const navigate = useNavigate();
@@ -389,7 +391,7 @@ export function ChatPage() {
     const activeExists = contexts.some((context) => context.id === contextIdParam);
     if (!activeExists) {
       navigate("/chat", { replace: true });
-      setError("Requested chat context was not found.");
+      setError(t("pages:chat.contextNotFound"));
     }
   }, [contextIdParam, contexts, isDraftRoute, navigate]);
 
@@ -530,7 +532,7 @@ export function ChatPage() {
       return;
     }
 
-    const name = (overrideName ?? newContextName).trim() || "Untitled chat";
+    const name = (overrideName ?? newContextName).trim() || t("pages:chat.newConversation");
     setBusyAction("create-context");
     setError("");
     setMessage("");
@@ -540,7 +542,7 @@ export function ChatPage() {
       setNewContextName("");
       await refreshContexts();
       navigate(routeForContext(created.id));
-      setMessage("Chat context created.");
+      setMessage(t("pages:chat.contextCreated"));
       setMobilePane("thread");
     } catch (actionError) {
       setError(toErrorMessage(actionError));
@@ -554,14 +556,14 @@ export function ChatPage() {
       return;
     }
 
-    const nextName = window.prompt("Rename chat context", context.name);
+    const nextName = window.prompt(t("pages:chat.renameContextPrompt"), context.name);
     if (nextName === null) {
       return;
     }
 
     const trimmed = nextName.trim();
     if (trimmed === "") {
-      setError("Context name cannot be empty.");
+      setError(t("pages:chat.contextNameEmpty"));
       return;
     }
 
@@ -574,7 +576,7 @@ export function ChatPage() {
         name: trimmed,
       });
       await refreshContexts();
-      setMessage("Context renamed.");
+      setMessage(t("pages:chat.contextRenamed"));
     } catch (actionError) {
       setError(toErrorMessage(actionError));
     } finally {
@@ -587,7 +589,7 @@ export function ChatPage() {
       return;
     }
 
-    const confirmed = window.confirm(`Delete context "${context.name}"?`);
+    const confirmed = window.confirm(t("pages:chat.deleteContextConfirm", { name: context.name }));
     if (!confirmed) {
       return;
     }
@@ -607,7 +609,7 @@ export function ChatPage() {
         navigate("/chat", { replace: true });
       }
       await refreshContexts();
-      setMessage("Context deleted.");
+      setMessage(t("pages:chat.contextDeleted"));
     } catch (actionError) {
       setError(toErrorMessage(actionError));
     } finally {
@@ -630,7 +632,7 @@ export function ChatPage() {
         chat3dModelId: codegenModelId || null,
       });
       await refreshContexts();
-      setMessage("Model selection saved for this context.");
+      setMessage(t("pages:chat.modelSelectionSaved"));
     } catch (actionError) {
       setError(toErrorMessage(actionError));
     } finally {
@@ -872,9 +874,9 @@ export function ChatPage() {
   }
 
   const mobilePaneTabs = [
-    { id: "contexts", label: "Contexts" },
-    { id: "thread", label: "Thread" },
-    { id: "workbench", label: "Model" },
+    { id: "contexts", labelKey: "pages:chat.mobileTabs.contexts" },
+    { id: "thread", labelKey: "pages:chat.mobileTabs.thread" },
+    { id: "workbench", labelKey: "pages:chat.mobileTabs.model" },
   ] as const;
 
   return (
@@ -882,7 +884,7 @@ export function ChatPage() {
       <header>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xl font-semibold text-[hsl(var(--foreground))]">
-            {activeContext ? activeContext.name : "New conversation"}
+            {activeContext ? activeContext.name : t("pages:chat.newConversation")}
           </h2>
           <div className="flex items-center gap-2">
           </div>
@@ -909,7 +911,7 @@ export function ChatPage() {
                 onClick={() => setMobilePane(tab.id)}
               >
                 <Icon className="h-4 w-4" />
-                {tab.label}
+                {t(tab.labelKey)}
               </button>
             );
           })}
@@ -939,7 +941,7 @@ export function ChatPage() {
           <div className="space-y-3 rounded-xl border bg-[hsl(var(--surface-1))] p-3 shadow-[var(--elevation-1)]">
             <div className="flex items-center justify-between gap-2 border-b border-[hsl(var(--border)_/_0.5)] pb-2">
               <h3 className="text-sm font-medium text-[hsl(var(--muted-foreground))]">
-                {activeContext ? "Conversation" : "New draft — context created on first send"}
+                {activeContext ? t("common:labels.conversation") : t("pages:chat.newDraft")}
               </h3>
               <PushToggle token={token} />
             </div>
@@ -947,15 +949,15 @@ export function ChatPage() {
             <div className="max-h-[58vh] space-y-4 overflow-y-auto pr-1">
               {timelineItems.length > visibleTimelineItems.length ? (
                 <Button size="sm" variant="outline" onClick={() => setVisibleTimelineCount((current) => current + 80)}>
-                  Show Older Messages ({timelineItems.length - visibleTimelineItems.length})
+                  {t("common:actions.showOlderMessages", { count: timelineItems.length - visibleTimelineItems.length })}
                 </Button>
               ) : null}
 
               {timelineItems.length === 0 && !optimisticPrompt ? (
                 <>
                   <EmptyState
-                    title="Start modeling"
-                    description="Write your first prompt. A chat context is created automatically on first send."
+                    title={t("pages:chat.startModeling")}
+                    description={t("pages:chat.startModelingDescription")}
                   />
                   <CapabilityHints className="mb-2" />
                   <ExamplePrompts onSelectPrompt={(text) => setPrompt(text)} />
@@ -1015,7 +1017,7 @@ export function ChatPage() {
                         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(var(--muted))]">
                           <User className="h-3.5 w-3.5" />
                         </span>
-                        <span className="font-semibold uppercase tracking-wide">user</span>
+                        <span className="font-semibold uppercase tracking-wide">{t("common:labels.user")}</span>
                       </div>
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{optimisticPrompt}</ReactMarkdown>
                     </article>
@@ -1026,7 +1028,7 @@ export function ChatPage() {
                         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(var(--primary)_/_0.12)] text-[hsl(var(--primary))]">
                           <Bot className="h-3.5 w-3.5" />
                         </span>
-                        <span className="font-semibold uppercase tracking-wide">assistant</span>
+                        <span className="font-semibold uppercase tracking-wide">{t("common:labels.assistant")}</span>
                       </div>
                       <div className="space-y-2" data-testid="optimistic-pending">
                         <Skeleton className="h-4 w-3/4" />

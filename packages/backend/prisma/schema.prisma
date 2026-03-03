@@ -88,6 +88,7 @@ model User {
   displayName      String?    @map("display_name") @db.VarChar(255)
   role             UserRole   @default(user)
   status           UserStatus @default(active)
+  language         String     @default("en") @db.VarChar(5)
   deactivatedUntil DateTime?  @map("deactivated_until") @db.Timestamptz()
   createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt        DateTime   @default(now()) @map("updated_at") @db.Timestamptz()

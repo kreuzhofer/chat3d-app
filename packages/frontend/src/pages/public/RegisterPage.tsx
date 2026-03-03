@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Box, Eye, EyeOff, UserPlus } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -11,7 +12,7 @@ interface RegisterPageProps {
   waitlistEnabled: boolean;
 }
 
-function getPasswordStrength(password: string): { score: number; label: string; color: string } {
+function getPasswordStrength(password: string, t: (key: string) => string): { score: number; label: string; color: string } {
   let score = 0;
   if (password.length >= 8) score++;
   if (password.length >= 12) score++;
@@ -19,15 +20,16 @@ function getPasswordStrength(password: string): { score: number; label: string; 
   if (/\d/.test(password)) score++;
   if (/[^a-zA-Z\d]/.test(password)) score++;
 
-  if (score <= 1) return { score, label: "Weak", color: "bg-[hsl(var(--destructive))]" };
-  if (score <= 2) return { score, label: "Fair", color: "bg-[hsl(var(--warning))]" };
-  if (score <= 3) return { score, label: "Good", color: "bg-[hsl(var(--info))]" };
-  return { score, label: "Strong", color: "bg-[hsl(var(--success))]" };
+  if (score <= 1) return { score, label: t("common:passwordStrength.weak"), color: "bg-[hsl(var(--destructive))]" };
+  if (score <= 2) return { score, label: t("common:passwordStrength.fair"), color: "bg-[hsl(var(--warning))]" };
+  if (score <= 3) return { score, label: t("common:passwordStrength.good"), color: "bg-[hsl(var(--info))]" };
+  return { score, label: t("common:passwordStrength.strong"), color: "bg-[hsl(var(--success))]" };
 }
 
 export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
   const location = useLocation();
   const { register } = useAuth();
+  const { t } = useTranslation(["pages", "common"]);
 
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
@@ -37,7 +39,7 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
+  const passwordStrength = useMemo(() => getPasswordStrength(password, t), [password, t]);
 
   useEffect(() => {
     const token = new URLSearchParams(location.search).get("token");
@@ -52,8 +54,6 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
     setError("");
     try {
       await register(email, password, displayName || undefined, registrationToken || undefined);
-      // Navigation is handled by App: once isAuthenticated becomes true,
-      // AuthenticatedApp's wildcard route redirects to /chat.
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {
@@ -68,31 +68,31 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[hsl(var(--primary)_/_0.1)] text-[hsl(var(--primary))]">
           <Box className="h-6 w-6" />
         </div>
-        <h1 className="text-lg font-semibold">Create your Chat3D account</h1>
-        <p className="text-sm text-[hsl(var(--muted-foreground))]">Start building 3D models with AI</p>
+        <h1 className="text-lg font-semibold">{t("pages:register.createAccount")}</h1>
+        <p className="text-sm text-[hsl(var(--muted-foreground))]">{t("pages:register.subtitle")}</p>
       </div>
 
       {waitlistEnabled ? (
         <p className="mb-4 rounded-lg border border-[hsl(var(--warning)_/_0.3)] bg-[hsl(var(--warning)_/_0.08)] p-3 text-sm text-[hsl(var(--warning))]">
-          Waitlist mode is active. Registration requires a valid activation token sent by email after approval.
+          {t("pages:register.waitlistWarning")}
         </p>
       ) : null}
 
       <Card>
         <CardHeader>
-          <CardTitle>Register</CardTitle>
+          <CardTitle>{t("pages:register.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={(event) => void onSubmit(event)}>
-            <FormField label="Display name" htmlFor="register-name" helperText="Optional.">
+            <FormField label={t("common:labels.displayName")} htmlFor="register-name" helperText={t("pages:register.displayNameHelper")}>
               <Input
                 id="register-name"
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
-                placeholder="Optional"
+                placeholder={t("common:labels.optional")}
               />
             </FormField>
-            <FormField label="Email" htmlFor="register-email" required>
+            <FormField label={t("common:labels.email")} htmlFor="register-email" required>
               <Input
                 id="register-email"
                 type="email"
@@ -102,7 +102,7 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
                 required
               />
             </FormField>
-            <FormField label="Password" htmlFor="register-password" required>
+            <FormField label={t("common:labels.password")} htmlFor="register-password" required>
               <div className="relative">
                 <Input
                   id="register-password"
@@ -117,7 +117,7 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
                   type="button"
                   className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-[hsl(var(--muted-foreground))] transition hover:text-[hsl(var(--foreground))]"
                   onClick={() => setShowPassword((prev) => !prev)}
-                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-label={showPassword ? t("common:a11y.hidePassword") : t("common:a11y.showPassword")}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -136,22 +136,22 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
                     ))}
                   </div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    Password strength: <span className="font-medium">{passwordStrength.label}</span>
+                    {t("common:passwordStrength.label")} <span className="font-medium">{passwordStrength.label}</span>
                   </p>
                 </div>
               )}
             </FormField>
             <FormField
-              label="Registration token"
+              label={t("pages:register.registrationToken")}
               htmlFor="register-token"
-              helperText={waitlistEnabled ? "Required while waitlist mode is enabled." : "Optional when registration is open."}
+              helperText={waitlistEnabled ? t("pages:register.registrationTokenHelperWaitlist") : t("pages:register.registrationTokenHelperOpen")}
               required={waitlistEnabled}
             >
               <Input
                 id="register-token"
                 value={registrationToken}
                 onChange={(event) => setRegistrationToken(event.target.value)}
-                placeholder={waitlistEnabled ? "Required while waitlist is active" : "Optional"}
+                placeholder={waitlistEnabled ? t("pages:register.registrationTokenPlaceholderWaitlist") : t("pages:register.registrationTokenPlaceholderOpen")}
                 required={waitlistEnabled}
               />
             </FormField>
@@ -167,21 +167,21 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
               className="w-full"
               iconLeft={<UserPlus className="h-4 w-4" />}
             >
-              Create account
+              {t("pages:register.createAccountButton")}
             </Button>
           </form>
 
           <p className="mt-5 text-center text-sm text-[hsl(var(--muted-foreground))]">
-            Already registered?{" "}
+            {t("pages:register.alreadyRegistered")}{" "}
             <Link className="font-medium text-[hsl(var(--primary))] underline" to="/login">
-              Sign in
+              {t("pages:register.signIn")}
             </Link>
             {waitlistEnabled ? (
               <>
                 {" "}
-                · Need access first?{" "}
+                · {t("pages:register.needAccess")}{" "}
                 <Link className="font-medium text-[hsl(var(--primary))] underline" to="/waitlist">
-                  Join waitlist
+                  {t("pages:register.joinWaitlist")}
                 </Link>
               </>
             ) : null}

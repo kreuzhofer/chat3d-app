@@ -1,0 +1,116 @@
+{
+  "login": {
+    "welcomeBack": "Welcome back to Chat3D",
+    "subtitle": "Sign in to continue building",
+    "title": "Sign In",
+    "signIn": "Sign in",
+    "noAccount": "No account yet?",
+    "createOne": "Create one now",
+    "waitlistGated": "Registration is currently gated.",
+    "joinWaitlist": "Join the waitlist"
+  },
+  "register": {
+    "createAccount": "Create your Chat3D account",
+    "subtitle": "Start building 3D models with AI",
+    "title": "Register",
+    "waitlistWarning": "Waitlist mode is active. Registration requires a valid activation token sent by email after approval.",
+    "displayNameHelper": "Optional.",
+    "registrationToken": "Registration token",
+    "registrationTokenHelperWaitlist": "Required while waitlist mode is enabled.",
+    "registrationTokenHelperOpen": "Optional when registration is open.",
+    "registrationTokenPlaceholderWaitlist": "Required while waitlist is active",
+    "registrationTokenPlaceholderOpen": "Optional",
+    "createAccountButton": "Create account",
+    "alreadyRegistered": "Already registered?",
+    "signIn": "Sign in",
+    "needAccess": "Need access first?",
+    "joinWaitlist": "Join waitlist"
+  },
+  "setup": {
+    "welcome": "Welcome to Chat3D",
+    "subtitle": "Create your admin account to get started",
+    "title": "Initial Setup",
+    "displayNameHelper": "Optional.",
+    "createAdminAccount": "Create admin account"
+  },
+  "chat": {
+    "newConversation": "New conversation",
+    "newChat": "New Chat",
+    "newDraft": "New draft — context created on first send",
+    "contextNamePrompt": "Context name (leave blank for default)",
+    "renameContextPrompt": "Rename chat context",
+    "deleteContextConfirm": "Delete context \"{{name}}\"?",
+    "contextCreated": "Chat context created.",
+    "contextRenamed": "Context renamed.",
+    "contextDeleted": "Context deleted.",
+    "contextNameEmpty": "Context name cannot be empty.",
+    "contextNotFound": "Requested chat context was not found.",
+    "modelSelectionSaved": "Model selection saved for this context.",
+    "startModeling": "Start modeling",
+    "startModelingDescription": "Write your first prompt. A chat context is created automatically on first send.",
+    "noContextsYet": "No contexts yet",
+    "noContextsDescription": "Start a draft message or create a named context.",
+    "promptPlaceholder": "Describe the part, dimensions, and constraints...",
+    "mobileTabs": {
+      "contexts": "Contexts",
+      "thread": "Thread",
+      "model": "Model"
+    },
+    "timeBuckets": {
+      "today": "Today",
+      "last7days": "Last 7 days",
+      "older": "Older"
+    },
+    "error": {
+      "generationTitle": "Something went wrong while generating your model",
+      "generationSuggestion": "Try rephrasing your request or ask me to use a different approach."
+    },
+    "longRunning": {
+      "message": "This is taking a while — your model is still being generated. Feel free to leave and come back.",
+      "enableNotifications": " Enable notifications to know when it's ready.",
+      "willNotify": " You'll get a notification when it's ready.",
+      "enableButton": "Enable notifications",
+      "enablingButton": "Enabling..."
+    },
+    "capabilityDescription": "Chat3D can generate gears, enclosures, brackets, adapters, and other mechanical parts from a text description. Pick an example or write your own prompt to get started.",
+    "whatCanIBuild": "What can I build?",
+    "capabilities": {
+      "gears": "Gears",
+      "gearsExamples": "Spur gears · Bevel gears · Module 1–5mm, 10–80 teeth",
+      "brackets": "Brackets & Mounts",
+      "bracketsExamples": "L-brackets · U-brackets · Wall mounts · Up to 200mm spans",
+      "enclosures": "Enclosures",
+      "enclosuresExamples": "Raspberry Pi cases · Sensor housings · Snap-fit or screw-mount",
+      "adapters": "Adapters & Fittings",
+      "adaptersExamples": "Hose adapters · Pipe reducers · 6–50mm diameters",
+      "mechanical": "Mechanical Components",
+      "mechanicalExamples": "Spacers · Bushings · Flanges · Pulleys"
+    },
+    "limitations": {
+      "title": "Known limitations",
+      "organic": "Complex organic shapes (e.g. figurines) are not well supported.",
+      "threads": "Thread generation may require manual refinement.",
+      "assemblies": "Assemblies with multiple moving parts are not yet supported."
+    },
+    "examplePrompts": {
+      "spurGear": "Spur gear",
+      "spurGearPrompt": "Design a spur gear with 20 teeth, a module of 2mm, and a 5mm center bore.",
+      "piEnclosure": "Raspberry Pi enclosure",
+      "piEnclosurePrompt": "Create a simple snap-fit enclosure for a Raspberry Pi 4, with ventilation slots and mounting holes.",
+      "lBracket": "L-bracket",
+      "lBracketPrompt": "Generate an L-shaped mounting bracket, 50mm × 30mm with 3mm thickness and four M4 bolt holes.",
+      "hoseAdapter": "Hose adapter",
+      "hoseAdapterPrompt": "Design a stepped hose adapter that transitions from 12mm inner diameter to 8mm, 40mm long with barbed ridges."
+    },
+    "fileAttachment": "File attachment",
+    "uploadedImage": "Uploaded image",
+    "empty": "(empty)",
+    "usage": "Usage: {{input}} in / {{output}} out / {{total}} total · est. ${{cost}}",
+    "artifacts": "Artifacts: {{previewStatus}} · {{detail}}",
+    "tokens": "{{count}} tokens · ~${{cost}}"
+  },
+  "publicShell": {
+    "checkingRegistration": "Checking registration mode...",
+    "waitlistBanner": "Waitlist mode is active. New users can join the waitlist and will receive a registration link after approval."
+  }
+}

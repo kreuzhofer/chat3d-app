@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { MessageSquare, Pencil, Plus, Trash2 } from "lucide-react";
 import type { ChatContext } from "../../api/chat.api";
 import { Button } from "../ui/button";
@@ -18,6 +19,12 @@ export interface ContextSidebarProps {
   onDelete: (context: ChatContext) => void;
 }
 
+const BUCKET_KEYS: Record<ContextBucket, string> = {
+  "Today": "pages:chat.timeBuckets.today",
+  "Last 7 days": "pages:chat.timeBuckets.last7days",
+  "Older": "pages:chat.timeBuckets.older",
+};
+
 export function ContextSidebar({
   groupedContexts,
   activeContextId,
@@ -30,6 +37,7 @@ export function ContextSidebar({
   onRename,
   onDelete,
 }: ContextSidebarProps) {
+  const { t } = useTranslation(["pages", "common"]);
   const buckets = Object.keys(groupedContexts) as ContextBucket[];
   const totalContexts = buckets.reduce((sum, b) => sum + groupedContexts[b].length, 0);
 
@@ -42,15 +50,15 @@ export function ContextSidebar({
           iconLeft={<MessageSquare className="h-4 w-4" />}
           onClick={onNavigateNew}
         >
-          New Chat
+          {t("pages:chat.newChat")}
         </Button>
         <Button
           size="icon"
           variant="outline"
-          aria-label="Create named context"
+          aria-label={t("common:a11y.createNamedContext")}
           disabled={!token || busyAction !== null}
           onClick={() => {
-            const name = window.prompt("Context name (leave blank for default)");
+            const name = window.prompt(t("pages:chat.contextNamePrompt"));
             if (name !== null) {
               onCreateNamed(name);
             }
@@ -70,7 +78,7 @@ export function ContextSidebar({
           return (
             <section key={bucket} className="space-y-2">
               <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--muted-foreground))]">
-                {bucket}
+                {t(BUCKET_KEYS[bucket])}
               </h3>
               <ul className="space-y-2">
                 {bucketItems.map((context) => (
@@ -101,7 +109,7 @@ export function ContextSidebar({
                           onRename(context);
                         }}
                       >
-                        Rename
+                        {t("common:actions.rename")}
                       </Button>
                       <Button
                         size="sm"
@@ -114,7 +122,7 @@ export function ContextSidebar({
                           onDelete(context);
                         }}
                       >
-                        Delete
+                        {t("common:actions.delete")}
                       </Button>
                     </div>
                   </li>
@@ -125,7 +133,7 @@ export function ContextSidebar({
         })}
 
         {totalContexts === 0 ? (
-          <EmptyState title="No contexts yet" description="Start a draft message or create a named context." />
+          <EmptyState title={t("pages:chat.noContextsYet")} description={t("pages:chat.noContextsDescription")} />
         ) : null}
       </div>
     </div>

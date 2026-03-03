@@ -21,4 +21,5 @@ export interface AuthenticatedUser {
   email: string;
   role: UserRole;
   status: UserStatus;
+  language?: string;
 }

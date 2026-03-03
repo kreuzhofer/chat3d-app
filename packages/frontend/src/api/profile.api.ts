@@ -79,3 +79,13 @@ export function confirmProfileAction(token: string): Promise<ProfileActionConfir
     method: "GET",
   });
 }
+
+export function updateLanguage(authToken: string, language: string): Promise<{ status: string }> {
+  return requestProfileJson<{ status: string }>("/language", {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify({ language }),
+  });
+}

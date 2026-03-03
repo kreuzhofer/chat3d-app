@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Lightbulb } from "lucide-react";
 import { cn } from "../../lib/cn";
 
@@ -6,33 +7,17 @@ import { cn } from "../../lib/cn";
 /* ------------------------------------------------------------------ */
 
 export interface ExamplePromptEntry {
-  /** Short label displayed on the card. */
-  label: string;
-  /** Full prompt text populated into the composer on click. */
-  prompt: string;
+  /** Translation key for the short label displayed on the card. */
+  labelKey: string;
+  /** Translation key for the full prompt text populated into the composer on click. */
+  promptKey: string;
 }
 
 const EXAMPLE_PROMPTS: ExamplePromptEntry[] = [
-  {
-    label: "Spur gear",
-    prompt:
-      "Design a spur gear with 20 teeth, a module of 2mm, and a 5mm center bore.",
-  },
-  {
-    label: "Raspberry Pi enclosure",
-    prompt:
-      "Create a simple snap-fit enclosure for a Raspberry Pi 4, with ventilation slots and mounting holes.",
-  },
-  {
-    label: "L-bracket",
-    prompt:
-      "Generate an L-shaped mounting bracket, 50mm × 30mm with 3mm thickness and four M4 bolt holes.",
-  },
-  {
-    label: "Hose adapter",
-    prompt:
-      "Design a stepped hose adapter that transitions from 12mm inner diameter to 8mm, 40mm long with barbed ridges.",
-  },
+  { labelKey: "pages:chat.examplePrompts.spurGear", promptKey: "pages:chat.examplePrompts.spurGearPrompt" },
+  { labelKey: "pages:chat.examplePrompts.piEnclosure", promptKey: "pages:chat.examplePrompts.piEnclosurePrompt" },
+  { labelKey: "pages:chat.examplePrompts.lBracket", promptKey: "pages:chat.examplePrompts.lBracketPrompt" },
+  { labelKey: "pages:chat.examplePrompts.hoseAdapter", promptKey: "pages:chat.examplePrompts.hoseAdapterPrompt" },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -44,14 +29,9 @@ export interface ExamplePromptsProps {
   onSelectPrompt: (promptText: string) => void;
 }
 
-/**
- * Clickable example prompt cards displayed in the empty chat state.
- * Covers diverse CAD use cases: gears, enclosures, brackets, adapters.
- * Includes a brief capability description.
- *
- * Validates: Requirements 6.1, 6.2, 6.3, 6.4
- */
 export function ExamplePrompts({ onSelectPrompt }: ExamplePromptsProps) {
+  const { t } = useTranslation(["pages", "common"]);
+
   return (
     <div className="mx-auto max-w-lg space-y-4 py-4" data-testid="example-prompts">
       {/* Capability description */}
@@ -60,25 +40,21 @@ export function ExamplePrompts({ onSelectPrompt }: ExamplePromptsProps) {
           className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--primary))]"
           aria-hidden="true"
         />
-        <p>
-          Chat3D can generate gears, enclosures, brackets, adapters, and other
-          mechanical parts from a text description. Pick an example or write your
-          own prompt to get started.
-        </p>
+        <p>{t("pages:chat.capabilityDescription")}</p>
       </div>
 
       {/* Prompt cards */}
       <div
         className="grid grid-cols-1 gap-2 sm:grid-cols-2"
         role="list"
-        aria-label="Example prompts"
+        aria-label={t("common:a11y.examplePrompts")}
       >
         {EXAMPLE_PROMPTS.map((entry) => (
           <button
-            key={entry.label}
+            key={entry.labelKey}
             type="button"
             role="listitem"
-            onClick={() => onSelectPrompt(entry.prompt)}
+            onClick={() => onSelectPrompt(t(entry.promptKey))}
             className={cn(
               "rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3 text-left text-sm transition",
               "hover:border-[hsl(var(--primary)_/_0.5)] hover:bg-[hsl(var(--muted)_/_0.5)]",
@@ -86,10 +62,10 @@ export function ExamplePrompts({ onSelectPrompt }: ExamplePromptsProps) {
             )}
           >
             <span className="mb-1 block font-medium text-[hsl(var(--foreground))]">
-              {entry.label}
+              {t(entry.labelKey)}
             </span>
             <span className="line-clamp-2 text-xs text-[hsl(var(--muted-foreground))]">
-              {entry.prompt}
+              {t(entry.promptKey)}
             </span>
           </button>
         ))}

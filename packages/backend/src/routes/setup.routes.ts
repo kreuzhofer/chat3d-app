@@ -21,6 +21,6 @@ setupRouter.post("/init", async (req, res) => {
       return;
     }
     logger.error({ err: error }, "initial setup failed");
-    res.status(500).json({ error: "Setup failed", detail: String(error) });
+    res.status(500).json({ error: req.t("errors:setup.failed"), detail: String(error) });
   }
 });

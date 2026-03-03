@@ -2,6 +2,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { prisma } from "./db/prisma.js";
 import { createLogger } from "./utils/logger.js";
 import { corsMiddleware } from "./middleware/cors.js";
+import { languageDetection } from "./middleware/languageDetection.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { securityHeaders } from "./middleware/security-headers.js";
 import { adminRouter } from "./routes/admin.routes.js";
@@ -27,6 +28,7 @@ export function createApp() {
   app.use(corsMiddleware);
   app.use(securityHeaders);
   app.use(express.json({ limit: "50mb" }));
+  app.use(languageDetection);
   app.use(rateLimitMiddleware);
 
   app.get("/health", (_req, res) => {

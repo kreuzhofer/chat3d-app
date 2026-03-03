@@ -1,0 +1,27 @@
+{
+  "validation": {
+    "emailRequired": "Email is required",
+    "passwordRequired": "Password is required",
+    "emailAndPasswordRequired": "Email and password are required",
+    "invalidEmail": "Please enter a valid email address",
+    "passwordMinLength": "Password must be at least {{min}} characters",
+    "displayNameTooLong": "Display name must be {{max}} characters or fewer",
+    "fieldRequired": "{{field}} is required"
+  },
+  "auth": {
+    "invalidCredentials": "Invalid email or password",
+    "accountNotActive": "User account is not active",
+    "emailAlreadyRegistered": "Email is already registered",
+    "registrationTokenRequired": "A valid registration token is required while waitlist is enabled",
+    "registrationFailed": "Failed to register user",
+    "loginFailed": "Login failed"
+  },
+  "generic": {
+    "unexpectedError": "An unexpected error occurred",
+    "networkError": "Network error. Please check your connection.",
+    "serverError": "Internal server error",
+    "notFound": "Not found",
+    "unauthorized": "Authentication required",
+    "forbidden": "Access denied"
+  }
+}

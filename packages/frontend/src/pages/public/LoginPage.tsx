@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Box, Eye, EyeOff, LogIn } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -13,6 +14,7 @@ interface LoginPageProps {
 
 export function LoginPage({ waitlistEnabled }: LoginPageProps) {
   const { login } = useAuth();
+  const { t } = useTranslation(["pages", "common"]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -25,8 +27,6 @@ export function LoginPage({ waitlistEnabled }: LoginPageProps) {
     setError("");
     try {
       await login(email, password);
-      // Navigation is handled by App: once isAuthenticated becomes true,
-      // AuthenticatedApp's wildcard route redirects to /chat.
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {
@@ -41,17 +41,17 @@ export function LoginPage({ waitlistEnabled }: LoginPageProps) {
         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[hsl(var(--primary)_/_0.1)] text-[hsl(var(--primary))]">
           <Box className="h-6 w-6" />
         </div>
-        <h1 className="text-lg font-semibold">Welcome back to Chat3D</h1>
-        <p className="text-sm text-[hsl(var(--muted-foreground))]">Sign in to continue building</p>
+        <h1 className="text-lg font-semibold">{t("pages:login.welcomeBack")}</h1>
+        <p className="text-sm text-[hsl(var(--muted-foreground))]">{t("pages:login.subtitle")}</p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Sign In</CardTitle>
+          <CardTitle>{t("pages:login.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={(event) => void onSubmit(event)}>
-            <FormField label="Email" htmlFor="login-email" required>
+            <FormField label={t("common:labels.email")} htmlFor="login-email" required>
               <Input
                 id="login-email"
                 type="email"
@@ -61,7 +61,7 @@ export function LoginPage({ waitlistEnabled }: LoginPageProps) {
                 required
               />
             </FormField>
-            <FormField label="Password" htmlFor="login-password" required>
+            <FormField label={t("common:labels.password")} htmlFor="login-password" required>
               <div className="relative">
                 <Input
                   id="login-password"
@@ -76,7 +76,7 @@ export function LoginPage({ waitlistEnabled }: LoginPageProps) {
                   type="button"
                   className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-[hsl(var(--muted-foreground))] transition hover:text-[hsl(var(--foreground))]"
                   onClick={() => setShowPassword((prev) => !prev)}
-                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-label={showPassword ? t("common:a11y.hidePassword") : t("common:a11y.showPassword")}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -94,18 +94,20 @@ export function LoginPage({ waitlistEnabled }: LoginPageProps) {
               className="w-full"
               iconLeft={<LogIn className="h-4 w-4" />}
             >
-              Sign in
+              {t("pages:login.signIn")}
             </Button>
           </form>
 
           <p className="mt-5 text-center text-sm text-[hsl(var(--muted-foreground))]">
             {waitlistEnabled ? (
               <>
-                Registration is currently gated. <Link className="font-medium text-[hsl(var(--primary))] underline" to="/waitlist">Join the waitlist</Link>.
+                {t("pages:login.waitlistGated")}{" "}
+                <Link className="font-medium text-[hsl(var(--primary))] underline" to="/waitlist">{t("pages:login.joinWaitlist")}</Link>.
               </>
             ) : (
               <>
-                No account yet? <Link className="font-medium text-[hsl(var(--primary))] underline" to="/register">Create one now</Link>.
+                {t("pages:login.noAccount")}{" "}
+                <Link className="font-medium text-[hsl(var(--primary))] underline" to="/register">{t("pages:login.createOne")}</Link>.
               </>
             )}
           </p>

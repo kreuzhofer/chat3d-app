@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "Review the code changes made for this task to ensure i18n compliance.\n\nRules:\n1. All user-facing UI text (button labels, form labels, headings, placeholders, error messages, success messages, tooltips, aria-labels, status text) in frontend .tsx/.ts files MUST use translation keys via the `t()` function from react-i18next, NOT hardcoded strings.\n2. All user-facing error messages and validation messages in backend route/service files MUST use `req.t()` or `i18n.t()` translation keys, NOT hardcoded strings.\n3. Email subjects and body text in backend services MUST use i18n translation keys.\n4. EXCEPTIONS (do NOT flag these): LLM system prompts, AI model context, Build123d API references, tool_use descriptions, any content in files under services that is sent to LLM providers, log messages (logger.info/debug/warn/error), internal comments, TypeScript type definitions, CSS class names, route paths, environment variable names.\n5. New translation keys used in code MUST exist in both en/ and de/ locale JSON files.\n6. Check that the validate:translations script passes if translation files were modified.\n\nIf any violations are found, return {\"ok\": false, \"reason\": \"description of violations with file paths and line numbers\"}.\nIf all checks pass, return {\"ok\": true}.",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}

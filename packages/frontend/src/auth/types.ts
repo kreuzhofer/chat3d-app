@@ -7,6 +7,7 @@ export interface AuthUser {
   role: UserRole;
   status: UserStatus;
   displayName: string | null;
+  language?: string;
 }
 
 export interface AuthResponse {

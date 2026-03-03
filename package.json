@@ -15,7 +15,8 @@
     "m1:typecheck:workspaces": "tsc -b tsconfig.workspaces.json",
     "m1:backend:migrate": "npm --workspace @chat3d/backend run db:migrate",
     "m1:backend:seed": "npm --workspace @chat3d/backend run db:seed",
-    "m1:backend:bootstrap": "npm --workspace @chat3d/backend run db:bootstrap"
+    "m1:backend:bootstrap": "npm --workspace @chat3d/backend run db:bootstrap",
+    "validate:translations": "npx tsx scripts/validate-translations.ts"
   },
   "dependencies": {},
   "devDependencies": {

@@ -1,0 +1,10 @@
+{
+  "fields": {
+    "emailAndPasswordRequired": "Email and password are required",
+    "newPasswordRequired": "newPassword is required",
+    "newEmailRequired": "newEmail is required",
+    "emailRequired": "email is required",
+    "languageRequired": "language is required",
+    "invalidLanguage": "Unsupported language: {{language}}"
+  }
+}

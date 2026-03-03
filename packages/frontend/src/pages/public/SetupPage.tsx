@@ -1,4 +1,5 @@
 import { FormEvent, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Box, Eye, EyeOff, Shield } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -6,7 +7,7 @@ import { FormField } from "../../components/ui/form";
 import { Input } from "../../components/ui/input";
 import { useAuth } from "../../hooks/useAuth";
 
-function getPasswordStrength(password: string): { score: number; label: string; color: string } {
+function getPasswordStrength(password: string, t: (key: string) => string): { score: number; label: string; color: string } {
   let score = 0;
   if (password.length >= 8) score++;
   if (password.length >= 12) score++;
@@ -14,14 +15,15 @@ function getPasswordStrength(password: string): { score: number; label: string; 
   if (/\d/.test(password)) score++;
   if (/[^a-zA-Z\d]/.test(password)) score++;
 
-  if (score <= 1) return { score, label: "Weak", color: "bg-[hsl(var(--destructive))]" };
-  if (score <= 2) return { score, label: "Fair", color: "bg-[hsl(var(--warning))]" };
-  if (score <= 3) return { score, label: "Good", color: "bg-[hsl(var(--info))]" };
-  return { score, label: "Strong", color: "bg-[hsl(var(--success))]" };
+  if (score <= 1) return { score, label: t("common:passwordStrength.weak"), color: "bg-[hsl(var(--destructive))]" };
+  if (score <= 2) return { score, label: t("common:passwordStrength.fair"), color: "bg-[hsl(var(--warning))]" };
+  if (score <= 3) return { score, label: t("common:passwordStrength.good"), color: "bg-[hsl(var(--info))]" };
+  return { score, label: t("common:passwordStrength.strong"), color: "bg-[hsl(var(--success))]" };
 }
 
 export function SetupPage() {
   const { setupAdmin } = useAuth();
+  const { t } = useTranslation(["pages", "common"]);
 
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
@@ -30,7 +32,7 @@ export function SetupPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
+  const passwordStrength = useMemo(() => getPasswordStrength(password, t), [password, t]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -53,28 +55,28 @@ export function SetupPage() {
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[hsl(var(--primary)_/_0.1)] text-[hsl(var(--primary))]">
             <Box className="h-6 w-6" />
           </div>
-          <h1 className="text-lg font-semibold">Welcome to Chat3D</h1>
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">Create your admin account to get started</p>
+          <h1 className="text-lg font-semibold">{t("pages:setup.welcome")}</h1>
+          <p className="text-sm text-[hsl(var(--muted-foreground))]">{t("pages:setup.subtitle")}</p>
         </div>
 
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Shield className="h-4 w-4" />
-              Initial Setup
+              {t("pages:setup.title")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={(event) => void onSubmit(event)}>
-              <FormField label="Display name" htmlFor="setup-name" helperText="Optional.">
+              <FormField label={t("common:labels.displayName")} htmlFor="setup-name" helperText={t("pages:setup.displayNameHelper")}>
                 <Input
                   id="setup-name"
                   value={displayName}
                   onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="Optional"
+                  placeholder={t("common:labels.optional")}
                 />
               </FormField>
-              <FormField label="Email" htmlFor="setup-email" required>
+              <FormField label={t("common:labels.email")} htmlFor="setup-email" required>
                 <Input
                   id="setup-email"
                   type="email"
@@ -84,7 +86,7 @@ export function SetupPage() {
                   required
                 />
               </FormField>
-              <FormField label="Password" htmlFor="setup-password" required>
+              <FormField label={t("common:labels.password")} htmlFor="setup-password" required>
                 <div className="relative">
                   <Input
                     id="setup-password"
@@ -99,7 +101,7 @@ export function SetupPage() {
                     type="button"
                     className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-[hsl(var(--muted-foreground))] transition hover:text-[hsl(var(--foreground))]"
                     onClick={() => setShowPassword((prev) => !prev)}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-label={showPassword ? t("common:a11y.hidePassword") : t("common:a11y.showPassword")}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -118,7 +120,7 @@ export function SetupPage() {
                       ))}
                     </div>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                      Password strength: <span className="font-medium">{passwordStrength.label}</span>
+                      {t("common:passwordStrength.label")} <span className="font-medium">{passwordStrength.label}</span>
                     </p>
                   </div>
                 )}
@@ -135,7 +137,7 @@ export function SetupPage() {
                 className="w-full"
                 iconLeft={<Shield className="h-4 w-4" />}
               >
-                Create admin account
+                {t("pages:setup.createAdminAccount")}
               </Button>
             </form>
           </CardContent>

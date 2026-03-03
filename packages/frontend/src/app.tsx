@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   ArchiveRestore,
   Bell,
@@ -16,6 +17,7 @@ import { Button } from "./components/ui/button";
 import { Drawer } from "./components/ui/drawer";
 import { DropdownMenu, type DropdownItem } from "./components/ui/dropdown-menu";
 import { ThemeToggle } from "./components/ui/theme-toggle";
+import { LanguageSelector } from "./components/LanguageSelector";
 import { useNotifications } from "./contexts/NotificationsContext";
 import { useAuth } from "./hooks/useAuth";
 import { AdminRouteGuard } from "./components/AdminRouteGuard";
@@ -68,14 +70,14 @@ const WorkbenchPromptPage = lazy(async () => {
 
 interface NavItem {
   path: string;
-  label: string;
+  labelKey: string;
   routePrefix: string;
   icon?: LucideIcon;
 }
 
 interface NavGroup {
   id: string;
-  label: string;
+  labelKey: string;
   items: NavItem[];
 }
 
@@ -83,25 +85,25 @@ function authenticatedNavGroups(isAdmin: boolean): NavGroup[] {
   return [
     {
       id: "workspace",
-      label: "Workspace",
+      labelKey: "common:groups.workspace",
       items: [
-        { path: "/chat", label: "Chat", routePrefix: "/chat", icon: MessageSquare },
+        { path: "/chat", labelKey: "common:nav.chat", routePrefix: "/chat", icon: MessageSquare },
       ],
     },
     {
       id: "account",
-      label: "Account",
-      items: [{ path: "/profile", label: "Profile", routePrefix: "/profile", icon: User }],
+      labelKey: "common:groups.account",
+      items: [{ path: "/profile", labelKey: "common:nav.profile", routePrefix: "/profile", icon: User }],
     },
     ...(isAdmin
       ? [
           {
             id: "admin",
-            label: "Administration",
+            labelKey: "common:groups.administration",
             items: [
-              { path: "/admin", label: "Admin", routePrefix: "/admin", icon: Shield },
-              { path: "/workbench", label: "Workbench", routePrefix: "/workbench", icon: FlaskConical },
-              { path: "/backups", label: "Backups", routePrefix: "/backups", icon: ArchiveRestore },
+              { path: "/admin", labelKey: "common:nav.admin", routePrefix: "/admin", icon: Shield },
+              { path: "/workbench", labelKey: "common:nav.workbench", routePrefix: "/workbench", icon: FlaskConical },
+              { path: "/backups", labelKey: "common:nav.backups", routePrefix: "/backups", icon: ArchiveRestore },
             ],
           },
         ]
@@ -115,48 +117,54 @@ function resolveActiveItem(pathname: string, groups: NavGroup[]): NavItem | null
 }
 
 function NavigationList({ groups, onNavigate }: { groups: NavGroup[]; onNavigate?: () => void }) {
+  const { t } = useTranslation("common");
+
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-3 py-2">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[hsl(var(--muted-foreground))]">Chat3D</p>
-        <p className="mt-1 text-sm text-[hsl(var(--foreground))]">Application shell</p>
+        <p className="mt-1 text-sm text-[hsl(var(--foreground))]">{t("common:shell.applicationShell")}</p>
       </div>
 
-      {groups.map((group) => (
-        <section key={group.id} className="space-y-1.5">
-          <h3 className="px-1 text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(var(--muted-foreground))]">
-            {group.label}
-          </h3>
-          <ul className="space-y-1" aria-label={`${group.label} navigation`}>
-            {group.items.map((item) => {
-              const Icon = item.icon;
-              return (
-                <li key={item.path}>
-                  <NavLink
-                    to={item.path}
-                    onClick={onNavigate}
-                    className={({ isActive }) =>
-                      `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition ${
-                        isActive
-                          ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                          : "text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]"
-                      }`
-                    }
-                  >
-                    {Icon ? <Icon className="h-4 w-4 shrink-0" /> : null}
-                    {item.label}
-                  </NavLink>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      ))}
+      {groups.map((group) => {
+        const groupLabel = t(group.labelKey);
+        return (
+          <section key={group.id} className="space-y-1.5">
+            <h3 className="px-1 text-xs font-semibold uppercase tracking-[0.14em] text-[hsl(var(--muted-foreground))]">
+              {groupLabel}
+            </h3>
+            <ul className="space-y-1" aria-label={`${groupLabel} navigation`}>
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <li key={item.path}>
+                    <NavLink
+                      to={item.path}
+                      onClick={onNavigate}
+                      className={({ isActive }) =>
+                        `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition ${
+                          isActive
+                            ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                            : "text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]"
+                        }`
+                      }
+                    >
+                      {Icon ? <Icon className="h-4 w-4 shrink-0" /> : null}
+                      {t(item.labelKey)}
+                    </NavLink>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        );
+      })}
     </div>
   );
 }
 
 function AuthenticatedApp() {
+  const { t } = useTranslation("common");
   const { user, logout } = useAuth();
   const { unreadCount, connectionState, refreshReplay, markAllRead } = useNotifications();
   const location = useLocation();
@@ -175,7 +183,7 @@ function AuthenticatedApp() {
     const navItems: DropdownItem[] = [
       {
         id: "open-profile",
-        label: "Open Profile",
+        label: t("common:actions.openProfile"),
         onSelect: () => navigate("/profile"),
       },
     ];
@@ -183,17 +191,17 @@ function AuthenticatedApp() {
       navItems.push(
         {
           id: "admin",
-          label: "Admin",
+          label: t("common:nav.admin"),
           onSelect: () => navigate("/admin"),
         },
         {
           id: "query-workbench",
-          label: "Query Workbench",
+          label: t("common:actions.queryWorkbench"),
           onSelect: () => navigate("/query"),
         },
         {
           id: "workbench",
-          label: "LLM Workbench",
+          label: t("common:actions.llmWorkbench"),
           onSelect: () => navigate("/workbench"),
         },
       );
@@ -203,34 +211,34 @@ function AuthenticatedApp() {
       { id: "sep-nav-session", type: "separator" as const },
       {
         id: "refresh-replay",
-        label: "Refresh Event Replay",
+        label: t("common:actions.refreshEventReplay"),
         onSelect: () => void refreshReplay(),
       },
       {
         id: "mark-all-read",
-        label: "Mark All Read",
+        label: t("common:actions.markAllRead"),
         onSelect: () => markAllRead(),
       },
       {
         id: "logout",
-        label: "Logout",
+        label: t("common:actions.logout"),
         onSelect: () => {
           void logout();
         },
         danger: true,
       },
     ];
-  }, [isAdmin, navigate, refreshReplay, markAllRead, logout]);
+  }, [isAdmin, navigate, refreshReplay, markAllRead, logout, t]);
 
   const topBar = (
     <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2">
         <Button className="lg:hidden" size="sm" variant="outline" onClick={() => setMobileNavOpen(true)}>
-          Menu
+          {t("common:actions.menu")}
         </Button>
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-[hsl(var(--foreground))]">
-            {activeNavItem?.label ?? "Workspace"}
+            {activeNavItem ? t(activeNavItem.labelKey) : t("common:groups.workspace")}
           </p>
         </div>
       </div>
@@ -244,7 +252,7 @@ function AuthenticatedApp() {
             type="button"
             className="relative rounded-md p-2 text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
             onClick={() => navigate("/notifications")}
-            aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
+            aria-label={`${t("common:nav.notifications")}${unreadCount > 0 ? ` (${unreadCount})` : ""}`}
           >
             <Bell className="h-4 w-4" />
             {unreadCount > 0 ? (
@@ -254,9 +262,10 @@ function AuthenticatedApp() {
             ) : null}
           </button>
         ) : null}
+        <LanguageSelector />
         <ThemeToggle />
         <DropdownMenu
-          triggerLabel={user?.email ?? "Account"}
+          triggerLabel={user?.email ?? t("common:groups.account")}
           items={dropdownItems}
         />
       </div>
@@ -266,7 +275,7 @@ function AuthenticatedApp() {
   return (
     <>
       <AppShell topbar={topBar} sidebar={isChatRoute ? undefined : <NavigationList groups={groups} />}>
-        <Suspense fallback={<LoadingView label="Loading route..." />}>
+        <Suspense fallback={<LoadingView label={t("common:labels.loadingRoute")} />}>
           <Routes>
             <Route path="/" element={<Navigate replace to="/chat" />} />
             <Route path="/chat" element={<ChatPage />} />
@@ -290,8 +299,8 @@ function AuthenticatedApp() {
 
       <Drawer
         open={mobileNavOpen}
-        title="Navigation"
-        description="Switch primary workflow areas"
+        title={t("common:drawer.navigationTitle")}
+        description={t("common:drawer.navigationDescription")}
         side="left"
         onClose={() => setMobileNavOpen(false)}
       >
@@ -302,6 +311,7 @@ function AuthenticatedApp() {
 }
 
 function PublicApp() {
+  const { t } = useTranslation("common");
   const [setupRequired, setSetupRequired] = useState(false);
   const [waitlistEnabled, setWaitlistEnabled] = useState(false);
   const [configState, setConfigState] = useState<"loading" | "ready" | "error">("loading");
@@ -342,7 +352,7 @@ function PublicApp() {
   );
 
   if (configState === "loading") {
-    return <LoadingView label="Loading..." />;
+    return <LoadingView label={t("common:labels.loading")} />;
   }
 
   if (setupRequired) {
@@ -367,10 +377,11 @@ function PublicApp() {
 }
 
 export function App() {
+  const { t } = useTranslation("common");
   const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
-    return <LoadingView label="Loading session..." />;
+    return <LoadingView label={t("common:labels.loadingSession")} />;
   }
 
   return isAuthenticated ? <AuthenticatedApp /> : <PublicApp />;

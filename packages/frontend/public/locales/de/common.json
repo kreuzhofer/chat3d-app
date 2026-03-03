@@ -1,0 +1,104 @@
+{
+  "appName": "Chat3D",
+  "tagline": "Prompt-zu-CAD-Arbeitsbereich",
+  "nav": {
+    "product": "Produkt",
+    "pricing": "Preise",
+    "login": "Anmelden",
+    "chat": "Chat",
+    "profile": "Profil",
+    "admin": "Admin",
+    "workbench": "Werkbank",
+    "backups": "Sicherungen",
+    "notifications": "Benachrichtigungen"
+  },
+  "actions": {
+    "send": "Senden",
+    "stop": "Stopp",
+    "cancel": "Abbrechen",
+    "save": "Speichern",
+    "delete": "Löschen",
+    "rename": "Umbenennen",
+    "create": "Erstellen",
+    "close": "Schließen",
+    "confirm": "Bestätigen",
+    "retry": "Wiederholen",
+    "download": "Herunterladen",
+    "upload": "Hochladen",
+    "submit": "Absenden",
+    "back": "Zurück",
+    "next": "Weiter",
+    "regenerate": "Neu generieren",
+    "showOlderMessages": "Ältere Nachrichten anzeigen ({{count}})",
+    "menu": "Menü",
+    "logout": "Abmelden",
+    "openProfile": "Profil öffnen",
+    "queryWorkbench": "Abfrage-Werkbank",
+    "llmWorkbench": "LLM-Werkbank",
+    "refreshEventReplay": "Event-Replay aktualisieren",
+    "markAllRead": "Alle als gelesen markieren"
+  },
+  "labels": {
+    "email": "E-Mail",
+    "password": "Passwort",
+    "displayName": "Anzeigename",
+    "optional": "Optional",
+    "required": "Erforderlich",
+    "loading": "Wird geladen...",
+    "loadingSession": "Sitzung wird geladen...",
+    "loadingRoute": "Seite wird geladen...",
+    "user": "Benutzer",
+    "assistant": "Assistent",
+    "conversation": "Unterhaltung",
+    "details": "Details",
+    "files": "Dateien"
+  },
+  "status": {
+    "liked": "Gefällt mir",
+    "disliked": "Gefällt mir nicht"
+  },
+  "footer": {
+    "imprint": "Impressum",
+    "legal": "Rechtliches"
+  },
+  "groups": {
+    "workspace": "Arbeitsbereich",
+    "account": "Konto",
+    "administration": "Verwaltung"
+  },
+  "shell": {
+    "applicationShell": "Anwendungsrahmen"
+  },
+  "a11y": {
+    "hidePassword": "Passwort verbergen",
+    "showPassword": "Passwort anzeigen",
+    "attachFiles": "Dateien anhängen",
+    "thumbsUp": "Daumen hoch",
+    "thumbsDown": "Daumen runter",
+    "createNamedContext": "Benannten Kontext erstellen",
+    "closeMenu": "Menü schließen",
+    "openMenu": "Menü öffnen",
+    "closeCapabilityHints": "Fähigkeitshinweise schließen",
+    "examplePrompts": "Beispiel-Prompts",
+    "breadcrumb": "Breadcrumb",
+    "changeLanguage": "Sprache ändern"
+  },
+  "passwordStrength": {
+    "label": "Passwortstärke:",
+    "weak": "Schwach",
+    "fair": "Mäßig",
+    "good": "Gut",
+    "strong": "Stark"
+  },
+  "language": {
+    "selector": "Sprache"
+  },
+  "cta": {
+    "joinWaitlist": "Warteliste beitreten",
+    "startBuilding": "Jetzt starten"
+  },
+  "drawer": {
+    "navigationTitle": "Navigation",
+    "navigationDescription": "Zwischen Arbeitsbereichen wechseln"
+  }
+}

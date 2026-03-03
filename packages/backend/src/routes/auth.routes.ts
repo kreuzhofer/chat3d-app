@@ -23,12 +23,12 @@ authRouter.post("/register", async (req, res) => {
     typeof req.body?.registrationToken === "string" ? req.body.registrationToken : "";
 
   if (!email || !password) {
-    res.status(400).json({ error: "Email and password are required" });
+    res.status(400).json({ error: req.t("errors:auth.emailAndPasswordRequired") });
     return;
   }
 
   if (!assertValidPassword(password)) {
-    res.status(400).json({ error: "Password must be at least 8 characters" });
+    res.status(400).json({ error: req.t("errors:auth.passwordMinLength") });
     return;
   }
 
@@ -36,7 +36,7 @@ authRouter.post("/register", async (req, res) => {
   const waitlistEnabled = await isWaitlistEnabled();
 
   if (waitlistEnabled && !registrationToken) {
-    res.status(403).json({ error: "A valid registration token is required while waitlist is enabled" });
+    res.status(403).json({ error: req.t("errors:auth.registrationTokenRequired") });
     return;
   }
 
@@ -48,7 +48,7 @@ authRouter.post("/register", async (req, res) => {
       `;
 
       if (existingRows[0]) {
-        throw Object.assign(new Error("Email is already registered"), { statusCode: 409 });
+        throw Object.assign(new Error(req.t("errors:auth.emailAlreadyRegistered")), { statusCode: 409 });
       }
 
       if (waitlistEnabled) {
@@ -96,7 +96,7 @@ authRouter.post("/register", async (req, res) => {
       return;
     }
 
-    res.status(500).json({ error: "Failed to register user", detail: String(error) });
+    res.status(500).json({ error: req.t("errors:auth.registrationFailed"), detail: String(error) });
   }
 });
 
@@ -110,7 +110,7 @@ authRouter.post("/login", async (req, res) => {
       ipAddress: req.ip,
       path: req.path,
     });
-    res.status(400).json({ error: "Email and password are required" });
+    res.status(400).json({ error: req.t("errors:auth.emailAndPasswordRequired") });
     return;
   }
 
@@ -124,7 +124,7 @@ authRouter.post("/login", async (req, res) => {
         email,
       },
     });
-    res.status(401).json({ error: "Invalid email or password" });
+    res.status(401).json({ error: req.t("errors:auth.invalidCredentials") });
     return;
   }
 
@@ -138,7 +138,7 @@ authRouter.post("/login", async (req, res) => {
         status: userWithPassword.status,
       },
     });
-    res.status(403).json({ error: "User account is not active" });
+    res.status(403).json({ error: req.t("errors:auth.accountNotActive") });
     return;
   }
 
@@ -150,7 +150,7 @@ authRouter.post("/login", async (req, res) => {
       ipAddress: req.ip,
       path: req.path,
     });
-    res.status(401).json({ error: "Invalid email or password" });
+    res.status(401).json({ error: req.t("errors:auth.invalidCredentials") });
     return;
   }
 
@@ -160,8 +160,20 @@ authRouter.post("/login", async (req, res) => {
   res.status(200).json({ token, user });
 });
 
-authRouter.get("/me", requireAuth, (req, res) => {
-  res.status(200).json(req.authUser);
+authRouter.get("/me", requireAuth, async (req, res) => {
+  const authUser = req.authUser;
+  if (!authUser) {
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
+    return;
+  }
+
+  // Include language from DB
+  const dbUser = await prisma.user.findUnique({
+    where: { id: authUser.id },
+    select: { language: true },
+  });
+
+  res.status(200).json({ ...authUser, language: dbUser?.language ?? "en" });
 });
 
 authRouter.post("/logout", requireAuth, async (req, res) => {

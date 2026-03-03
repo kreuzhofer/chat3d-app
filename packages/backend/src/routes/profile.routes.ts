@@ -9,27 +9,21 @@ import {
   requestEmailChange,
   requestPasswordReset,
 } from "../services/account-lifecycle.service.js";
+import { prisma } from "../db/prisma.js";
+import { isSupportedLanguage } from "../i18n/config.js";
 
 export const profileRouter = Router();
-
-function sendKnownError(res: Parameters<typeof profileRouter.get>[1] extends (req: infer _Req, res: infer Res) => unknown ? Res : never, error: unknown, fallback: string) {
-  if (error instanceof AccountLifecycleError) {
-    res.status(error.statusCode).json({ error: error.message });
-    return;
-  }
-  res.status(500).json({ error: fallback, detail: String(error) });
-}
 
 profileRouter.post("/reset-password/request", requireAuth, async (req, res) => {
   const authUser = req.authUser;
   if (!authUser) {
-    res.status(401).json({ error: "Authentication required" });
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
     return;
   }
 
   const newPassword = typeof req.body?.newPassword === "string" ? req.body.newPassword : "";
   if (!newPassword) {
-    res.status(400).json({ error: "newPassword is required" });
+    res.status(400).json({ error: req.t("validation:fields.newPasswordRequired") });
     return;
   }
 
@@ -41,20 +35,24 @@ profileRouter.post("/reset-password/request", requireAuth, async (req, res) => {
     });
     res.status(202).json({ status: "pending_confirmation" });
   } catch (error) {
-    sendKnownError(res, error, "Failed to request password reset");
+    if (error instanceof AccountLifecycleError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: req.t("errors:profile.passwordResetFailed"), detail: String(error) });
   }
 });
 
 profileRouter.post("/change-email/request", requireAuth, async (req, res) => {
   const authUser = req.authUser;
   if (!authUser) {
-    res.status(401).json({ error: "Authentication required" });
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
     return;
   }
 
   const newEmail = typeof req.body?.newEmail === "string" ? req.body.newEmail : "";
   if (!newEmail) {
-    res.status(400).json({ error: "newEmail is required" });
+    res.status(400).json({ error: req.t("validation:fields.newEmailRequired") });
     return;
   }
 
@@ -66,14 +64,18 @@ profileRouter.post("/change-email/request", requireAuth, async (req, res) => {
     });
     res.status(202).json({ status: "pending_confirmation" });
   } catch (error) {
-    sendKnownError(res, error, "Failed to request email change");
+    if (error instanceof AccountLifecycleError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: req.t("errors:profile.emailChangeFailed"), detail: String(error) });
   }
 });
 
 profileRouter.post("/export-data/request", requireAuth, async (req, res) => {
   const authUser = req.authUser;
   if (!authUser) {
-    res.status(401).json({ error: "Authentication required" });
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
     return;
   }
 
@@ -84,14 +86,18 @@ profileRouter.post("/export-data/request", requireAuth, async (req, res) => {
     });
     res.status(202).json({ status: "pending_confirmation" });
   } catch (error) {
-    sendKnownError(res, error, "Failed to request data export");
+    if (error instanceof AccountLifecycleError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: req.t("errors:profile.dataExportFailed"), detail: String(error) });
   }
 });
 
 profileRouter.post("/delete-account/request", requireAuth, async (req, res) => {
   const authUser = req.authUser;
   if (!authUser) {
-    res.status(401).json({ error: "Authentication required" });
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
     return;
   }
 
@@ -102,14 +108,18 @@ profileRouter.post("/delete-account/request", requireAuth, async (req, res) => {
     });
     res.status(202).json({ status: "pending_confirmation" });
   } catch (error) {
-    sendKnownError(res, error, "Failed to request account delete");
+    if (error instanceof AccountLifecycleError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: req.t("errors:profile.accountDeleteFailed"), detail: String(error) });
   }
 });
 
 profileRouter.post("/reactivate/request", async (req, res) => {
   const email = typeof req.body?.email === "string" ? req.body.email : "";
   if (!email) {
-    res.status(400).json({ error: "email is required" });
+    res.status(400).json({ error: req.t("validation:fields.emailRequired") });
     return;
   }
 
@@ -117,7 +127,40 @@ profileRouter.post("/reactivate/request", async (req, res) => {
     await requestAccountReactivation({ email });
     res.status(202).json({ status: "pending_confirmation" });
   } catch (error) {
-    sendKnownError(res, error, "Failed to request account reactivation");
+    if (error instanceof AccountLifecycleError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: req.t("errors:profile.accountReactivationFailed"), detail: String(error) });
+  }
+});
+
+profileRouter.patch("/language", requireAuth, async (req, res) => {
+  const authUser = req.authUser;
+  if (!authUser) {
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
+    return;
+  }
+
+  const language = typeof req.body?.language === "string" ? req.body.language : "";
+  if (!language) {
+    res.status(400).json({ error: req.t("validation:fields.languageRequired") });
+    return;
+  }
+
+  if (!isSupportedLanguage(language)) {
+    res.status(400).json({ error: req.t("validation:fields.invalidLanguage", { language }) });
+    return;
+  }
+
+  try {
+    await prisma.user.update({
+      where: { id: authUser.id },
+      data: { language },
+    });
+    res.status(200).json({ status: "updated", language });
+  } catch (error) {
+    res.status(500).json({ error: req.t("errors:profile.languageUpdateFailed"), detail: String(error) });
   }
 });
 
@@ -128,6 +171,10 @@ profileRouter.get("/actions/confirm", async (req, res) => {
     const result = await confirmAccountAction(token);
     res.status(200).json(result);
   } catch (error) {
-    sendKnownError(res, error, "Failed to confirm action");
+    if (error instanceof AccountLifecycleError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: req.t("errors:profile.confirmActionFailed"), detail: String(error) });
   }
 });

@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Image as ImageIcon,
   File as FileIcon,
@@ -40,6 +41,7 @@ export function PromptComposer({
   onAttachFiles,
   onRemoveFile,
 }: PromptComposerProps) {
+  const { t } = useTranslation(["pages", "common"]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const hasUploading = pendingFiles.some((f) => f.status === "uploading");
@@ -120,7 +122,7 @@ export function PromptComposer({
       <Textarea
         id="chat-prompt"
         data-testid="chat-prompt-input"
-        placeholder="Describe the part, dimensions, and constraints..."
+        placeholder={t("pages:chat.promptPlaceholder")}
         value={prompt}
         rows={3}
         onChange={(event) => onPromptChange(event.target.value)}
@@ -137,7 +139,7 @@ export function PromptComposer({
           <Button
             size="icon"
             variant="ghost"
-            aria-label="Attach files"
+            aria-label={t("common:a11y.attachFiles")}
             onClick={() => fileInputRef.current?.click()}
           >
             <Paperclip className="h-4 w-4" />
@@ -150,7 +152,7 @@ export function PromptComposer({
             iconLeft={<Square className="h-4 w-4" />}
             onClick={onStop}
           >
-            Stop
+            {t("common:actions.stop")}
           </Button>
         ) : (
           <Button
@@ -159,7 +161,7 @@ export function PromptComposer({
             disabled={busyAction !== null || prompt.trim() === "" || hasUploading}
             onClick={onSubmit}
           >
-            Send
+            {t("common:actions.send")}
           </Button>
         )}
       </div>

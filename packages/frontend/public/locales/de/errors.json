@@ -1,0 +1,27 @@
+{
+  "validation": {
+    "emailRequired": "E-Mail ist erforderlich",
+    "passwordRequired": "Passwort ist erforderlich",
+    "emailAndPasswordRequired": "E-Mail und Passwort sind erforderlich",
+    "invalidEmail": "Bitte geben Sie eine gültige E-Mail-Adresse ein",
+    "passwordMinLength": "Das Passwort muss mindestens {{min}} Zeichen lang sein",
+    "displayNameTooLong": "Der Anzeigename darf höchstens {{max}} Zeichen lang sein",
+    "fieldRequired": "{{field}} ist erforderlich"
+  },
+  "auth": {
+    "invalidCredentials": "Ungültige E-Mail oder Passwort",
+    "accountNotActive": "Das Benutzerkonto ist nicht aktiv",
+    "emailAlreadyRegistered": "Diese E-Mail ist bereits registriert",
+    "registrationTokenRequired": "Ein gültiger Registrierungstoken ist erforderlich, solange die Warteliste aktiviert ist",
+    "registrationFailed": "Benutzerregistrierung fehlgeschlagen",
+    "loginFailed": "Anmeldung fehlgeschlagen"
+  },
+  "generic": {
+    "unexpectedError": "Ein unerwarteter Fehler ist aufgetreten",
+    "networkError": "Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung.",
+    "serverError": "Interner Serverfehler",
+    "notFound": "Nicht gefunden",
+    "unauthorized": "Authentifizierung erforderlich",
+    "forbidden": "Zugriff verweigert"
+  }
+}

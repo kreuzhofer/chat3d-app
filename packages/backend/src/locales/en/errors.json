@@ -1,0 +1,40 @@
+{
+  "auth": {
+    "emailAndPasswordRequired": "Email and password are required",
+    "passwordMinLength": "Password must be at least 8 characters",
+    "invalidCredentials": "Invalid email or password",
+    "accountNotActive": "User account is not active",
+    "emailAlreadyRegistered": "Email is already registered",
+    "registrationTokenRequired": "A valid registration token is required while waitlist is enabled",
+    "registrationFailed": "Failed to register user",
+    "authenticationRequired": "Authentication required"
+  },
+  "chat": {
+    "invalidContextId": "Invalid context id",
+    "invalidItemId": "Invalid context id or item id",
+    "failedListContexts": "Failed to list chat contexts",
+    "failedCreateContext": "Failed to create chat context",
+    "failedUpdateContext": "Failed to update chat context",
+    "failedDeleteContext": "Failed to delete chat context",
+    "failedListItems": "Failed to list chat items",
+    "failedCreateItem": "Failed to create chat item",
+    "failedUpdateItem": "Failed to update chat item",
+    "failedDeleteItem": "Failed to delete chat item"
+  },
+  "profile": {
+    "passwordResetFailed": "Failed to request password reset",
+    "emailChangeFailed": "Failed to request email change",
+    "dataExportFailed": "Failed to request data export",
+    "accountDeleteFailed": "Failed to request account delete",
+    "accountReactivationFailed": "Failed to request account reactivation",
+    "languageUpdateFailed": "Failed to update language",
+    "confirmActionFailed": "Failed to confirm action"
+  },
+  "setup": {
+    "failed": "Setup failed"
+  },
+  "generic": {
+    "internalError": "Internal server error",
+    "routeNotFound": "Route not found: {{method}} {{path}}"
+  }
+}

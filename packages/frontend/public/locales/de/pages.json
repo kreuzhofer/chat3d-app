@@ -1,0 +1,116 @@
+{
+  "login": {
+    "welcomeBack": "Willkommen zurück bei Chat3D",
+    "subtitle": "Melden Sie sich an, um weiterzubauen",
+    "title": "Anmelden",
+    "signIn": "Anmelden",
+    "noAccount": "Noch kein Konto?",
+    "createOne": "Jetzt erstellen",
+    "waitlistGated": "Die Registrierung ist derzeit eingeschränkt.",
+    "joinWaitlist": "Der Warteliste beitreten"
+  },
+  "register": {
+    "createAccount": "Erstellen Sie Ihr Chat3D-Konto",
+    "subtitle": "Erstellen Sie 3D-Modelle mit KI",
+    "title": "Registrieren",
+    "waitlistWarning": "Der Wartelistenmodus ist aktiv. Für die Registrierung ist ein gültiger Aktivierungstoken erforderlich, der nach der Genehmigung per E-Mail gesendet wird.",
+    "displayNameHelper": "Optional.",
+    "registrationToken": "Registrierungstoken",
+    "registrationTokenHelperWaitlist": "Erforderlich, solange der Wartelistenmodus aktiviert ist.",
+    "registrationTokenHelperOpen": "Optional bei offener Registrierung.",
+    "registrationTokenPlaceholderWaitlist": "Erforderlich bei aktiver Warteliste",
+    "registrationTokenPlaceholderOpen": "Optional",
+    "createAccountButton": "Konto erstellen",
+    "alreadyRegistered": "Bereits registriert?",
+    "signIn": "Anmelden",
+    "needAccess": "Zugang benötigt?",
+    "joinWaitlist": "Warteliste beitreten"
+  },
+  "setup": {
+    "welcome": "Willkommen bei Chat3D",
+    "subtitle": "Erstellen Sie Ihr Admin-Konto, um loszulegen",
+    "title": "Ersteinrichtung",
+    "displayNameHelper": "Optional.",
+    "createAdminAccount": "Admin-Konto erstellen"
+  },
+  "chat": {
+    "newConversation": "Neue Unterhaltung",
+    "newChat": "Neuer Chat",
+    "newDraft": "Neuer Entwurf — Kontext wird beim ersten Senden erstellt",
+    "contextNamePrompt": "Kontextname (leer lassen für Standard)",
+    "renameContextPrompt": "Chat-Kontext umbenennen",
+    "deleteContextConfirm": "Kontext \"{{name}}\" löschen?",
+    "contextCreated": "Chat-Kontext erstellt.",
+    "contextRenamed": "Kontext umbenannt.",
+    "contextDeleted": "Kontext gelöscht.",
+    "contextNameEmpty": "Der Kontextname darf nicht leer sein.",
+    "contextNotFound": "Der angeforderte Chat-Kontext wurde nicht gefunden.",
+    "modelSelectionSaved": "Modellauswahl für diesen Kontext gespeichert.",
+    "startModeling": "Modellieren starten",
+    "startModelingDescription": "Schreiben Sie Ihren ersten Prompt. Ein Chat-Kontext wird automatisch beim ersten Senden erstellt.",
+    "noContextsYet": "Noch keine Kontexte",
+    "noContextsDescription": "Starten Sie einen Entwurf oder erstellen Sie einen benannten Kontext.",
+    "promptPlaceholder": "Beschreiben Sie das Teil, Maße und Einschränkungen...",
+    "mobileTabs": {
+      "contexts": "Kontexte",
+      "thread": "Verlauf",
+      "model": "Modell"
+    },
+    "timeBuckets": {
+      "today": "Heute",
+      "last7days": "Letzte 7 Tage",
+      "older": "Älter"
+    },
+    "error": {
+      "generationTitle": "Beim Generieren Ihres Modells ist ein Fehler aufgetreten",
+      "generationSuggestion": "Versuchen Sie, Ihre Anfrage umzuformulieren, oder bitten Sie mich, einen anderen Ansatz zu verwenden."
+    },
+    "longRunning": {
+      "message": "Das dauert etwas länger — Ihr Modell wird noch generiert. Sie können die Seite verlassen und später zurückkehren.",
+      "enableNotifications": " Aktivieren Sie Benachrichtigungen, um informiert zu werden.",
+      "willNotify": " Sie erhalten eine Benachrichtigung, wenn es fertig ist.",
+      "enableButton": "Benachrichtigungen aktivieren",
+      "enablingButton": "Wird aktiviert..."
+    },
+    "capabilityDescription": "Chat3D kann Zahnräder, Gehäuse, Halterungen, Adapter und andere mechanische Teile aus einer Textbeschreibung generieren. Wählen Sie ein Beispiel oder schreiben Sie Ihren eigenen Prompt.",
+    "whatCanIBuild": "Was kann ich bauen?",
+    "capabilities": {
+      "gears": "Zahnräder",
+      "gearsExamples": "Stirnräder · Kegelräder · Modul 1–5mm, 10–80 Zähne",
+      "brackets": "Halterungen & Befestigungen",
+      "bracketsExamples": "L-Winkel · U-Winkel · Wandhalterungen · Bis zu 200mm Spannweite",
+      "enclosures": "Gehäuse",
+      "enclosuresExamples": "Raspberry-Pi-Gehäuse · Sensorgehäuse · Snap-fit oder Schraubmontage",
+      "adapters": "Adapter & Verbinder",
+      "adaptersExamples": "Schlauchadapter · Rohrverjüngungen · 6–50mm Durchmesser",
+      "mechanical": "Mechanische Komponenten",
+      "mechanicalExamples": "Distanzstücke · Buchsen · Flansche · Riemenscheiben"
+    },
+    "limitations": {
+      "title": "Bekannte Einschränkungen",
+      "organic": "Komplexe organische Formen (z.B. Figuren) werden nicht gut unterstützt.",
+      "threads": "Die Gewindeerzeugung erfordert möglicherweise manuelle Nachbearbeitung.",
+      "assemblies": "Baugruppen mit mehreren beweglichen Teilen werden noch nicht unterstützt."
+    },
+    "examplePrompts": {
+      "spurGear": "Stirnrad",
+      "spurGearPrompt": "Entwerfen Sie ein Stirnrad mit 20 Zähnen, einem Modul von 2mm und einer 5mm Mittelbohrung.",
+      "piEnclosure": "Raspberry-Pi-Gehäuse",
+      "piEnclosurePrompt": "Erstellen Sie ein einfaches Snap-fit-Gehäuse für einen Raspberry Pi 4 mit Lüftungsschlitzen und Befestigungslöchern.",
+      "lBracket": "L-Winkel",
+      "lBracketPrompt": "Generieren Sie einen L-förmigen Montagewinkel, 50mm × 30mm mit 3mm Dicke und vier M4-Schraubenlöchern.",
+      "hoseAdapter": "Schlauchadapter",
+      "hoseAdapterPrompt": "Entwerfen Sie einen gestuften Schlauchadapter, der von 12mm Innendurchmesser auf 8mm übergeht, 40mm lang mit Widerhaken."
+    },
+    "fileAttachment": "Dateianhang",
+    "uploadedImage": "Hochgeladenes Bild",
+    "empty": "(leer)",
+    "usage": "Verbrauch: {{input}} ein / {{output}} aus / {{total}} gesamt · ca. ${{cost}}",
+    "artifacts": "Artefakte: {{previewStatus}} · {{detail}}",
+    "tokens": "{{count}} Token · ~${{cost}}"
+  },
+  "publicShell": {
+    "checkingRegistration": "Registrierungsmodus wird geprüft...",
+    "waitlistBanner": "Der Wartelistenmodus ist aktiv. Neue Benutzer können sich auf die Warteliste setzen und erhalten nach Genehmigung einen Registrierungslink."
+  }
+}

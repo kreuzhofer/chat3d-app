@@ -1,0 +1,104 @@
+{
+  "appName": "Chat3D",
+  "tagline": "Prompt-to-CAD workspace",
+  "nav": {
+    "product": "Product",
+    "pricing": "Pricing",
+    "login": "Login",
+    "chat": "Chat",
+    "profile": "Profile",
+    "admin": "Admin",
+    "workbench": "Workbench",
+    "backups": "Backups",
+    "notifications": "Notifications"
+  },
+  "actions": {
+    "send": "Send",
+    "stop": "Stop",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "rename": "Rename",
+    "create": "Create",
+    "close": "Close",
+    "confirm": "Confirm",
+    "retry": "Retry",
+    "download": "Download",
+    "upload": "Upload",
+    "submit": "Submit",
+    "back": "Back",
+    "next": "Next",
+    "regenerate": "Regenerate",
+    "showOlderMessages": "Show Older Messages ({{count}})",
+    "menu": "Menu",
+    "logout": "Logout",
+    "openProfile": "Open Profile",
+    "queryWorkbench": "Query Workbench",
+    "llmWorkbench": "LLM Workbench",
+    "refreshEventReplay": "Refresh Event Replay",
+    "markAllRead": "Mark All Read"
+  },
+  "labels": {
+    "email": "Email",
+    "password": "Password",
+    "displayName": "Display name",
+    "optional": "Optional",
+    "required": "Required",
+    "loading": "Loading...",
+    "loadingSession": "Loading session...",
+    "loadingRoute": "Loading route...",
+    "user": "user",
+    "assistant": "assistant",
+    "conversation": "Conversation",
+    "details": "Details",
+    "files": "Files"
+  },
+  "status": {
+    "liked": "Liked",
+    "disliked": "Disliked"
+  },
+  "footer": {
+    "imprint": "Imprint",
+    "legal": "Legal"
+  },
+  "groups": {
+    "workspace": "Workspace",
+    "account": "Account",
+    "administration": "Administration"
+  },
+  "shell": {
+    "applicationShell": "Application shell"
+  },
+  "a11y": {
+    "hidePassword": "Hide password",
+    "showPassword": "Show password",
+    "attachFiles": "Attach files",
+    "thumbsUp": "Thumbs up",
+    "thumbsDown": "Thumbs down",
+    "createNamedContext": "Create named context",
+    "closeMenu": "Close menu",
+    "openMenu": "Open menu",
+    "closeCapabilityHints": "Close capability hints",
+    "examplePrompts": "Example prompts",
+    "breadcrumb": "Breadcrumb",
+    "changeLanguage": "Change language"
+  },
+  "passwordStrength": {
+    "label": "Password strength:",
+    "weak": "Weak",
+    "fair": "Fair",
+    "good": "Good",
+    "strong": "Strong"
+  },
+  "language": {
+    "selector": "Language"
+  },
+  "cta": {
+    "joinWaitlist": "Join Waitlist",
+    "startBuilding": "Start Building"
+  },
+  "drawer": {
+    "navigationTitle": "Navigation",
+    "navigationDescription": "Switch primary workflow areas"
+  }
+}

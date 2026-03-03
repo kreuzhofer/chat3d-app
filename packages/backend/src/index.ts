@@ -3,7 +3,11 @@ import { createApp } from "./app.js";
 import { createLogger } from "./utils/logger.js";
 import { prisma } from "./db/prisma.js";
 import { resumeStalePipelines } from "./services/query.service.js";
+import { initializeI18n } from "./i18n/config.js";
 const logger = createLogger("backend");
+
+await initializeI18n();
+logger.info("i18n initialized");
 
 const app = createApp();
 

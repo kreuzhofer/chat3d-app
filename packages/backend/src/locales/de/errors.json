@@ -1,0 +1,40 @@
+{
+  "auth": {
+    "emailAndPasswordRequired": "E-Mail und Passwort sind erforderlich",
+    "passwordMinLength": "Das Passwort muss mindestens 8 Zeichen lang sein",
+    "invalidCredentials": "Ungültige E-Mail oder Passwort",
+    "accountNotActive": "Das Benutzerkonto ist nicht aktiv",
+    "emailAlreadyRegistered": "Diese E-Mail ist bereits registriert",
+    "registrationTokenRequired": "Ein gültiger Registrierungstoken ist erforderlich, solange die Warteliste aktiviert ist",
+    "registrationFailed": "Benutzerregistrierung fehlgeschlagen",
+    "authenticationRequired": "Authentifizierung erforderlich"
+  },
+  "chat": {
+    "invalidContextId": "Ungültige Kontext-ID",
+    "invalidItemId": "Ungültige Kontext-ID oder Element-ID",
+    "failedListContexts": "Chat-Kontexte konnten nicht aufgelistet werden",
+    "failedCreateContext": "Chat-Kontext konnte nicht erstellt werden",
+    "failedUpdateContext": "Chat-Kontext konnte nicht aktualisiert werden",
+    "failedDeleteContext": "Chat-Kontext konnte nicht gelöscht werden",
+    "failedListItems": "Chat-Elemente konnten nicht aufgelistet werden",
+    "failedCreateItem": "Chat-Element konnte nicht erstellt werden",
+    "failedUpdateItem": "Chat-Element konnte nicht aktualisiert werden",
+    "failedDeleteItem": "Chat-Element konnte nicht gelöscht werden"
+  },
+  "profile": {
+    "passwordResetFailed": "Passwort-Zurücksetzung konnte nicht angefordert werden",
+    "emailChangeFailed": "E-Mail-Änderung konnte nicht angefordert werden",
+    "dataExportFailed": "Datenexport konnte nicht angefordert werden",
+    "accountDeleteFailed": "Kontolöschung konnte nicht angefordert werden",
+    "accountReactivationFailed": "Kontoreaktivierung konnte nicht angefordert werden",
+    "languageUpdateFailed": "Sprache konnte nicht aktualisiert werden",
+    "confirmActionFailed": "Aktion konnte nicht bestätigt werden"
+  },
+  "setup": {
+    "failed": "Einrichtung fehlgeschlagen"
+  },
+  "generic": {
+    "internalError": "Interner Serverfehler",
+    "routeNotFound": "Route nicht gefunden: {{method}} {{path}}"
+  }
+}

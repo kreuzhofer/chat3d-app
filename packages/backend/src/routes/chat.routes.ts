@@ -40,7 +40,7 @@ function sendKnownError(
 chatRouter.get("/contexts", async (req, res) => {
   const authUser = req.authUser;
   if (!authUser) {
-    res.status(401).json({ error: "Authentication required" });
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
     return;
   }
 
@@ -48,14 +48,14 @@ chatRouter.get("/contexts", async (req, res) => {
     const contexts = await listChatContexts(authUser.id);
     res.status(200).json({ contexts });
   } catch (error) {
-    sendKnownError(res, error, "Failed to list chat contexts");
+    sendKnownError(res, error, req.t("errors:chat.failedListContexts"));
   }
 });
 
 chatRouter.post("/contexts", async (req, res) => {
   const authUser = req.authUser;
   if (!authUser) {
-    res.status(401).json({ error: "Authentication required" });
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
     return;
   }
 
@@ -71,20 +71,20 @@ chatRouter.post("/contexts", async (req, res) => {
     });
     res.status(201).json(context);
   } catch (error) {
-    sendKnownError(res, error, "Failed to create chat context");
+    sendKnownError(res, error, req.t("errors:chat.failedCreateContext"));
   }
 });
 
 chatRouter.patch("/contexts/:contextId", async (req, res) => {
   const authUser = req.authUser;
   if (!authUser) {
-    res.status(401).json({ error: "Authentication required" });
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
     return;
   }
 
   const contextId = parsePathParam(req.params.contextId);
   if (!contextId) {
-    res.status(400).json({ error: "Invalid context id" });
+    res.status(400).json({ error: req.t("errors:chat.invalidContextId") });
     return;
   }
 
@@ -99,20 +99,20 @@ chatRouter.patch("/contexts/:contextId", async (req, res) => {
     });
     res.status(200).json(context);
   } catch (error) {
-    sendKnownError(res, error, "Failed to update chat context");
+    sendKnownError(res, error, req.t("errors:chat.failedUpdateContext"));
   }
 });
 
 chatRouter.delete("/contexts/:contextId", async (req, res) => {
   const authUser = req.authUser;
   if (!authUser) {
-    res.status(401).json({ error: "Authentication required" });
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
     return;
   }
 
   const contextId = parsePathParam(req.params.contextId);
   if (!contextId) {
-    res.status(400).json({ error: "Invalid context id" });
+    res.status(400).json({ error: req.t("errors:chat.invalidContextId") });
     return;
   }
 
@@ -123,27 +123,24 @@ chatRouter.delete("/contexts/:contextId", async (req, res) => {
     });
     res.status(204).send();
   } catch (error) {
-    sendKnownError(res, error, "Failed to delete chat context");
+    sendKnownError(res, error, req.t("errors:chat.failedDeleteContext"));
   }
 });
 
 chatRouter.get("/contexts/:contextId/items", async (req, res) => {
   const authUser = req.authUser;
   if (!authUser) {
-    res.status(401).json({ error: "Authentication required" });
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
     return;
   }
 
   const contextId = parsePathParam(req.params.contextId);
   if (!contextId) {
-    res.status(400).json({ error: "Invalid context id" });
+    res.status(400).json({ error: req.t("errors:chat.invalidContextId") });
     return;
   }
 
   try {
-    // Mark orphaned pending items as failed before returning the list.
-    // This handles items left in "pending" after a server restart where
-    // the pipeline was not resumed (e.g. too old for resume window).
     await markStalePendingItems(contextId, authUser.id);
 
     const items = await listChatItems({
@@ -152,20 +149,20 @@ chatRouter.get("/contexts/:contextId/items", async (req, res) => {
     });
     res.status(200).json({ items });
   } catch (error) {
-    sendKnownError(res, error, "Failed to list chat items");
+    sendKnownError(res, error, req.t("errors:chat.failedListItems"));
   }
 });
 
 chatRouter.post("/contexts/:contextId/items", async (req, res) => {
   const authUser = req.authUser;
   if (!authUser) {
-    res.status(401).json({ error: "Authentication required" });
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
     return;
   }
 
   const contextId = parsePathParam(req.params.contextId);
   if (!contextId) {
-    res.status(400).json({ error: "Invalid context id" });
+    res.status(400).json({ error: req.t("errors:chat.invalidContextId") });
     return;
   }
 
@@ -178,21 +175,21 @@ chatRouter.post("/contexts/:contextId/items", async (req, res) => {
     });
     res.status(201).json(item);
   } catch (error) {
-    sendKnownError(res, error, "Failed to create chat item");
+    sendKnownError(res, error, req.t("errors:chat.failedCreateItem"));
   }
 });
 
 chatRouter.patch("/contexts/:contextId/items/:itemId", async (req, res) => {
   const authUser = req.authUser;
   if (!authUser) {
-    res.status(401).json({ error: "Authentication required" });
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
     return;
   }
 
   const contextId = parsePathParam(req.params.contextId);
   const itemId = parsePathParam(req.params.itemId);
   if (!contextId || !itemId) {
-    res.status(400).json({ error: "Invalid context id or item id" });
+    res.status(400).json({ error: req.t("errors:chat.invalidItemId") });
     return;
   }
 
@@ -206,21 +203,21 @@ chatRouter.patch("/contexts/:contextId/items/:itemId", async (req, res) => {
     });
     res.status(200).json(item);
   } catch (error) {
-    sendKnownError(res, error, "Failed to update chat item");
+    sendKnownError(res, error, req.t("errors:chat.failedUpdateItem"));
   }
 });
 
 chatRouter.delete("/contexts/:contextId/items/:itemId", async (req, res) => {
   const authUser = req.authUser;
   if (!authUser) {
-    res.status(401).json({ error: "Authentication required" });
+    res.status(401).json({ error: req.t("errors:auth.authenticationRequired") });
     return;
   }
 
   const contextId = parsePathParam(req.params.contextId);
   const itemId = parsePathParam(req.params.itemId);
   if (!contextId || !itemId) {
-    res.status(400).json({ error: "Invalid context id or item id" });
+    res.status(400).json({ error: req.t("errors:chat.invalidItemId") });
     return;
   }
 
@@ -232,6 +229,6 @@ chatRouter.delete("/contexts/:contextId/items/:itemId", async (req, res) => {
     });
     res.status(204).send();
   } catch (error) {
-    sendKnownError(res, error, "Failed to delete chat item");
+    sendKnownError(res, error, req.t("errors:chat.failedDeleteItem"));
   }
 });

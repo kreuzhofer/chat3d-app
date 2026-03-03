@@ -7,6 +7,7 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
+import i18next from "i18next";
 import * as authApi from "../auth/auth.api";
 import { submitSetup } from "../api/public.api";
 import type { AuthUser } from "../auth/types";
@@ -44,6 +45,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setToken(nextToken);
     setUser(nextUser);
     persistToken(nextToken);
+    if (nextUser.language) {
+      i18next.changeLanguage(nextUser.language);
+    }
   }, []);
 
   const resetAuth = useCallback(() => {
@@ -114,6 +118,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
         const profile = await authApi.me(token);
         if (mounted) {
           setUser(profile);
+          if (profile.language) {
+            i18next.changeLanguage(profile.language);
+          }
         }
       } catch {
         if (mounted) {
