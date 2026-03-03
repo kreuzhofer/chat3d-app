@@ -24,6 +24,7 @@ import {
   listPurposeAssignments,
   updatePurposeAssignment,
   listAllProviders,
+  getProviderByName,
   createProvider,
   updateProvider,
   deleteProvider,
@@ -409,6 +410,25 @@ adminRouter.get("/llm-providers", async (_req, res) => {
     res.status(200).json({ providers });
   } catch (error) {
     sendKnownError(res, error, "Failed to list LLM providers");
+  }
+});
+
+adminRouter.get("/llm-providers/:name/api-key", async (req, res) => {
+  const name = readPathParam(req.params.name);
+  if (!name) {
+    res.status(400).json({ error: "Invalid provider name" });
+    return;
+  }
+
+  try {
+    const provider = await getProviderByName(name);
+    if (!provider) {
+      res.status(404).json({ error: "Provider not found" });
+      return;
+    }
+    res.status(200).json({ apiKey: provider.api_key });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to retrieve API key");
   }
 });
 

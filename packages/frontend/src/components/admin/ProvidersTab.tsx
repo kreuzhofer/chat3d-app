@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Plus, Pencil, Trash2 } from "lucide-react";
 import {
   listLlmProviders,
+  getProviderApiKey,
   createLlmProvider,
   updateLlmProvider,
   deleteLlmProvider,
@@ -22,6 +23,8 @@ export function ProvidersTab({ token }: ProvidersTabProps) {
   const [providers, setProviders] = useState<LlmProviderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [revealedKeys, setRevealedKeys] = useState<Record<string, string>>({});
 
   // Provider form dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -83,7 +86,7 @@ export function ProvidersTab({ token }: ProvidersTabProps) {
           displayName: data.displayName || null,
           endpointUrl: data.endpointUrl || null,
         };
-        if (data.apiKey.trim() !== "") {
+        if (data.apiKeyChanged && data.apiKey.trim() !== "") {
           patch.apiKey = data.apiKey;
         }
         await updateLlmProvider(token, editingProvider.name, patch);
@@ -161,7 +164,33 @@ export function ProvidersTab({ token }: ProvidersTabProps) {
                   </td>
                   <td className="py-2 pr-3 text-xs">
                     {provider.api_key ? (
-                      <span className="font-mono">{provider.api_key}</span>
+                      <span className="flex items-center gap-1">
+                        <span className="font-mono">
+                          {revealedKeys[provider.name] ?? "••••••••"}
+                        </span>
+                        <button
+                          type="button"
+                          className="rounded p-0.5 text-[hsl(var(--muted-foreground))] transition hover:text-[hsl(var(--foreground))]"
+                          onClick={() => {
+                            if (revealedKeys[provider.name]) {
+                              setRevealedKeys((prev) => {
+                                const next = { ...prev };
+                                delete next[provider.name];
+                                return next;
+                              });
+                            } else {
+                              void getProviderApiKey(token, provider.name).then((key) => {
+                                if (key) {
+                                  setRevealedKeys((prev) => ({ ...prev, [provider.name]: key }));
+                                }
+                              });
+                            }
+                          }}
+                          aria-label={revealedKeys[provider.name] ? "Hide API key" : "Show API key"}
+                        >
+                          {revealedKeys[provider.name] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                      </span>
                     ) : (
                       <span className="text-amber-600 dark:text-amber-400">Not set</span>
                     )}
@@ -211,6 +240,7 @@ export function ProvidersTab({ token }: ProvidersTabProps) {
       {dialogOpen && (
         <ProviderFormDialog
           provider={editingProvider}
+          token={token}
           saving={saving}
           onSave={handleSaveProvider}
           onClose={() => setDialogOpen(false)}

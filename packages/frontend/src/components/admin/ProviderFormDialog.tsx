@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import type { LlmProviderRow } from "../../api/admin.api";
+import { getProviderApiKey, type LlmProviderRow } from "../../api/admin.api";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { FormField } from "../ui/form";
@@ -41,6 +41,7 @@ export interface ProviderFormData {
   displayName: string;
   endpointUrl: string;
   apiKey: string;
+  apiKeyChanged: boolean;
 }
 
 function emptyForm(): ProviderFormData {
@@ -49,6 +50,7 @@ function emptyForm(): ProviderFormData {
     displayName: "",
     endpointUrl: "",
     apiKey: "",
+    apiKeyChanged: false,
   };
 }
 
@@ -57,7 +59,8 @@ function providerToForm(provider: LlmProviderRow): ProviderFormData {
     name: provider.name,
     displayName: provider.display_name ?? "",
     endpointUrl: provider.endpoint_url ?? "",
-    apiKey: "", // Never pre-fill — masked value from backend is not the real key
+    apiKey: provider.api_key ?? "",
+    apiKeyChanged: false,
   };
 }
 
@@ -65,12 +68,13 @@ function providerToForm(provider: LlmProviderRow): ProviderFormData {
 
 export interface ProviderFormDialogProps {
   provider: LlmProviderRow | null;
+  token: string;
   saving: boolean;
   onSave: (data: ProviderFormData) => void;
   onClose: () => void;
 }
 
-export function ProviderFormDialog({ provider, saving, onSave, onClose }: ProviderFormDialogProps) {
+export function ProviderFormDialog({ provider, token, saving, onSave, onClose }: ProviderFormDialogProps) {
   const [form, setForm] = useState<ProviderFormData>(() =>
     provider ? providerToForm(provider) : emptyForm(),
   );
@@ -83,8 +87,24 @@ export function ProviderFormDialog({ provider, saving, onSave, onClose }: Provid
   const canSubmit = form.name.trim() !== "";
 
   const [showApiKey, setShowApiKey] = useState(false);
+  const [fullKeyFetched, setFullKeyFetched] = useState(false);
   const hasExistingKey = isEdit && provider.api_key !== null;
   const meta = getProviderMeta(form.name);
+
+  async function handleToggleApiKey() {
+    if (!showApiKey && hasExistingKey && !fullKeyFetched && form.apiKey === provider.api_key) {
+      try {
+        const fullKey = await getProviderApiKey(token, provider.name);
+        if (fullKey) {
+          patch({ apiKey: fullKey });
+          setFullKeyFetched(true);
+        }
+      } catch {
+        // Fall through — show whatever is in the field
+      }
+    }
+    setShowApiKey((prev) => !prev);
+  }
 
   function patch(partial: Partial<ProviderFormData>) {
     setForm((prev) => ({ ...prev, ...partial }));
@@ -159,26 +179,22 @@ export function ProviderFormDialog({ provider, saving, onSave, onClose }: Provid
         <FormField
           label="API Key"
           htmlFor="provider-api-key"
-          helperText={
-            hasExistingKey
-              ? `Current key: ${provider.api_key}. Leave empty to keep current key.`
-              : meta?.apiKeyHint ?? "Enter the API key for this provider."
-          }
+          helperText={meta?.apiKeyHint ?? "Enter the API key for this provider."}
         >
           <div className="relative">
             <Input
               id="provider-api-key"
               type={showApiKey ? "text" : "password"}
               value={form.apiKey}
-              placeholder={hasExistingKey ? "Leave empty to keep current key" : "Enter API key"}
-              onChange={(e) => patch({ apiKey: e.target.value })}
+              placeholder="Enter API key"
+              onChange={(e) => patch({ apiKey: e.target.value, apiKeyChanged: true })}
               className="pr-10"
               autoComplete="off"
             />
             <button
               type="button"
               className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-[hsl(var(--muted-foreground))] transition hover:text-[hsl(var(--foreground))]"
-              onClick={() => setShowApiKey((prev) => !prev)}
+              onClick={() => void handleToggleApiKey()}
               aria-label={showApiKey ? "Hide API key" : "Show API key"}
             >
               {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

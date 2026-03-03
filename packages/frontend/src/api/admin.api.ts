@@ -169,6 +169,13 @@ export async function listLlmProviders(token: string): Promise<LlmProviderRow[]>
   return Array.isArray(response.providers) ? response.providers : [];
 }
 
+export async function getProviderApiKey(token: string, name: string): Promise<string | null> {
+  const result = await requestAdminJson<{ apiKey: string | null }>(token, `/llm-providers/${encodeURIComponent(name)}/api-key`, {
+    method: "GET",
+  });
+  return result.apiKey;
+}
+
 export async function createLlmProvider(token: string, input: CreateLlmProviderInput): Promise<LlmProviderRow> {
   return requestAdminJson<LlmProviderRow>(token, "/llm-providers", {
     method: "POST",
