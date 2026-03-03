@@ -20,6 +20,7 @@ import { prisma } from "../db/prisma.js";
 import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
 import {
+  deleteStorageDirectory,
   getStorageAbsolutePath,
   readStorageFile,
   storageFileExists,
@@ -617,7 +618,11 @@ async function runZipImport(job: TransferJob, filePath: string): Promise<void> {
     "ZIP import started",
   );
 
-  // 2. Extract files/ entries to storage
+  // 2. Clean existing workbench files, then extract from ZIP
+  job.progress = { phase: "cleaning old files" };
+  await deleteStorageDirectory({ relativePath: "workbench" });
+  logger.info({ jobId: job.jobId }, "deleted existing workbench/ directory before import");
+
   const fileEntries = directory.files.filter((f) => f.path.startsWith("files/") && f.type === "File");
   job.progress = { phase: "extracting files", detail: `${fileEntries.length} files` };
 
@@ -822,6 +827,11 @@ async function runJsonImport(job: TransferJob, filePath: string): Promise<void> 
     iso: string | null;
     isoBack: string | null;
   }>();
+
+  // Clean existing workbench files before writing new ones
+  job.progress = { phase: "cleaning old files" };
+  await deleteStorageDirectory({ relativePath: "workbench" });
+  logger.info({ jobId: job.jobId }, "deleted existing workbench/ directory before import");
 
   if (isV2) {
     job.progress = { phase: "writing screenshot files", detail: `${data.examples.length} examples` };
