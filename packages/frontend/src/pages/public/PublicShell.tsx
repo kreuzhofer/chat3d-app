@@ -4,7 +4,6 @@ import { useTranslation } from "react-i18next";
 import { Box, Menu, X } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { LanguageSelector } from "../../components/LanguageSelector";
-import { ThemeToggle } from "../../components/ui/theme-toggle";
 
 interface PublicShellProps {
   waitlistEnabled: boolean;
@@ -52,7 +51,6 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
               {t("common:nav.login")}
             </NavLink>
             <LanguageSelector />
-            <ThemeToggle />
             <Link
               to={cta.to}
               className="inline-flex h-9 items-center justify-center rounded-md bg-[hsl(var(--primary))] px-4 py-2 text-sm font-medium text-[hsl(var(--primary-foreground))] transition hover:brightness-105"

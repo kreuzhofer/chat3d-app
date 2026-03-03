@@ -119,7 +119,7 @@ export function ProvidersTab({ token }: ProvidersTabProps) {
   return (
     <div className="space-y-4">
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+        <div className="rounded-md border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-200">
           {error}
           <button className="ml-2 underline" onClick={() => setError(null)}>dismiss</button>
         </div>
@@ -192,7 +192,7 @@ export function ProvidersTab({ token }: ProvidersTabProps) {
                         </button>
                       </span>
                     ) : (
-                      <span className="text-amber-600 dark:text-amber-400">Not set</span>
+                      <span className="text-amber-400">Not set</span>
                     )}
                   </td>
                   <td className="py-2 pr-3">

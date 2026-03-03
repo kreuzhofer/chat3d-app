@@ -19,16 +19,16 @@ import { Button } from "../ui/button";
 import { ModelFormDialog, type ModelFormData } from "./ModelFormDialog";
 
 const PROVIDER_COLORS: Record<string, string> = {
-  openai: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-  anthropic: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
-  xai: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-  deepseek: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200",
-  minimax: "bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200",
-  ollama: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+  openai: "bg-blue-900 text-blue-200",
+  anthropic: "bg-orange-900 text-orange-200",
+  xai: "bg-purple-900 text-purple-200",
+  deepseek: "bg-cyan-900 text-cyan-200",
+  minimax: "bg-rose-900 text-rose-200",
+  ollama: "bg-green-900 text-green-200",
 };
 
 export function providerBadge(provider: string) {
-  const cls = PROVIDER_COLORS[provider] ?? "bg-gray-100 text-gray-800";
+  const cls = PROVIDER_COLORS[provider] ?? "bg-gray-900 text-gray-200";
   return <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${cls}`}>{provider}</span>;
 }
 
@@ -202,7 +202,7 @@ export function ModelsTab({ token }: ModelsTabProps) {
   return (
     <div className="space-y-4">
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+        <div className="rounded-md border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-200">
           {error}
           <button className="ml-2 underline" onClick={() => setError(null)}>dismiss</button>
         </div>

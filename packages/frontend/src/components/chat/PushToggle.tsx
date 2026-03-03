@@ -11,9 +11,11 @@ import { isPushSupported, isPushSubscribed, subscribeToPush, unsubscribeFromPush
 
 export interface PushToggleProps {
   token: string | null;
+  /** Optional external subscription state — when changed (e.g. via inline pill), syncs the toggle. */
+  externalSubscribed?: boolean;
 }
 
-export function PushToggle({ token }: PushToggleProps) {
+export function PushToggle({ token, externalSubscribed }: PushToggleProps) {
   const [supported, setSupported] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -28,6 +30,13 @@ export function PushToggle({ token }: PushToggleProps) {
     };
     void check();
   }, []);
+
+  // Sync with external subscription changes (e.g. inline notification pill)
+  useEffect(() => {
+    if (externalSubscribed !== undefined) {
+      setSubscribed(externalSubscribed);
+    }
+  }, [externalSubscribed]);
 
   if (!token) return null;
 

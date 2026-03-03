@@ -27,23 +27,22 @@ export function HomePage({ waitlistEnabled }: HomePageProps) {
   return (
     <div className="space-y-16">
       {/* Hero Section */}
-      <section className="grid gap-8 rounded-2xl bg-[linear-gradient(135deg,#0f172a_0%,#1e293b_40%,#134e4a_100%)] p-8 text-slate-100 md:grid-cols-[1.1fr_0.9fr] md:p-12">
-        <div className="space-y-5">
+      <section className="grid gap-8 rounded-2xl bg-[linear-gradient(135deg,#0f172a_0%,#1e293b_40%,#134e4a_100%)] p-8 text-slate-100 md:grid-cols-[1.1fr_0.9fr] md:px-12 md:py-16">
+        <div className="space-y-8">
           <p className="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-1 text-xs uppercase tracking-[0.2em] text-emerald-200">
             <Box className="h-3.5 w-3.5" />
             Prompt-to-CAD Workspace
           </p>
-          <h1 className="text-3xl font-semibold leading-tight md:text-5xl">
-            Build 3D models with natural language, governance, and real-time feedback.
+          <h1 className="text-2xl font-normal leading-snug tracking-tight md:text-4xl">
+            Build 3D models with natural language.
           </h1>
-          <p className="max-w-2xl text-sm text-slate-200 md:text-base">
-            Chat3D combines conversational modeling, model preview, and policy-based administration in one modern
-            workspace.
+          <p className="max-w-2xl text-sm text-slate-300">
+            Conversational modeling, real-time preview, and policy-based governance in one workspace.
           </p>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 pt-2">
             <Link
               to={primaryPath}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-emerald-500 px-5 py-2 text-sm font-medium text-slate-950 transition hover:bg-emerald-400"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[hsl(var(--primary))] px-5 py-2 text-sm font-medium text-[hsl(var(--primary-foreground))] transition hover:brightness-110"
             >
               <Zap className="h-4 w-4" />
               {primaryLabel}

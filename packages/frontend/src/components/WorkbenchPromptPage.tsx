@@ -609,8 +609,8 @@ export function WorkbenchPromptPage() {
                         size="sm"
                         variant="ghost"
                         className={isApproved
-                          ? "border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                          : "border border-emerald-200 text-emerald-400 hover:bg-emerald-50 hover:text-emerald-600"
+                          ? "border border-emerald-700 bg-emerald-900/50 text-emerald-300 hover:bg-emerald-900/70"
+                          : "border border-emerald-800 text-emerald-400 hover:bg-emerald-900/30 hover:text-emerald-300"
                         }
                         iconLeft={<ThumbsUp className="h-3 w-3" />}
                         loading={busy}
@@ -623,8 +623,8 @@ export function WorkbenchPromptPage() {
                         size="sm"
                         variant="ghost"
                         className={isRejected
-                          ? "border border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
-                          : "border border-red-200 text-red-300 hover:bg-red-50 hover:text-red-600"
+                          ? "border border-red-700 bg-red-900/50 text-red-300 hover:bg-red-900/70"
+                          : "border border-red-800 text-red-300 hover:bg-red-900/30 hover:text-red-200"
                         }
                         iconLeft={<ThumbsDown className="h-3 w-3" />}
                         loading={busy}

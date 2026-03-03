@@ -16,7 +16,6 @@ import { LoadingView } from "./components/layout/StateViews";
 import { Button } from "./components/ui/button";
 import { Drawer } from "./components/ui/drawer";
 import { DropdownMenu, type DropdownItem } from "./components/ui/dropdown-menu";
-import { ThemeToggle } from "./components/ui/theme-toggle";
 import { LanguageSelector } from "./components/LanguageSelector";
 import { useNotifications } from "./contexts/NotificationsContext";
 import { useAuth } from "./hooks/useAuth";
@@ -270,7 +269,6 @@ function AuthenticatedApp() {
           </button>
         ) : null}
         <LanguageSelector />
-        <ThemeToggle />
         <DropdownMenu
           triggerLabel={user?.email ?? t("common:groups.account")}
           items={dropdownItems}
