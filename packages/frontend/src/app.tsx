@@ -23,6 +23,7 @@ import { useNotifications } from "./contexts/NotificationsContext";
 import { useAuth } from "./hooks/useAuth";
 import { AdminRouteGuard } from "./components/AdminRouteGuard";
 import { CookieBanner } from "./components/CookieBanner";
+import { VersionFooter } from "./components/VersionFooter";
 import { DataDeletionPage } from "./pages/public/DataDeletionPage";
 import { HomePage } from "./pages/public/HomePage";
 import { ImprintPage } from "./pages/public/ImprintPage";
@@ -451,6 +452,7 @@ export function App() {
     <>
       {isAuthenticated ? <AuthenticatedApp /> : <PublicApp />}
       <CookieBanner />
+      <VersionFooter />
     </>
   );
 }
