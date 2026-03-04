@@ -111,9 +111,9 @@ vi.mock("../utils/render-errors.js", () => ({
 }));
 
 vi.mock("../services/workbench-codegen.service.js", () => ({
-  buildInitialPrompt: vi.fn().mockReturnValue("initial prompt"),
-  buildFixPrompt: vi.fn().mockReturnValue("fix prompt"),
-  buildModificationPrompt: vi.fn().mockReturnValue("mod prompt"),
+  buildInitialPrompt: vi.fn().mockReturnValue({ system: "system", userContent: "initial prompt" }),
+  buildFixPrompt: vi.fn().mockReturnValue({ system: "system", userContent: "fix prompt" }),
+  buildModificationPrompt: vi.fn().mockReturnValue({ system: "system", userContent: "mod prompt" }),
   wrapInTemplate: vi.fn().mockImplementation((c: string) => c),
   stripTemplateBoilerplate: vi.fn().mockImplementation((c: string) => c),
   MAX_FIX_ITERATIONS: 5,
@@ -135,7 +135,7 @@ vi.mock("../prompts/system-prompts.js", () => ({
 }));
 
 vi.mock("../services/workbench-embeddings.service.js", () => ({
-  findSimilarExamples: vi.fn().mockResolvedValue([]),
+  findSimilarExamples: vi.fn().mockResolvedValue({ matches: [], embeddingTokens: 0 }),
 }));
 
 vi.mock("../utils/resource-limits.js", () => ({

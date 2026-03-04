@@ -156,6 +156,8 @@ export function ModelViewer({ token, filePath }: ModelViewerProps) {
         if (extension === ".stl") {
           const buffer = await downloaded.blob.arrayBuffer();
           const geometry = new STLLoader().parse(buffer);
+          // Build123d uses Z-up; Three.js uses Y-up — rotate to match
+          geometry.rotateX(-Math.PI / 2);
           meshOrGroup = new THREE.Mesh(
             geometry,
             new THREE.MeshStandardMaterial({ color: 0x10b981, metalness: 0.0, roughness: 0.85, flatShading: true }),
@@ -163,6 +165,13 @@ export function ModelViewer({ token, filePath }: ModelViewerProps) {
         } else {
           objectUrl = URL.createObjectURL(downloaded.blob);
           meshOrGroup = await new ThreeMFLoader().loadAsync(objectUrl);
+          // Build123d uses Z-up; Three.js uses Y-up — rotate each mesh geometry
+          meshOrGroup.traverse((child) => {
+            const mesh = child as THREE.Mesh;
+            if (mesh.isMesh && mesh.geometry) {
+              mesh.geometry.rotateX(-Math.PI / 2);
+            }
+          });
           // 3MF files from Build123d often lack embedded materials — apply the
           // branding green default to any mesh that has no color/map set.
           const defaultMat = new THREE.MeshStandardMaterial({ color: 0x10b981, metalness: 0.0, roughness: 0.85, flatShading: true });

@@ -62,6 +62,14 @@ async function resolveEmbeddingConfig(): Promise<{ model: ReturnType<typeof crea
  * Embed a single text string into a vector.
  */
 export async function embedPromptText(text: string): Promise<number[]> {
+  const { embedding } = await embedPromptTextWithUsage(text);
+  return embedding;
+}
+
+/**
+ * Embed a single text string into a vector, also returning token usage.
+ */
+export async function embedPromptTextWithUsage(text: string): Promise<{ embedding: number[]; tokens: number }> {
   const { model, config: cfg } = await resolveEmbeddingConfig();
   try {
     const result = await embed({
@@ -69,7 +77,7 @@ export async function embedPromptText(text: string): Promise<number[]> {
       value: text,
       providerOptions: { openai: { dimensions: EMBEDDING_DIMENSIONS } },
     });
-    return result.embedding;
+    return { embedding: result.embedding, tokens: result.usage?.tokens ?? 0 };
   } catch (error) {
     const quotaError = asQuotaError(error, cfg.provider);
     if (quotaError) throw quotaError;
@@ -164,15 +172,20 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
 
 // ── Vector similarity search ────────────────────────────────────────
 
+export interface FindSimilarResult {
+  matches: FewShotMatch[];
+  embeddingTokens: number;
+}
+
 /**
  * Find the most semantically similar approved examples across ALL categories.
- * Returns examples ordered by cosine similarity (highest first).
+ * Returns examples ordered by cosine similarity (highest first), plus embedding token usage.
  */
 export async function findSimilarExamples(
   promptText: string,
   limit = 6,
-): Promise<FewShotMatch[]> {
-  const queryEmbedding = await embedPromptText(promptText);
+): Promise<FindSimilarResult> {
+  const { embedding: queryEmbedding, tokens: embeddingTokens } = await embedPromptTextWithUsage(promptText);
   const pgVector = `[${queryEmbedding.join(",")}]`;
 
   const rows = await prisma.$queryRaw<{ prompt: string; code: string; similarity: number }[]>`
@@ -186,7 +199,7 @@ export async function findSimilarExamples(
      LIMIT ${limit}
   `;
 
-  return rows;
+  return { matches: rows, embeddingTokens };
 }
 
 // ── Status ──────────────────────────────────────────────────────────

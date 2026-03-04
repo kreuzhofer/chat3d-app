@@ -243,4 +243,215 @@ with BuildPart() as part:
     Cylinder(8, 15, mode=Mode.SUBTRACT)
 
 root_part = part.part
+\`\`\`
+
+---
+
+## Advanced Techniques
+
+### BuildLine Wire Construction
+
+BuildLine creates wire paths for custom 2D profiles, sweep paths, and complex shapes. Used inside BuildSketch to create faces via \`make_face()\`, or standalone for sweep paths.
+
+**Wire Primitives** (used inside \`BuildLine()\`):
+
+- \`Line((x1,y1), (x2,y2))\` — straight line segment between two points
+- \`Polyline([(x1,y1), (x2,y2), ...], close=True)\` — connected straight segments. Set \`close=True\` to close the profile automatically.
+- \`Spline([(x1,y1), ...], tangents=[start_tan, end_tan])\` — smooth curve through points. Optional tangent control at start/end.
+- \`ThreePointArc((x1,y1), (x2,y2), (x3,y3))\` — circular arc through three points (start, mid, end)
+- \`RadiusArc((x1,y1), (x2,y2), radius)\` — arc between two points with given radius. Positive radius = shorter arc, negative = longer arc.
+- \`CenterArc(center, radius, start_angle, arc_size)\` — arc defined by center point, radius, start angle (degrees), and sweep angle (degrees)
+- \`EllipticalCenterArc(center, x_radius, y_radius, start_angle, end_angle)\` — elliptical arc
+
+**Chaining segments with \`@\` operator**: \`line @ 0\` = start point, \`line @ 1\` = endpoint. Use this to chain connected segments:
+
+\`\`\`python
+with BuildLine():
+    l1 = Line((0, 0), (50, 0))
+    l2 = Line(l1 @ 1, (50, 20))        # starts where l1 ends
+    ThreePointArc(l2 @ 1, (35, 30), (25, 20))  # arc from l2 endpoint
+    Line((25, 20), (0, 0))             # close back to start
+\`\`\`
+
+**Critical: \`make_face()\` converts a closed wire profile into a face for extrusion.** Without it, extrude has nothing to extrude.
+
+\`\`\`python
+with BuildPart() as part:
+    with BuildSketch() as sk:
+        with BuildLine():
+            Polyline([(0,0), (50,0), (50,10), (10,10), (10,40), (0,40)], close=True)
+        make_face()  # REQUIRED — converts wire to face
+    extrude(amount=20)
+root_part = part.part
+\`\`\`
+
+### Sweep
+
+Sweep extrudes a 2D profile along a 3D path wire. The profile sketch must be positioned at the path's start point, perpendicular to the path direction.
+
+\`\`\`python
+# Helix sweep (e.g., spring or thread)
+path = Helix(pitch=10, height=50, radius=20)
+with BuildPart() as part:
+    with BuildSketch(Plane.XZ.offset(20)):  # Sketch at path start
+        Circle(3)
+    sweep(path=path)
+root_part = part.part
+\`\`\`
+
+For custom sweep paths using BuildLine:
+\`\`\`python
+with BuildPart() as part:
+    # Create sweep path
+    with BuildLine(Plane.XZ) as path:
+        Spline([(0,0), (20,15), (40,5), (60,20)])
+    # Create profile at the path start, perpendicular to path direction
+    with BuildSketch(Plane(origin=path.wires()[0] @ 0, z_dir=path.wires()[0] % 0)):
+        Circle(3)
+    sweep(path=path.wires()[0])
+root_part = part.part
+\`\`\`
+
+**Rules**: path must be a single continuous wire. Profile must be closed. Use \`wire % 0\` to get the tangent direction at the start of the wire.
+
+### Loft
+
+Loft creates a smooth solid between two or more sketches at different heights.
+
+\`\`\`python
+with BuildPart() as part:
+    with BuildSketch(Plane.XY):
+        Circle(25)            # Bottom: circle
+    with BuildSketch(Plane.XY.offset(40)):
+        Rectangle(30, 30)     # Top: square
+    loft()  # Smooth transition from circle to square
+root_part = part.part
+\`\`\`
+
+**Rules**: sketches MUST be on different parallel planes. Add sketches in order from bottom to top. Use \`ruled=True\` for straight-sided transitions.
+
+### Sketching on Existing Faces
+
+Pass a face reference to BuildSketch to add features on that face:
+
+\`\`\`python
+with BuildPart() as part:
+    Box(60, 40, 30)
+    top_face = (part.faces() > Axis.Z)[-1]   # Topmost face
+    with BuildSketch(top_face):
+        with GridLocations(20, 0, 2, 1):
+            Circle(5)
+    extrude(amount=-15, mode=Mode.SUBTRACT)   # Cut into box
+root_part = part.part
+\`\`\`
+
+**The sketch inherits the face's local coordinate system.** On a top face, X/Y are the face's local axes. On side faces, local axes differ from global — test carefully.
+
+### Revolve for Axisymmetric Parts
+
+Revolve creates solids of revolution. Draw a half-profile in the XZ or XY plane and revolve around an axis.
+
+\`\`\`python
+# Pipe flange: draw cross-section profile and revolve
+with BuildPart() as part:
+    with BuildSketch(Plane.XZ) as sk:
+        with BuildLine():
+            Polyline([(15,0), (30,0), (30,5), (22,5), (22,15), (18,15), (18,5), (15,5)], close=True)
+        make_face()
+    revolve(axis=Axis.Z)
+root_part = part.part
+\`\`\`
+
+**Rule**: the revolve axis must NOT pass through the sketch interior — otherwise the solid self-intersects.
+
+### Parametric Geometry with Math
+
+Use Python \`math\` for computed geometry (it is available alongside build123d):
+
+\`\`\`python
+import math
+
+with BuildPart() as part:
+    with BuildSketch() as sk:
+        with BuildLine():
+            # Star shape using polar coordinates
+            pts = []
+            for i in range(10):
+                angle = math.radians(i * 36)
+                r = 30 if i % 2 == 0 else 15
+                pts.append((r * math.cos(angle), r * math.sin(angle)))
+            Polyline(pts, close=True)
+        make_face()
+    extrude(amount=5)
+root_part = part.part
+\`\`\`
+
+## Critical Rules for Reliable Geometry
+
+1. **Apply fillets and chamfers LAST** — after all boolean operations. Filleting early creates complex topologies that cause kernel failures during subsequent booleans.
+2. **Sweep path must be a single continuous wire** — segments built in BuildLine must connect end-to-end without gaps.
+3. **Profile wires must be closed** for \`make_face()\` to work — open wires cannot become faces.
+4. **Avoid self-intersecting profiles** — overlapping wire segments cause geometry kernel errors.
+5. **Fillet/chamfer radius constraints** — the radius must be less than half the shortest adjacent edge length.
+6. **Use \`mode=Mode.PRIVATE\`** when creating intermediate shapes that should NOT auto-add to the parent context.
+7. **Revolve axis must not intersect the sketch** — otherwise the resulting solid self-intersects.
+8. **For \`sort_by()\` use the method form** — \`part.faces().sort_by(Axis.Z)[-1]\` is equivalent to \`(part.faces() > Axis.Z)[-1]\`.
+
+## More Examples
+
+### Hollow Cylinder (Tube)
+\`\`\`python
+with BuildPart() as part:
+    Cylinder(20, 50)
+    Cylinder(15, 50, mode=Mode.SUBTRACT)
+root_part = part.part
+\`\`\`
+
+### T-Slot Profile (Complex BuildLine)
+\`\`\`python
+with BuildPart() as part:
+    with BuildSketch() as sk:
+        with BuildLine():
+            Polyline([(-5,0),(-5,8),(-15,8),(-15,12),(15,12),(15,8),(5,8),(5,0)], close=True)
+        make_face()
+    extrude(amount=40)
+root_part = part.part
+\`\`\`
+
+### Box with Mounting Tabs and Holes
+\`\`\`python
+with BuildPart() as part:
+    Box(60, 40, 20)
+    # Add tabs on the side face
+    side_face = (part.faces() > Axis.Y)[-1]
+    with BuildSketch(side_face):
+        with Locations([(-20, 0), (20, 0)]):
+            Rectangle(10, 20)
+    extrude(amount=3)
+    # Drill mounting holes through tabs
+    with BuildSketch(side_face):
+        with Locations([(-20, 0), (20, 0)]):
+            Circle(2.5)
+    extrude(amount=3, mode=Mode.SUBTRACT)
+    # Fillets LAST
+    fillet(part.edges().filter_by(GeomType.LINE).sort_by(Axis.Y)[-4:], 1)
+root_part = part.part
+\`\`\`
+
+### Vase (Loft with Multiple Sections)
+\`\`\`python
+with BuildPart() as part:
+    with BuildSketch(Plane.XY):
+        Circle(20)
+    with BuildSketch(Plane.XY.offset(15)):
+        Circle(12)
+    with BuildSketch(Plane.XY.offset(40)):
+        Circle(18)
+    with BuildSketch(Plane.XY.offset(50)):
+        Circle(15)
+    loft()
+    # Hollow it out
+    top = (part.faces() > Axis.Z)[-1]
+    offset(amount=-2, openings=top)
+root_part = part.part
 \`\`\``;

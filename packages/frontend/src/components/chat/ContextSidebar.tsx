@@ -3,6 +3,7 @@ import { MessageSquare, Pencil, Plus, Trash2 } from "lucide-react";
 import type { ChatContext } from "../../api/chat.api";
 import { Button } from "../ui/button";
 import { EmptyState } from "../layout/EmptyState";
+import { formatEstimatedCostUsd } from "./utils";
 
 type ContextBucket = "Today" | "Last 7 days" | "Older";
 
@@ -12,6 +13,7 @@ export interface ContextSidebarProps {
   isDraftRoute: boolean;
   busyAction: string | null;
   token: string | null;
+  isAdmin?: boolean;
   onNavigateNew: () => void;
   onCreateNamed: (name: string) => void;
   onSelect: (contextId: string) => void;
@@ -31,6 +33,7 @@ export function ContextSidebar({
   isDraftRoute,
   busyAction,
   token,
+  isAdmin,
   onNavigateNew,
   onCreateNamed,
   onSelect,
@@ -94,9 +97,16 @@ export function ContextSidebar({
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="line-clamp-1 text-sm font-medium">{context.name}</span>
-                      <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
-                        {new Date(context.updatedAt).toLocaleDateString()}
-                      </span>
+                      <div className="flex flex-col items-end gap-0.5">
+                        <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
+                          {new Date(context.updatedAt).toLocaleDateString()}
+                        </span>
+                        {isAdmin && (context.totalCostUsd ?? 0) > 0 ? (
+                          <span className="text-[10px] text-[hsl(var(--muted-foreground)_/_0.6)]">
+                            ~${formatEstimatedCostUsd(context.totalCostUsd!)}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1 opacity-0 transition group-hover:opacity-100">
                       <Button

@@ -91,11 +91,11 @@ vi.mock("../utils/render-errors.js", () => ({
   renderWithInfraRetry: (...args: unknown[]) => mockRenderWithInfraRetry(...args),
 }));
 
-const mockBuildFixPrompt = vi.fn().mockReturnValue("fix prompt");
+const mockBuildFixPrompt = vi.fn().mockReturnValue({ system: "system", userContent: "fix prompt" });
 vi.mock("../services/workbench-codegen.service.js", () => ({
-  buildInitialPrompt: vi.fn().mockReturnValue("initial prompt"),
+  buildInitialPrompt: vi.fn().mockReturnValue({ system: "system", userContent: "initial prompt" }),
   buildFixPrompt: (...args: unknown[]) => mockBuildFixPrompt(...args),
-  buildModificationPrompt: vi.fn().mockReturnValue("mod prompt"),
+  buildModificationPrompt: vi.fn().mockReturnValue({ system: "system", userContent: "mod prompt" }),
   wrapInTemplate: vi.fn().mockImplementation((c: string) => c),
   stripTemplateBoilerplate: vi.fn().mockImplementation((c: string) => c),
   MAX_FIX_ITERATIONS: 5,
@@ -117,7 +117,7 @@ vi.mock("../prompts/system-prompts.js", () => ({
 }));
 
 vi.mock("../services/workbench-embeddings.service.js", () => ({
-  findSimilarExamples: vi.fn().mockResolvedValue([]),
+  findSimilarExamples: vi.fn().mockResolvedValue({ matches: [], embeddingTokens: 0 }),
 }));
 
 vi.mock("../utils/resource-limits.js", () => ({

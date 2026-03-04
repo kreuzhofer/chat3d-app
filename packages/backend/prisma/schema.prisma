@@ -119,6 +119,7 @@ model ChatContext {
   conversationModelId   String?  @map("conversation_model_id") @db.VarChar(255)
   chat3dModelId         String?  @map("chat_3d_model_id") @db.VarChar(255)
   ownerId               String   @map("owner_id") @db.Uuid
+  totalCostUsd          Decimal  @default(0) @map("total_cost_usd") @db.Decimal(12, 8)
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz()
 

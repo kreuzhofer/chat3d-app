@@ -48,6 +48,7 @@ import {
   createProviderModel as createProviderModelFromConfig,
   buildGenerateOptions,
   calculateCostUsd,
+  buildCacheableSystem,
   type LlmModelConfig,
 } from "./llm-config.service.js";
 import { createLogger } from "../utils/logger.js";
@@ -1323,22 +1324,25 @@ export async function executeQueryPipeline(input: {
       await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: isFirst ? "codegen" : "fixing", detail: isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${MAX_FIX_ITERATIONS})...` });
       await persistPhase(isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${MAX_FIX_ITERATIONS})...`);
 
-      const cgPrompt = isFirst
+      const { system: cgSystem, userContent: cgUserContent } = isFirst
         ? (epIsModification
             ? buildModificationPrompt(epSystemPromptContent, epFewShots, prompt, epBaselineCode!, conversationText, epConvHistoryText || undefined)
             : buildInitialPrompt(epSystemPromptContent, epFewShots, prompt))
         : buildFixPrompt(epSystemPromptContent, epFewShots, prompt, epCurrentCode, iteration - 1, epRenderError, epEvalState?.issues ?? null, epEvalState?.suggestions ?? null, epRenderErrorCtx);
 
+      // Build cacheable system prompt for supported providers
+      const cgCacheableSystem = buildCacheableSystem(epCodegenConfig.provider, cgSystem);
+
       // When codegen model supports vision and images are available, send via messages
       const cgUseVision = pipelineImages.length > 0 && epCodegenConfig.supportsVision;
       const cgCallOpts = cgUseVision
-        ? { messages: [{ role: "user" as const, content: buildMultimodalUserContent(cgPrompt, pipelineImages) }], ...epExtraOpts }
-        : { prompt: cgPrompt, ...epExtraOpts };
+        ? { system: cgCacheableSystem, messages: [{ role: "user" as const, content: buildMultimodalUserContent(cgUserContent, pipelineImages) }], ...epExtraOpts }
+        : { system: cgCacheableSystem, prompt: cgUserContent, ...epExtraOpts };
       if (cgUseVision) {
         queryLogger.info({ iteration, imageCount: pipelineImages.length }, "codegen using multimodal call with images");
       }
 
-      queryLogger.info({ iteration, maxIterations: MAX_FIX_ITERATIONS, isFirst, promptLength: cgPrompt.length }, "codegen iteration starting");
+      queryLogger.info({ iteration, maxIterations: MAX_FIX_ITERATIONS, isFirst, promptLength: cgUserContent.length, systemLength: cgSystem.length, hasCacheableSystem: typeof cgCacheableSystem !== "string" }, "codegen iteration starting");
       const epUseFallbackStream = epCodegenConfig.provider === "bedrock" && epCodegenConfig.supportsThinking && epCodegenConfig.thinkingEffort;
       const epLlmSemaphore = getLlmSemaphore(epCodegenConfig.provider, epCodegenConfig.maxConcurrent);
       const cgResult = await epLlmSemaphore.run(
@@ -1355,7 +1359,12 @@ export async function executeQueryPipeline(input: {
               let phase: "thinking" | "generating" = "thinking";
               const stateLabel = isFirst ? "codegen" : "fixing" as const;
 
+              // Capture usage from finish-step event (Bedrock streaming doesn't propagate usage to resolved promise — SDK v6.0.111 bug)
+              let streamStepUsage: Record<string, unknown> | undefined;
               for await (const part of stream.fullStream) {
+                if (part.type === "finish-step" && "usage" in part) {
+                  streamStepUsage = (part as Record<string, unknown>).usage as Record<string, unknown>;
+                }
                 if (part.type === "reasoning-delta") {
                   reasoningChars += part.text.length;
                   if (reasoningChars - lastUpdateLen >= 500) {
@@ -1403,7 +1412,15 @@ export async function executeQueryPipeline(input: {
                 }
                 throw err;
               }
-              return { text, reasoningText: finalResult.reasoningText, reasoning: finalResult.reasoning, usage: finalResult.usage };
+              // Workaround: Bedrock streaming via AI SDK v6.0.111 doesn't propagate usage to the resolved promise.
+              // Fall back to usage captured from the finish-step stream event.
+              const resolvedUsage = finalResult.usage;
+              const hasResolvedUsage = resolvedUsage && Object.keys(resolvedUsage).length > 0 && resolvedUsage.inputTokens != null;
+              const effectiveUsage = hasResolvedUsage ? resolvedUsage : streamStepUsage;
+              if (!hasResolvedUsage && streamStepUsage) {
+                queryLogger.debug({ iteration }, "using finish-step usage (resolved promise usage was empty)");
+              }
+              return { text, reasoningText: finalResult.reasoningText, reasoning: finalResult.reasoning, usage: effectiveUsage as typeof finalResult.usage };
             }
             return generateText({ model: epCodegenModel, ...cgCallOpts });
           },
@@ -1435,16 +1452,30 @@ export async function executeQueryPipeline(input: {
         );
       }
       epCurrentCode = stripTemplateBoilerplate(extractExecutableCode(cgResult.text));
+      queryLogger.debug({
+        iteration,
+        rawUsage: JSON.stringify((cgResult.usage as Record<string, unknown>)?.raw),
+        inputTokenDetails: JSON.stringify((cgResult.usage as Record<string, unknown>)?.inputTokenDetails, (_, v) => v === undefined ? "__undef__" : v),
+      }, "codegen usage debug");
       const cgPT = cgResult.usage?.inputTokens ?? 0;
       const cgCT = cgResult.usage?.outputTokens ?? 0;
       const cgRT = (cgResult.usage as Record<string, unknown>)?.reasoningTokens as number ?? 0;
-      const cgCost = calculateCostUsd(epCodegenConfig, cgPT, cgCT, cgRT);
+      // Extract cache token details for cost calculation
+      const cgInputDetails = typeof (cgResult.usage as Record<string, unknown>)?.inputTokenDetails === "object"
+        ? (cgResult.usage as Record<string, unknown>).inputTokenDetails as Record<string, unknown>
+        : null;
+      const cgCacheRead = (cgInputDetails?.cacheReadTokens ?? cgInputDetails?.cachedTokens ?? 0) as number;
+      const cgCacheWrite = (cgInputDetails?.cacheWriteTokens ?? cgInputDetails?.cacheCreationTokens ?? 0) as number;
+      if (cgCacheRead > 0 || cgCacheWrite > 0) {
+        queryLogger.info({ iteration, provider: epCodegenConfig.provider, model: epCodegenConfig.modelName, cacheRead: cgCacheRead, cacheWrite: cgCacheWrite }, "prompt cache metrics");
+      }
+      const cgCost = calculateCostUsd(epCodegenConfig, cgPT, cgCT, cgRT, cgCacheRead, cgCacheWrite);
       epTotalPromptTokens += cgPT;
       epTotalCompletionTokens += cgCT;
       epTotalReasoningTokens += cgRT;
       epTotalCostUsd += cgCost;
       await incrementContextCost(input.contextId, cgCost);
-      queryLogger.info({ iteration, codeLength: epCurrentCode.length, inputTokens: cgPT, outputTokens: cgCT }, "codegen iteration completed");
+      queryLogger.info({ iteration, codeLength: epCurrentCode.length, inputTokens: cgPT, outputTokens: cgCT, cacheRead: cgCacheRead || undefined, cacheWrite: cgCacheWrite || undefined }, "codegen iteration completed");
 
       epRenderError = null;
       epRenderErrorCtx = null;

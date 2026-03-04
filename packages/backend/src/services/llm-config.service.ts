@@ -441,6 +441,53 @@ export function buildGenerateOptions(cfg: LlmModelConfig): Record<string, unknow
   return opts;
 }
 
+// ── Prompt caching ──────────────────────────────────────────────────
+
+/** Minimum prompt size (in characters) to attempt caching (~1,024 tokens). */
+const MIN_CACHEABLE_CHARS = 4096;
+
+/** Returns true if the provider supports prompt caching (Bedrock, Anthropic). */
+export function supportsCaching(provider: string): boolean {
+  return provider === "bedrock" || provider === "anthropic";
+}
+
+/**
+ * Build provider-specific cache point options for a system message.
+ * Returns undefined for providers that don't support caching.
+ */
+export function buildCachePointOptions(provider: string): Record<string, unknown> | undefined {
+  if (provider === "bedrock") {
+    return { bedrock: { cachePoint: { type: "default" } } };
+  }
+  if (provider === "anthropic") {
+    return { anthropic: { cacheControl: { type: "ephemeral" } } };
+  }
+  return undefined;
+}
+
+/**
+ * Wrap a system prompt string into a SystemModelMessage with cache providerOptions
+ * for supported providers. Returns a plain string for others.
+ * Skips caching for prompts below the minimum size threshold.
+ */
+export function buildCacheableSystem(
+  provider: string,
+  systemContent: string,
+): string | { role: "system"; content: string; providerOptions: Record<string, unknown> } {
+  if (systemContent.length < MIN_CACHEABLE_CHARS) {
+    return systemContent;
+  }
+  const cacheOptions = buildCachePointOptions(provider);
+  if (!cacheOptions) {
+    return systemContent;
+  }
+  return {
+    role: "system",
+    content: systemContent,
+    providerOptions: cacheOptions,
+  };
+}
+
 // ── Cost calculation ────────────────────────────────────────────────
 
 export function calculateCostUsd(
@@ -448,12 +495,20 @@ export function calculateCostUsd(
   promptTokens: number,
   completionTokens: number,
   reasoningTokens = 0,
+  cacheReadTokens = 0,
+  cacheWriteTokens = 0,
 ): number {
-  const inputCost = (promptTokens / 1_000_000) * cfg.costPer1mInput;
+  // Non-cached input tokens at standard price
+  const nonCachedInput = Math.max(0, promptTokens - cacheReadTokens - cacheWriteTokens);
+  const inputCost = (nonCachedInput / 1_000_000) * cfg.costPer1mInput;
+  // Cache reads: 0.1x input price
+  const cacheReadCost = (cacheReadTokens / 1_000_000) * cfg.costPer1mInput * 0.1;
+  // Cache writes: 1.25x input price
+  const cacheWriteCost = (cacheWriteTokens / 1_000_000) * cfg.costPer1mInput * 1.25;
   const outputCost = (completionTokens / 1_000_000) * cfg.costPer1mOutput;
   // Reasoning/thinking tokens are billed at the output token rate
   const reasoningCost = (reasoningTokens / 1_000_000) * cfg.costPer1mOutput;
-  return roundUsd(inputCost + outputCost + reasoningCost);
+  return roundUsd(inputCost + cacheReadCost + cacheWriteCost + outputCost + reasoningCost);
 }
 
 function roundUsd(value: number): number {

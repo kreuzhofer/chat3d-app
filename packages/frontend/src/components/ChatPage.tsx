@@ -122,6 +122,7 @@ export function ChatPage() {
   const location = useLocation();
 
   const isDraftRoute = location.pathname === "/chat" || location.pathname === "/chat/new";
+  const isAdmin = user?.role === "admin";
   const [contexts, setContexts] = useState<ChatContext[]>([]);
   const [items, setItems] = useState<ChatItem[]>([]);
   const [models, setModels] = useState<LlmModel[]>([]);
@@ -1023,6 +1024,7 @@ export function ChatPage() {
             isDraftRoute={isDraftRoute}
             busyAction={busyAction}
             token={token}
+            isAdmin={isAdmin}
             onNavigateNew={() => navigate("/chat")}
             onCreateNamed={(name) => void createContextAction(name)}
             onSelect={(contextId) => {
@@ -1072,6 +1074,7 @@ export function ChatPage() {
                     isSelected={selectedAssistantItemId === item.id}
                     busyAction={busyAction}
                     token={token}
+                    isAdmin={isAdmin}
                     streamingText={isStreamingItem ? streamingText : undefined}
                     streamingError={isStreamingItem ? streamingError : undefined}
                     isStreaming={isStreamingItem ? isStreaming : undefined}

@@ -195,13 +195,6 @@ logger.error({ err: error }, "error message");
 logger.debug({ payload }, "verbose debug info");
 ```
 
-**STL Rendering Service (`services/stl-rendering-service/`):**
-```typescript
-import { createLogger } from "./logger.js";
-const logger = createLogger("module-tag");
-// Same API as above
-```
-
 **Rules:**
 - One `createLogger("tag")` per file, at module scope
 - Use short, descriptive tags matching the module purpose (e.g., `"workbench"`, `"render"`, `"seed"`, `"email"`)

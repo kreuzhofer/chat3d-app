@@ -225,10 +225,12 @@ def render_screenshots(
     results: List[dict] = []
 
     for angle in angles:
-        # Build a fresh scene per angle
+        # Build a fresh scene per angle.
+        # Low ambient + smooth shading + camera-relative key light = contrast
+        # from surface normal gradients (no harsh fixed-position shadow artifacts).
         scene = pyrender.Scene(
             bg_color=[255, 255, 255, 255],
-            ambient_light=[0.45, 0.45, 0.45],
+            ambient_light=[0.2, 0.2, 0.2],
         )
         scene.add(pr_mesh)
 
@@ -241,16 +243,20 @@ def render_screenshots(
         cam_pose = _camera_pose_for_angle(angle, center, distance)
         scene.add(camera, pose=cam_pose)
 
-        # Lights: key light + fill light
-        key_light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0], intensity=3.0)
-        key_pose = _camera_pose_for_angle(angle, center, distance * 1.2)
-        scene.add(key_light, pose=key_pose)
+        # Key light — co-located with the camera so every visible face gets
+        # illumination proportional to how directly it faces the viewer.
+        # With smooth shading, curved surfaces show clear bright-to-dark
+        # gradients that reveal shape without creating shadow artifacts.
+        key_light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0], intensity=5.0)
+        scene.add(key_light, pose=cam_pose)
 
-        fill_light = pyrender.DirectionalLight(color=[0.8, 0.85, 0.9], intensity=1.5)
+        # Fill light — fixed soft top-down to add slight vertical contrast
+        # (top-facing surfaces a bit brighter than bottom-facing).
+        fill_light = pyrender.DirectionalLight(color=[0.9, 0.9, 0.95], intensity=1.0)
         fill_pose = _look_at(
-            center + np.array([-distance * 0.5, distance * 0.3, distance * 0.3]),
+            center + np.array([0.0, distance, 0.0]),
             center,
-            np.array([0.0, 1.0, 0.0]),
+            np.array([0.0, 0.0, -1.0]),
         )
         scene.add(fill_light, pose=fill_pose)
 

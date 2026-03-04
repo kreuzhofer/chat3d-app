@@ -18,6 +18,7 @@ import {
   createProviderModel as createProviderModelFromConfig,
   buildGenerateOptions,
   calculateCostUsd,
+  buildCacheableSystem,
   type LlmModelConfig,
 } from "./llm-config.service.js";
 
@@ -134,13 +135,13 @@ export function buildInitialPrompt(
   systemPromptContent: string,
   fewShots: FewShotExample[],
   userPrompt: string,
-): string {
-  const sections: string[] = [systemPromptContent, ""];
+): { system: string; userContent: string } {
+  const userSections: string[] = [];
 
   if (fewShots.length > 0) {
-    sections.push("## Approved Examples for Reference", "");
+    userSections.push("## Approved Examples for Reference", "");
     for (const example of fewShots) {
-      sections.push(
+      userSections.push(
         `### User request: "${example.prompt}"`,
         "```python",
         example.code,
@@ -150,7 +151,7 @@ export function buildInitialPrompt(
     }
   }
 
-  sections.push(
+  userSections.push(
     "## Requirements",
     "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math`. You may also import `itertools`, `functools`, `copy`, or `numpy`.",
     "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
@@ -160,7 +161,7 @@ export function buildInitialPrompt(
     `User request: ${userPrompt}`,
   );
 
-  return sections.join("\n");
+  return { system: systemPromptContent, userContent: userSections.join("\n") };
 }
 
 export function buildFixPrompt(
@@ -173,8 +174,8 @@ export function buildFixPrompt(
   evalIssues: string[] | null,
   evalSuggestions: string[] | null,
   renderErrorContext?: RenderErrorContext | null,
-): string {
-  const sections: string[] = [systemPromptContent, ""];
+): { system: string; userContent: string } {
+  const sections: string[] = [];
 
   if (fewShots.length > 0) {
     sections.push("## Approved Examples for Reference", "");
@@ -241,7 +242,7 @@ export function buildFixPrompt(
     userPrompt,
   );
 
-  return sections.join("\n");
+  return { system: systemPromptContent, userContent: sections.join("\n") };
 }
 
 /**
@@ -258,8 +259,8 @@ export function buildModificationPrompt(
   baselineCode: string,
   conversationSummary: string,
   conversationHistory?: string,
-): string {
-  const sections: string[] = [systemPromptContent, ""];
+): { system: string; userContent: string } {
+  const sections: string[] = [];
 
   if (fewShots.length > 0) {
     sections.push("## Approved Examples for Reference", "");
@@ -309,7 +310,7 @@ export function buildModificationPrompt(
     "- PARAMETER CONVENTION: Define all dimensional values (lengths, widths, heights, radii, angles, counts) as named variables at the top of your code before any BuildPart/BuildSketch blocks. Use descriptive snake_case names. Add a brief inline comment describing each parameter. Do NOT hardcode numeric values directly in constructors like Box(), Cylinder(), extrude(), fillet(), etc. Instead, assign them to variables first and reference the variables.",
   );
 
-  return sections.join("\n");
+  return { system: systemPromptContent, userContent: sections.join("\n") };
 }
 
 // ── Few-shot example retrieval ───────────────────────────────────────
@@ -341,7 +342,7 @@ async function fetchFewShotExamples(
   limit = 6,
 ): Promise<FewShotExample[]> {
   try {
-    const results = await findSimilarExamples(promptText, limit);
+    const { matches: results } = await findSimilarExamples(promptText, limit);
     if (results.length > 0) {
       logger.info(
         { count: results.length, similarityMin: results[results.length - 1].similarity.toFixed(3), similarityMax: results[0].similarity.toFixed(3) },
@@ -475,6 +476,7 @@ async function generateCode(
   providerModel: any,
   modelConfig?: LlmModelConfig,
   pipelineSignal?: AbortSignal,
+  system?: string,
 ): Promise<{ code: string; promptTokens: number; completionTokens: number }> {
   if (providerModel === null) {
     // Mock mode — raw modeling code only (no imports/exports)
@@ -489,10 +491,11 @@ root_part = part.part
   }
 
   const extraOpts = modelConfig ? buildGenerateOptions(modelConfig) : {};
+  const cacheableSystem = system && modelConfig ? buildCacheableSystem(modelConfig.provider, system) : undefined;
 
   if (modelConfig) {
     logger.info(
-      { provider: modelConfig.provider, model: modelConfig.modelName, thinkingEffort: modelConfig.thinkingEffort, supportsThinking: modelConfig.supportsThinking, extraOpts },
+      { provider: modelConfig.provider, model: modelConfig.modelName, thinkingEffort: modelConfig.thinkingEffort, supportsThinking: modelConfig.supportsThinking, extraOpts, hasCacheableSystem: !!cacheableSystem && typeof cacheableSystem !== "string" },
       "workbench generateText call options",
     );
   }
@@ -513,6 +516,7 @@ root_part = part.part
           model: providerModel,
           prompt,
           abortSignal: callController.signal,
+          ...(cacheableSystem ? { system: cacheableSystem } : {}),
           ...extraOpts,
         });
       } catch (error) {
@@ -785,7 +789,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     );
 
     // 2. Generate code
-    const prompt =
+    const { system: cgSystem, userContent: cgUserContent } =
       iteration === 1
         ? buildInitialPrompt(CODEGEN_SYSTEM_PROMPT, fewShots, ctx.prompt)
         : buildFixPrompt(
@@ -800,14 +804,14 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
             renderErrorCtx,
           );
 
-    logger.info({ promptChars: prompt.length }, "LLM prompt built");
+    logger.info({ promptChars: cgUserContent.length, systemChars: cgSystem.length }, "LLM prompt built");
     if (iteration > 1) {
       const issues = evalResult?.issues ?? [];
       const suggestions = evalResult?.suggestions ?? [];
       logger.info({ issues, suggestions }, "fix feedback — issues and suggestions");
       if (renderError) logger.info({ renderError, category: renderErrorCtx?.classified.category ?? "none" }, "fix feedback — render error");
     }
-    const codeResult = await generateCode(prompt, providerModel, codegenConfig, pipelineSignal);
+    const codeResult = await generateCode(cgUserContent, providerModel, codegenConfig, pipelineSignal, cgSystem);
     currentCode = codeResult.code;
     totalPromptTokens += codeResult.promptTokens;
     totalCompletionTokens += codeResult.completionTokens;

@@ -32,6 +32,7 @@ export async function listChatContexts(userId: string) {
     conversationModelId: r.conversationModelId,
     chat3dModelId: r.chat3dModelId,
     ownerId: r.ownerId,
+    totalCostUsd: Number(r.totalCostUsd),
     createdAt: toIso(r.createdAt),
     updatedAt: toIso(r.updatedAt),
   }));
@@ -63,6 +64,7 @@ export async function createChatContext(input: {
     conversationModelId: r.conversationModelId,
     chat3dModelId: r.chat3dModelId,
     ownerId: r.ownerId,
+    totalCostUsd: Number(r.totalCostUsd),
     createdAt: toIso(r.createdAt),
     updatedAt: toIso(r.updatedAt),
   };
@@ -105,6 +107,7 @@ export async function updateChatContext(input: {
     conversationModelId: r.conversationModelId,
     chat3dModelId: r.chat3dModelId,
     ownerId: r.ownerId,
+    totalCostUsd: Number(r.totalCostUsd),
     createdAt: toIso(r.createdAt),
     updatedAt: toIso(r.updatedAt),
   };
@@ -137,6 +140,9 @@ export async function listChatItems(input: { userId: string; contextId: string }
     messages: r.messages,
     rating: r.rating,
     ownerId: r.ownerId,
+    promptTokens: r.promptTokens ?? 0,
+    completionTokens: r.completionTokens ?? 0,
+    estimatedCostUsd: Number(r.estimatedCostUsd ?? 0),
     createdAt: toIso(r.createdAt),
     updatedAt: toIso(r.updatedAt),
   }));
@@ -353,4 +359,17 @@ export async function revertToItem(input: { userId: string; contextId: string; i
   });
 
   return { deletedCount: deleted.count };
+}
+
+/**
+ * Atomically increment a chat context's total_cost_usd.
+ * Uses Prisma's `increment` to avoid race conditions.
+ * Skips when costUsd <= 0 (no cost to add).
+ */
+export async function incrementContextCost(contextId: string, costUsd: number): Promise<void> {
+  if (costUsd <= 0) return;
+  await prisma.chatContext.update({
+    where: { id: contextId },
+    data: { totalCostUsd: { increment: costUsd } },
+  });
 }

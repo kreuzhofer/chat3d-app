@@ -21,6 +21,11 @@ const fewShotArb = fc.array(
 
 const nonEmptyString = fc.string({ minLength: 1, maxLength: 300 });
 
+/** Helper: combine system + userContent for full-text assertions. */
+function fullText(result: { system: string; userContent: string }): string {
+  return result.system + "\n" + result.userContent;
+}
+
 // ── buildModificationPrompt tests ────────────────────────────────────
 
 describe("buildModificationPrompt", () => {
@@ -36,9 +41,10 @@ describe("buildModificationPrompt", () => {
           const result = buildModificationPrompt(
             systemPrompt, fewShots, userPrompt, baselineCode, convSummary,
           );
+          const text = fullText(result);
 
-          expect(result).toContain(baselineCode);
-          expect(result).toContain("```python");
+          expect(text).toContain(baselineCode);
+          expect(text).toContain("```python");
         },
       ),
       { numRuns: 100 },
@@ -57,11 +63,12 @@ describe("buildModificationPrompt", () => {
           const result = buildModificationPrompt(
             systemPrompt, fewShots, userPrompt, baselineCode, convSummary,
           );
+          const text = fullText(result);
 
           // Must instruct the LLM to preserve existing geometry
-          expect(result.toLowerCase()).toContain("preserve");
-          expect(result).toContain("Working Baseline Code");
-          expect(result.toLowerCase()).toContain("do not rewrite from scratch");
+          expect(text.toLowerCase()).toContain("preserve");
+          expect(text).toContain("Working Baseline Code");
+          expect(text.toLowerCase()).toContain("do not rewrite from scratch");
         },
       ),
       { numRuns: 100 },
@@ -80,9 +87,10 @@ describe("buildModificationPrompt", () => {
           const result = buildModificationPrompt(
             systemPrompt, fewShots, userPrompt, baselineCode, convSummary,
           );
+          const text = fullText(result);
 
-          expect(result).toContain(userPrompt);
-          expect(result).toContain(convSummary);
+          expect(text).toContain(userPrompt);
+          expect(text).toContain(convSummary);
         },
       ),
       { numRuns: 100 },
@@ -102,7 +110,7 @@ describe("buildModificationPrompt", () => {
             systemPrompt, fewShots, userPrompt, baselineCode, convSummary,
           );
 
-          expect(result).toContain(systemPrompt);
+          expect(result.system).toContain(systemPrompt);
         },
       ),
       { numRuns: 100 },
@@ -127,11 +135,12 @@ describe("buildModificationPrompt", () => {
           const result = buildModificationPrompt(
             systemPrompt, fewShots, userPrompt, baselineCode, convSummary,
           );
+          const text = fullText(result);
 
-          expect(result).toContain("Approved Examples for Reference");
+          expect(text).toContain("Approved Examples for Reference");
           for (const example of fewShots) {
-            expect(result).toContain(example.prompt);
-            expect(result).toContain(example.code);
+            expect(text).toContain(example.prompt);
+            expect(text).toContain(example.code);
           }
         },
       ),
@@ -152,8 +161,9 @@ describe("buildModificationPrompt", () => {
           const result = buildModificationPrompt(
             systemPrompt, fewShots, userPrompt, baselineCode, convSummary, convHistory,
           );
+          const text = fullText(result);
 
-          expect(result).toContain(convHistory);
+          expect(text).toContain(convHistory);
         },
       ),
       { numRuns: 100 },
@@ -164,11 +174,12 @@ describe("buildModificationPrompt", () => {
     const result = buildModificationPrompt(
       "system", [], "modify it", "some_code = 1", "I'll modify the model",
     );
+    const text = fullText(result);
 
     // Should not have an extra empty section — just verify it's well-formed
-    expect(result).toContain("Working Baseline Code");
-    expect(result).toContain("Modification Request");
-    expect(result).toContain("Requirements");
+    expect(text).toContain("Working Baseline Code");
+    expect(text).toContain("Modification Request");
+    expect(text).toContain("Requirements");
   });
 
   it("contains standard requirements about root_part and no imports", () => {
@@ -183,9 +194,10 @@ describe("buildModificationPrompt", () => {
           const result = buildModificationPrompt(
             systemPrompt, fewShots, userPrompt, baselineCode, convSummary,
           );
+          const text = fullText(result);
 
-          expect(result).toContain("root_part");
-          expect(result).toContain("Do NOT include `from build123d import *`");
+          expect(text).toContain("root_part");
+          expect(text).toContain("Do NOT include `from build123d import *`");
         },
       ),
       { numRuns: 100 },
@@ -205,15 +217,17 @@ describe("buildModificationPrompt", () => {
           const modResult = buildModificationPrompt(
             systemPrompt, fewShots, userPrompt, baselineCode, convSummary,
           );
+          const initialText = fullText(initialResult);
+          const modText = fullText(modResult);
 
           // The modification prompt must contain sections the initial prompt does not
-          expect(modResult).toContain("Working Baseline Code");
-          expect(modResult).toContain("Modification Request");
-          expect(initialResult).not.toContain("Working Baseline Code");
-          expect(initialResult).not.toContain("Modification Request");
+          expect(modText).toContain("Working Baseline Code");
+          expect(modText).toContain("Modification Request");
+          expect(initialText).not.toContain("Working Baseline Code");
+          expect(initialText).not.toContain("Modification Request");
 
           // The modification prompt must contain the baseline code
-          expect(modResult).toContain(baselineCode);
+          expect(modText).toContain(baselineCode);
         },
       ),
       { numRuns: 100 },

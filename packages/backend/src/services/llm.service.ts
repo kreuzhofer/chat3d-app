@@ -9,6 +9,7 @@ import {
   createProviderModel as createProviderModelFromConfig,
   buildGenerateOptions,
   calculateCostUsd,
+  buildCacheableSystem,
   listAllModels,
   type LlmModelConfig,
 } from "./llm-config.service.js";
@@ -46,6 +47,8 @@ export interface LlmUsageMetadata {
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   totalTokens: number;
   estimatedCostUsd: number;
 }
@@ -152,6 +155,8 @@ function extractTokenUsage(value: unknown): {
   inputTokens: number | null;
   outputTokens: number | null;
   reasoningTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
   totalTokens: number | null;
 } {
   if (typeof value !== "object" || value === null) {
@@ -159,6 +164,8 @@ function extractTokenUsage(value: unknown): {
       inputTokens: null,
       outputTokens: null,
       reasoningTokens: null,
+      cacheReadTokens: null,
+      cacheWriteTokens: null,
       totalTokens: null,
     };
   }
@@ -171,10 +178,19 @@ function extractTokenUsage(value: unknown): {
   const reasoningTokens = toSafePositiveInteger(usage.reasoningTokens ?? usage.reasoning_tokens);
   const totalTokens = toSafePositiveInteger(usage.totalTokens ?? usage.total_tokens);
 
+  // Extract cache token details from Vercel AI SDK v6 usage object
+  const details = typeof usage.inputTokenDetails === "object" && usage.inputTokenDetails !== null
+    ? usage.inputTokenDetails as Record<string, unknown>
+    : null;
+  const cacheReadTokens = details ? toSafePositiveInteger(details.cacheReadTokens ?? details.cachedTokens) : null;
+  const cacheWriteTokens = details ? toSafePositiveInteger(details.cacheWriteTokens ?? details.cacheCreationTokens) : null;
+
   return {
     inputTokens,
     outputTokens,
     reasoningTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
     totalTokens,
   };
 }
@@ -203,14 +219,16 @@ function buildUsageMetadata(input: {
   const inputTokens = providerUsage.inputTokens ?? estimatedInput;
   const outputTokens = providerUsage.outputTokens ?? estimatedOutput;
   const reasoningTokens = providerUsage.reasoningTokens ?? 0;
+  const cacheReadTokens = providerUsage.cacheReadTokens ?? 0;
+  const cacheWriteTokens = providerUsage.cacheWriteTokens ?? 0;
   const totalTokens = providerUsage.totalTokens ?? inputTokens + outputTokens;
 
   // Use DB-driven pricing if config is available, otherwise fall back to 0
   const estimatedCostUsd = input.modelConfig
-    ? calculateCostUsd(input.modelConfig, inputTokens, outputTokens, reasoningTokens)
+    ? calculateCostUsd(input.modelConfig, inputTokens, outputTokens, reasoningTokens, cacheReadTokens, cacheWriteTokens)
     : 0;
 
-  return {
+  const result: LlmUsageMetadata = {
     source:
       providerUsage.inputTokens !== null ||
       providerUsage.outputTokens !== null ||
@@ -223,6 +241,11 @@ function buildUsageMetadata(input: {
     totalTokens: totalTokens > 0 ? totalTokens : estimatedTotal,
     estimatedCostUsd,
   };
+
+  if (cacheReadTokens > 0) result.cacheReadTokens = cacheReadTokens;
+  if (cacheWriteTokens > 0) result.cacheWriteTokens = cacheWriteTokens;
+
+  return result;
 }
 
 /**
@@ -233,9 +256,11 @@ async function generateWithConfig(
   cfg: LlmModelConfig,
   prompt: string,
   abortSignal?: AbortSignal,
+  system?: string,
 ): Promise<ProviderGenerationResult> {
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
+  const cacheableSystem = system ? buildCacheableSystem(cfg.provider, system) : undefined;
 
   // Bedrock's synchronous InvokeModel API does not support thinking/reasoning.
   // When thinking is enabled for a Bedrock model, use streamText (which calls
@@ -243,7 +268,7 @@ async function generateWithConfig(
   const useFallbackStream = cfg.provider === "bedrock" && cfg.supportsThinking && cfg.thinkingEffort;
 
   logger.info(
-    { provider: cfg.provider, model: cfg.modelName, thinkingEffort: cfg.thinkingEffort, supportsThinking: cfg.supportsThinking, useFallbackStream, extraOpts },
+    { provider: cfg.provider, model: cfg.modelName, thinkingEffort: cfg.thinkingEffort, supportsThinking: cfg.supportsThinking, useFallbackStream, extraOpts, hasCacheableSystem: !!cacheableSystem && typeof cacheableSystem !== "string" },
     "generateText call options",
   );
 
@@ -262,6 +287,7 @@ async function generateWithConfig(
           model: providerModel,
           prompt,
           abortSignal,
+          ...(cacheableSystem ? { system: cacheableSystem } : {}),
           ...extraOpts,
         });
 
@@ -269,7 +295,12 @@ async function generateWithConfig(
         let reasoningChars = 0;
         let lastLogLen = 0;
         let phase: "thinking" | "generating" = "thinking";
+        // Capture usage from finish-step event (Bedrock streaming doesn't propagate usage to resolved promise — SDK v6.0.111 bug)
+        let streamStepUsage: unknown;
         for await (const part of stream.fullStream) {
+          if (part.type === "finish-step" && "usage" in part) {
+            streamStepUsage = (part as Record<string, unknown>).usage;
+          }
           if (part.type === "reasoning-delta") {
             reasoningChars += part.text.length;
             if (reasoningChars - lastLogLen >= 500) {
@@ -304,12 +335,20 @@ async function generateWithConfig(
         text = fullText;
         reasoningText = finalResult.reasoningText;
         reasoning = finalResult.reasoning;
-        usage = finalResult.usage;
+        // Workaround: Bedrock streaming via AI SDK v6.0.111 doesn't propagate usage to the resolved promise.
+        // Fall back to usage captured from the finish-step stream event.
+        const resolvedUsage = finalResult.usage;
+        const hasResolvedUsage = resolvedUsage && Object.keys(resolvedUsage).length > 0 && (resolvedUsage as Record<string, unknown>).inputTokens != null;
+        usage = hasResolvedUsage ? resolvedUsage : (streamStepUsage ?? resolvedUsage);
+        if (!hasResolvedUsage && streamStepUsage) {
+          logger.debug({ provider: cfg.provider, model: cfg.modelName }, "using finish-step usage (resolved promise usage was empty)");
+        }
       } else {
         const result = await generateText({
           model: providerModel,
           prompt,
           abortSignal,
+          ...(cacheableSystem ? { system: cacheableSystem } : {}),
           ...extraOpts,
         });
 
@@ -317,6 +356,15 @@ async function generateWithConfig(
         reasoningText = result.reasoningText;
         reasoning = result.reasoning;
         usage = result.usage;
+      }
+
+      // Log cache metrics when available
+      const cacheUsage = extractTokenUsage(usage);
+      if (cacheUsage.cacheReadTokens || cacheUsage.cacheWriteTokens) {
+        logger.info(
+          { provider: cfg.provider, model: cfg.modelName, cacheRead: cacheUsage.cacheReadTokens, cacheWrite: cacheUsage.cacheWriteTokens },
+          "prompt cache metrics",
+        );
       }
 
       if (reasoningText) {
@@ -359,9 +407,10 @@ async function generateWithMessages(
 ): Promise<ProviderGenerationResult> {
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
+  const cacheableSystem = buildCacheableSystem(cfg.provider, system);
 
   logger.info(
-    { provider: cfg.provider, model: cfg.modelName, messageCount: messages.length },
+    { provider: cfg.provider, model: cfg.modelName, messageCount: messages.length, hasCacheableSystem: typeof cacheableSystem !== "string" },
     "generateText (messages) call",
   );
 
@@ -370,11 +419,20 @@ async function generateWithMessages(
     withLlmRetry(async () => {
       const result = await generateText({
         model: providerModel,
-        system,
+        system: cacheableSystem,
         messages,
         abortSignal,
         ...extraOpts,
       });
+
+      // Log cache metrics when available
+      const cacheUsage = extractTokenUsage(result.usage);
+      if (cacheUsage.cacheReadTokens || cacheUsage.cacheWriteTokens) {
+        logger.info(
+          { provider: cfg.provider, model: cfg.modelName, cacheRead: cacheUsage.cacheReadTokens, cacheWrite: cacheUsage.cacheWriteTokens },
+          "prompt cache metrics",
+        );
+      }
 
       if (!result.text || result.text.trim() === "") {
         throw new LlmServiceError("LLM returned empty output", 502);
@@ -401,9 +459,10 @@ async function streamWithMessages(
 ): Promise<ProviderGenerationResult> {
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
+  const cacheableSystem = buildCacheableSystem(cfg.provider, system);
 
   logger.info(
-    { provider: cfg.provider, model: cfg.modelName, messageCount: messages.length },
+    { provider: cfg.provider, model: cfg.modelName, messageCount: messages.length, hasCacheableSystem: typeof cacheableSystem !== "string" },
     "streamText (messages) call",
   );
 
@@ -412,16 +471,22 @@ async function streamWithMessages(
     try {
       const result = streamText({
         model: providerModel,
-        system,
+        system: cacheableSystem,
         messages,
         abortSignal,
         ...extraOpts,
       });
 
       let fullText = "";
-      for await (const chunk of result.textStream) {
-        fullText += chunk;
-        onToken(chunk);
+      // Capture usage from finish-step event (Bedrock streaming doesn't propagate usage to resolved promise — SDK v6.0.111 bug)
+      let streamStepUsage: unknown;
+      for await (const part of result.fullStream) {
+        if (part.type === "text-delta") {
+          fullText += part.text;
+          onToken(part.text);
+        } else if (part.type === "finish-step" && "usage" in part) {
+          streamStepUsage = (part as Record<string, unknown>).usage;
+        }
       }
 
       let finalResult;
@@ -434,13 +499,30 @@ async function streamWithMessages(
         throw awaitError;
       }
 
+      // Workaround: use finish-step usage when resolved promise usage is empty
+      const resolvedUsage = finalResult.usage;
+      const hasResolvedUsage = resolvedUsage && Object.keys(resolvedUsage).length > 0 && (resolvedUsage as Record<string, unknown>).inputTokens != null;
+      const effectiveUsage = hasResolvedUsage ? resolvedUsage : (streamStepUsage ?? resolvedUsage);
+      if (!hasResolvedUsage && streamStepUsage) {
+        logger.debug({ provider: cfg.provider, model: cfg.modelName }, "using finish-step usage (resolved promise usage was empty)");
+      }
+
+      // Log cache metrics when available
+      const cacheUsage = extractTokenUsage(effectiveUsage);
+      if (cacheUsage.cacheReadTokens || cacheUsage.cacheWriteTokens) {
+        logger.info(
+          { provider: cfg.provider, model: cfg.modelName, cacheRead: cacheUsage.cacheReadTokens, cacheWrite: cacheUsage.cacheWriteTokens },
+          "prompt cache metrics",
+        );
+      }
+
       if (fullText.trim() === "") {
         throw new LlmServiceError("LLM returned empty output", 502);
       }
 
       return {
         text: fullText.trim(),
-        usageRaw: finalResult.usage,
+        usageRaw: effectiveUsage,
       };
     } catch (error) {
       if (error instanceof NoOutputGeneratedError) {
@@ -464,12 +546,14 @@ async function streamWithConfig(
   prompt: string,
   onToken: (token: string) => void,
   abortSignal?: AbortSignal,
+  system?: string,
 ): Promise<ProviderGenerationResult> {
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
+  const cacheableSystem = system ? buildCacheableSystem(cfg.provider, system) : undefined;
 
   logger.info(
-    { provider: cfg.provider, model: cfg.modelName, thinkingEffort: cfg.thinkingEffort, supportsThinking: cfg.supportsThinking, extraOpts },
+    { provider: cfg.provider, model: cfg.modelName, thinkingEffort: cfg.thinkingEffort, supportsThinking: cfg.supportsThinking, extraOpts, hasCacheableSystem: !!cacheableSystem && typeof cacheableSystem !== "string" },
     "streamText call options",
   );
 
@@ -480,13 +564,20 @@ async function streamWithConfig(
         model: providerModel,
         prompt,
         abortSignal,
+        ...(cacheableSystem ? { system: cacheableSystem } : {}),
         ...extraOpts,
       });
 
       let fullText = "";
-      for await (const chunk of result.textStream) {
-        fullText += chunk;
-        onToken(chunk);
+      // Capture usage from finish-step event (Bedrock streaming doesn't propagate usage to resolved promise — SDK v6.0.111 bug)
+      let streamStepUsage: unknown;
+      for await (const part of result.fullStream) {
+        if (part.type === "text-delta") {
+          fullText += part.text;
+          onToken(part.text);
+        } else if (part.type === "finish-step" && "usage" in part) {
+          streamStepUsage = (part as Record<string, unknown>).usage;
+        }
       }
 
       let finalResult;
@@ -515,13 +606,30 @@ async function streamWithConfig(
         );
       }
 
+      // Workaround: use finish-step usage when resolved promise usage is empty
+      const resolvedUsage = finalResult.usage;
+      const hasResolvedUsage = resolvedUsage && Object.keys(resolvedUsage).length > 0 && (resolvedUsage as Record<string, unknown>).inputTokens != null;
+      const effectiveUsage = hasResolvedUsage ? resolvedUsage : (streamStepUsage ?? resolvedUsage);
+      if (!hasResolvedUsage && streamStepUsage) {
+        logger.debug({ provider: cfg.provider, model: cfg.modelName }, "using finish-step usage (resolved promise usage was empty)");
+      }
+
+      // Log cache metrics when available
+      const cacheUsage = extractTokenUsage(effectiveUsage);
+      if (cacheUsage.cacheReadTokens || cacheUsage.cacheWriteTokens) {
+        logger.info(
+          { provider: cfg.provider, model: cfg.modelName, cacheRead: cacheUsage.cacheReadTokens, cacheWrite: cacheUsage.cacheWriteTokens },
+          "prompt cache metrics",
+        );
+      }
+
       if (fullText.trim() === "") {
         throw new LlmServiceError("LLM returned empty output", 502);
       }
 
       return {
         text: fullText.trim(),
-        usageRaw: finalResult.usage,
+        usageRaw: effectiveUsage,
       };
     } catch (error) {
       if (error instanceof NoOutputGeneratedError) {
@@ -786,12 +894,17 @@ export async function generateConversationTextStream(input: {
   };
 }
 
-export function buildCodegenPrompt(
+/**
+ * Build codegen prompt as separate system and user content parts.
+ * System = static Build123d API reference + instructions (cacheable).
+ * User content = dynamic parts (baseline code, history, requirements, user request).
+ */
+export function buildCodegenPromptParts(
   baseFileName: string,
   userPrompt: string,
   conversationText: string,
   conversationHistory?: ConversationHistoryEntry[],
-): string {
+): { system: string; userContent: string } {
   const { entries, examples } = getBuild123dReference();
 
   const classReference = entries
@@ -802,7 +915,8 @@ export function buildCodegenPrompt(
     .map((ex) => `### ${ex.operation}: ${ex.description}\n\`\`\`python\n${ex.code}\n\`\`\``)
     .join("\n\n");
 
-  const sections = [
+  // Static system prompt — cacheable across calls
+  const systemSections = [
     "Generate valid Python build123d code.",
     "",
     "## Build123d API Reference — Available Classes and Functions",
@@ -812,13 +926,15 @@ export function buildCodegenPrompt(
     exampleSnippets,
     "",
     "Use ONLY the classes and functions listed above. Do NOT invent or hallucinate classes that are not in this reference.",
-    "",
   ];
+
+  // Dynamic user content — changes per request
+  const userSections: string[] = [];
 
   // Include most recent code as baseline for modification (Req 10.3, 11.1)
   const baselineCode = findMostRecentCode(conversationHistory);
   if (baselineCode) {
-    sections.push(
+    userSections.push(
       "## Previous Code (baseline for modification)",
       "Modify this existing code based on the user's follow-up request. Preserve working parts and apply the requested changes.",
       "```python",
@@ -831,10 +947,10 @@ export function buildCodegenPrompt(
   // Include conversation history for context (Req 10.1, 10.4)
   const historyBlock = formatConversationHistory(conversationHistory);
   if (historyBlock) {
-    sections.push(historyBlock, "");
+    userSections.push(historyBlock, "");
   }
 
-  sections.push(
+  userSections.push(
     "## Requirements",
     `- Export one STEP file with base filename ${baseFileName}.step`,
     "- Code must be executable as-is.",
@@ -843,7 +959,21 @@ export function buildCodegenPrompt(
     `Assistant planning notes: ${conversationText}`,
   );
 
-  return sections.join("\n");
+  return {
+    system: systemSections.join("\n"),
+    userContent: userSections.join("\n"),
+  };
+}
+
+/** Thin wrapper for backward compat — joins system + user content into a single string. */
+export function buildCodegenPrompt(
+  baseFileName: string,
+  userPrompt: string,
+  conversationText: string,
+  conversationHistory?: ConversationHistoryEntry[],
+): string {
+  const { system, userContent } = buildCodegenPromptParts(baseFileName, userPrompt, conversationText, conversationHistory);
+  return [system, "", userContent].join("\n");
 }
 
 export async function generateBuild123dCode(input: {
@@ -854,6 +984,9 @@ export async function generateBuild123dCode(input: {
   const { def: model, cfg: modelCfg } = await resolveModelForStage("codegen");
   const baseFileName = sanitizeBaseFileName(input.prompt);
 
+  const { system, userContent } = buildCodegenPromptParts(baseFileName, input.prompt, input.conversationText, input.conversationHistory);
+  const fullPrompt = [system, "", userContent].join("\n");
+
   if (model.provider === "mock") {
     const code = `
 from build123d import *
@@ -861,7 +994,6 @@ with BuildPart() as model:
     Box(20, 20, 20)
 export_step(model.part, "${baseFileName}.step")
       `.trim();
-    const prompt = buildCodegenPrompt(baseFileName, input.prompt, input.conversationText, input.conversationHistory);
 
     return {
       model,
@@ -870,16 +1002,14 @@ export_step(model.part, "${baseFileName}.step")
       usage: buildUsageMetadata({
         model,
         modelConfig: modelCfg,
-        prompt,
+        prompt: fullPrompt,
         outputText: code,
         providerUsageRaw: null,
       }),
     };
   }
 
-  const prompt = buildCodegenPrompt(baseFileName, input.prompt, input.conversationText, input.conversationHistory);
-
-  const result = await generateWithConfig(modelCfg, prompt);
+  const result = await generateWithConfig(modelCfg, userContent, undefined, system);
   const code = extractExecutableCode(result.text);
 
   return {
@@ -889,7 +1019,7 @@ export_step(model.part, "${baseFileName}.step")
     usage: buildUsageMetadata({
       model,
       modelConfig: modelCfg,
-      prompt,
+      prompt: fullPrompt,
       outputText: code,
       providerUsageRaw: result.usageRaw,
     }),

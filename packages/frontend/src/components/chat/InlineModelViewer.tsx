@@ -17,7 +17,7 @@ const ROTATION_PERIOD_S = 12;
 const ANGULAR_VELOCITY = (2 * Math.PI) / ROTATION_PERIOD_S;
 
 /**
- * Calculate the Z-axis rotation increment for a given frame delta.
+ * Calculate the Y-axis (vertical) rotation increment for a given frame delta.
  * Returns radians to add to the current rotation.
  *
  * Exported so property tests can verify the speed stays within the
@@ -192,6 +192,8 @@ export function InlineModelViewer({ filePath, token }: InlineModelViewerProps) {
         if (ext === ".stl") {
           const buffer = await downloaded.blob.arrayBuffer();
           const geometry = new STLLoader().parse(buffer);
+          // Build123d uses Z-up; Three.js uses Y-up — rotate to match
+          geometry.rotateX(-Math.PI / 2);
           meshOrGroup = new THREE.Mesh(
             geometry,
             new THREE.MeshStandardMaterial({ color: 0x10b981, metalness: 0.0, roughness: 0.85, flatShading: true }),
@@ -199,6 +201,13 @@ export function InlineModelViewer({ filePath, token }: InlineModelViewerProps) {
         } else {
           objectUrl = URL.createObjectURL(downloaded.blob);
           meshOrGroup = await new ThreeMFLoader().loadAsync(objectUrl);
+          // Build123d uses Z-up; Three.js uses Y-up — rotate each mesh geometry
+          meshOrGroup.traverse((child) => {
+            const mesh = child as THREE.Mesh;
+            if (mesh.isMesh && mesh.geometry) {
+              mesh.geometry.rotateX(-Math.PI / 2);
+            }
+          });
           // 3MF files from Build123d often lack embedded materials — apply a
           // consistent blue default to any mesh that has no color/map set.
           const defaultMat = new THREE.MeshStandardMaterial({ color: 0x10b981, metalness: 0.0, roughness: 0.85, flatShading: true });
@@ -229,7 +238,7 @@ export function InlineModelViewer({ filePath, token }: InlineModelViewerProps) {
 
           if (lastFrameTimeRef.current > 0 && turntableActiveRef.current && sceneObjectRef.current) {
             const deltaMs = time - lastFrameTimeRef.current;
-            sceneObjectRef.current.rotation.z += calculateTurntableRotation(deltaMs);
+            sceneObjectRef.current.rotation.y += calculateTurntableRotation(deltaMs);
           }
           lastFrameTimeRef.current = time;
 

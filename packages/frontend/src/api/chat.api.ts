@@ -6,6 +6,7 @@ export interface ChatContext {
   conversationModelId: string | null;
   chat3dModelId: string | null;
   ownerId: string;
+  totalCostUsd?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -17,6 +18,9 @@ export interface ChatItem {
   messages: unknown[];
   rating: -1 | 0 | 1;
   ownerId: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  estimatedCostUsd?: number;
   createdAt: string;
   updatedAt: string;
 }
