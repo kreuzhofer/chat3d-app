@@ -1040,7 +1040,7 @@ export function ChatPage() {
               <h3 className="text-sm font-medium text-[hsl(var(--muted-foreground))]">
                 {activeContext ? t("common:labels.conversation") : t("pages:chat.newDraft")}
               </h3>
-              <PushToggle token={token} externalSubscribed={pushSubscribed} />
+              <PushToggle token={token} externalSubscribed={pushSubscribed} onSubscribedChange={setPushSubscribed} />
             </div>
 
             <div className="max-h-[58vh] space-y-4 overflow-y-auto pr-1">

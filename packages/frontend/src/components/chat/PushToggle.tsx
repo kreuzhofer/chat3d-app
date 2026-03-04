@@ -13,9 +13,11 @@ export interface PushToggleProps {
   token: string | null;
   /** Optional external subscription state — when changed (e.g. via inline pill), syncs the toggle. */
   externalSubscribed?: boolean;
+  /** Called when the user toggles subscription on/off via this button. */
+  onSubscribedChange?: (subscribed: boolean) => void;
 }
 
-export function PushToggle({ token, externalSubscribed }: PushToggleProps) {
+export function PushToggle({ token, externalSubscribed, onSubscribedChange }: PushToggleProps) {
   const [supported, setSupported] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -54,10 +56,12 @@ export function PushToggle({ token, externalSubscribed }: PushToggleProps) {
       if (subscribed) {
         await unsubscribeFromPush(token);
         setSubscribed(false);
+        onSubscribedChange?.(false);
       } else {
         const success = await subscribeToPush(token);
         if (success) {
           setSubscribed(true);
+          onSubscribedChange?.(true);
         } else {
           setHint("Could not enable notifications. Check your browser permissions.");
         }
