@@ -283,6 +283,9 @@ export async function deleteChatItem(input: { userId: string; contextId: string;
 
   await prisma.chatItem.delete({ where: { id: input.itemId } });
 
+  // Recalculate context cost to remove the deleted item's contribution
+  await recalculateContextCost(input.contextId);
+
   await notificationService.publishToUser(input.userId, "chat.item.updated", {
     action: "deleted",
     contextId: input.contextId,
@@ -353,6 +356,9 @@ export async function revertToItem(input: { userId: string; contextId: string; i
     },
   });
 
+  // Recalculate context cost to remove deleted items' contributions
+  await recalculateContextCost(input.contextId);
+
   await notificationService.publishToUser(input.userId, "chat.item.updated", {
     action: "bulk-deleted",
     contextId: input.contextId,
@@ -371,5 +377,20 @@ export async function incrementContextCost(contextId: string, costUsd: number): 
   await prisma.chatContext.update({
     where: { id: contextId },
     data: { totalCostUsd: { increment: costUsd } },
+  });
+}
+
+/**
+ * Recalculate a context's totalCostUsd as the sum of all its items' estimatedCostUsd.
+ * This corrects drift caused by interrupted/resumed pipelines or deleted items.
+ */
+export async function recalculateContextCost(contextId: string): Promise<void> {
+  const result = await prisma.chatItem.aggregate({
+    where: { chatContextId: contextId },
+    _sum: { estimatedCostUsd: true },
+  });
+  await prisma.chatContext.update({
+    where: { id: contextId },
+    data: { totalCostUsd: result._sum.estimatedCostUsd ?? 0 },
   });
 }

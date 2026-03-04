@@ -5,7 +5,7 @@ import { withLlmRetry } from "../utils/llm-retry.js";
 import { prisma } from "../db/prisma.js";
 import { notificationService } from "./notification.service.js";
 import { sseService } from "./sse.service.js";
-import { createChatItem, updateChatItem, updateChatContext as updateChatContextService, deleteChatItem, incrementContextCost, ChatError } from "./chat.service.js";
+import { createChatItem, updateChatItem, updateChatContext as updateChatContextService, deleteChatItem, incrementContextCost, recalculateContextCost, ChatError } from "./chat.service.js";
 import { FileStorageError, moveStorageFile, readStorageFile, writeStorageFile, deleteStorageFile } from "./file-storage.service.js";
 import {
   generateConversationText,
@@ -1153,6 +1153,17 @@ export async function executeQueryPipeline(input: {
     let epTotalReasoningTokens = 0;
     let epTotalCostUsd = 0;
 
+    /** Persist the running cost on the item so partial costs survive crashes/restarts. */
+    const persistItemCost = () =>
+      prisma.chatItem.update({
+        where: { id: assistantItemId },
+        data: {
+          estimatedCostUsd: Number(epTotalCostUsd.toFixed(8)),
+          promptTokens: epTotalPromptTokens,
+          completionTokens: epTotalCompletionTokens,
+        },
+      });
+
     const conversationPrompt = `${prompt}${formatAttachmentContext(attachments)}`;
 
     // Fetch conversation history for iterative refinement (Req 10)
@@ -1208,6 +1219,7 @@ export async function executeQueryPipeline(input: {
     epTotalReasoningTokens += conversation.usage.reasoningTokens;
     epTotalCostUsd += conversation.usage.estimatedCostUsd;
     await incrementContextCost(input.contextId, conversation.usage.estimatedCostUsd);
+    await persistItemCost();
 
     // Parse conversation response to determine if codegen is needed
     const parsed = parseConversationResponse(conversation.text);
@@ -1293,6 +1305,7 @@ export async function executeQueryPipeline(input: {
           epTotalPromptTokens += fewShotResult.embeddingTokens;
           epTotalCostUsd += embCost;
           await incrementContextCost(input.contextId, embCost);
+          await persistItemCost();
         } catch { /* embedding cost tracking is best-effort */ }
       }
     } catch (err) { queryLogger.warn({ err: err instanceof Error ? err.message : String(err) }, "few-shot retrieval failed in executeQueryPipeline"); }
@@ -1475,6 +1488,7 @@ export async function executeQueryPipeline(input: {
       epTotalReasoningTokens += cgRT;
       epTotalCostUsd += cgCost;
       await incrementContextCost(input.contextId, cgCost);
+      await persistItemCost();
       queryLogger.info({ iteration, codeLength: epCurrentCode.length, inputTokens: cgPT, outputTokens: cgCT, cacheRead: cgCacheRead || undefined, cacheWrite: cgCacheWrite || undefined }, "codegen iteration completed");
 
       epRenderError = null;
@@ -1558,6 +1572,7 @@ export async function executeQueryPipeline(input: {
           epTotalCompletionTokens += evr.completionTokens;
           epTotalCostUsd += vlmCost;
           await incrementContextCost(input.contextId, vlmCost);
+          await persistItemCost();
           epEvalState = { score: evr.score, issues: evr.issues, suggestions: evr.suggestions, vlmModel: evr.vlmModel };
           queryLogger.info({ iteration, score: evr.score, issueCount: evr.issues.length, vlmModel: evr.vlmModel }, "VLM evaluation completed");
         } catch (err) { queryLogger.warn({ iteration, err: err instanceof Error ? err.message : String(err) }, "VLM evaluation failed, skipping"); }
@@ -1699,6 +1714,9 @@ export async function executeQueryPipeline(input: {
             stateMessage: "Stopped by user",
           },
         ],
+        promptTokens: epTotalPromptTokens,
+        completionTokens: epTotalCompletionTokens,
+        estimatedCostUsd: Number(epTotalCostUsd.toFixed(8)),
       });
 
       await publishQueryState({
@@ -1737,6 +1755,9 @@ export async function executeQueryPipeline(input: {
           stateMessage: "",
         },
       ],
+      promptTokens: epTotalPromptTokens,
+      completionTokens: epTotalCompletionTokens,
+      estimatedCostUsd: Number(epTotalCostUsd.toFixed(8)),
     });
 
     // Best-effort push notification for failure
@@ -1747,6 +1768,13 @@ export async function executeQueryPipeline(input: {
       url: `/chat/${input.contextId}`,
     }).catch(() => {/* ignore push errors */});
   } finally {
+    // Recalculate context cost from item totals to correct any drift
+    // from interrupted/resumed pipelines or double-counted increments.
+    try {
+      await recalculateContextCost(input.contextId);
+    } catch (e) {
+      queryLogger.warn({ err: e, contextId: input.contextId }, "failed to recalculate context cost");
+    }
     unregisterPipeline(assistantItemId);
   }
 }
