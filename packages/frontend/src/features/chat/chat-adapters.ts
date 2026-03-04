@@ -21,6 +21,7 @@ export interface ChatSegment {
   usage: {
     inputTokens: number;
     outputTokens: number;
+    reasoningTokens: number;
     totalTokens: number;
     estimatedCostUsd: number;
   } | null;
@@ -82,6 +83,7 @@ function mapUsage(value: unknown): ChatSegment["usage"] {
 
   const inputTokens = Number(usage.inputTokens);
   const outputTokens = Number(usage.outputTokens);
+  const reasoningTokens = Number(usage.reasoningTokens) || 0;
   const totalTokens = Number(usage.totalTokens);
   const estimatedCostUsd = Number(usage.estimatedCostUsd);
   if (
@@ -96,6 +98,7 @@ function mapUsage(value: unknown): ChatSegment["usage"] {
   return {
     inputTokens,
     outputTokens,
+    reasoningTokens,
     totalTokens,
     estimatedCostUsd,
   };

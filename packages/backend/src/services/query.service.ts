@@ -5,7 +5,7 @@ import { withLlmRetry } from "../utils/llm-retry.js";
 import { prisma } from "../db/prisma.js";
 import { notificationService } from "./notification.service.js";
 import { sseService } from "./sse.service.js";
-import { createChatItem, updateChatItem, updateChatContext as updateChatContextService, deleteChatItem, ChatError } from "./chat.service.js";
+import { createChatItem, updateChatItem, updateChatContext as updateChatContextService, deleteChatItem, incrementContextCost, ChatError } from "./chat.service.js";
 import { FileStorageError, moveStorageFile, readStorageFile, writeStorageFile, deleteStorageFile } from "./file-storage.service.js";
 import {
   generateConversationText,
@@ -97,6 +97,7 @@ export interface QueryAttachmentInput {
 interface QueryUsageSummary {
   inputTokens: number;
   outputTokens: number;
+  reasoningTokens: number;
   totalTokens: number;
   estimatedCostUsd: number;
 }
@@ -595,12 +596,14 @@ function summarizeUsage(usageRecords: LlmUsageMetadata[]): QueryUsageSummary {
     (summary, usage) => ({
       inputTokens: summary.inputTokens + usage.inputTokens,
       outputTokens: summary.outputTokens + usage.outputTokens,
+      reasoningTokens: summary.reasoningTokens + usage.reasoningTokens,
       totalTokens: summary.totalTokens + usage.totalTokens,
       estimatedCostUsd: Number((summary.estimatedCostUsd + usage.estimatedCostUsd).toFixed(8)),
     }),
     {
       inputTokens: 0,
       outputTokens: 0,
+      reasoningTokens: 0,
       totalTokens: 0,
       estimatedCostUsd: 0,
     },
@@ -946,6 +949,13 @@ async function generateChatName(input: {
       return;
     }
 
+    // Track naming cost on the context
+    const namingPT = result.usage?.inputTokens ?? 0;
+    const namingCT = result.usage?.outputTokens ?? 0;
+    const namingRT = (result.usage as Record<string, unknown>)?.reasoningTokens as number ?? 0;
+    const namingCost = calculateCostUsd(cfg, namingPT, namingCT, namingRT);
+    await incrementContextCost(input.contextId, namingCost);
+
     await updateChatContextService({
       userId: input.userId,
       contextId: input.contextId,
@@ -957,7 +967,7 @@ async function generateChatName(input: {
       name,
     });
 
-    queryLogger.info({ contextId: input.contextId, name }, "auto-named chat context");
+    queryLogger.info({ contextId: input.contextId, name, namingCost }, "auto-named chat context");
   } catch (err) {
     queryLogger.warn(
       { err: err instanceof Error ? err : String(err), contextId: input.contextId },
@@ -1136,6 +1146,12 @@ export async function executeQueryPipeline(input: {
         }
       : undefined;
 
+    // Pipeline-wide cost accumulators — initialized here so conversation cost is included
+    let epTotalPromptTokens = 0;
+    let epTotalCompletionTokens = 0;
+    let epTotalReasoningTokens = 0;
+    let epTotalCostUsd = 0;
+
     const conversationPrompt = `${prompt}${formatAttachmentContext(attachments)}`;
 
     // Fetch conversation history for iterative refinement (Req 10)
@@ -1185,6 +1201,13 @@ export async function executeQueryPipeline(input: {
       });
     }
 
+    // Add conversation LLM cost to pipeline accumulators and persist immediately
+    epTotalPromptTokens += conversation.usage.inputTokens;
+    epTotalCompletionTokens += conversation.usage.outputTokens;
+    epTotalReasoningTokens += conversation.usage.reasoningTokens;
+    epTotalCostUsd += conversation.usage.estimatedCostUsd;
+    await incrementContextCost(input.contextId, conversation.usage.estimatedCostUsd);
+
     // Parse conversation response to determine if codegen is needed
     const parsed = parseConversationResponse(conversation.text);
     const conversationText = parsed.text;
@@ -1192,12 +1215,26 @@ export async function executeQueryPipeline(input: {
 
     // If the conversation is chat-only (no 3D model requested), skip codegen/rendering
     if (!parsed.needsCodegen) {
+      const chatOnlyCost = Number(epTotalCostUsd.toFixed(8));
       const chatOnlyMessages = [
         {
           itemType: "message",
           text: conversationText,
           state: "completed",
           stateMessage: "",
+        },
+        {
+          itemType: "meta",
+          text: "Chat diagnostics",
+          state: "completed",
+          stateMessage: "",
+          usage: {
+            inputTokens: epTotalPromptTokens,
+            outputTokens: epTotalCompletionTokens,
+            reasoningTokens: epTotalReasoningTokens,
+            totalTokens: epTotalPromptTokens + epTotalCompletionTokens,
+            estimatedCostUsd: chatOnlyCost,
+          },
         },
       ];
 
@@ -1206,7 +1243,12 @@ export async function executeQueryPipeline(input: {
         contextId: input.contextId,
         itemId: assistantItemId,
         messages: chatOnlyMessages,
+        promptTokens: epTotalPromptTokens,
+        completionTokens: epTotalCompletionTokens,
+        estimatedCostUsd: chatOnlyCost,
       });
+
+      // Note: context cost was already persisted after the conversation call above
 
       await publishQueryState({
         userId: input.userId,
@@ -1239,8 +1281,19 @@ export async function executeQueryPipeline(input: {
 
     let epFewShots: Array<{ prompt: string; code: string }> = [];
     try {
-      epFewShots = (await findSimilarExamples(prompt, 6)).map(({ prompt: p, code }) => ({ prompt: p, code }));
-      queryLogger.info({ fewShotCount: epFewShots.length }, "loaded few-shot examples");
+      const fewShotResult = await findSimilarExamples(prompt, 6);
+      epFewShots = fewShotResult.matches.map(({ prompt: p, code }) => ({ prompt: p, code }));
+      queryLogger.info({ fewShotCount: epFewShots.length, embeddingTokens: fewShotResult.embeddingTokens }, "loaded few-shot examples");
+      // Track embedding cost and persist immediately
+      if (fewShotResult.embeddingTokens > 0) {
+        try {
+          const embeddingCfg = await getModelForPurpose("embedding");
+          const embCost = calculateCostUsd(embeddingCfg, fewShotResult.embeddingTokens, 0);
+          epTotalPromptTokens += fewShotResult.embeddingTokens;
+          epTotalCostUsd += embCost;
+          await incrementContextCost(input.contextId, embCost);
+        } catch { /* embedding cost tracking is best-effort */ }
+      }
     } catch (err) { queryLogger.warn({ err: err instanceof Error ? err.message : String(err) }, "few-shot retrieval failed in executeQueryPipeline"); }
 
     const epCodegenConfig = await getModelForPurpose("chat_codegen");
@@ -1256,9 +1309,6 @@ export async function executeQueryPipeline(input: {
       queryLogger.info({ baselineCodeLength: epBaselineCode!.length }, "modification scenario detected — will use baseline code for iteration 1");
     }
 
-    let epTotalPromptTokens = 0;
-    let epTotalCompletionTokens = 0;
-    let epTotalCostUsd = 0;
     let epCurrentCode = "";
     let epRenderError: string | null = null;
     let epRenderErrorCtx: RenderErrorContext | null = null;
@@ -1387,9 +1437,13 @@ export async function executeQueryPipeline(input: {
       epCurrentCode = stripTemplateBoilerplate(extractExecutableCode(cgResult.text));
       const cgPT = cgResult.usage?.inputTokens ?? 0;
       const cgCT = cgResult.usage?.outputTokens ?? 0;
+      const cgRT = (cgResult.usage as Record<string, unknown>)?.reasoningTokens as number ?? 0;
+      const cgCost = calculateCostUsd(epCodegenConfig, cgPT, cgCT, cgRT);
       epTotalPromptTokens += cgPT;
       epTotalCompletionTokens += cgCT;
-      epTotalCostUsd += calculateCostUsd(epCodegenConfig, cgPT, cgCT);
+      epTotalReasoningTokens += cgRT;
+      epTotalCostUsd += cgCost;
+      await incrementContextCost(input.contextId, cgCost);
       queryLogger.info({ iteration, codeLength: epCurrentCode.length, inputTokens: cgPT, outputTokens: cgCT }, "codegen iteration completed");
 
       epRenderError = null;
@@ -1468,9 +1522,11 @@ export async function executeQueryPipeline(input: {
         await persistPhase(`Evaluating quality (attempt ${iteration}/${MAX_FIX_ITERATIONS})...`);
         try {
           const evr = await evaluateModel({ userPrompt: prompt, categoryName: "chat", complexity: 5, images: epScreenshots.filter((s) => s.angle !== "isometric").map((s) => ({ angle: s.angle, base64: s.base64 })) });
+          const vlmCost = calculateCostUsd(await getModelForPurpose("vlm_eval"), evr.promptTokens, evr.completionTokens);
           epTotalPromptTokens += evr.promptTokens;
           epTotalCompletionTokens += evr.completionTokens;
-          epTotalCostUsd += calculateCostUsd(await getModelForPurpose("vlm_eval"), evr.promptTokens, evr.completionTokens);
+          epTotalCostUsd += vlmCost;
+          await incrementContextCost(input.contextId, vlmCost);
           epEvalState = { score: evr.score, issues: evr.issues, suggestions: evr.suggestions, vlmModel: evr.vlmModel };
           queryLogger.info({ iteration, score: evr.score, issueCount: evr.issues.length, vlmModel: evr.vlmModel }, "VLM evaluation completed");
         } catch (err) { queryLogger.warn({ iteration, err: err instanceof Error ? err.message : String(err) }, "VLM evaluation failed, skipping"); }
@@ -1533,6 +1589,7 @@ export async function executeQueryPipeline(input: {
     const epUsage: QueryUsageSummary = {
       inputTokens: epTotalPromptTokens,
       outputTokens: epTotalCompletionTokens,
+      reasoningTokens: epTotalReasoningTokens,
       totalTokens: epTotalPromptTokens + epTotalCompletionTokens,
       estimatedCostUsd: Number(epTotalCostUsd.toFixed(8)),
     };
@@ -1579,6 +1636,8 @@ export async function executeQueryPipeline(input: {
       completionTokens: epTotalCompletionTokens,
       estimatedCostUsd: Number(epTotalCostUsd.toFixed(8)),
     });
+
+    // Note: context cost was already persisted incrementally after each LLM call
 
     await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "completed" });
 

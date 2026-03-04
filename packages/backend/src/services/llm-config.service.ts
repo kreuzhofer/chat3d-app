@@ -447,10 +447,13 @@ export function calculateCostUsd(
   cfg: LlmModelConfig,
   promptTokens: number,
   completionTokens: number,
+  reasoningTokens = 0,
 ): number {
   const inputCost = (promptTokens / 1_000_000) * cfg.costPer1mInput;
   const outputCost = (completionTokens / 1_000_000) * cfg.costPer1mOutput;
-  return roundUsd(inputCost + outputCost);
+  // Reasoning/thinking tokens are billed at the output token rate
+  const reasoningCost = (reasoningTokens / 1_000_000) * cfg.costPer1mOutput;
+  return roundUsd(inputCost + outputCost + reasoningCost);
 }
 
 function roundUsd(value: number): number {

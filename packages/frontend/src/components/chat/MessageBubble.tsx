@@ -127,6 +127,8 @@ export interface MessageBubbleProps {
   busyNotifications?: boolean;
   /** Called when user clicks "Enable notifications". */
   onEnableNotifications?: () => void;
+  /** Whether the current user is an admin (controls cost visibility). */
+  isAdmin?: boolean;
   /** True only for the most recent assistant item — controls regenerate visibility. */
   isLatestAssistant?: boolean;
   /** True when any pipeline is actively running (disables regenerate). */
@@ -152,6 +154,7 @@ export function MessageBubble({
   showEnableNotifications,
   busyNotifications,
   onEnableNotifications,
+  isAdmin,
   isLatestAssistant,
   isPipelineActive,
   onSelect,
@@ -178,6 +181,7 @@ export function MessageBubble({
   const totalUsage = (() => {
     let inputTokens = 0;
     let outputTokens = 0;
+    let reasoningTokens = 0;
     let totalTokens = 0;
     let estimatedCostUsd = 0;
     let found = false;
@@ -185,12 +189,13 @@ export function MessageBubble({
       if (seg.usage) {
         inputTokens += seg.usage.inputTokens;
         outputTokens += seg.usage.outputTokens;
+        reasoningTokens += seg.usage.reasoningTokens;
         totalTokens += seg.usage.totalTokens;
         estimatedCostUsd += seg.usage.estimatedCostUsd;
         found = true;
       }
     }
-    return found ? { inputTokens, outputTokens, totalTokens, estimatedCostUsd } : null;
+    return found ? { inputTokens, outputTokens, reasoningTokens, totalTokens, estimatedCostUsd } : null;
   })();
 
   return (
@@ -343,12 +348,12 @@ export function MessageBubble({
                     />
                   ) : null}
 
-                  {/* Meta details wrapped in CollapsibleSection for progressive disclosure */}
-                  {isMeta && (segment.usage || segment.artifact) ? (
+                  {/* Meta details wrapped in CollapsibleSection for progressive disclosure (admin only) */}
+                  {isAdmin && isMeta && (segment.usage || segment.artifact) ? (
                     <CollapsibleSection title={t("common:labels.details")} defaultExpanded={false}>
                       {segment.usage ? (
                         <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                          Usage: {segment.usage.inputTokens} in / {segment.usage.outputTokens} out / {segment.usage.totalTokens} total ·
+                          Usage: {segment.usage.inputTokens} in / {segment.usage.outputTokens} out{segment.usage.reasoningTokens > 0 ? ` / ${segment.usage.reasoningTokens} thinking` : ""} / {segment.usage.totalTokens} total ·
                           est. ${formatEstimatedCostUsd(segment.usage.estimatedCostUsd)}
                         </p>
                       ) : null}
@@ -394,8 +399,8 @@ export function MessageBubble({
         />
       ) : null}
 
-      {/* Inline cost tag */}
-      {item.role === "assistant" && totalUsage && totalUsage.totalTokens > 0 ? (
+      {/* Inline cost tag (admin only) */}
+      {isAdmin && item.role === "assistant" && totalUsage && totalUsage.totalTokens > 0 ? (
         <p className="mt-1 text-[10px] text-[hsl(var(--muted-foreground)_/_0.6)]">
           {totalUsage.totalTokens.toLocaleString()} tokens · ~${formatEstimatedCostUsd(totalUsage.estimatedCostUsd)}
         </p>

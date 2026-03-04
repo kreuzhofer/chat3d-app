@@ -45,6 +45,7 @@ export interface LlmUsageMetadata {
   source: "provider" | "estimated";
   inputTokens: number;
   outputTokens: number;
+  reasoningTokens: number;
   totalTokens: number;
   estimatedCostUsd: number;
 }
@@ -150,12 +151,14 @@ function toSafePositiveInteger(value: unknown): number | null {
 function extractTokenUsage(value: unknown): {
   inputTokens: number | null;
   outputTokens: number | null;
+  reasoningTokens: number | null;
   totalTokens: number | null;
 } {
   if (typeof value !== "object" || value === null) {
     return {
       inputTokens: null,
       outputTokens: null,
+      reasoningTokens: null,
       totalTokens: null,
     };
   }
@@ -165,11 +168,13 @@ function extractTokenUsage(value: unknown): {
   const outputTokens = toSafePositiveInteger(
     usage.outputTokens ?? usage.completionTokens ?? usage.output_tokens,
   );
+  const reasoningTokens = toSafePositiveInteger(usage.reasoningTokens ?? usage.reasoning_tokens);
   const totalTokens = toSafePositiveInteger(usage.totalTokens ?? usage.total_tokens);
 
   return {
     inputTokens,
     outputTokens,
+    reasoningTokens,
     totalTokens,
   };
 }
@@ -197,11 +202,12 @@ function buildUsageMetadata(input: {
 
   const inputTokens = providerUsage.inputTokens ?? estimatedInput;
   const outputTokens = providerUsage.outputTokens ?? estimatedOutput;
+  const reasoningTokens = providerUsage.reasoningTokens ?? 0;
   const totalTokens = providerUsage.totalTokens ?? inputTokens + outputTokens;
 
   // Use DB-driven pricing if config is available, otherwise fall back to 0
   const estimatedCostUsd = input.modelConfig
-    ? calculateCostUsd(input.modelConfig, inputTokens, outputTokens)
+    ? calculateCostUsd(input.modelConfig, inputTokens, outputTokens, reasoningTokens)
     : 0;
 
   return {
@@ -213,6 +219,7 @@ function buildUsageMetadata(input: {
         : "estimated",
     inputTokens,
     outputTokens,
+    reasoningTokens,
     totalTokens: totalTokens > 0 ? totalTokens : estimatedTotal,
     estimatedCostUsd,
   };
