@@ -471,7 +471,12 @@ export function WorkbenchCategoryPage() {
                 className={`flex h-16 items-center gap-3 rounded-md border px-3 transition ${isGenerating ? "border-[hsl(var(--primary)_/_0.5)] bg-[hsl(var(--primary)_/_0.05)]" : "border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] hover:border-[hsl(var(--primary)_/_0.3)]"}`}
               >
                 {/* Thumbnail — fixed width so text column stays aligned */}
-                <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-[hsl(var(--muted)_/_0.3)]">
+                <button
+                  type="button"
+                  className="h-12 w-12 shrink-0 overflow-hidden rounded bg-[hsl(var(--muted)_/_0.3)] cursor-pointer"
+                  onClick={() => saveScrollAndNavigate(`/workbench/${categoryId}/${prompt.id}`)}
+                  title={prompt.prompt}
+                >
                   {thumbUrl && token ? (
                     <AuthImage
                       src={thumbUrl}
@@ -481,7 +486,7 @@ export function WorkbenchCategoryPage() {
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-[10px] text-[hsl(var(--muted-foreground)_/_0.5)]">—</div>
                   )}
-                </div>
+                </button>
 
                 {isGenerating ? (
                   <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[hsl(var(--primary))]" />
