@@ -21,9 +21,11 @@ interface DropdownMenuProps {
   triggerLabel: string;
   items: DropdownItem[];
   className?: string;
+  /** When true, render a circular avatar button with the first character of triggerLabel */
+  avatar?: boolean;
 }
 
-export function DropdownMenu({ triggerLabel, items, className }: DropdownMenuProps) {
+export function DropdownMenu({ triggerLabel, items, className, avatar }: DropdownMenuProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -47,12 +49,17 @@ export function DropdownMenu({ triggerLabel, items, className }: DropdownMenuPro
     <div ref={rootRef} className={cn("relative", className)}>
       <button
         type="button"
-        className="inline-flex h-9 items-center justify-center rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-3 text-sm font-medium text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
+        className={
+          avatar
+            ? "inline-flex h-9 w-9 items-center justify-center rounded-full bg-[hsl(var(--primary))] text-sm font-semibold text-[hsl(var(--primary-foreground))] transition hover:opacity-80"
+            : "inline-flex h-9 items-center justify-center rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-3 text-sm font-medium text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
+        }
         aria-expanded={open}
         aria-haspopup="menu"
+        aria-label={triggerLabel}
         onClick={() => setOpen((current) => !current)}
       >
-        {triggerLabel}
+        {avatar ? triggerLabel.charAt(0).toUpperCase() : triggerLabel}
       </button>
 
       {open ? (

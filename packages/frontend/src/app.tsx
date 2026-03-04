@@ -317,8 +317,9 @@ function AuthenticatedApp() {
         ) : null}
         <LanguageSelector />
         <DropdownMenu
-          triggerLabel={user?.email ?? t("common:groups.account")}
+          triggerLabel={user?.display_name || user?.email || t("common:groups.account")}
           items={dropdownItems}
+          avatar
         />
       </div>
     </div>
