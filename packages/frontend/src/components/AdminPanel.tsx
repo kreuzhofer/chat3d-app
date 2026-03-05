@@ -8,6 +8,8 @@ import {
   Plug,
   Settings,
   ShieldOff,
+  Sliders,
+  Star,
   UserCheck,
   Users,
 } from "lucide-react";
@@ -45,6 +47,8 @@ import { WaitlistTab } from "./admin/WaitlistTab";
 import { SettingsTab } from "./admin/SettingsTab";
 import { ModelsTab } from "./admin/ModelsTab";
 import { ProvidersTab } from "./admin/ProvidersTab";
+import { GenerationTab } from "./admin/GenerationTab";
+import { CurationTab } from "./admin/CurationTab";
 import {
   toErrorMessage,
   sortUsersByCreatedDate,
@@ -54,7 +58,7 @@ import {
   type ConfirmState,
 } from "./admin/utils";
 
-type AdminTab = "dashboard" | "users" | "waitlist" | "settings" | "providers" | "models";
+type AdminTab = "dashboard" | "users" | "waitlist" | "settings" | "providers" | "models" | "generation" | "curation";
 type UserStatusFilter = "all" | "active" | "deactivated" | "pending_registration";
 
 export function AdminPanel() {
@@ -466,6 +470,8 @@ export function AdminPanel() {
           { id: "settings", label: "Settings", icon: <Settings className="h-4 w-4" /> },
           { id: "providers", label: "Providers", icon: <Plug className="h-4 w-4" /> },
           { id: "models", label: "Models", icon: <Cpu className="h-4 w-4" /> },
+          { id: "generation", label: "Generation", icon: <Sliders className="h-4 w-4" /> },
+          { id: "curation", label: "Curation", icon: <Star className="h-4 w-4" /> },
         ]}
         activeTab={activeTab}
         onChange={(tabId) => setActiveTab(tabId as AdminTab)}
@@ -534,6 +540,10 @@ export function AdminPanel() {
       {activeTab === "providers" && token ? <ProvidersTab token={token} /> : null}
 
       {activeTab === "models" && token ? <ModelsTab token={token} /> : null}
+
+      {activeTab === "generation" && token ? <GenerationTab token={token} /> : null}
+
+      {activeTab === "curation" && token ? <CurationTab token={token} /> : null}
 
       <Drawer
         open={selectedUser !== null}

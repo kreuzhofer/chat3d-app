@@ -42,6 +42,12 @@ import {
   type RenderErrorContext,
 } from "../utils/render-errors.js";
 import { writeStorageFile } from "./file-storage.service.js";
+import {
+  getMaxFixIterations,
+  getAutoApproveThreshold,
+  getLooksCorrectThreshold,
+  getFewShotExampleLimit,
+} from "./generation-settings.service.js";
 import crypto from "node:crypto";
 
 export const MAX_FIX_ITERATIONS = 5;
@@ -749,10 +755,16 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     };
   }
 
-  // 3. Load few-shot examples (system prompt is a hard-coded constant)
+  // 3. Load dynamic settings + few-shot examples
+  const [dynMaxFix, dynAutoApprove, dynLooksCorrect, dynFewShotLimit] = await Promise.all([
+    getMaxFixIterations("workbench"),
+    getAutoApproveThreshold("workbench"),
+    getLooksCorrectThreshold("workbench"),
+    getFewShotExampleLimit("workbench"),
+  ]);
   logger.info({ chars: CODEGEN_SYSTEM_PROMPT.length }, "system prompt loaded");
 
-  const fewShots = await fetchFewShotExamples(ctx.prompt, ctx.categoryId);
+  const fewShots = await fetchFewShotExamples(ctx.prompt, ctx.categoryId, dynFewShotLimit);
   logger.info({ count: fewShots.length }, "few-shot examples loaded");
 
   let currentCode = "";
@@ -779,13 +791,13 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     completionTokens: number;
   } | null = null;
 
-  for (let iteration = 1; iteration <= MAX_FIX_ITERATIONS; iteration++) {
-    logger.info({ iteration, maxIterations: MAX_FIX_ITERATIONS }, "starting iteration");
+  for (let iteration = 1; iteration <= dynMaxFix; iteration++) {
+    logger.info({ iteration, maxIterations: dynMaxFix }, "starting iteration");
 
     const isFirst = iteration === 1;
     onProgress?.(
       isFirst ? "codegen" : "fixing",
-      isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${MAX_FIX_ITERATIONS})...`,
+      isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${dynMaxFix})...`,
     );
 
     // 2. Generate code
@@ -859,7 +871,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       );
 
       // If this is the last iteration, persist the failure and return
-      if (iteration >= MAX_FIX_ITERATIONS) {
+      if (iteration >= dynMaxFix) {
         onProgress?.("failed", renderError ?? "Render failed");
         const exampleId = crypto.randomUUID();
         await insertExample({
@@ -936,7 +948,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     }
 
     // 5. VLM Evaluate — send labeled images, exclude isometric (thumbnail-only)
-    onProgress?.("evaluating", `Evaluating quality (attempt ${iteration}/${MAX_FIX_ITERATIONS})...`);
+    onProgress?.("evaluating", `Evaluating quality (attempt ${iteration}/${dynMaxFix})...`);
     const vlmImages = screenshots
       .filter((s) => s.angle !== "isometric")
       .map((s) => ({ angle: s.angle, base64: s.base64 }));
@@ -947,6 +959,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         categoryName: ctx.categoryName,
         complexity: ctx.complexity,
         images: vlmImages,
+        looksCorrectThreshold: dynLooksCorrect,
       });
       // Accumulate VLM eval tokens into the total
       totalPromptTokens += evalResult.promptTokens;
@@ -1023,9 +1036,9 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
 
     // 6. Track best result and decide whether to continue fixing
     const score = evalResult?.score ?? null;
-    const approved = score !== null && score >= AUTO_APPROVE_THRESHOLD;
+    const approved = score !== null && score >= dynAutoApprove;
     const hasIssues = (evalResult?.issues ?? []).length > 0;
-    logger.info({ score, threshold: AUTO_APPROVE_THRESHOLD, approved, hasIssues, lastIteration: iteration >= MAX_FIX_ITERATIONS }, "iteration evaluation summary");
+    logger.info({ score, threshold: dynAutoApprove, approved, hasIssues, lastIteration: iteration >= dynMaxFix }, "iteration evaluation summary");
 
     // Track the best successful result so we never regress
     if (score !== null && (best === null || score > best.score)) {
@@ -1043,7 +1056,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
 
     // Stop if: perfect score with no issues, or last iteration
     // Continue fixing if: below threshold, OR above threshold but VLM reported issues
-    const shouldStop = (approved && !hasIssues) || iteration >= MAX_FIX_ITERATIONS;
+    const shouldStop = (approved && !hasIssues) || iteration >= dynMaxFix;
 
     if (shouldStop) {
       onProgress?.("completed", "Done");
@@ -1058,7 +1071,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         completionTokens: totalCompletionTokens,
       };
       const finalScore = final.score;
-      const finalApproved = finalScore !== null && finalScore >= AUTO_APPROVE_THRESHOLD;
+      const finalApproved = finalScore !== null && finalScore >= dynAutoApprove;
 
       const exampleId = crypto.randomUUID();
       // Persist rendered files and screenshots to disk
@@ -1154,6 +1167,11 @@ export async function reRenderForExample(exampleId: string, onProgress?: Progres
 
   const ctx = await loadPromptContext(existingExample.promptId);
   logger.info({ prompt: ctx.prompt.slice(0, 80), category: ctx.categoryName }, "loaded prompt context for re-render");
+
+  const [rrAutoApprove, rrLooksCorrect] = await Promise.all([
+    getAutoApproveThreshold("workbench"),
+    getLooksCorrectThreshold("workbench"),
+  ]);
 
   // 2. Render with Build123d — wrap raw code in template for execution
   onProgress?.("rendering", "Rendering 3D model...");
@@ -1261,6 +1279,7 @@ export async function reRenderForExample(exampleId: string, onProgress?: Progres
       categoryName: ctx.categoryName,
       complexity: ctx.complexity,
       images: vlmImages,
+      looksCorrectThreshold: rrLooksCorrect,
     });
     totalPromptTokens = evalResult.promptTokens;
     totalCompletionTokens = evalResult.completionTokens;
@@ -1271,7 +1290,7 @@ export async function reRenderForExample(exampleId: string, onProgress?: Progres
 
   // 5. Persist files to disk and create new example
   const score = evalResult?.score ?? null;
-  const approved = score !== null && score >= AUTO_APPROVE_THRESHOLD;
+  const approved = score !== null && score >= rrAutoApprove;
 
   const newExampleId = crypto.randomUUID();
   const filePaths = await persistWorkbenchFiles({

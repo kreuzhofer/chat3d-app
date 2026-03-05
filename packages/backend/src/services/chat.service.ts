@@ -22,7 +22,7 @@ function toIso(d: Date): string {
 
 export async function listChatContexts(userId: string) {
   const rows = await prisma.chatContext.findMany({
-    where: { ownerId: userId },
+    where: { ownerId: userId, deletedAt: null },
     orderBy: { updatedAt: "desc" },
   });
 
@@ -72,7 +72,7 @@ export async function createChatContext(input: {
 
 export async function getOwnedContext(userId: string, contextId: string) {
   const context = await prisma.chatContext.findFirst({
-    where: { id: contextId, ownerId: userId },
+    where: { id: contextId, ownerId: userId, deletedAt: null },
   });
 
   if (!context) {
@@ -115,14 +115,17 @@ export async function updateChatContext(input: {
 
 export async function deleteChatContext(input: { userId: string; contextId: string }) {
   const context = await prisma.chatContext.findFirst({
-    where: { id: input.contextId, ownerId: input.userId },
+    where: { id: input.contextId, ownerId: input.userId, deletedAt: null },
   });
 
   if (!context) {
     throw new ChatError("Chat context not found", 404);
   }
 
-  await prisma.chatContext.delete({ where: { id: input.contextId } });
+  await prisma.chatContext.update({
+    where: { id: input.contextId },
+    data: { deletedAt: new Date() },
+  });
 }
 
 export async function listChatItems(input: { userId: string; contextId: string }) {

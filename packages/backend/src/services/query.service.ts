@@ -40,9 +40,14 @@ import {
   buildModificationPrompt,
   wrapInTemplate,
   stripTemplateBoilerplate,
-  MAX_FIX_ITERATIONS,
-  AUTO_APPROVE_THRESHOLD,
 } from "./workbench-codegen.service.js";
+import {
+  getMaxFixIterations,
+  getAutoApproveThreshold,
+  getLooksCorrectThreshold,
+  getConversationHistoryMaxPairs,
+  getFewShotExampleLimit,
+} from "./generation-settings.service.js";
 import {
   getModelForPurpose,
   createProviderModel as createProviderModelFromConfig,
@@ -360,7 +365,7 @@ export function capConversationEntries(
 
 async function ensureOwnedContext(userId: string, contextId: string): Promise<ChatContextRow> {
   const context = await prisma.chatContext.findFirst({
-    where: { id: contextId, ownerId: userId },
+    where: { id: contextId, ownerId: userId, deletedAt: null },
     select: { id: true, name: true },
   });
 
@@ -1166,6 +1171,15 @@ export async function executeQueryPipeline(input: {
 
     const conversationPrompt = `${prompt}${formatAttachmentContext(attachments)}`;
 
+    // Fetch dynamic generation settings for the chat pipeline
+    const [chatMaxFix, chatAutoApprove, chatLooksCorrect, chatMaxPairs, chatFewShotLimit] = await Promise.all([
+      getMaxFixIterations("chat"),
+      getAutoApproveThreshold("chat"),
+      getLooksCorrectThreshold("chat"),
+      getConversationHistoryMaxPairs(),
+      getFewShotExampleLimit("chat"),
+    ]);
+
     // Fetch conversation history for iterative refinement (Req 10)
     // Exclude the current user+assistant items we just created by fetching before they exist in context
     // The items we just created are already in the DB, so we exclude them by fetching items
@@ -1173,7 +1187,7 @@ export async function executeQueryPipeline(input: {
     const conversationHistory = await buildConversationContext(
       input.contextId,
       input.userId,
-      5,
+      chatMaxPairs,
       [input.userItemId, assistantItemId],
     );
 
@@ -1294,7 +1308,7 @@ export async function executeQueryPipeline(input: {
 
     let epFewShots: Array<{ prompt: string; code: string }> = [];
     try {
-      const fewShotResult = await findSimilarExamples(prompt, 6);
+      const fewShotResult = await findSimilarExamples(prompt, chatFewShotLimit);
       epFewShots = fewShotResult.matches.map(({ prompt: p, code }) => ({ prompt: p, code }));
       queryLogger.info({ fewShotCount: epFewShots.length, embeddingTokens: fewShotResult.embeddingTokens }, "loaded few-shot examples");
       // Track embedding cost and persist immediately
@@ -1331,11 +1345,11 @@ export async function executeQueryPipeline(input: {
     let epEvalState: EpEvalState | null = null;
     let epBest: { code: string; score: number | null; evalState: EpEvalState | null; renderedFiles: Array<{ filename: string; contentBase64: string }>; screenshots: RenderedScreenshot[]; iteration: number } | null = null;
 
-    for (let iteration = 1; iteration <= MAX_FIX_ITERATIONS; iteration++) {
+    for (let iteration = 1; iteration <= chatMaxFix; iteration++) {
       checkAborted();
       const isFirst = iteration === 1;
-      await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: isFirst ? "codegen" : "fixing", detail: isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${MAX_FIX_ITERATIONS})...` });
-      await persistPhase(isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${MAX_FIX_ITERATIONS})...`);
+      await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: isFirst ? "codegen" : "fixing", detail: isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${chatMaxFix})...` });
+      await persistPhase(isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${chatMaxFix})...`);
 
       const { system: cgSystem, userContent: cgUserContent } = isFirst
         ? (epIsModification
@@ -1355,7 +1369,7 @@ export async function executeQueryPipeline(input: {
         queryLogger.info({ iteration, imageCount: pipelineImages.length }, "codegen using multimodal call with images");
       }
 
-      queryLogger.info({ iteration, maxIterations: MAX_FIX_ITERATIONS, isFirst, promptLength: cgUserContent.length, systemLength: cgSystem.length, hasCacheableSystem: typeof cgCacheableSystem !== "string" }, "codegen iteration starting");
+      queryLogger.info({ iteration, maxIterations: chatMaxFix, isFirst, promptLength: cgUserContent.length, systemLength: cgSystem.length, hasCacheableSystem: typeof cgCacheableSystem !== "string" }, "codegen iteration starting");
       const epUseFallbackStream = epCodegenConfig.provider === "bedrock" && epCodegenConfig.supportsThinking && epCodegenConfig.thinkingEffort;
       const epLlmSemaphore = getLlmSemaphore(epCodegenConfig.provider, epCodegenConfig.maxConcurrent);
       const cgResult = await epLlmSemaphore.run(
@@ -1384,7 +1398,7 @@ export async function executeQueryPipeline(input: {
                     lastUpdateLen = reasoningChars;
                     const detail = isFirst
                       ? `Thinking... (${reasoningChars} chars)`
-                      : `Thinking (attempt ${iteration}/${MAX_FIX_ITERATIONS})... (${reasoningChars} chars)`;
+                      : `Thinking (attempt ${iteration}/${chatMaxFix})... (${reasoningChars} chars)`;
                     void publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: stateLabel, detail });
                     queryLogger.debug({ iteration, reasoningChars }, "codegen thinking progress");
                     // Periodically persist to DB so the item stays fresh for resume detection
@@ -1404,7 +1418,7 @@ export async function executeQueryPipeline(input: {
                     lastUpdateLen = text.length;
                     const detail = isFirst
                       ? `Generating code... (${text.length} chars)`
-                      : `Writing code (attempt ${iteration}/${MAX_FIX_ITERATIONS})... (${text.length} chars)`;
+                      : `Writing code (attempt ${iteration}/${chatMaxFix})... (${text.length} chars)`;
                     void publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: stateLabel, detail });
                     queryLogger.debug({ iteration, chars: text.length }, "codegen text progress");
                     // Periodically persist to DB so the item stays fresh for resume detection
@@ -1533,7 +1547,7 @@ export async function executeQueryPipeline(input: {
         const escalation = buildEscalatedGuidance(classified, epErrorHistory.slice(0, -1));
         epRenderErrorCtx = { classified, escalationGuidance: escalation };
         queryLogger.warn({ iteration, renderError: epRenderError, category: classified.category }, "render failed");
-        if (iteration >= MAX_FIX_ITERATIONS) break;
+        if (iteration >= chatMaxFix) break;
         continue;
       }
 
@@ -1563,10 +1577,10 @@ export async function executeQueryPipeline(input: {
 
       checkAborted();
       if (epScreenshots.length > 0) {
-        await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "evaluating", detail: `Evaluating quality (attempt ${iteration}/${MAX_FIX_ITERATIONS})...` });
-        await persistPhase(`Evaluating quality (attempt ${iteration}/${MAX_FIX_ITERATIONS})...`);
+        await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "evaluating", detail: `Evaluating quality (attempt ${iteration}/${chatMaxFix})...` });
+        await persistPhase(`Evaluating quality (attempt ${iteration}/${chatMaxFix})...`);
         try {
-          const evr = await evaluateModel({ userPrompt: prompt, categoryName: "chat", complexity: 5, images: epScreenshots.filter((s) => s.angle !== "isometric").map((s) => ({ angle: s.angle, base64: s.base64 })) });
+          const evr = await evaluateModel({ userPrompt: prompt, categoryName: "chat", complexity: 5, images: epScreenshots.filter((s) => s.angle !== "isometric").map((s) => ({ angle: s.angle, base64: s.base64 })), looksCorrectThreshold: chatLooksCorrect });
           const vlmCost = calculateCostUsd(await getModelForPurpose("vlm_eval"), evr.promptTokens, evr.completionTokens);
           epTotalPromptTokens += evr.promptTokens;
           epTotalCompletionTokens += evr.completionTokens;
@@ -1590,8 +1604,8 @@ export async function executeQueryPipeline(input: {
         break;
       }
 
-      const epApproved = epScore !== null && epScore >= AUTO_APPROVE_THRESHOLD;
-      if ((epApproved && (epEvalState?.issues ?? []).length === 0) || iteration >= MAX_FIX_ITERATIONS) break;
+      const epApproved = epScore !== null && epScore >= chatAutoApprove;
+      if ((epApproved && (epEvalState?.issues ?? []).length === 0) || iteration >= chatMaxFix) break;
     }
 
     // Persist only the best iteration's files to disk.

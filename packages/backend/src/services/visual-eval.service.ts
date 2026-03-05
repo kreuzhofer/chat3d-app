@@ -212,6 +212,8 @@ export interface EvaluateModelInput {
   complexity: number;
   /** Labeled base64-encoded PNG images from different angles */
   images: LabeledImage[];
+  /** Optional override for the looks-correct score threshold (default 7) */
+  looksCorrectThreshold?: number;
 }
 
 export async function evaluateModel(input: EvaluateModelInput): Promise<EvaluationResult> {
@@ -298,7 +300,7 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
 
         return {
           ...parsed,
-          looksCorrect: parsed.score >= 7,
+          looksCorrect: parsed.score >= (input.looksCorrectThreshold ?? 7),
           vlmModel: vlmModelLabel,
           promptTokens: result.usage?.inputTokens ?? 0,
           completionTokens: result.usage?.outputTokens ?? 0,

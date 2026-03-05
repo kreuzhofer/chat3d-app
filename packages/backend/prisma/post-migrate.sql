@@ -26,6 +26,10 @@ ALTER TABLE workbench_examples ADD CONSTRAINT workbench_examples_approval_status
 ALTER TABLE workbench_examples DROP CONSTRAINT IF EXISTS workbench_examples_eval_score_check;
 ALTER TABLE workbench_examples ADD CONSTRAINT workbench_examples_eval_score_check CHECK (eval_score BETWEEN 1 AND 10);
 
+ALTER TABLE curation_candidates DROP CONSTRAINT IF EXISTS curation_candidates_status_check;
+ALTER TABLE curation_candidates ADD CONSTRAINT curation_candidates_status_check
+  CHECK (status IN ('pending', 'reviewing', 'approved', 'rejected', 'dismissed'));
+
 -- HNSW vector index for cosine similarity search on prompt embeddings
 CREATE INDEX IF NOT EXISTS idx_wb_prompts_embedding
   ON workbench_example_prompts USING hnsw (embedding vector_cosine_ops);

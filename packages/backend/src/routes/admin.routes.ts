@@ -18,6 +18,18 @@ import {
   WaitlistError,
 } from "../services/waitlist.service.js";
 import {
+  listGenerationSettings,
+  updateGenerationSetting,
+  deleteGenerationSetting,
+  GenerationSettingsError,
+} from "../services/generation-settings.service.js";
+import {
+  listCurationCandidates,
+  getCandidateDetail,
+  updateCandidateStatus,
+  CurationError,
+} from "../services/curation.service.js";
+import {
   listAllModels,
   createModel,
   updateModel,
@@ -95,7 +107,12 @@ function validateSettingsPatchBody(body: unknown) {
 }
 
 function sendKnownError(res: Response, error: unknown, fallbackMessage: string) {
-  if (error instanceof AdminError || error instanceof WaitlistError) {
+  if (
+    error instanceof AdminError ||
+    error instanceof WaitlistError ||
+    error instanceof GenerationSettingsError ||
+    error instanceof CurationError
+  ) {
     res.status(error.statusCode).json({ error: error.message });
     return;
   }
@@ -528,5 +545,104 @@ adminRouter.delete("/llm-providers/:name", async (req, res) => {
     res.status(204).send();
   } catch (error) {
     sendKnownError(res, error, "Failed to delete LLM provider");
+  }
+});
+
+// ── Generation Settings ──────────────────────────────────────────────
+
+adminRouter.get("/generation-settings", async (_req, res) => {
+  try {
+    const settings = await listGenerationSettings();
+    res.status(200).json({ settings });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to list generation settings");
+  }
+});
+
+adminRouter.patch("/generation-settings/:key", async (req, res) => {
+  const key = readPathParam(req.params.key);
+  if (!key) {
+    res.status(400).json({ error: "Invalid setting key" });
+    return;
+  }
+
+  const body = req.body as Record<string, unknown> | undefined;
+  if (!body || typeof body.value !== "number" || !Number.isFinite(body.value)) {
+    res.status(400).json({ error: "value must be a finite number" });
+    return;
+  }
+
+  try {
+    const setting = await updateGenerationSetting(key, body.value);
+    res.status(200).json(setting);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to update generation setting");
+  }
+});
+
+adminRouter.delete("/generation-settings/:key", async (req, res) => {
+  const key = readPathParam(req.params.key);
+  if (!key) {
+    res.status(400).json({ error: "Invalid setting key" });
+    return;
+  }
+
+  try {
+    const setting = await deleteGenerationSetting(key);
+    res.status(200).json(setting);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to revert generation setting");
+  }
+});
+
+// ── Curation ─────────────────────────────────────────────────────────
+
+adminRouter.get("/curation/candidates", async (req, res) => {
+  try {
+    const status = typeof req.query.status === "string" ? req.query.status : undefined;
+    const limit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : undefined;
+    const offset = typeof req.query.offset === "string" ? parseInt(req.query.offset, 10) : undefined;
+
+    const result = await listCurationCandidates({ status, limit, offset });
+    res.status(200).json(result);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to list curation candidates");
+  }
+});
+
+adminRouter.get("/curation/candidates/:id", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Invalid candidate id" });
+    return;
+  }
+
+  try {
+    const detail = await getCandidateDetail(id);
+    res.status(200).json(detail);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to get curation candidate");
+  }
+});
+
+adminRouter.patch("/curation/candidates/:id", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Invalid candidate id" });
+    return;
+  }
+
+  const body = req.body as Record<string, unknown> | undefined;
+  if (!body || typeof body.status !== "string") {
+    res.status(400).json({ error: "status is required" });
+    return;
+  }
+
+  try {
+    const notes = typeof body.notes === "string" ? body.notes : undefined;
+    const updated = await updateCandidateStatus(id, body.status, notes);
+    res.status(200).json(updated);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to update curation candidate");
   }
 });

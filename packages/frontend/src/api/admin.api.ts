@@ -286,6 +286,120 @@ export async function listLlmPurposes(token: string): Promise<LlmPurposeRow[]> {
   return Array.isArray(response.purposes) ? response.purposes : [];
 }
 
+// ── Generation Settings ────────────────────────────────────────────
+
+export interface GenerationSettingDescriptor {
+  key: string;
+  label: string;
+  description: string;
+  pipeline: string;
+  defaultValue: number;
+  effectiveValue: number;
+  isOverridden: boolean;
+  min: number;
+  max: number;
+  updatedAt: string | null;
+}
+
+export async function listGenerationSettings(token: string): Promise<GenerationSettingDescriptor[]> {
+  const response = await requestAdminJson<{ settings: GenerationSettingDescriptor[] }>(token, "/generation-settings", { method: "GET" });
+  return Array.isArray(response.settings) ? response.settings : [];
+}
+
+export async function updateGenerationSetting(token: string, key: string, value: number): Promise<GenerationSettingDescriptor> {
+  return requestAdminJson<GenerationSettingDescriptor>(token, `/generation-settings/${encodeURIComponent(key)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ value }),
+  });
+}
+
+export async function revertGenerationSetting(token: string, key: string): Promise<GenerationSettingDescriptor> {
+  return requestAdminJson<GenerationSettingDescriptor>(token, `/generation-settings/${encodeURIComponent(key)}`, {
+    method: "DELETE",
+  });
+}
+
+// ── Curation ────────────────────────────────────────────────────────
+
+export type CurationStatus = "pending" | "reviewing" | "approved" | "rejected" | "dismissed";
+
+export interface CurationCandidateRow {
+  id: string;
+  status: CurationStatus;
+  notes: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  totalLikes: number;
+  totalDownloads: number;
+  lastAssistantItem: {
+    id: string;
+    messages: unknown[];
+    createdAt: string;
+  } | null;
+  chatContext: {
+    id: string;
+    name: string;
+    deletedAt: string | null;
+  };
+}
+
+export interface CurationCandidateDetail {
+  id: string;
+  status: CurationStatus;
+  notes: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  totalLikes: number;
+  totalDownloads: number;
+  chatContext: {
+    id: string;
+    name: string;
+    deletedAt: string | null;
+  };
+  conversationItems: Array<{
+    id: string;
+    role: string;
+    messages: unknown[];
+    rating: number;
+    downloadCount: number;
+    createdAt: string;
+  }>;
+}
+
+export async function listCurationCandidates(
+  token: string,
+  opts?: { status?: string; limit?: number; offset?: number },
+): Promise<{ candidates: CurationCandidateRow[]; total: number }> {
+  const query = new URLSearchParams();
+  if (opts?.status && opts.status !== "all") query.set("status", opts.status);
+  if (opts?.limit) query.set("limit", String(opts.limit));
+  if (opts?.offset) query.set("offset", String(opts.offset));
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return requestAdminJson(token, `/curation/candidates${suffix}`, { method: "GET" });
+}
+
+export async function getCurationCandidateDetail(
+  token: string,
+  candidateId: string,
+): Promise<CurationCandidateDetail> {
+  return requestAdminJson(token, `/curation/candidates/${encodeURIComponent(candidateId)}`, {
+    method: "GET",
+  });
+}
+
+export async function updateCurationCandidate(
+  token: string,
+  candidateId: string,
+  patch: { status: CurationStatus; notes?: string },
+): Promise<{ id: string; status: CurationStatus }> {
+  return requestAdminJson(token, `/curation/candidates/${encodeURIComponent(candidateId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
 export async function updateLlmPurpose(
   token: string,
   purpose: string,

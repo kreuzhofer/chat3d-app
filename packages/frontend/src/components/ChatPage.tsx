@@ -816,6 +816,7 @@ export function ChatPage() {
       const downloaded = await downloadFileBinary({
         token,
         path: filePath,
+        trackDownload: true,
       });
       const url = URL.createObjectURL(downloaded.blob);
       const anchor = document.createElement("a");

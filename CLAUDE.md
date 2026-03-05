@@ -108,6 +108,12 @@ On first launch with an empty database, the app shows an interactive setup page 
 - `DELETE /api/admin/llm-models/:id` — Delete LLM model (admin)
 - `GET /api/admin/llm-purposes` — List LLM purpose assignments (admin)
 - `PATCH /api/admin/llm-purposes/:purpose` — Update purpose assignment (admin)
+- `GET /api/admin/generation-settings` — List generation pipeline settings (admin)
+- `PATCH /api/admin/generation-settings/:key` — Update generation setting override (admin)
+- `DELETE /api/admin/generation-settings/:key` — Revert generation setting to default (admin)
+- `GET /api/admin/curation/candidates` — List curation candidates (admin, optional status/limit/offset query params)
+- `GET /api/admin/curation/candidates/:id` — Get curation candidate detail with conversation (admin)
+- `PATCH /api/admin/curation/candidates/:id` — Update curation candidate status + notes (admin)
 
 ## Key Patterns
 
@@ -120,11 +126,13 @@ On first launch with an empty database, the app shows an interactive setup page 
 
 PostgreSQL tables:
 - `users` — id (UUID), email, password_hash, display_name, role, timestamps
-- `chat_contexts` — id (UUID), name, model IDs, owner_id (FK→users), timestamps
-- `chat_items` — id (UUID), chat_context_id (FK→chat_contexts), role, messages (JSONB), rating, owner_id, timestamps
+- `chat_contexts` — id (UUID), name, model IDs, owner_id (FK→users), deleted_at, timestamps
+- `chat_items` — id (UUID), chat_context_id (FK→chat_contexts), role, messages (JSONB), rating, download_count, owner_id, timestamps
+- `curation_candidates` — id (UUID), chat_context_id (FK→chat_contexts, unique), status, reviewed_at, notes, timestamps
 - `llm_providers` — name (PK, VARCHAR), display_name, api_key, endpoint_url, is_active, timestamps
 - `llm_models` — id (UUID), provider (FK→llm_providers.name), model_name, display_name, costs, capabilities, token limits, timestamps
 - `llm_purpose_map` — purpose (PK), model_id (FK→llm_models.id), override settings
+- `generation_settings_overrides` — key (PK, VARCHAR), value (DECIMAL), updated_at — admin overrides for generation pipeline settings
 
 ## File Storage Layout
 

@@ -94,8 +94,11 @@ function basename(path: string): string {
 export async function downloadFileBinary(input: {
   token: string;
   path: string;
+  /** When true, signals a user-initiated download (tracked for curation). Default false. */
+  trackDownload?: boolean;
 }): Promise<DownloadedBinaryFile> {
   const query = new URLSearchParams({ path: input.path });
+  if (input.trackDownload) query.set("dl", "1");
   const response = await requestFiles(input.token, `/download?${query.toString()}`, {
     method: "GET",
   });

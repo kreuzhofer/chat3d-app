@@ -7,6 +7,7 @@ import {
   writeStorageFile,
 } from "../services/file-storage.service.js";
 import { getOwnedContext } from "../services/chat.service.js";
+import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 
 const logger = createLogger("files");
@@ -147,7 +148,10 @@ filesRouter.get("/download", async (req, res) => {
 
   try {
     if (domainInfo.domain === "chat") {
-      await getOwnedContext(authUser.id, domainInfo.scope);
+      // Admins can access any chat file (for curation review); regular users need ownership
+      if (authUser.role !== "admin") {
+        await getOwnedContext(authUser.id, domainInfo.scope);
+      }
     } else if (domainInfo.domain === "tmp") {
       if (domainInfo.scope !== authUser.id) {
         res.status(403).json({ error: "Forbidden" });
@@ -171,10 +175,26 @@ filesRouter.get("/download", async (req, res) => {
 
     if (contentType.startsWith("text/") || contentType.startsWith("application/json")) {
       res.status(200).send(content.toString("utf8"));
-      return;
+    } else {
+      res.status(200).send(content);
     }
 
-    res.status(200).send(content);
+    // Best-effort: increment download_count for explicit user-initiated downloads only.
+    // Viewer loads (ModelViewer/InlineModelViewer) do NOT pass dl=1.
+    const isExplicitDownload = req.query.dl === "1";
+    if (isExplicitDownload && domainInfo.domain === "chat") {
+      const fileName = basename(relativePath);
+      if (/\.(3mf|stl|step|b123d)$/i.test(fileName)) {
+        const segments = relativePath.replace(/\\/g, "/").split("/");
+        // Pattern: chat/{contextId}/{itemId}.ext
+        if (segments.length >= 3 && segments[2]) {
+          const itemId = segments[2].replace(/\.[^.]+$/, "");
+          prisma.chatItem
+            .update({ where: { id: itemId }, data: { downloadCount: { increment: 1 } } })
+            .catch((err) => logger.debug({ err, itemId }, "failed to increment download count"));
+        }
+      }
+    }
   } catch (error) {
     sendKnownError(res, error, "Failed to download file");
   }

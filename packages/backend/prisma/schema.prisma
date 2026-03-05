@@ -114,18 +114,20 @@ model User {
 }
 
 model ChatContext {
-  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name                  String   @default("unnamed chat") @db.VarChar(255)
-  conversationModelId   String?  @map("conversation_model_id") @db.VarChar(255)
-  chat3dModelId         String?  @map("chat_3d_model_id") @db.VarChar(255)
-  ownerId               String   @map("owner_id") @db.Uuid
-  totalCostUsd          Decimal  @default(0) @map("total_cost_usd") @db.Decimal(12, 8)
-  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz()
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String    @default("unnamed chat") @db.VarChar(255)
+  conversationModelId   String?   @map("conversation_model_id") @db.VarChar(255)
+  chat3dModelId         String?   @map("chat_3d_model_id") @db.VarChar(255)
+  ownerId               String    @map("owner_id") @db.Uuid
+  totalCostUsd          Decimal   @default(0) @map("total_cost_usd") @db.Decimal(12, 8)
+  deletedAt             DateTime? @map("deleted_at") @db.Timestamptz()
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt             DateTime  @default(now()) @map("updated_at") @db.Timestamptz()
 
   // Relations
-  owner User       @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "chat_contexts_owner_fk")
-  items ChatItem[]
+  owner              User                @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "chat_contexts_owner_fk")
+  items              ChatItem[]
+  curationCandidate  CurationCandidate?
 
   @@index([ownerId], map: "idx_chat_contexts_owner")
   @@map("chat_contexts")
@@ -137,6 +139,7 @@ model ChatItem {
   role             String   @db.VarChar(20)
   messages         Json     @default("[]") @db.JsonB
   rating           Int      @default(0)
+  downloadCount    Int      @default(0) @map("download_count")
   ownerId          String   @map("owner_id") @db.Uuid
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz()
@@ -151,6 +154,22 @@ model ChatItem {
   @@index([chatContextId], map: "idx_chat_items_context")
   @@index([ownerId], map: "idx_chat_items_owner")
   @@map("chat_items")
+}
+
+model CurationCandidate {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chatContextId String    @unique @map("chat_context_id") @db.Uuid
+  status        String    @default("pending") @db.VarChar(20)
+  reviewedAt    DateTime? @map("reviewed_at") @db.Timestamptz()
+  notes         String?   @db.Text
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  chatContext ChatContext @relation(fields: [chatContextId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([status], map: "idx_curation_candidates_status")
+  @@map("curation_candidates")
 }
 
 model AppSettings {
@@ -461,6 +480,14 @@ model LlmModel {
   @@map("llm_models")
 }
 
+model GenerationSettingsOverride {
+  key       String   @id @db.VarChar(80)
+  value     Decimal  @db.Decimal(10, 2)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("generation_settings_overrides")
+}
+
 model LlmPurposeMap {
   id                       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   purpose                  String   @unique @db.VarChar(50)
@@ -504,4 +531,5 @@ model LlmPurposeMap {
 //    - workbench_examples.render_status IN ('pending','rendering','success','error')
 //    - workbench_examples.approval_status IN ('pending','auto_approved','human_approved','rejected')
 //    - workbench_examples.eval_score BETWEEN 1 AND 10
+//    - curation_candidates.status IN ('pending','reviewing','approved','rejected','dismissed')
 // ═══════════════════════════════════════════════════════════════════════════════
