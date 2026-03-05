@@ -412,6 +412,7 @@ interface TopRatedRow {
   prompt_text: string;
   category_id: string;
   category_name: string;
+  complexity: number;
   eval_score: number | null;
   created_at: Date;
 }
@@ -429,6 +430,7 @@ export async function listTopRatedByCategory(
         c.name AS category_name,
         e.eval_score,
         e.created_at,
+        c.complexity,
         ROW_NUMBER() OVER (
           PARTITION BY c.id
           ORDER BY e.featured DESC, e.eval_score DESC NULLS LAST, e.created_at DESC
@@ -440,10 +442,10 @@ export async function listTopRatedByCategory(
         AND e.render_status = 'success'
         AND e.screenshot_iso IS NOT NULL
     )
-    SELECT id, prompt_text, category_id, category_name, eval_score, created_at
+    SELECT id, prompt_text, category_id, category_name, complexity, eval_score, created_at
     FROM ranked
     WHERE rn <= ${itemsPerCategory}
-    ORDER BY eval_score DESC NULLS LAST, created_at DESC
+    ORDER BY complexity DESC, eval_score DESC NULLS LAST, created_at DESC
     LIMIT ${totalLimit}
   `;
 
