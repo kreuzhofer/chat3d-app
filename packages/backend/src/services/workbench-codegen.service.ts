@@ -30,7 +30,12 @@ import {
   type RenderedScreenshot,
 } from "./stl-rendering-client.service.js";
 import { evaluateModel, type EvaluationResult } from "./visual-eval.service.js";
-import { CODEGEN_SYSTEM_PROMPT } from "../prompts/system-prompts.js";
+import { CODEGEN_SYSTEM_PROMPT, buildReducedSystemPrompt } from "../prompts/system-prompts.js";
+import {
+  shouldUseEditMode,
+  parseEditResponse,
+  applyEdits,
+} from "../utils/code-edits.js";
 import { WorkbenchSeederError } from "./workbench-seeder.service.js";
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
 import { validatePrompt } from "./workbench-prompt-validation.service.js";
@@ -38,6 +43,8 @@ import {
   classifyRenderError,
   buildEscalatedGuidance,
   renderWithInfraRetry,
+  consecutiveSameCategoryCount,
+  RenderErrorCategory,
   type ClassifiedRenderError,
   type RenderErrorContext,
 } from "../utils/render-errors.js";
@@ -180,10 +187,29 @@ export function buildFixPrompt(
   evalIssues: string[] | null,
   evalSuggestions: string[] | null,
   renderErrorContext?: RenderErrorContext | null,
+  options?: {
+    /** When true, few-shot examples are omitted (already seen on iteration 1). Default: true (include). */
+    includeFewShots?: boolean;
+    /** Cumulative error history from all prior iterations for context. */
+    errorHistory?: ClassifiedRenderError[];
+    /** When true, uses buildReducedSystemPrompt() instead of the passed-in systemPromptContent. */
+    useReducedSystemPrompt?: boolean;
+  },
 ): { system: string; userContent: string } {
+  const includeFewShots = options?.includeFewShots ?? true;
+  const errorHistory = options?.errorHistory ?? [];
+
+  // Optionally use a reduced system prompt for fix iterations
+  const effectiveSystem = options?.useReducedSystemPrompt
+    ? buildReducedSystemPrompt({
+        currentCode: failedCode,
+        errorCategory: renderErrorContext?.classified.category as RenderErrorCategory | undefined,
+        errorMessage: renderError ?? undefined,
+      })
+    : systemPromptContent;
   const sections: string[] = [];
 
-  if (fewShots.length > 0) {
+  if (includeFewShots && fewShots.length > 0) {
     sections.push("## Approved Examples for Reference", "");
     for (const example of fewShots) {
       sections.push(
@@ -196,13 +222,24 @@ export function buildFixPrompt(
     }
   }
 
+  // Cumulative error history: show the LLM what approaches already failed
+  if (errorHistory.length > 0) {
+    sections.push("## Previous attempts summary:");
+    for (let i = 0; i < errorHistory.length; i++) {
+      const e = errorHistory[i];
+      const snippet = e.rawMessage.length > 120 ? e.rawMessage.slice(0, 120) + "..." : e.rawMessage;
+      sections.push(`- Attempt ${i + 1}: [${e.category}] — ${snippet}`);
+    }
+    sections.push("");
+  }
+
   sections.push(
     `## Previous code (attempt ${iteration}):`,
     "```python",
     failedCode,
     "```",
     "",
-    "## Problems to fix:",
+    `## ${errorHistory.length > 0 ? `Current attempt (attempt ${iteration}) problems` : "Problems"} to fix:`,
   );
 
   // When classified error context is available, inject category + raw error + guidance
@@ -248,7 +285,133 @@ export function buildFixPrompt(
     userPrompt,
   );
 
-  return { system: systemPromptContent, userContent: sections.join("\n") };
+  return { system: effectiveSystem, userContent: sections.join("\n") };
+}
+
+/**
+ * Build a fix prompt that requests edit-format responses (search-and-replace blocks)
+ * instead of full code regeneration. Uses a reduced system prompt.
+ *
+ * The LLM is instructed to return `<<<SEARCH ... === ... >>>SEARCH` blocks for
+ * targeted fixes, or `<<<FULL_REWRITE` if a complete rewrite is needed.
+ */
+export function buildEditFixPrompt(
+  systemPromptContent: string,
+  userPrompt: string,
+  currentCode: string,
+  iteration: number,
+  renderError: string | null,
+  evalIssues: string[] | null,
+  evalSuggestions: string[] | null,
+  renderErrorContext?: RenderErrorContext | null,
+  options?: { errorHistory?: ClassifiedRenderError[]; useReducedSystemPrompt?: boolean },
+): { system: string; userContent: string } {
+  const errorHistory = options?.errorHistory ?? [];
+
+  // Use reduced system prompt for edit-based fixes (opt-in, default true).
+  // Callers may pass false when the provider needs a large prompt for caching
+  // (e.g. Opus 4.6 requires ≥ 4096 tokens).
+  const useReduced = options?.useReducedSystemPrompt ?? true;
+  const system = useReduced
+    ? buildReducedSystemPrompt({
+        currentCode,
+        errorCategory: renderErrorContext?.classified.category as RenderErrorCategory | undefined,
+        errorMessage: renderError ?? undefined,
+      })
+    : systemPromptContent;
+
+  const sections: string[] = [];
+
+  // 1. Current code (fenced block)
+  sections.push(
+    "## Current code:",
+    "```python",
+    currentCode,
+    "```",
+    "",
+  );
+
+  // 2. Error history summary (cumulative)
+  if (errorHistory.length > 0) {
+    sections.push("## Previous attempts summary:");
+    for (let i = 0; i < errorHistory.length; i++) {
+      const e = errorHistory[i];
+      const snippet = e.rawMessage.length > 120 ? e.rawMessage.slice(0, 120) + "..." : e.rawMessage;
+      sections.push(`- Attempt ${i + 1}: [${e.category}] — ${snippet}`);
+    }
+    sections.push("");
+  }
+
+  // 3. Current problems + fix guidance
+  sections.push(
+    `## Problems to fix (attempt ${iteration}):`,
+  );
+
+  if (renderErrorContext) {
+    const { classified, escalationGuidance } = renderErrorContext;
+    sections.push(`- Render error (${classified.category}): ${classified.rawMessage}`);
+    const guidance = escalationGuidance ?? classified.fixGuidance;
+    if (guidance) {
+      sections.push("", "## Fix guidance:", guidance);
+    }
+  } else if (renderError) {
+    sections.push(`- Render error: ${renderError}`);
+  }
+
+  if (evalIssues && evalIssues.length > 0) {
+    for (const issue of evalIssues) {
+      sections.push(`- ${issue}`);
+    }
+  }
+  sections.push("");
+
+  if (evalSuggestions && evalSuggestions.length > 0) {
+    sections.push("## Suggested corrections:");
+    for (const suggestion of evalSuggestions) {
+      sections.push(`- ${suggestion}`);
+    }
+    sections.push("");
+  }
+
+  // 4. Edit format instructions
+  sections.push(
+    "## Response Format — EDIT MODE",
+    "",
+    "Make TARGETED fixes using search-and-replace blocks. Do NOT rewrite the entire code.",
+    "Return one or more edit blocks in this exact format:",
+    "",
+    "<<<SEARCH",
+    "exact lines to find in the current code",
+    "===",
+    "replacement lines",
+    ">>>SEARCH",
+    "",
+    "Rules:",
+    "- Each SEARCH block must match EXACTLY one location in the current code",
+    "- Include enough context lines to make the match unique",
+    "- You can return multiple <<<SEARCH...>>>SEARCH blocks for multiple fixes",
+    "- Preserve indentation exactly",
+    "",
+    "If the code needs a COMPLETE rewrite (fundamental structural issue), use:",
+    "",
+    "<<<FULL_REWRITE",
+    "```python",
+    "{complete corrected code}",
+    "```",
+    ">>>FULL_REWRITE",
+    "",
+    "Only use FULL_REWRITE as a last resort when targeted edits cannot fix the issue.",
+    "",
+    "## Requirements",
+    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math`. You may also import `itertools`, `functools`, `copy`, or `numpy`.",
+    "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
+    "- PARAMETER CONVENTION: Define all dimensional values as named variables at the top of your code. Use descriptive snake_case names with inline comments.",
+    "",
+    `## Original request:`,
+    userPrompt,
+  );
+
+  return { system, userContent: sections.join("\n") };
 }
 
 /**
@@ -483,7 +646,7 @@ async function generateCode(
   modelConfig?: LlmModelConfig,
   pipelineSignal?: AbortSignal,
   system?: string,
-): Promise<{ code: string; promptTokens: number; completionTokens: number }> {
+): Promise<{ code: string; rawText: string; promptTokens: number; completionTokens: number }> {
   if (providerModel === null) {
     // Mock mode — raw modeling code only (no imports/exports)
     const code = `
@@ -493,7 +656,7 @@ with BuildPart() as part:
 
 root_part = part.part
     `.trim();
-    return { code, promptTokens: 0, completionTokens: 0 };
+    return { code, rawText: code, promptTokens: 0, completionTokens: 0 };
   }
 
   const extraOpts = modelConfig ? buildGenerateOptions(modelConfig) : {};
@@ -572,6 +735,7 @@ root_part = part.part
 
   return {
     code: cleanCode,
+    rawText: result.text,
     promptTokens: result.usage?.inputTokens ?? 0,
     completionTokens: result.usage?.outputTokens ?? 0,
   };
@@ -791,6 +955,10 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     completionTokens: number;
   } | null = null;
 
+  // Edit-mode tracking
+  let previousRenderSucceeded = false;
+  let preEditCode: string | null = null;
+
   for (let iteration = 1; iteration <= dynMaxFix; iteration++) {
     logger.info({ iteration, maxIterations: dynMaxFix }, "starting iteration");
 
@@ -800,21 +968,39 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${dynMaxFix})...`,
     );
 
+    // Determine whether to use edit mode for this fix iteration
+    const wbConsecutiveSame = renderErrorCtx
+      ? consecutiveSameCategoryCount(errorHistory, renderErrorCtx.classified.category)
+      : 0;
+    const useEditMode = !isFirst && shouldUseEditMode({
+      iteration,
+      previousRenderSucceeded,
+      errorCategory: renderErrorCtx?.classified.category ?? null,
+      consecutiveSameCategory: wbConsecutiveSame,
+    });
+    if (useEditMode) {
+      preEditCode = currentCode;
+      logger.info({ iteration, category: renderErrorCtx?.classified.category ?? "vlm_only" }, "using edit mode for fix iteration");
+    }
+
     // 2. Generate code
     const { system: cgSystem, userContent: cgUserContent } =
       iteration === 1
         ? buildInitialPrompt(CODEGEN_SYSTEM_PROMPT, fewShots, ctx.prompt)
-        : buildFixPrompt(
-            CODEGEN_SYSTEM_PROMPT,
-            fewShots,
-            ctx.prompt,
-            currentCode,
-            iteration - 1,
-            renderError,
-            evalResult?.issues ?? null,
-            evalResult?.suggestions ?? null,
-            renderErrorCtx,
-          );
+        : useEditMode
+          ? buildEditFixPrompt(CODEGEN_SYSTEM_PROMPT, ctx.prompt, currentCode, iteration - 1, renderError, evalResult?.issues ?? null, evalResult?.suggestions ?? null, renderErrorCtx, { errorHistory, useReducedSystemPrompt: false })
+          : buildFixPrompt(
+              CODEGEN_SYSTEM_PROMPT,
+              fewShots,
+              ctx.prompt,
+              currentCode,
+              iteration - 1,
+              renderError,
+              evalResult?.issues ?? null,
+              evalResult?.suggestions ?? null,
+              renderErrorCtx,
+              { useReducedSystemPrompt: false, errorHistory },
+            );
 
     logger.info({ promptChars: cgUserContent.length, systemChars: cgSystem.length }, "LLM prompt built");
     if (iteration > 1) {
@@ -824,7 +1010,32 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       if (renderError) logger.info({ renderError, category: renderErrorCtx?.classified.category ?? "none" }, "fix feedback — render error");
     }
     const codeResult = await generateCode(cgUserContent, providerModel, codegenConfig, pipelineSignal, cgSystem);
-    currentCode = codeResult.code;
+
+    // Extract code: edit mode parses search-and-replace blocks from raw text
+    if (useEditMode) {
+      const editParsed = parseEditResponse(codeResult.rawText);
+      if (editParsed.isFullRewrite && editParsed.fullRewriteCode) {
+        currentCode = stripTemplateBoilerplate(editParsed.fullRewriteCode);
+        logger.info({ iteration }, "edit mode: LLM chose full rewrite");
+      } else if (editParsed.edits.length > 0) {
+        const editResult = applyEdits(currentCode, editParsed.edits);
+        if (editResult.appliedCount > 0) {
+          currentCode = stripTemplateBoilerplate(editResult.resultCode);
+          logger.info({ iteration, applied: editResult.appliedCount, failed: editResult.failedSearches.length }, "edit mode: edits applied");
+          if (editResult.failedSearches.length > 0) {
+            logger.warn({ iteration, failedSearches: editResult.failedSearches }, "edit mode: some edits failed to match");
+          }
+        } else {
+          logger.warn({ iteration }, "edit mode: no edits matched, falling back to full code extraction");
+          currentCode = codeResult.code;
+        }
+      } else {
+        logger.info({ iteration }, "edit mode: no edit blocks found, falling back to full code extraction");
+        currentCode = codeResult.code;
+      }
+    } else {
+      currentCode = codeResult.code;
+    }
     totalPromptTokens += codeResult.promptTokens;
     totalCompletionTokens += codeResult.completionTokens;
     logger.info({ codeChars: currentCode.length, promptTokens: codeResult.promptTokens, completionTokens: codeResult.completionTokens }, "LLM returned code");
@@ -857,6 +1068,8 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
 
     if (renderOutcome.ok) {
       renderedFiles = renderOutcome.result.files;
+      previousRenderSucceeded = true;
+      preEditCode = null;
       logger.info({ fileCount: renderedFiles.length, files: renderedFiles.map((f) => f.filename) }, "Build123d render success");
     } else {
       // Classify and track the render error
@@ -869,6 +1082,13 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         { promptId: ctx.promptId, iteration, renderError, category: classified.category },
         "render failed",
       );
+
+      // If edit mode was used and render failed, revert to pre-edit code
+      if (useEditMode && preEditCode) {
+        logger.info({ iteration }, "edit mode: reverting to pre-edit code after render failure");
+        currentCode = preEditCode;
+        preEditCode = null;
+      }
 
       // If this is the last iteration, persist the failure and return
       if (iteration >= dynMaxFix) {

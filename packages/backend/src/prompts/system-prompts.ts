@@ -4,6 +4,8 @@
  * Both prompts live in one place so they're easy to find and update.
  */
 
+import { RenderErrorCategory } from "../utils/render-errors.js";
+
 /**
  * System prompt for the conversation LLM stage.
  * Decides whether a user message needs codegen ([CODEGEN_NEEDED]) or is chat-only ([CHAT_ONLY]).
@@ -28,13 +30,15 @@ export const CONVERSATION_SYSTEM_PROMPT = [
   "Examples of [CODEGEN_NEEDED]: 'design a gear', 'make it taller', 'add a fillet', 'create an enclosure', any request that implies generating or modifying 3D geometry. Attaching an image of a part and asking to create/model it also counts as [CODEGEN_NEEDED].",
 ].join("\n");
 
-/**
- * System prompt for the Build123d code-generation LLM stage.
- * Provides the Build123d API reference and coding conventions.
- */
-export const CODEGEN_SYSTEM_PROMPT = `You are a Build123d code generation assistant. You produce standalone Python scripts that create 3D CAD models using the Build123d library.
+// ── Codegen system prompt — named sections ───────────────────────────────────
+//
+// The full Build123d system prompt is composed from these named sections.
+// This allows fix iterations to use a reduced prompt containing only
+// the sections relevant to the current code and error.
 
-## Output Contract
+export const CODEGEN_SECTION_INTRO = `You are a Build123d code generation assistant. You produce standalone Python scripts that create 3D CAD models using the Build123d library.`;
+
+export const CODEGEN_SECTION_OUTPUT_CONTRACT = `## Output Contract
 
 - Return exactly ONE fenced Python code block (\`\`\`python ... \`\`\`)
 - Generate ONLY the Build123d modeling code — the system wraps your code in a template that handles imports and exports automatically
@@ -56,9 +60,9 @@ exporter = Mesher()
 exporter.add_shape(root_part)
 exporter.write("model.3mf")
 exporter.write("model.stl")
-\`\`\`
+\`\`\``;
 
-## Build123d Reference
+export const CODEGEN_SECTION_BUILD_CONTEXTS = `## Build123d Reference
 
 ### Build Contexts
 
@@ -74,9 +78,9 @@ with BuildPart() as part:
     with BuildSketch() as sk:
         Rectangle(width, height)
     extrude(amount=depth)
-\`\`\`
+\`\`\``;
 
-### 3D Primitives
+export const CODEGEN_SECTION_3D_PRIMITIVES = `### 3D Primitives
 
 All primitives are centered at the origin by default.
 
@@ -85,9 +89,9 @@ All primitives are centered at the origin by default.
 - \`Sphere(radius)\` — sphere
 - \`Cone(bottom_radius, top_radius, height)\` — cone or truncated cone
 - \`Torus(major_radius, minor_radius)\` — torus (donut shape)
-- \`Wedge(xsize, ysize, zsize, xmin, zmin, xmax, zmax)\` — wedge shape
+- \`Wedge(xsize, ysize, zsize, xmin, zmin, xmax, zmax)\` — wedge shape`;
 
-### 2D Sketch Primitives
+export const CODEGEN_SECTION_2D_SKETCH = `### 2D Sketch Primitives
 
 Used inside \`BuildSketch()\`:
 
@@ -99,9 +103,9 @@ Used inside \`BuildSketch()\`:
 - \`SlotOverall(width, height)\` — slot (stadium shape)
 - \`SlotArc(arc, height)\` — arc slot
 - \`Ellipse(x_radius, y_radius)\` — ellipse
-- \`Trapezoid(width, height, left_side_angle, right_side_angle)\` — trapezoid
+- \`Trapezoid(width, height, left_side_angle, right_side_angle)\` — trapezoid`;
 
-### Sketch Operations
+export const CODEGEN_SECTION_SKETCH_OPS = `### Sketch Operations
 
 - \`fillet(vertices, radius)\` — fillet sketch vertices, e.g. \`fillet(sk.vertices(), 2)\`
 - \`chamfer(vertices, length)\` — chamfer sketch vertices
@@ -109,17 +113,17 @@ Used inside \`BuildSketch()\`:
 - \`mirror(about=Plane.YZ)\` — mirror sketch about a plane
 - \`split(bisect_by=Plane.XZ)\` — split sketch
 - \`make_face()\` — convert wire to face
-- \`make_hull()\` — create convex hull of sketch
+- \`make_hull()\` — create convex hull of sketch`;
 
-### 3D Operations
+export const CODEGEN_SECTION_3D_OPS = `### 3D Operations
 
 - \`extrude(amount=N)\` — extrude current sketch upward. Use \`amount=-N\` for downward. Use \`both=True\` to extrude both directions.
 - \`revolve(axis=Axis.X, revolution_arc=360)\` — revolve sketch around axis
 - \`sweep(path=wire)\` — sweep sketch along a path
 - \`loft()\` — loft between multiple sketches (add sketches at different heights first)
-- \`thicken(amount=N)\` — thicken a face into a solid
+- \`thicken(amount=N)\` — thicken a face into a solid`;
 
-### Boolean Operations
+export const CODEGEN_SECTION_BOOLEAN = `### Boolean Operations
 
 Boolean operations are controlled by the \`mode\` parameter on any shape:
 
@@ -134,9 +138,9 @@ Example:
 with BuildPart() as part:
     Box(50, 50, 10)
     Cylinder(5, 20, mode=Mode.SUBTRACT)  # cut a hole
-\`\`\`
+\`\`\``;
 
-### Positioning and Orientation
+export const CODEGEN_SECTION_POSITIONING = `### Positioning and Orientation
 
 - \`Pos(x, y, z)\` — translation. Use as a location context: \`with Locations(Pos(x, y, z)):\` or \`with BuildPart() as part: ... add(obj, Pos(x, y, z))\`
 - \`Rot(rx, ry, rz)\` — rotation in degrees around X, Y, Z axes
@@ -145,9 +149,9 @@ with BuildPart() as part:
 - \`Axis.X\`, \`Axis.Y\`, \`Axis.Z\` — standard axes
 - \`Vector(x, y, z)\` — 3D vector
 
-**IMPORTANT**: The \`@\` operator retrieves a position along an edge/wire (e.g. \`edge @ 0.5\` for the midpoint). Do NOT use it to place objects — use \`Locations()\` or \`add()\` instead.
+**IMPORTANT**: The \`@\` operator retrieves a position along an edge/wire (e.g. \`edge @ 0.5\` for the midpoint). Do NOT use it to place objects — use \`Locations()\` or \`add()\` instead.`;
 
-### Edge and Face Selection
+export const CODEGEN_SECTION_EDGE_FACE = `### Edge and Face Selection
 
 Selectors return \`ShapeList\` objects that support filtering, sorting, and grouping:
 
@@ -172,14 +176,14 @@ Selectors return \`ShapeList\` objects that support filtering, sorting, and grou
 - \`part.edges() >> Axis.Z\` — group by Z, return last group (\`group_by(Axis.Z)[-1]\`)
 - \`part.edges() << Axis.Z\` — group by Z, return first group
 
-**GeomType values**: BEZIER, BSPLINE, CIRCLE, CONE, CYLINDER, ELLIPSE, LINE, PLANE, SPHERE, TORUS, and others.
+**GeomType values**: BEZIER, BSPLINE, CIRCLE, CONE, CYLINDER, ELLIPSE, LINE, PLANE, SPHERE, TORUS, and others.`;
 
-### Fillets and Chamfers (3D)
+export const CODEGEN_SECTION_FILLETS = `### Fillets and Chamfers (3D)
 
 - \`fillet(edges, radius)\` — fillet 3D edges, e.g. \`fillet(part.edges(), 2)\`
-- \`chamfer(edges, length)\` — chamfer 3D edges
+- \`chamfer(edges, length)\` — chamfer 3D edges`;
 
-### Offset / Shell
+export const CODEGEN_SECTION_OFFSET_SHELL = `### Offset / Shell
 
 The \`offset()\` function handles both offsetting and shelling (hollowing out solids):
 
@@ -194,9 +198,9 @@ with BuildPart() as part:
     offset(amount=-2, openings=topf[-1:])
 \`\`\`
 
-**Note**: There is no \`Shell()\` class. Use \`offset()\` with the \`openings\` parameter instead.
+**Note**: There is no \`Shell()\` class. Use \`offset()\` with the \`openings\` parameter instead.`;
 
-### Arrays and Patterns
+export const CODEGEN_SECTION_ARRAYS = `### Arrays and Patterns
 
 - \`GridLocations(x_spacing, y_spacing, x_count, y_count)\` — rectangular grid
 - \`PolarLocations(radius, count)\` — circular pattern
@@ -210,14 +214,14 @@ with BuildPart() as part:
         with GridLocations(20, 20, 3, 3):
             Circle(3)
     extrude(amount=-10, mode=Mode.SUBTRACT)
-\`\`\`
+\`\`\``;
 
-### Export
+export const CODEGEN_SECTION_EXPORT = `### Export
 
 Exports are handled automatically by the template. Do NOT include any export code.
-Just assign your final solid to \`root_part\`.
+Just assign your final solid to \`root_part\`.`;
 
-## Common Mistakes to Avoid
+export const CODEGEN_SECTION_COMMON_MISTAKES = `## Common Mistakes to Avoid
 
 1. **Box has no \`centered\` parameter** — it is always centered at the origin by default.
 2. **\`@\` is NOT for positioning** — it retrieves position along an edge. Use \`Locations()\` or \`add()\` with position tuples.
@@ -228,9 +232,9 @@ Just assign your final solid to \`root_part\`.
 7. **Extrude direction matters** — positive goes along face normal, negative goes opposite.
 8. **Don't forget \`mode=Mode.SUBTRACT\`** when cutting holes or pockets.
 9. **Fillet radius must be smaller** than the shortest adjacent edge.
-10. **No imports or exports** — the template handles \`from build123d import *\` and all export calls.
+10. **No imports or exports** — the template handles \`from build123d import *\` and all export calls.`;
 
-## Complete Example
+export const CODEGEN_SECTION_EXAMPLE = `## Complete Example
 
 \`\`\`python
 # Create a simple box with rounded edges and a center hole
@@ -243,9 +247,9 @@ with BuildPart() as part:
     Cylinder(8, 15, mode=Mode.SUBTRACT)
 
 root_part = part.part
-\`\`\`
+\`\`\``;
 
----
+export const CODEGEN_SECTION_BUILDLINE = `---
 
 ## Advanced Techniques
 
@@ -283,9 +287,9 @@ with BuildPart() as part:
         make_face()  # REQUIRED — converts wire to face
     extrude(amount=20)
 root_part = part.part
-\`\`\`
+\`\`\``;
 
-### Sweep
+export const CODEGEN_SECTION_SWEEP = `### Sweep
 
 Sweep extrudes a 2D profile along a 3D path wire. The profile sketch must be positioned at the path's start point, perpendicular to the path direction.
 
@@ -312,9 +316,9 @@ with BuildPart() as part:
 root_part = part.part
 \`\`\`
 
-**Rules**: path must be a single continuous wire. Profile must be closed. Use \`wire % 0\` to get the tangent direction at the start of the wire.
+**Rules**: path must be a single continuous wire. Profile must be closed. Use \`wire % 0\` to get the tangent direction at the start of the wire.`;
 
-### Loft
+export const CODEGEN_SECTION_LOFT = `### Loft
 
 Loft creates a smooth solid between two or more sketches at different heights.
 
@@ -328,9 +332,9 @@ with BuildPart() as part:
 root_part = part.part
 \`\`\`
 
-**Rules**: sketches MUST be on different parallel planes. Add sketches in order from bottom to top. Use \`ruled=True\` for straight-sided transitions.
+**Rules**: sketches MUST be on different parallel planes. Add sketches in order from bottom to top. Use \`ruled=True\` for straight-sided transitions.`;
 
-### Sketching on Existing Faces
+export const CODEGEN_SECTION_SKETCH_ON_FACE = `### Sketching on Existing Faces
 
 Pass a face reference to BuildSketch to add features on that face:
 
@@ -345,9 +349,9 @@ with BuildPart() as part:
 root_part = part.part
 \`\`\`
 
-**The sketch inherits the face's local coordinate system.** On a top face, X/Y are the face's local axes. On side faces, local axes differ from global — test carefully.
+**The sketch inherits the face's local coordinate system.** On a top face, X/Y are the face's local axes. On side faces, local axes differ from global — test carefully.`;
 
-### Revolve for Axisymmetric Parts
+export const CODEGEN_SECTION_REVOLVE = `### Revolve for Axisymmetric Parts
 
 Revolve creates solids of revolution. Draw a half-profile in the XZ or XY plane and revolve around an axis.
 
@@ -362,9 +366,9 @@ with BuildPart() as part:
 root_part = part.part
 \`\`\`
 
-**Rule**: the revolve axis must NOT pass through the sketch interior — otherwise the solid self-intersects.
+**Rule**: the revolve axis must NOT pass through the sketch interior — otherwise the solid self-intersects.`;
 
-### Parametric Geometry with Math
+export const CODEGEN_SECTION_PARAMETRIC = `### Parametric Geometry with Math
 
 Use Python \`math\` for computed geometry (it is available alongside build123d):
 
@@ -384,9 +388,9 @@ with BuildPart() as part:
         make_face()
     extrude(amount=5)
 root_part = part.part
-\`\`\`
+\`\`\``;
 
-## Critical Rules for Reliable Geometry
+export const CODEGEN_SECTION_CRITICAL_RULES = `## Critical Rules for Reliable Geometry
 
 1. **Apply fillets and chamfers LAST** — after all boolean operations. Filleting early creates complex topologies that cause kernel failures during subsequent booleans.
 2. **Sweep path must be a single continuous wire** — segments built in BuildLine must connect end-to-end without gaps.
@@ -395,9 +399,9 @@ root_part = part.part
 5. **Fillet/chamfer radius constraints** — the radius must be less than half the shortest adjacent edge length.
 6. **Use \`mode=Mode.PRIVATE\`** when creating intermediate shapes that should NOT auto-add to the parent context.
 7. **Revolve axis must not intersect the sketch** — otherwise the resulting solid self-intersects.
-8. **For \`sort_by()\` use the method form** — \`part.faces().sort_by(Axis.Z)[-1]\` is equivalent to \`(part.faces() > Axis.Z)[-1]\`.
+8. **For \`sort_by()\` use the method form** — \`part.faces().sort_by(Axis.Z)[-1]\` is equivalent to \`(part.faces() > Axis.Z)[-1]\`.`;
 
-## More Examples
+export const CODEGEN_SECTION_MORE_EXAMPLES = `## More Examples
 
 ### Hollow Cylinder (Tube)
 \`\`\`python
@@ -455,3 +459,147 @@ with BuildPart() as part:
     offset(amount=-2, openings=top)
 root_part = part.part
 \`\`\``;
+
+// ── Composed codegen system prompt ───────────────────────────────────────────
+//
+// All sections in their original order. Joined with double newline to produce
+// the complete system prompt. This MUST be byte-identical to the pre-refactor
+// monolithic template literal.
+
+export const CODEGEN_ALL_SECTIONS = [
+  CODEGEN_SECTION_INTRO,
+  CODEGEN_SECTION_OUTPUT_CONTRACT,
+  CODEGEN_SECTION_BUILD_CONTEXTS,
+  CODEGEN_SECTION_3D_PRIMITIVES,
+  CODEGEN_SECTION_2D_SKETCH,
+  CODEGEN_SECTION_SKETCH_OPS,
+  CODEGEN_SECTION_3D_OPS,
+  CODEGEN_SECTION_BOOLEAN,
+  CODEGEN_SECTION_POSITIONING,
+  CODEGEN_SECTION_EDGE_FACE,
+  CODEGEN_SECTION_FILLETS,
+  CODEGEN_SECTION_OFFSET_SHELL,
+  CODEGEN_SECTION_ARRAYS,
+  CODEGEN_SECTION_EXPORT,
+  CODEGEN_SECTION_COMMON_MISTAKES,
+  CODEGEN_SECTION_EXAMPLE,
+  CODEGEN_SECTION_BUILDLINE,
+  CODEGEN_SECTION_SWEEP,
+  CODEGEN_SECTION_LOFT,
+  CODEGEN_SECTION_SKETCH_ON_FACE,
+  CODEGEN_SECTION_REVOLVE,
+  CODEGEN_SECTION_PARAMETRIC,
+  CODEGEN_SECTION_CRITICAL_RULES,
+  CODEGEN_SECTION_MORE_EXAMPLES,
+];
+
+/**
+ * System prompt for the Build123d code-generation LLM stage.
+ * Provides the Build123d API reference and coding conventions.
+ */
+export const CODEGEN_SYSTEM_PROMPT = CODEGEN_ALL_SECTIONS.join("\n\n");
+
+// ── Reduced system prompt for fix iterations ─────────────────────────────────
+//
+// Fix iterations don't need the full 457-line prompt. We include core sections
+// (always needed) plus conditional sections matched to the current code's
+// features. Examples are never included on fixes.
+
+/** Sections always included in both full and reduced prompts. */
+const CORE_SECTIONS = new Set([
+  CODEGEN_SECTION_INTRO,
+  CODEGEN_SECTION_OUTPUT_CONTRACT,
+  CODEGEN_SECTION_BUILD_CONTEXTS,
+  CODEGEN_SECTION_3D_PRIMITIVES,
+  CODEGEN_SECTION_BOOLEAN,
+  CODEGEN_SECTION_POSITIONING,
+  CODEGEN_SECTION_EXPORT,
+  CODEGEN_SECTION_COMMON_MISTAKES,
+  CODEGEN_SECTION_CRITICAL_RULES,
+]);
+
+/** Sections never included on fix iterations (save tokens). */
+const NEVER_IN_FIX = new Set([
+  CODEGEN_SECTION_EXAMPLE,
+  CODEGEN_SECTION_MORE_EXAMPLES,
+]);
+
+/** Maps a feature key → section + detection regex. */
+interface ConditionalSection {
+  key: string;
+  section: string;
+  pattern: RegExp;
+}
+
+const CONDITIONAL_SECTIONS: ConditionalSection[] = [
+  { key: "2d_sketch", section: CODEGEN_SECTION_2D_SKETCH, pattern: /BuildSketch|Circle\s*\(|Rectangle\s*\(|Polygon\s*\(/ },
+  { key: "sketch_ops", section: CODEGEN_SECTION_SKETCH_OPS, pattern: /fillet\(sk|make_face|make_hull/ },
+  { key: "3d_ops", section: CODEGEN_SECTION_3D_OPS, pattern: /extrude|revolve|sweep|loft|thicken/ },
+  { key: "edge_face", section: CODEGEN_SECTION_EDGE_FACE, pattern: /\.edges\(\)|\.faces\(\)|sort_by|filter_by/ },
+  { key: "fillets", section: CODEGEN_SECTION_FILLETS, pattern: /fillet\(part|chamfer\(part/ },
+  { key: "offset_shell", section: CODEGEN_SECTION_OFFSET_SHELL, pattern: /offset\(.*openings/ },
+  { key: "arrays", section: CODEGEN_SECTION_ARRAYS, pattern: /GridLocations|PolarLocations/ },
+  { key: "buildline", section: CODEGEN_SECTION_BUILDLINE, pattern: /BuildLine|Polyline|Spline|ThreePointArc/ },
+  { key: "sweep", section: CODEGEN_SECTION_SWEEP, pattern: /sweep\(|Helix/ },
+  { key: "loft", section: CODEGEN_SECTION_LOFT, pattern: /loft\(\)/ },
+  { key: "sketch_on_face", section: CODEGEN_SECTION_SKETCH_ON_FACE, pattern: /BuildSketch\([^)]+\)/ },
+  { key: "revolve", section: CODEGEN_SECTION_REVOLVE, pattern: /revolve\(/ },
+  { key: "parametric", section: CODEGEN_SECTION_PARAMETRIC, pattern: /import math|math\./ },
+];
+
+/**
+ * Detect which Build123d features are used in the given code.
+ * Returns a set of feature keys that match.
+ */
+export function detectCodeFeatures(code: string): Set<string> {
+  const features = new Set<string>();
+  for (const cs of CONDITIONAL_SECTIONS) {
+    if (cs.pattern.test(code)) {
+      features.add(cs.key);
+    }
+  }
+  return features;
+}
+
+/**
+ * Build a reduced system prompt for fix iterations.
+ *
+ * Includes only core sections + sections relevant to the current code's
+ * features. Examples are never included. For KERNEL_ERROR and API_MISUSE
+ * error categories, all conditional sections are included since the LLM
+ * may need to restructure the code significantly.
+ *
+ * Saves 40-70% of system prompt tokens compared to the full prompt.
+ */
+export function buildReducedSystemPrompt(options: {
+  currentCode: string;
+  errorCategory?: RenderErrorCategory;
+  errorMessage?: string;
+}): string {
+  const { currentCode, errorCategory } = options;
+
+  // Determine which conditional sections to include
+  const includeAll =
+    errorCategory === RenderErrorCategory.KERNEL_ERROR ||
+    errorCategory === RenderErrorCategory.API_MISUSE;
+
+  const included = new Set(CORE_SECTIONS);
+
+  if (includeAll) {
+    for (const cs of CONDITIONAL_SECTIONS) {
+      included.add(cs.section);
+    }
+  } else {
+    const features = detectCodeFeatures(currentCode);
+    for (const cs of CONDITIONAL_SECTIONS) {
+      if (features.has(cs.key)) {
+        included.add(cs.section);
+      }
+    }
+  }
+
+  // Filter all sections in original order, excluding fix-only exclusions
+  return CODEGEN_ALL_SECTIONS
+    .filter(s => included.has(s) && !NEVER_IN_FIX.has(s))
+    .join("\n\n");
+}

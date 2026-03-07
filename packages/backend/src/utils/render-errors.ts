@@ -22,6 +22,8 @@ export enum RenderErrorCategory {
   TYPE_ERROR = "type_error",
   /** BRep_API / OCC kernel errors — degenerate geometry, topology failures */
   KERNEL_ERROR = "kernel_error",
+  /** Pre-render validation failures — syntax errors, missing root_part */
+  SYNTAX = "syntax",
   /** Unrecognized errors — raw message passed through */
   UNKNOWN = "unknown",
 }

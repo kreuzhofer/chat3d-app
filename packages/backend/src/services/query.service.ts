@@ -18,11 +18,13 @@ import {
   LlmServiceError,
   type LlmUsageMetadata,
 } from "./llm.service.js";
-import { renderBuild123d, RenderingServiceError } from "./rendering.service.js";
+import { renderBuild123d, RenderingServiceError, validateBuild123dCode } from "./rendering.service.js";
 import {
   classifyRenderError,
   buildEscalatedGuidance,
   renderWithInfraRetry,
+  consecutiveSameCategoryCount,
+  RenderErrorCategory,
   type ClassifiedRenderError,
   type RenderErrorContext,
 } from "../utils/render-errors.js";
@@ -37,16 +39,24 @@ import { findSimilarExamples } from "./workbench-embeddings.service.js";
 import {
   buildInitialPrompt,
   buildFixPrompt,
+  buildEditFixPrompt,
   buildModificationPrompt,
   wrapInTemplate,
   stripTemplateBoilerplate,
 } from "./workbench-codegen.service.js";
+import {
+  shouldUseEditMode,
+  parseEditResponse,
+  applyEdits,
+} from "../utils/code-edits.js";
 import {
   getMaxFixIterations,
   getAutoApproveThreshold,
   getLooksCorrectThreshold,
   getConversationHistoryMaxPairs,
   getFewShotExampleLimit,
+  getCodegenBaseTemperature,
+  getCodegenTemperatureStep,
 } from "./generation-settings.service.js";
 import {
   getModelForPurpose,
@@ -1172,12 +1182,14 @@ export async function executeQueryPipeline(input: {
     const conversationPrompt = `${prompt}${formatAttachmentContext(attachments)}`;
 
     // Fetch dynamic generation settings for the chat pipeline
-    const [chatMaxFix, chatAutoApprove, chatLooksCorrect, chatMaxPairs, chatFewShotLimit] = await Promise.all([
+    const [chatMaxFix, chatAutoApprove, chatLooksCorrect, chatMaxPairs, chatFewShotLimit, chatBaseTemp, chatTempStep] = await Promise.all([
       getMaxFixIterations("chat"),
       getAutoApproveThreshold("chat"),
       getLooksCorrectThreshold("chat"),
       getConversationHistoryMaxPairs(),
       getFewShotExampleLimit("chat"),
+      getCodegenBaseTemperature(),
+      getCodegenTemperatureStep(),
     ]);
 
     // Fetch conversation history for iterative refinement (Req 10)
@@ -1345,26 +1357,56 @@ export async function executeQueryPipeline(input: {
     let epEvalState: EpEvalState | null = null;
     let epBest: { code: string; score: number | null; evalState: EpEvalState | null; renderedFiles: Array<{ filename: string; contentBase64: string }>; screenshots: RenderedScreenshot[]; iteration: number } | null = null;
 
+    // Edit-mode tracking
+    let epPreviousRenderSucceeded = false;
+    let epPreEditCode: string | null = null;
+
     for (let iteration = 1; iteration <= chatMaxFix; iteration++) {
       checkAborted();
       const isFirst = iteration === 1;
       await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: isFirst ? "codegen" : "fixing", detail: isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${chatMaxFix})...` });
       await persistPhase(isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${chatMaxFix})...`);
 
+      // Determine whether to use edit mode for this fix iteration
+      const epConsecutiveSame = epRenderErrorCtx
+        ? consecutiveSameCategoryCount(epErrorHistory, epRenderErrorCtx.classified.category)
+        : 0;
+      const epUseEditMode = !isFirst && shouldUseEditMode({
+        iteration,
+        previousRenderSucceeded: epPreviousRenderSucceeded,
+        errorCategory: epRenderErrorCtx?.classified.category ?? null,
+        consecutiveSameCategory: epConsecutiveSame,
+      });
+      if (epUseEditMode) {
+        epPreEditCode = epCurrentCode; // Save for revert on failure
+        queryLogger.info({ iteration, category: epRenderErrorCtx?.classified.category ?? "vlm_only" }, "using edit mode for fix iteration");
+      }
+
       const { system: cgSystem, userContent: cgUserContent } = isFirst
         ? (epIsModification
             ? buildModificationPrompt(epSystemPromptContent, epFewShots, prompt, epBaselineCode!, conversationText, epConvHistoryText || undefined)
             : buildInitialPrompt(epSystemPromptContent, epFewShots, prompt))
-        : buildFixPrompt(epSystemPromptContent, epFewShots, prompt, epCurrentCode, iteration - 1, epRenderError, epEvalState?.issues ?? null, epEvalState?.suggestions ?? null, epRenderErrorCtx);
+        : epUseEditMode
+          ? buildEditFixPrompt(epSystemPromptContent, prompt, epCurrentCode, iteration - 1, epRenderError, epEvalState?.issues ?? null, epEvalState?.suggestions ?? null, epRenderErrorCtx, { errorHistory: epErrorHistory })
+          : buildFixPrompt(epSystemPromptContent, epFewShots, prompt, epCurrentCode, iteration - 1, epRenderError, epEvalState?.issues ?? null, epEvalState?.suggestions ?? null, epRenderErrorCtx, { includeFewShots: false, errorHistory: epErrorHistory, useReducedSystemPrompt: true });
 
       // Build cacheable system prompt for supported providers
       const cgCacheableSystem = buildCacheableSystem(epCodegenConfig.provider, cgSystem);
 
+      // Adaptive temperature: increases per fix iteration to encourage diverse approaches.
+      // When thinking/reasoning is active, providers typically ignore temperature, so skip it.
+      const cgThinkingActive = !!(epCodegenConfig.supportsThinking && epCodegenConfig.thinkingEffort);
+      const cgTemperature = cgThinkingActive ? undefined : Math.min(chatBaseTemp + (iteration - 1) * chatTempStep, 1.0);
+      const cgTempOpts = cgTemperature !== undefined ? { temperature: cgTemperature } : {};
+      if (cgTemperature !== undefined) {
+        queryLogger.info({ iteration, temperature: cgTemperature }, "adaptive temperature for codegen");
+      }
+
       // When codegen model supports vision and images are available, send via messages
       const cgUseVision = pipelineImages.length > 0 && epCodegenConfig.supportsVision;
       const cgCallOpts = cgUseVision
-        ? { system: cgCacheableSystem, messages: [{ role: "user" as const, content: buildMultimodalUserContent(cgUserContent, pipelineImages) }], ...epExtraOpts }
-        : { system: cgCacheableSystem, prompt: cgUserContent, ...epExtraOpts };
+        ? { system: cgCacheableSystem, messages: [{ role: "user" as const, content: buildMultimodalUserContent(cgUserContent, pipelineImages) }], ...epExtraOpts, ...cgTempOpts }
+        : { system: cgCacheableSystem, prompt: cgUserContent, ...epExtraOpts, ...cgTempOpts };
       if (cgUseVision) {
         queryLogger.info({ iteration, imageCount: pipelineImages.length }, "codegen using multimodal call with images");
       }
@@ -1478,7 +1520,33 @@ export async function executeQueryPipeline(input: {
           "no thinking output in chat codegen response",
         );
       }
-      epCurrentCode = stripTemplateBoilerplate(extractExecutableCode(cgResult.text));
+      // Extract code: edit mode parses search-and-replace blocks, fallback to full extraction
+      if (epUseEditMode) {
+        const editParsed = parseEditResponse(cgResult.text);
+        if (editParsed.isFullRewrite && editParsed.fullRewriteCode) {
+          epCurrentCode = stripTemplateBoilerplate(editParsed.fullRewriteCode);
+          queryLogger.info({ iteration }, "edit mode: LLM chose full rewrite");
+        } else if (editParsed.edits.length > 0) {
+          const editResult = applyEdits(epCurrentCode, editParsed.edits);
+          if (editResult.appliedCount > 0) {
+            epCurrentCode = stripTemplateBoilerplate(editResult.resultCode);
+            queryLogger.info({ iteration, applied: editResult.appliedCount, failed: editResult.failedSearches.length }, "edit mode: edits applied");
+            if (editResult.failedSearches.length > 0) {
+              queryLogger.warn({ iteration, failedSearches: editResult.failedSearches }, "edit mode: some edits failed to match");
+            }
+          } else {
+            // All edits failed to match — fall back to full code extraction
+            queryLogger.warn({ iteration }, "edit mode: no edits matched, falling back to full code extraction");
+            epCurrentCode = stripTemplateBoilerplate(extractExecutableCode(cgResult.text));
+          }
+        } else {
+          // No edit blocks found — fall back to full code extraction
+          queryLogger.info({ iteration }, "edit mode: no edit blocks found, falling back to full code extraction");
+          epCurrentCode = stripTemplateBoilerplate(extractExecutableCode(cgResult.text));
+        }
+      } else {
+        epCurrentCode = stripTemplateBoilerplate(extractExecutableCode(cgResult.text));
+      }
       queryLogger.debug({
         iteration,
         rawUsage: JSON.stringify((cgResult.usage as Record<string, unknown>)?.raw),
@@ -1508,6 +1576,36 @@ export async function executeQueryPipeline(input: {
       epRenderError = null;
       epRenderErrorCtx = null;
       epEvalState = null;
+
+      // ── Pre-render validation (catches syntax errors + missing root_part cheaply) ──
+      checkAborted();
+      await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "validating", detail: "Validating code structure..." });
+      const epValidation = await validateBuild123dCode(epCurrentCode);
+      if (!epValidation.valid) {
+        const validationMsg = epValidation.errors.join("; ");
+        queryLogger.warn({ iteration, validationErrors: epValidation.errors }, "pre-render validation failed");
+        const classified: ClassifiedRenderError = {
+          rawMessage: validationMsg,
+          category: RenderErrorCategory.SYNTAX,
+          isInfrastructure: false,
+          fixGuidance: `Pre-render validation failed: ${validationMsg}. Fix the syntax errors or ensure the code assigns the final solid to root_part.`,
+          capturedDetail: null,
+        };
+        epErrorHistory.push(classified);
+        epRenderError = validationMsg;
+        const escalation = buildEscalatedGuidance(classified, epErrorHistory.slice(0, -1));
+        epRenderErrorCtx = { classified, escalationGuidance: escalation };
+
+        // Revert to pre-edit code if edit mode was used
+        if (epUseEditMode && epPreEditCode) {
+          queryLogger.info({ iteration }, "edit mode: reverting to pre-edit code after validation failure");
+          epCurrentCode = epPreEditCode;
+          epPreEditCode = null;
+        }
+
+        if (iteration >= chatMaxFix) break;
+        continue;
+      }
 
       checkAborted();
       await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "rendering", detail: "Rendering 3D model..." });
@@ -1539,6 +1637,8 @@ export async function executeQueryPipeline(input: {
 
       if (epRenderOutcome.ok) {
         epRenderedFiles = epRenderOutcome.result.files;
+        epPreviousRenderSucceeded = true;
+        epPreEditCode = null; // Clear revert snapshot on success
         queryLogger.info({ iteration, fileCount: epRenderedFiles.length }, "render succeeded");
       } else {
         const classified = epRenderOutcome.error;
@@ -1547,6 +1647,15 @@ export async function executeQueryPipeline(input: {
         const escalation = buildEscalatedGuidance(classified, epErrorHistory.slice(0, -1));
         epRenderErrorCtx = { classified, escalationGuidance: escalation };
         queryLogger.warn({ iteration, renderError: epRenderError, category: classified.category }, "render failed");
+
+        // If edit mode was used and render failed, revert to pre-edit code
+        // so the next iteration works from the last known-good baseline
+        if (epUseEditMode && epPreEditCode) {
+          queryLogger.info({ iteration }, "edit mode: reverting to pre-edit code after render failure");
+          epCurrentCode = epPreEditCode;
+          epPreEditCode = null;
+        }
+
         if (iteration >= chatMaxFix) break;
         continue;
       }
