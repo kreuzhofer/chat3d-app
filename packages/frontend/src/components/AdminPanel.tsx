@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 import {
   Cpu,
   KeyRound,
@@ -59,6 +60,7 @@ import {
 } from "./admin/utils";
 
 type AdminTab = "dashboard" | "users" | "waitlist" | "settings" | "providers" | "models" | "generation" | "curation";
+const VALID_TABS: ReadonlySet<string> = new Set<AdminTab>(["dashboard", "users", "waitlist", "settings", "providers", "models", "generation", "curation"]);
 type UserStatusFilter = "all" | "active" | "deactivated" | "pending_registration";
 
 export function AdminPanel() {
@@ -66,7 +68,12 @@ export function AdminPanel() {
   const { notifications } = useNotifications();
   const { pushToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<AdminTab>("dashboard");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const activeTab: AdminTab = tabParam && VALID_TABS.has(tabParam) ? (tabParam as AdminTab) : "dashboard";
+  const setActiveTab = useCallback((tab: AdminTab) => {
+    setSearchParams(tab === "dashboard" ? {} : { tab }, { replace: true });
+  }, [setSearchParams]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<UserStatusFilter>("all");
   const [users, setUsers] = useState<AdminUser[]>([]);
