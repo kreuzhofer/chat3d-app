@@ -440,6 +440,7 @@ workbenchRouter.post("/cleanup/batch", async (req, res) => {
       res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
       return;
     }
+    logger.error({ err: error }, "batch cleanup failed");
     res.status(500).json({ error: "Batch cleanup failed", detail: String(error) });
   }
 });

@@ -813,7 +813,10 @@ export async function startBatchCleanup(categoryId: string): Promise<BatchJobSum
     ORDER BY p.index ASC
   `;
   if (prompts.length === 0) {
-    throw new Error("No prompts with multiple examples found — nothing to clean up");
+    logger.info({ categoryId, categoryName }, "batch cleanup: no prompts with multiple examples");
+    const err = new Error("No prompts with multiple examples found — nothing to clean up");
+    (err as Error & { statusCode: number }).statusCode = 404;
+    throw err;
   }
 
   const jobId = generateJobId("batch-cleanup");
