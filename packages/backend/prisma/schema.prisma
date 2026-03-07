@@ -157,19 +157,47 @@ model ChatItem {
 }
 
 model CurationCandidate {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  chatContextId String    @unique @map("chat_context_id") @db.Uuid
-  status        String    @default("pending") @db.VarChar(20)
-  reviewedAt    DateTime? @map("reviewed_at") @db.Timestamptz()
-  notes         String?   @db.Text
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz()
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chatContextId   String    @unique @map("chat_context_id") @db.Uuid
+  status          String    @default("pending") @db.VarChar(20)
+  reviewedAt      DateTime? @map("reviewed_at") @db.Timestamptz()
+  notes           String?   @db.Text
+  distilledPrompt String?   @map("distilled_prompt") @db.Text
+  originalPrompt  String?   @map("original_prompt") @db.Text
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz()
 
   // Relations
-  chatContext ChatContext @relation(fields: [chatContextId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  chatContext ChatContext             @relation(fields: [chatContextId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tags        CurationCandidateTag[]
 
   @@index([status], map: "idx_curation_candidates_status")
   @@map("curation_candidates")
+}
+
+model Tag {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @unique @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  candidateTags CurationCandidateTag[]
+
+  @@index([name], map: "idx_tags_name")
+  @@map("tags")
+}
+
+model CurationCandidateTag {
+  candidateId String @map("candidate_id") @db.Uuid
+  tagId       String @map("tag_id") @db.Uuid
+  suggestedBy String @default("llm") @map("suggested_by") @db.VarChar(20)
+
+  // Relations
+  candidate CurationCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tag       Tag               @relation(fields: [tagId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([candidateId, tagId])
+  @@map("curation_candidate_tags")
 }
 
 model AppSettings {
@@ -532,4 +560,5 @@ model LlmPurposeMap {
 //    - workbench_examples.approval_status IN ('pending','auto_approved','human_approved','rejected')
 //    - workbench_examples.eval_score BETWEEN 1 AND 10
 //    - curation_candidates.status IN ('pending','reviewing','approved','rejected','dismissed')
+//    - curation_candidate_tags.suggested_by IN ('llm','admin')
 // ═══════════════════════════════════════════════════════════════════════════════

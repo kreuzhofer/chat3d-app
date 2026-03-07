@@ -186,6 +186,11 @@ export async function getCandidateDetail(candidateId: string) {
           },
         },
       },
+      tags: {
+        include: {
+          tag: { select: { id: true, name: true } },
+        },
+      },
     },
   });
 
@@ -199,6 +204,8 @@ export async function getCandidateDetail(candidateId: string) {
     id: candidate.id,
     status: candidate.status,
     notes: candidate.notes,
+    distilledPrompt: candidate.distilledPrompt,
+    originalPrompt: candidate.originalPrompt,
     reviewedAt: candidate.reviewedAt?.toISOString() ?? null,
     createdAt: candidate.createdAt.toISOString(),
     updatedAt: candidate.updatedAt.toISOString(),
@@ -216,6 +223,11 @@ export async function getCandidateDetail(candidateId: string) {
       rating: item.rating,
       downloadCount: item.downloadCount,
       createdAt: item.createdAt.toISOString(),
+    })),
+    tags: candidate.tags.map((ct) => ({
+      id: ct.tag.id,
+      name: ct.tag.name,
+      suggestedBy: ct.suggestedBy as "llm" | "admin",
     })),
   };
 }

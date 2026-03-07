@@ -344,10 +344,18 @@ export interface CurationCandidateRow {
   };
 }
 
+export interface CurationTag {
+  id: string;
+  name: string;
+  suggestedBy: "llm" | "admin";
+}
+
 export interface CurationCandidateDetail {
   id: string;
   status: CurationStatus;
   notes: string | null;
+  distilledPrompt: string | null;
+  originalPrompt: string | null;
   reviewedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -366,6 +374,7 @@ export interface CurationCandidateDetail {
     downloadCount: number;
     createdAt: string;
   }>;
+  tags: CurationTag[];
 }
 
 export async function listCurationCandidates(
@@ -398,6 +407,64 @@ export async function updateCurationCandidate(
     method: "PATCH",
     body: JSON.stringify(patch),
   });
+}
+
+export async function distillCandidatePrompt(
+  token: string,
+  candidateId: string,
+): Promise<{ distilledPrompt: string; originalPrompt: string; skippedLlm: boolean }> {
+  return requestAdminJson(token, `/curation/candidates/${encodeURIComponent(candidateId)}/distill`, {
+    method: "POST",
+  });
+}
+
+export async function updateCandidatePrompt(
+  token: string,
+  candidateId: string,
+  distilledPrompt: string,
+): Promise<{ distilledPrompt: string | null; originalPrompt: string | null }> {
+  return requestAdminJson(token, `/curation/candidates/${encodeURIComponent(candidateId)}/prompt`, {
+    method: "PATCH",
+    body: JSON.stringify({ distilledPrompt }),
+  });
+}
+
+export async function suggestCandidateTags(
+  token: string,
+  candidateId: string,
+): Promise<{ tags: CurationTag[] }> {
+  return requestAdminJson(token, `/curation/candidates/${encodeURIComponent(candidateId)}/suggest-tags`, {
+    method: "POST",
+  });
+}
+
+export async function listTags(
+  token: string,
+): Promise<{ tags: Array<{ id: string; name: string; createdAt: string }> }> {
+  return requestAdminJson(token, `/tags`, { method: "GET" });
+}
+
+export async function addCandidateTag(
+  token: string,
+  candidateId: string,
+  tagName: string,
+): Promise<CurationTag> {
+  return requestAdminJson(token, `/curation/candidates/${encodeURIComponent(candidateId)}/tags`, {
+    method: "POST",
+    body: JSON.stringify({ tagName }),
+  });
+}
+
+export async function removeCandidateTag(
+  token: string,
+  candidateId: string,
+  tagId: string,
+): Promise<{ success: boolean }> {
+  return requestAdminJson(
+    token,
+    `/curation/candidates/${encodeURIComponent(candidateId)}/tags/${encodeURIComponent(tagId)}`,
+    { method: "DELETE" },
+  );
 }
 
 export async function updateLlmPurpose(

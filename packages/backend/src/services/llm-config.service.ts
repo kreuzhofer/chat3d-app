@@ -104,6 +104,8 @@ export const LLM_PURPOSES = [
   "workbench_codegen",
   "vlm_eval",
   "embedding",
+  "prompt_distill",
+  "tag_suggest",
 ] as const;
 
 export type LlmPurpose = (typeof LLM_PURPOSES)[number];

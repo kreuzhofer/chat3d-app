@@ -30,6 +30,10 @@ ALTER TABLE curation_candidates DROP CONSTRAINT IF EXISTS curation_candidates_st
 ALTER TABLE curation_candidates ADD CONSTRAINT curation_candidates_status_check
   CHECK (status IN ('pending', 'reviewing', 'approved', 'rejected', 'dismissed'));
 
+ALTER TABLE curation_candidate_tags DROP CONSTRAINT IF EXISTS curation_candidate_tags_suggested_by_check;
+ALTER TABLE curation_candidate_tags ADD CONSTRAINT curation_candidate_tags_suggested_by_check
+  CHECK (suggested_by IN ('llm', 'admin'));
+
 -- HNSW vector index for cosine similarity search on prompt embeddings
 CREATE INDEX IF NOT EXISTS idx_wb_prompts_embedding
   ON workbench_example_prompts USING hnsw (embedding vector_cosine_ops);

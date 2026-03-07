@@ -112,8 +112,14 @@ On first launch with an empty database, the app shows an interactive setup page 
 - `PATCH /api/admin/generation-settings/:key` — Update generation setting override (admin)
 - `DELETE /api/admin/generation-settings/:key` — Revert generation setting to default (admin)
 - `GET /api/admin/curation/candidates` — List curation candidates (admin, optional status/limit/offset query params)
-- `GET /api/admin/curation/candidates/:id` — Get curation candidate detail with conversation (admin)
+- `GET /api/admin/curation/candidates/:id` — Get curation candidate detail with conversation, prompt, tags (admin)
 - `PATCH /api/admin/curation/candidates/:id` — Update curation candidate status + notes (admin)
+- `POST /api/admin/curation/candidates/:id/distill` — Trigger LLM prompt distillation (admin)
+- `PATCH /api/admin/curation/candidates/:id/prompt` — Manually edit distilled prompt (admin)
+- `POST /api/admin/curation/candidates/:id/suggest-tags` — Trigger LLM tag suggestion (admin)
+- `POST /api/admin/curation/candidates/:id/tags` — Add a tag to candidate (admin)
+- `DELETE /api/admin/curation/candidates/:id/tags/:tagId` — Remove tag from candidate (admin)
+- `GET /api/admin/tags` — List all tags (admin)
 
 ## Key Patterns
 
@@ -128,7 +134,9 @@ PostgreSQL tables:
 - `users` — id (UUID), email, password_hash, display_name, role, timestamps
 - `chat_contexts` — id (UUID), name, model IDs, owner_id (FK→users), deleted_at, timestamps
 - `chat_items` — id (UUID), chat_context_id (FK→chat_contexts), role, messages (JSONB), rating, download_count, owner_id, timestamps
-- `curation_candidates` — id (UUID), chat_context_id (FK→chat_contexts, unique), status, reviewed_at, notes, timestamps
+- `curation_candidates` — id (UUID), chat_context_id (FK→chat_contexts, unique), status, reviewed_at, notes, distilled_prompt, original_prompt, timestamps
+- `tags` — id (UUID), name (unique), created_at
+- `curation_candidate_tags` — candidate_id (FK→curation_candidates), tag_id (FK→tags), suggested_by, composite PK
 - `llm_providers` — name (PK, VARCHAR), display_name, api_key, endpoint_url, is_active, timestamps
 - `llm_models` — id (UUID), provider (FK→llm_providers.name), model_name, display_name, costs, capabilities, token limits, timestamps
 - `llm_purpose_map` — purpose (PK), model_id (FK→llm_models.id), override settings

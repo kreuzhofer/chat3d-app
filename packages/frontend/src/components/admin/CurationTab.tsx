@@ -1,12 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
-import { Download, Eye, Star, ThumbsDown, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Download, Eye, Plus, Sparkles, Star, Tag, ThumbsDown, Wand2, X } from "lucide-react";
 import {
   listCurationCandidates,
   getCurationCandidateDetail,
   updateCurationCandidate,
+  distillCandidatePrompt,
+  updateCandidatePrompt,
+  suggestCandidateTags,
+  listTags,
+  addCandidateTag,
+  removeCandidateTag,
   type CurationCandidateRow,
   type CurationCandidateDetail,
   type CurationStatus,
+  type CurationTag,
 } from "../../api/admin.api";
 import { SectionCard } from "../layout/SectionCard";
 import { InlineAlert } from "../layout/InlineAlert";
@@ -14,6 +21,9 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Select } from "../ui/select";
 import { Drawer } from "../ui/drawer";
+import { Textarea } from "../ui/textarea";
+import { Input } from "../ui/input";
+import { Spinner } from "../ui/spinner";
 
 interface CurationTabProps {
   token: string;
@@ -93,20 +103,6 @@ function extractText(messages: unknown[]): string {
   return "(no text)";
 }
 
-/**
- * Extract first user message text from conversation items.
- */
-function extractFirstUserPrompt(
-  items: Array<{ role: string; messages: unknown[] }>,
-): string {
-  for (const item of items) {
-    if (item.role === "user") {
-      return extractText(item.messages as unknown[]);
-    }
-  }
-  return "(no user message)";
-}
-
 export function CurationTab({ token }: CurationTabProps) {
   const [candidates, setCandidates] = useState<CurationCandidateRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -116,6 +112,20 @@ export function CurationTab({ token }: CurationTabProps) {
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [selectedDetail, setSelectedDetail] = useState<CurationCandidateDetail | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Prompt editing state
+  const [editedPrompt, setEditedPrompt] = useState("");
+  const [promptDirty, setPromptDirty] = useState(false);
+  const [distilling, setDistilling] = useState(false);
+  const [savingPrompt, setSavingPrompt] = useState(false);
+
+  // Tag state
+  const [suggestingTags, setSuggestingTags] = useState(false);
+  const [newTagInput, setNewTagInput] = useState("");
+  const [addingTag, setAddingTag] = useState(false);
+  const [allTags, setAllTags] = useState<string[]>([]);
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const tagInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -134,6 +144,39 @@ export function CurationTab({ token }: CurationTabProps) {
     setLoading(true);
     void loadData();
   }, [loadData]);
+
+  // Load all tags for autocomplete when drawer opens
+  useEffect(() => {
+    if (drawerOpen) {
+      void listTags(token).then((result) => {
+        setAllTags(result.tags.map((t) => t.name));
+      }).catch(() => { /* ignore */ });
+    }
+  }, [drawerOpen, token]);
+
+  // Sync editedPrompt when detail changes
+  useEffect(() => {
+    if (selectedDetail?.distilledPrompt) {
+      setEditedPrompt(selectedDetail.distilledPrompt);
+    } else {
+      setEditedPrompt("");
+    }
+    setPromptDirty(false);
+  }, [selectedDetail?.id, selectedDetail?.distilledPrompt]);
+
+  // Autocomplete suggestions based on input
+  useEffect(() => {
+    if (newTagInput.trim().length === 0) {
+      setTagSuggestions([]);
+      return;
+    }
+    const lower = newTagInput.toLowerCase().trim();
+    const currentTagNames = selectedDetail?.tags.map((t) => t.name) ?? [];
+    const suggestions = allTags
+      .filter((t) => t.includes(lower) && !currentTagNames.includes(t))
+      .slice(0, 5);
+    setTagSuggestions(suggestions);
+  }, [newTagInput, allTags, selectedDetail?.tags]);
 
   async function handleReview(candidateId: string) {
     setBusyIds((prev) => new Set(prev).add(candidateId));
@@ -170,6 +213,93 @@ export function CurationTab({ token }: CurationTabProps) {
         next.delete(candidateId);
         return next;
       });
+    }
+  }
+
+  async function handleDistill() {
+    if (!selectedDetail) return;
+    setDistilling(true);
+    setError(null);
+    try {
+      const result = await distillCandidatePrompt(token, selectedDetail.id);
+      setSelectedDetail((prev) =>
+        prev ? { ...prev, distilledPrompt: result.distilledPrompt, originalPrompt: result.originalPrompt } : prev,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDistilling(false);
+    }
+  }
+
+  async function handleSavePrompt() {
+    if (!selectedDetail || !promptDirty) return;
+    setSavingPrompt(true);
+    setError(null);
+    try {
+      const result = await updateCandidatePrompt(token, selectedDetail.id, editedPrompt);
+      setSelectedDetail((prev) =>
+        prev ? { ...prev, distilledPrompt: result.distilledPrompt } : prev,
+      );
+      setPromptDirty(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingPrompt(false);
+    }
+  }
+
+  async function handleSuggestTags() {
+    if (!selectedDetail) return;
+    setSuggestingTags(true);
+    setError(null);
+    try {
+      const result = await suggestCandidateTags(token, selectedDetail.id);
+      setSelectedDetail((prev) =>
+        prev ? { ...prev, tags: result.tags } : prev,
+      );
+      // Refresh all tags for autocomplete
+      void listTags(token).then((r) => setAllTags(r.tags.map((t) => t.name))).catch(() => {});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSuggestingTags(false);
+    }
+  }
+
+  async function handleAddTag(tagName: string) {
+    if (!selectedDetail || !tagName.trim()) return;
+    setAddingTag(true);
+    setError(null);
+    try {
+      const newTag = await addCandidateTag(token, selectedDetail.id, tagName.trim());
+      setSelectedDetail((prev) => {
+        if (!prev) return prev;
+        // Avoid duplicates
+        if (prev.tags.some((t) => t.id === newTag.id)) return prev;
+        return { ...prev, tags: [...prev.tags, newTag] };
+      });
+      setNewTagInput("");
+      setTagSuggestions([]);
+      // Refresh all tags for autocomplete
+      void listTags(token).then((r) => setAllTags(r.tags.map((t) => t.name))).catch(() => {});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAddingTag(false);
+    }
+  }
+
+  async function handleRemoveTag(tagId: string) {
+    if (!selectedDetail) return;
+    setError(null);
+    try {
+      await removeCandidateTag(token, selectedDetail.id, tagId);
+      setSelectedDetail((prev) =>
+        prev ? { ...prev, tags: prev.tags.filter((t) => t.id !== tagId) } : prev,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -336,6 +466,170 @@ export function CurationTab({ token }: CurationTabProps) {
                 Chat: {selectedDetail.chatContext.name}
                 {selectedDetail.chatContext.deletedAt ? " (soft-deleted)" : ""}
               </p>
+            </div>
+
+            {/* Prompt Section */}
+            <div className="rounded-md border border-[hsl(var(--border))] p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+                  <Wand2 className="h-3.5 w-3.5" /> Distilled Prompt
+                </h3>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={distilling}
+                  onClick={() => void handleDistill()}
+                >
+                  {distilling ? (
+                    <><Spinner size="sm" /> Distilling...</>
+                  ) : (
+                    <><Sparkles className="h-3.5 w-3.5" /> Distill Prompt</>
+                  )}
+                </Button>
+              </div>
+
+              {selectedDetail.distilledPrompt ? (
+                <div className="space-y-2">
+                  <Textarea
+                    value={editedPrompt}
+                    onChange={(e) => {
+                      setEditedPrompt(e.target.value);
+                      setPromptDirty(e.target.value !== selectedDetail.distilledPrompt);
+                    }}
+                    className="min-h-[80px] text-sm"
+                  />
+                  {promptDirty ? (
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        disabled={savingPrompt}
+                        onClick={() => void handleSavePrompt()}
+                      >
+                        {savingPrompt ? "Saving..." : "Save Prompt"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEditedPrompt(selectedDetail.distilledPrompt ?? "");
+                          setPromptDirty(false);
+                        }}
+                      >
+                        Reset
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  No distilled prompt yet. Click "Distill Prompt" to generate one from the conversation.
+                </p>
+              )}
+
+              {selectedDetail.originalPrompt && selectedDetail.originalPrompt !== selectedDetail.distilledPrompt ? (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-[hsl(var(--muted-foreground))]">
+                    Original prompt
+                  </summary>
+                  <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))] italic">
+                    {selectedDetail.originalPrompt}
+                  </p>
+                </details>
+              ) : null}
+            </div>
+
+            {/* Tags Section */}
+            <div className="rounded-md border border-[hsl(var(--border))] p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+                  <Tag className="h-3.5 w-3.5" /> Tags
+                </h3>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={suggestingTags || !selectedDetail.distilledPrompt}
+                  onClick={() => void handleSuggestTags()}
+                  title={!selectedDetail.distilledPrompt ? "Distill prompt first" : undefined}
+                >
+                  {suggestingTags ? (
+                    <><Spinner size="sm" /> Suggesting...</>
+                  ) : (
+                    <><Sparkles className="h-3.5 w-3.5" /> Suggest Tags</>
+                  )}
+                </Button>
+              </div>
+
+              {/* Current tags */}
+              {selectedDetail.tags.length > 0 ? (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {selectedDetail.tags.map((tag) => (
+                    <span
+                      key={tag.id}
+                      className="inline-flex items-center gap-1 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-2 py-0.5 text-xs"
+                    >
+                      {tag.name}
+                      <span className="text-[10px] text-[hsl(var(--muted-foreground))]">
+                        ({tag.suggestedBy})
+                      </span>
+                      <button
+                        className="ml-0.5 rounded-full p-0.5 hover:bg-[hsl(var(--destructive)_/_0.1)]"
+                        onClick={() => void handleRemoveTag(tag.id)}
+                        title="Remove tag"
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="mb-2 text-xs text-[hsl(var(--muted-foreground))]">
+                  No tags yet.{" "}
+                  {selectedDetail.distilledPrompt
+                    ? "Click \"Suggest Tags\" or add tags manually."
+                    : "Distill the prompt first, then suggest tags."}
+                </p>
+              )}
+
+              {/* Add tag input */}
+              <div className="relative flex gap-1.5">
+                <div className="relative flex-1">
+                  <Input
+                    ref={tagInputRef}
+                    value={newTagInput}
+                    onChange={(e) => setNewTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newTagInput.trim()) {
+                        e.preventDefault();
+                        void handleAddTag(newTagInput);
+                      }
+                    }}
+                    placeholder="Add tag..."
+                    className="text-sm"
+                  />
+                  {/* Autocomplete dropdown */}
+                  {tagSuggestions.length > 0 ? (
+                    <div className="absolute left-0 right-0 top-full z-10 mt-1 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] shadow-md">
+                      {tagSuggestions.map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          className="block w-full px-3 py-1.5 text-left text-xs hover:bg-[hsl(var(--muted))]"
+                          onClick={() => void handleAddTag(suggestion)}
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={addingTag || !newTagInput.trim()}
+                  onClick={() => void handleAddTag(newTagInput)}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
 
             {/* Conversation history */}

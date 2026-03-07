@@ -186,11 +186,11 @@ ALTER TABLE curation_candidates ADD COLUMN workbench_example_id UUID REFERENCES 
   - [x] Admin API endpoints for curation
   - [x] Admin UI: Curation tab with candidate list
   - [x] Admin UI: Candidate detail view
-- [ ] **Phase 2**: LLM Prompt Summarization + Tagging
-  - [ ] Create `tags` and `curation_candidate_tags` tables
-  - [ ] LLM prompt distillation service
-  - [ ] LLM tag suggestion service
-  - [ ] Admin UI: Prompt editing + tag management
+- [x] **Phase 2**: LLM Prompt Summarization + Tagging
+  - [x] Create `tags` and `curation_candidate_tags` tables
+  - [x] LLM prompt distillation service
+  - [x] LLM tag suggestion service
+  - [x] Admin UI: Prompt editing + tag management
 - [ ] **Phase 3**: Approval & Workbench Promotion
   - [ ] Create `workbench_prompt_tags` table
   - [ ] Promotion service (file copy, workbench entry creation, embedding generation)

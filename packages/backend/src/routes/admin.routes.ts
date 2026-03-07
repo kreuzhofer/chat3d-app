@@ -30,6 +30,11 @@ import {
   CurationError,
 } from "../services/curation.service.js";
 import {
+  distillPrompt,
+  suggestTags,
+} from "../services/curation-llm.service.js";
+import { prisma } from "../db/prisma.js";
+import {
   listAllModels,
   createModel,
   updateModel,
@@ -644,5 +649,131 @@ adminRouter.patch("/curation/candidates/:id", async (req, res) => {
     res.status(200).json(updated);
   } catch (error) {
     sendKnownError(res, error, "Failed to update curation candidate");
+  }
+});
+
+adminRouter.post("/curation/candidates/:id/distill", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Invalid candidate id" });
+    return;
+  }
+
+  try {
+    const result = await distillPrompt(id);
+    res.status(200).json(result);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to distill prompt");
+  }
+});
+
+adminRouter.patch("/curation/candidates/:id/prompt", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Invalid candidate id" });
+    return;
+  }
+
+  const body = req.body as Record<string, unknown> | undefined;
+  if (!body || typeof body.distilledPrompt !== "string") {
+    res.status(400).json({ error: "distilledPrompt is required" });
+    return;
+  }
+
+  try {
+    const updated = await prisma.curationCandidate.update({
+      where: { id },
+      data: { distilledPrompt: body.distilledPrompt as string, updatedAt: new Date() },
+    });
+    res.status(200).json({
+      distilledPrompt: updated.distilledPrompt,
+      originalPrompt: updated.originalPrompt,
+    });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to update distilled prompt");
+  }
+});
+
+adminRouter.post("/curation/candidates/:id/suggest-tags", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Invalid candidate id" });
+    return;
+  }
+
+  try {
+    const tags = await suggestTags(id);
+    res.status(200).json({ tags });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to suggest tags");
+  }
+});
+
+adminRouter.get("/tags", async (_req, res) => {
+  try {
+    const tags = await prisma.tag.findMany({ orderBy: { name: "asc" } });
+    res.status(200).json({ tags });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to list tags");
+  }
+});
+
+adminRouter.post("/curation/candidates/:id/tags", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Invalid candidate id" });
+    return;
+  }
+
+  const body = req.body as Record<string, unknown> | undefined;
+  if (!body || typeof body.tagName !== "string" || !body.tagName.trim()) {
+    res.status(400).json({ error: "tagName is required" });
+    return;
+  }
+
+  try {
+    const normalizedName = (body.tagName as string).toLowerCase().trim();
+
+    const tag = await prisma.tag.upsert({
+      where: { name: normalizedName },
+      update: {},
+      create: { name: normalizedName },
+    });
+
+    await prisma.curationCandidateTag.upsert({
+      where: {
+        candidateId_tagId: { candidateId: id, tagId: tag.id },
+      },
+      update: { suggestedBy: "admin" },
+      create: {
+        candidateId: id,
+        tagId: tag.id,
+        suggestedBy: "admin",
+      },
+    });
+
+    res.status(200).json({ id: tag.id, name: tag.name, suggestedBy: "admin" });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to add tag");
+  }
+});
+
+adminRouter.delete("/curation/candidates/:id/tags/:tagId", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  const tagId = readPathParam(req.params.tagId);
+  if (!id || !tagId) {
+    res.status(400).json({ error: "Invalid candidate id or tag id" });
+    return;
+  }
+
+  try {
+    await prisma.curationCandidateTag.delete({
+      where: {
+        candidateId_tagId: { candidateId: id, tagId },
+      },
+    });
+    res.status(200).json({ success: true });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to remove tag");
   }
 });
