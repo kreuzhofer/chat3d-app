@@ -202,6 +202,64 @@ export async function findSimilarExamples(
   return { matches: rows, embeddingTokens };
 }
 
+// ── Similarity check for curation ────────────────────────────────────
+
+export interface SimilarityMatch {
+  prompt: string;
+  similarity: number;
+  exampleId: string;
+  screenshotPath: string | null;
+}
+
+export interface SimilarityCheckResult {
+  noveltyScore: number;
+  maxSimilarity: number;
+  matches: SimilarityMatch[];
+}
+
+/**
+ * Check how similar a prompt is to existing approved workbench examples.
+ * Returns top matches with example IDs and ISO screenshot paths for visual comparison.
+ */
+export async function checkSimilarity(
+  promptText: string,
+  limit = 5,
+): Promise<SimilarityCheckResult> {
+  const { embedding: queryEmbedding } = await embedPromptTextWithUsage(promptText);
+  const pgVector = `[${queryEmbedding.join(",")}]`;
+
+  const rows = await prisma.$queryRaw<{
+    prompt: string;
+    similarity: number;
+    example_id: string;
+    screenshot_iso: string | null;
+  }[]>`
+    SELECT p.prompt,
+           1 - (p.embedding <=> ${pgVector}::vector) AS similarity,
+           e.id AS example_id,
+           e.screenshot_iso
+     FROM workbench_examples e
+     JOIN workbench_example_prompts p ON p.id = e.prompt_id
+     WHERE p.embedding IS NOT NULL
+       AND e.approval_status IN ('auto_approved', 'human_approved')
+     ORDER BY p.embedding <=> ${pgVector}::vector ASC
+     LIMIT ${limit}
+  `;
+
+  const maxSimilarity = rows.length > 0 ? Math.max(...rows.map((r) => r.similarity)) : 0;
+
+  return {
+    noveltyScore: Math.round((1 - maxSimilarity) * 100) / 100,
+    maxSimilarity: Math.round(maxSimilarity * 100) / 100,
+    matches: rows.map((r) => ({
+      prompt: r.prompt,
+      similarity: Math.round(r.similarity * 100) / 100,
+      exampleId: r.example_id,
+      screenshotPath: r.screenshot_iso,
+    })),
+  };
+}
+
 // ── Status ──────────────────────────────────────────────────────────
 
 /**

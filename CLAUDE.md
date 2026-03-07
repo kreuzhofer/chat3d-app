@@ -120,6 +120,7 @@ On first launch with an empty database, the app shows an interactive setup page 
 - `POST /api/admin/curation/candidates/:id/tags` — Add a tag to candidate (admin)
 - `DELETE /api/admin/curation/candidates/:id/tags/:tagId` — Remove tag from candidate (admin)
 - `POST /api/admin/curation/candidates/:id/approve` — Approve candidate and promote to workbench (admin)
+- `POST /api/admin/curation/candidates/:id/check-similarity` — Check similarity against existing workbench entries (admin)
 - `GET /api/admin/tags` — List all tags (admin)
 
 ## Key Patterns

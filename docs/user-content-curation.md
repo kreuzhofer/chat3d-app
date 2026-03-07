@@ -176,6 +176,37 @@ ALTER TABLE curation_candidates ADD COLUMN workbench_example_id UUID REFERENCES 
 
 ---
 
+## Phase 4: Similarity Check (Duplicate Prevention)
+
+### Scope
+- Before approving a candidate, show the reviewer how similar the distilled prompt is to existing workbench entries
+- Helps avoid promoting duplicate or near-duplicate models into the library
+- Uses existing vector embeddings infrastructure (`findSimilarExamples`)
+
+### Similarity Check
+- Triggered on demand via "Check Similarity" button (requires distilled prompt)
+- Embeds the distilled prompt and compares against all existing workbench prompt embeddings
+- Returns top 5 most similar existing prompts with cosine similarity scores
+- Displays a novelty score (1 − max similarity) with color-coded recommendation:
+  - **< 0.70 similarity** → "Novel" (green) — safe to add
+  - **0.70–0.85** → "Similar" (yellow) — review carefully
+  - **> 0.85** → "Likely duplicate" (red) — probably skip
+- Shows thumbnails + prompts of the most similar existing workbench examples for visual comparison
+
+### API Endpoint
+- `POST /api/admin/curation/candidates/:id/check-similarity`
+  - Requires distilled prompt to be set
+  - Returns: `{ noveltyScore, maxSimilarity, matches: [{ prompt, similarity, exampleId, screenshotPath }] }`
+  - Read-only check, no DB persistence
+
+### UI
+- New section in curation drawer between prompt and tags sections
+- "Check Similarity" button (enabled when distilled prompt exists)
+- Novelty score badge with color coding
+- Scrollable list of similar existing models with thumbnails and similarity percentages
+
+---
+
 ## Implementation Status
 
 - [x] **Phase 1**: Signal Tracking + Admin Review Queue
@@ -196,3 +227,6 @@ ALTER TABLE curation_candidates ADD COLUMN workbench_example_id UUID REFERENCES 
   - [x] Promotion service (file copy, workbench entry creation, embedding generation)
   - [x] Admin UI: Approval action with confirmation
   - [x] "User Generated Models" workbench category (seed data)
+- [x] **Phase 4**: Similarity Check (Duplicate Prevention)
+  - [x] Similarity check endpoint (embed distilled prompt, compare against workbench)
+  - [x] Admin UI: Similarity section with novelty score + similar model thumbnails

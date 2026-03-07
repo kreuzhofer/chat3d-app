@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Download, Eye, ExternalLink, ImageIcon, Loader2, Plus, Sparkles, Star, Tag, ThumbsDown, Wand2, X } from "lucide-react";
+import { Check, Download, Eye, ExternalLink, ImageIcon, Loader2, Plus, Search, Sparkles, Star, Tag, ThumbsDown, Wand2, X } from "lucide-react";
 import { downloadFileBinary } from "../../api/files.api";
 import {
   listCurationCandidates,
@@ -9,6 +9,7 @@ import {
   updateCandidatePrompt,
   suggestCandidateTags,
   approveCurationCandidate,
+  checkCandidateSimilarity,
   listTags,
   addCandidateTag,
   removeCandidateTag,
@@ -16,6 +17,7 @@ import {
   type CurationCandidateDetail,
   type CurationStatus,
   type CurationTag,
+  type SimilarityCheckResult,
 } from "../../api/admin.api";
 import { SectionCard } from "../layout/SectionCard";
 import { InlineAlert } from "../layout/InlineAlert";
@@ -176,6 +178,10 @@ export function CurationTab({ token }: CurationTabProps) {
   const [approving, setApproving] = useState(false);
   const [showApproveConfirm, setShowApproveConfirm] = useState(false);
 
+  // Similarity check state
+  const [checkingSimilarity, setCheckingSimilarity] = useState(false);
+  const [similarityResult, setSimilarityResult] = useState<SimilarityCheckResult | null>(null);
+
   const loadData = useCallback(async () => {
     try {
       const result = await listCurationCandidates(token, { status: statusFilter });
@@ -203,7 +209,7 @@ export function CurationTab({ token }: CurationTabProps) {
     }
   }, [drawerOpen, token]);
 
-  // Sync editedPrompt when detail changes
+  // Sync editedPrompt and reset similarity when detail changes
   useEffect(() => {
     if (selectedDetail?.distilledPrompt) {
       setEditedPrompt(selectedDetail.distilledPrompt);
@@ -211,6 +217,7 @@ export function CurationTab({ token }: CurationTabProps) {
       setEditedPrompt("");
     }
     setPromptDirty(false);
+    setSimilarityResult(null);
   }, [selectedDetail?.id, selectedDetail?.distilledPrompt]);
 
   // Autocomplete suggestions based on input
@@ -366,6 +373,20 @@ export function CurationTab({ token }: CurationTabProps) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setApproving(false);
+    }
+  }
+
+  async function handleCheckSimilarity() {
+    if (!selectedDetail) return;
+    setCheckingSimilarity(true);
+    setError(null);
+    try {
+      const result = await checkCandidateSimilarity(token, selectedDetail.id);
+      setSimilarityResult(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCheckingSimilarity(false);
     }
   }
 
@@ -620,6 +641,112 @@ export function CurationTab({ token }: CurationTabProps) {
                   </p>
                 </details>
               ) : null}
+            </div>
+
+            {/* Similarity Check Section */}
+            <div className="rounded-md border border-[hsl(var(--border))] p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+                  <Search className="h-3.5 w-3.5" /> Similarity Check
+                </h3>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={checkingSimilarity || !selectedDetail.distilledPrompt}
+                  onClick={() => void handleCheckSimilarity()}
+                  title={!selectedDetail.distilledPrompt ? "Distill prompt first" : undefined}
+                >
+                  {checkingSimilarity ? (
+                    <><Spinner size="sm" /> Checking...</>
+                  ) : (
+                    <><Search className="h-3.5 w-3.5" /> Check Similarity</>
+                  )}
+                </Button>
+              </div>
+
+              {similarityResult ? (
+                <div className="space-y-3">
+                  {/* Novelty score badge */}
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      tone={
+                        similarityResult.maxSimilarity > 0.85
+                          ? "danger"
+                          : similarityResult.maxSimilarity > 0.70
+                            ? "warning"
+                            : "success"
+                      }
+                    >
+                      {similarityResult.maxSimilarity > 0.85
+                        ? "Likely duplicate"
+                        : similarityResult.maxSimilarity > 0.70
+                          ? "Similar exists"
+                          : "Novel"}
+                    </Badge>
+                    <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                      Max similarity: {Math.round(similarityResult.maxSimilarity * 100)}%
+                      {" | "}Novelty: {Math.round(similarityResult.noveltyScore * 100)}%
+                    </span>
+                  </div>
+
+                  {/* Similar matches */}
+                  {similarityResult.matches.length > 0 ? (
+                    <div className="max-h-48 space-y-2 overflow-y-auto">
+                      {similarityResult.matches.map((match) => (
+                        <div
+                          key={match.exampleId}
+                          className="flex items-start gap-2 rounded-md border border-[hsl(var(--border))] p-2"
+                        >
+                          {/* Thumbnail */}
+                          <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted))]">
+                            {match.screenshotPath ? (
+                              <AuthImage
+                                filePath={match.screenshotPath}
+                                token={token}
+                                alt="Similar model"
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center">
+                                <ImageIcon className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
+                              </div>
+                            )}
+                          </div>
+                          {/* Info */}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs leading-snug text-[hsl(var(--foreground))]">
+                              {match.prompt.length > 80
+                                ? match.prompt.slice(0, 80) + "..."
+                                : match.prompt}
+                            </p>
+                            <Badge
+                              tone={
+                                match.similarity > 0.85
+                                  ? "danger"
+                                  : match.similarity > 0.70
+                                    ? "warning"
+                                    : "success"
+                              }
+                            >
+                              {Math.round(match.similarity * 100)}% similar
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                      No existing workbench examples with embeddings found.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  {selectedDetail.distilledPrompt
+                    ? "Click \"Check Similarity\" to compare against existing workbench entries."
+                    : "Distill the prompt first, then check for similar existing models."}
+                </p>
+              )}
             </div>
 
             {/* Tags Section */}

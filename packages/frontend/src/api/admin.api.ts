@@ -456,6 +456,30 @@ export async function addCandidateTag(
   });
 }
 
+// ── Similarity Check ────────────────────────────────────────────────
+
+export interface SimilarityMatch {
+  prompt: string;
+  similarity: number;
+  exampleId: string;
+  screenshotPath: string | null;
+}
+
+export interface SimilarityCheckResult {
+  noveltyScore: number;
+  maxSimilarity: number;
+  matches: SimilarityMatch[];
+}
+
+export async function checkCandidateSimilarity(
+  token: string,
+  candidateId: string,
+): Promise<SimilarityCheckResult> {
+  return requestAdminJson(token, `/curation/candidates/${encodeURIComponent(candidateId)}/check-similarity`, {
+    method: "POST",
+  });
+}
+
 export async function approveCurationCandidate(
   token: string,
   candidateId: string,

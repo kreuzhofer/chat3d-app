@@ -34,6 +34,7 @@ import {
   suggestTags,
 } from "../services/curation-llm.service.js";
 import { promoteCandidate } from "../services/curation-promote.service.js";
+import { checkSimilarity } from "../services/workbench-embeddings.service.js";
 import { prisma } from "../db/prisma.js";
 import {
   listAllModels,
@@ -722,6 +723,36 @@ adminRouter.post("/curation/candidates/:id/approve", async (req, res) => {
     res.status(200).json(result);
   } catch (error) {
     sendKnownError(res, error, "Failed to approve curation candidate");
+  }
+});
+
+adminRouter.post("/curation/candidates/:id/check-similarity", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Invalid candidate id" });
+    return;
+  }
+
+  try {
+    const candidate = await prisma.curationCandidate.findUnique({
+      where: { id },
+      select: { distilledPrompt: true },
+    });
+
+    if (!candidate) {
+      res.status(404).json({ error: "Candidate not found" });
+      return;
+    }
+
+    if (!candidate.distilledPrompt) {
+      res.status(400).json({ error: "Distill the prompt before checking similarity" });
+      return;
+    }
+
+    const result = await checkSimilarity(candidate.distilledPrompt);
+    res.status(200).json(result);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to check similarity");
   }
 });
 
