@@ -14,17 +14,24 @@ const VISIBLE_STATES: ReadonlySet<QueryState> = new Set([
   "queued",
   "conversation",
   "codegen",
+  "validating",
   "rendering",
+  "evaluating",
+  "fixing",
   "retrying",
 ]);
 
 const ALL_STATES: QueryState[] = [
   "conversation",
   "codegen",
+  "validating",
   "rendering",
+  "evaluating",
+  "fixing",
   "retrying",
   "completed",
   "failed",
+  "cancelled",
   "queued",
 ];
 

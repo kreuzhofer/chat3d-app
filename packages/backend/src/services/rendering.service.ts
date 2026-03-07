@@ -8,6 +8,9 @@ const logger = createLogger("render");
  *  Code execution + STEP/3MF export can be slow for complex models. */
 const BUILD123D_TIMEOUT_MS = 120_000;
 
+/** HTTP timeout for the lightweight /validate endpoint (AST parse only). */
+const BUILD123D_VALIDATE_TIMEOUT_MS = 10_000;
+
 /** Number of retry attempts for transient failures (timeouts, unreachable).
  *  5 attempts allows enough time for container restarts to complete. */
 const MAX_RETRIES = 5;
@@ -46,6 +49,50 @@ function mockRenderedFiles(baseFileName: string): RenderedFile[] {
       contentBase64: payload,
     },
   ];
+}
+
+// ── Pre-render validation ──────────────────────────────────────────────────
+
+export interface Build123dValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
+/**
+ * Lightweight AST-level validation via the Build123d `/validate/` endpoint.
+ * Catches syntax errors and missing `root_part` before the expensive render.
+ * Returns `{ valid: true }` in mock mode.
+ */
+export async function validateBuild123dCode(code: string): Promise<Build123dValidationResult> {
+  if (config.query.renderMode === "mock") {
+    return { valid: true, errors: [] };
+  }
+
+  const url = `${config.query.build123dUrl.replace(/\/$/, "")}/validate/`;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), BUILD123D_VALIDATE_TIMEOUT_MS);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const body = (await response.json()) as { valid?: boolean; errors?: string[] };
+    return {
+      valid: body.valid === true,
+      errors: Array.isArray(body.errors) ? body.errors : [],
+    };
+  } catch (err) {
+    // If the validate endpoint is unreachable, skip validation rather than blocking
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "validate endpoint unreachable — skipping pre-render validation",
+    );
+    return { valid: true, errors: [] };
+  }
 }
 
 export async function renderBuild123d(

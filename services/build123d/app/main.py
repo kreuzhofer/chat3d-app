@@ -56,6 +56,13 @@ logger.info("Health check server started (pid=%d) on port 8080", _health_proc.pi
 
 app = FastAPI()
 
+class ValidateRequest(BaseModel):
+    code: str
+
+class ValidateResponse(BaseModel):
+    valid: bool
+    errors: List[str] = []
+
 class RenderRequest(BaseModel):
     code: str
     filename: str = "output.step"
@@ -80,6 +87,28 @@ class ExtractedParameter(BaseModel):
 
 class ExtractParamsResponse(BaseModel):
     parameters: List[ExtractedParameter] = []
+
+@app.post("/validate/")
+def validate_code(request: ValidateRequest):
+    """Lightweight AST-level validation without executing the code."""
+    errors = []
+    try:
+        tree = ast.parse(request.code)
+    except SyntaxError as e:
+        return ValidateResponse(valid=False, errors=[f"Syntax error: {e}"])
+
+    # Check that code assigns to root_part
+    has_root_part = any(
+        isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "root_part" for t in node.targets)
+        for node in ast.walk(tree)
+    )
+    if not has_root_part:
+        errors.append(
+            "Missing 'root_part' assignment — code must assign the final solid to root_part"
+        )
+
+    return ValidateResponse(valid=len(errors) == 0, errors=errors)
 
 @app.get("/")
 def read_root():

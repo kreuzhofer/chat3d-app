@@ -7,6 +7,7 @@ export type QueryState =
   | "queued"
   | "conversation"
   | "codegen"
+  | "validating"
   | "rendering"
   | "evaluating"
   | "fixing"
