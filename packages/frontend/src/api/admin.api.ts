@@ -356,6 +356,7 @@ export interface CurationCandidateDetail {
   notes: string | null;
   distilledPrompt: string | null;
   originalPrompt: string | null;
+  workbenchExampleId: string | null;
   reviewedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -452,6 +453,15 @@ export async function addCandidateTag(
   return requestAdminJson(token, `/curation/candidates/${encodeURIComponent(candidateId)}/tags`, {
     method: "POST",
     body: JSON.stringify({ tagName }),
+  });
+}
+
+export async function approveCurationCandidate(
+  token: string,
+  candidateId: string,
+): Promise<{ candidateId: string; workbenchExampleId: string; workbenchPromptId: string; categoryId: string }> {
+  return requestAdminJson(token, `/curation/candidates/${encodeURIComponent(candidateId)}/approve`, {
+    method: "POST",
   });
 }
 

@@ -191,8 +191,8 @@ ALTER TABLE curation_candidates ADD COLUMN workbench_example_id UUID REFERENCES 
   - [x] LLM prompt distillation service
   - [x] LLM tag suggestion service
   - [x] Admin UI: Prompt editing + tag management
-- [ ] **Phase 3**: Approval & Workbench Promotion
-  - [ ] Create `workbench_prompt_tags` table
-  - [ ] Promotion service (file copy, workbench entry creation, embedding generation)
-  - [ ] Admin UI: Approval action with confirmation
-  - [ ] "User Generated Models" workbench category (seed data)
+- [x] **Phase 3**: Approval & Workbench Promotion
+  - [x] Create `workbench_prompt_tags` table
+  - [x] Promotion service (file copy, workbench entry creation, embedding generation)
+  - [x] Admin UI: Approval action with confirmation
+  - [x] "User Generated Models" workbench category (seed data)

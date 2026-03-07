@@ -49,6 +49,8 @@ const PURPOSE_LABELS: Record<string, string> = {
   workbench_codegen: "Workbench Codegen",
   vlm_eval: "VLM Evaluation",
   embedding: "Embedding",
+  prompt_distill: "Prompt Distillation",
+  tag_suggest: "Tag Suggestion",
 };
 
 export interface ModelsTabProps {

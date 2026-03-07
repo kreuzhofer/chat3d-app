@@ -157,19 +157,21 @@ model ChatItem {
 }
 
 model CurationCandidate {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  chatContextId   String    @unique @map("chat_context_id") @db.Uuid
-  status          String    @default("pending") @db.VarChar(20)
-  reviewedAt      DateTime? @map("reviewed_at") @db.Timestamptz()
-  notes           String?   @db.Text
-  distilledPrompt String?   @map("distilled_prompt") @db.Text
-  originalPrompt  String?   @map("original_prompt") @db.Text
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz()
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chatContextId      String    @unique @map("chat_context_id") @db.Uuid
+  status             String    @default("pending") @db.VarChar(20)
+  reviewedAt         DateTime? @map("reviewed_at") @db.Timestamptz()
+  notes              String?   @db.Text
+  distilledPrompt    String?   @map("distilled_prompt") @db.Text
+  originalPrompt     String?   @map("original_prompt") @db.Text
+  workbenchExampleId String?   @map("workbench_example_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz()
 
   // Relations
-  chatContext ChatContext             @relation(fields: [chatContextId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  tags        CurationCandidateTag[]
+  chatContext      ChatContext             @relation(fields: [chatContextId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tags             CurationCandidateTag[]
+  workbenchExample WorkbenchExample?       @relation(fields: [workbenchExampleId], references: [id], onDelete: SetNull, onUpdate: NoAction)
 
   @@index([status], map: "idx_curation_candidates_status")
   @@map("curation_candidates")
@@ -181,7 +183,8 @@ model Tag {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
-  candidateTags CurationCandidateTag[]
+  candidateTags    CurationCandidateTag[]
+  workbenchPrompts WorkbenchPromptTag[]
 
   @@index([name], map: "idx_tags_name")
   @@map("tags")
@@ -397,8 +400,9 @@ model WorkbenchExamplePrompt {
   embeddingModel String?                        @map("embedding_model") @db.Text
 
   // Relations
-  category WorkbenchCategory  @relation(fields: [categoryId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  category WorkbenchCategory    @relation(fields: [categoryId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   examples WorkbenchExample[]
+  tags     WorkbenchPromptTag[]
 
   @@unique([categoryId, index])
   @@index([categoryId], map: "idx_wb_prompts_category")
@@ -440,13 +444,26 @@ model WorkbenchExample {
   featured              Boolean  @default(false)
 
   // Relations
-  promptRef WorkbenchExamplePrompt @relation(fields: [promptId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  promptRef           WorkbenchExamplePrompt @relation(fields: [promptId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  curationCandidates  CurationCandidate[]
 
   @@index([promptId], map: "idx_wb_examples_prompt")
   @@index([approvalStatus], map: "idx_wb_examples_approval")
   @@index([evalScore], map: "idx_wb_examples_eval_score")
   @@index([featured], map: "idx_wb_examples_featured")
   @@map("workbench_examples")
+}
+
+model WorkbenchPromptTag {
+  promptId String @map("prompt_id") @db.Uuid
+  tagId    String @map("tag_id") @db.Uuid
+
+  // Relations
+  prompt WorkbenchExamplePrompt @relation(fields: [promptId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tag    Tag                    @relation(fields: [tagId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([promptId, tagId])
+  @@map("workbench_prompt_tags")
 }
 
 model Backup {

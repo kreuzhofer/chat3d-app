@@ -119,6 +119,7 @@ On first launch with an empty database, the app shows an interactive setup page 
 - `POST /api/admin/curation/candidates/:id/suggest-tags` — Trigger LLM tag suggestion (admin)
 - `POST /api/admin/curation/candidates/:id/tags` — Add a tag to candidate (admin)
 - `DELETE /api/admin/curation/candidates/:id/tags/:tagId` — Remove tag from candidate (admin)
+- `POST /api/admin/curation/candidates/:id/approve` — Approve candidate and promote to workbench (admin)
 - `GET /api/admin/tags` — List all tags (admin)
 
 ## Key Patterns
@@ -137,6 +138,7 @@ PostgreSQL tables:
 - `curation_candidates` — id (UUID), chat_context_id (FK→chat_contexts, unique), status, reviewed_at, notes, distilled_prompt, original_prompt, timestamps
 - `tags` — id (UUID), name (unique), created_at
 - `curation_candidate_tags` — candidate_id (FK→curation_candidates), tag_id (FK→tags), suggested_by, composite PK
+- `workbench_prompt_tags` — prompt_id (FK→workbench_example_prompts), tag_id (FK→tags), composite PK
 - `llm_providers` — name (PK, VARCHAR), display_name, api_key, endpoint_url, is_active, timestamps
 - `llm_models` — id (UUID), provider (FK→llm_providers.name), model_name, display_name, costs, capabilities, token limits, timestamps
 - `llm_purpose_map` — purpose (PK), model_id (FK→llm_models.id), override settings

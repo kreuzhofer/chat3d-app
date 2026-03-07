@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, Eye, Plus, Sparkles, Star, Tag, ThumbsDown, Wand2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, Download, Eye, ExternalLink, ImageIcon, Loader2, Plus, Sparkles, Star, Tag, ThumbsDown, Wand2, X } from "lucide-react";
+import { downloadFileBinary } from "../../api/files.api";
 import {
   listCurationCandidates,
   getCurationCandidateDetail,
@@ -7,6 +8,7 @@ import {
   distillCandidatePrompt,
   updateCandidatePrompt,
   suggestCandidateTags,
+  approveCurationCandidate,
   listTags,
   addCandidateTag,
   removeCandidateTag,
@@ -50,7 +52,7 @@ function statusBadgeTone(status: CurationStatus): "neutral" | "success" | "warni
 
 /**
  * Extract the ISO screenshot path from a chat item's messages JSONB.
- * Looks for previews array entries with type "screenshot".
+ * Previews contain { path, filename } entries — we prefer the isometric angle.
  */
 function extractScreenshotPath(messages: unknown[]): string | null {
   for (const msg of messages) {
@@ -58,19 +60,19 @@ function extractScreenshotPath(messages: unknown[]): string | null {
     const m = msg as Record<string, unknown>;
 
     if (Array.isArray(m.previews)) {
-      // Prefer ISO angle
+      // Prefer isometric screenshot
       for (const preview of m.previews) {
         if (typeof preview !== "object" || preview === null) continue;
         const p = preview as Record<string, unknown>;
-        if (p.type === "screenshot" && typeof p.path === "string" && p.angle === "iso") {
+        if (typeof p.path === "string" && (p.path as string).includes("screenshot-isometric")) {
           return p.path as string;
         }
       }
-      // Fallback: first screenshot
+      // Fallback: first preview with "screenshot" in the path
       for (const preview of m.previews) {
         if (typeof preview !== "object" || preview === null) continue;
         const p = preview as Record<string, unknown>;
-        if (p.type === "screenshot" && typeof p.path === "string") {
+        if (typeof p.path === "string" && (p.path as string).includes("screenshot")) {
           return p.path as string;
         }
       }
@@ -103,6 +105,49 @@ function extractText(messages: unknown[]): string {
   return "(no text)";
 }
 
+/** Fetch an image via the authenticated files API and render as a blob URL. */
+function AuthImage({ filePath, token, alt, className }: { filePath: string; token: string; alt: string; className?: string }) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let revoked = false;
+    downloadFileBinary({ token, path: filePath })
+      .then(({ blob }) => {
+        if (revoked) return;
+        setObjectUrl(URL.createObjectURL(blob));
+      })
+      .catch(() => {
+        if (!revoked) setError(true);
+      });
+    return () => {
+      revoked = true;
+      setObjectUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+    };
+  }, [filePath, token]);
+
+  if (error) {
+    return (
+      <div className={`flex items-center justify-center bg-[hsl(var(--muted)_/_0.3)] ${className ?? ""}`}>
+        <ImageIcon className="h-5 w-5 text-[hsl(var(--muted-foreground))]" />
+      </div>
+    );
+  }
+
+  if (!objectUrl) {
+    return (
+      <div className={`flex items-center justify-center bg-[hsl(var(--muted)_/_0.3)] ${className ?? ""}`}>
+        <Loader2 className="h-4 w-4 animate-spin text-[hsl(var(--muted-foreground))]" />
+      </div>
+    );
+  }
+
+  return <img src={objectUrl} alt={alt} className={className} />;
+}
+
 export function CurationTab({ token }: CurationTabProps) {
   const [candidates, setCandidates] = useState<CurationCandidateRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -126,6 +171,10 @@ export function CurationTab({ token }: CurationTabProps) {
   const [allTags, setAllTags] = useState<string[]>([]);
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const tagInputRef = useRef<HTMLInputElement>(null);
+
+  // Approval state
+  const [approving, setApproving] = useState(false);
+  const [showApproveConfirm, setShowApproveConfirm] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -303,6 +352,23 @@ export function CurationTab({ token }: CurationTabProps) {
     }
   }
 
+  async function handleApprove() {
+    if (!selectedDetail) return;
+    setApproving(true);
+    setError(null);
+    try {
+      await approveCurationCandidate(token, selectedDetail.id);
+      setShowApproveConfirm(false);
+      setDrawerOpen(false);
+      setSelectedDetail(null);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setApproving(false);
+    }
+  }
+
   if (loading) {
     return <InlineAlert tone="info">Loading curation candidates...</InlineAlert>;
   }
@@ -346,8 +412,9 @@ export function CurationTab({ token }: CurationTabProps) {
                   {/* Thumbnail */}
                   <div className="h-16 w-16 flex-shrink-0 overflow-hidden rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted))]">
                     {screenshotPath ? (
-                      <img
-                        src={`/api/files/download?path=${encodeURIComponent(screenshotPath)}`}
+                      <AuthImage
+                        filePath={screenshotPath}
+                        token={token}
                         alt="Model preview"
                         className="h-full w-full object-cover"
                       />
@@ -439,8 +506,9 @@ export function CurationTab({ token }: CurationTabProps) {
                 ? extractScreenshotPath(lastAssistant.messages as unknown[])
                 : null;
               return path ? (
-                <img
-                  src={`/api/files/download?path=${encodeURIComponent(path)}`}
+                <AuthImage
+                  filePath={path}
+                  token={token}
                   alt="Model preview"
                   className="w-full rounded-md border border-[hsl(var(--border))]"
                 />
@@ -459,6 +527,22 @@ export function CurationTab({ token }: CurationTabProps) {
                 <Download className="h-3.5 w-3.5" /> {selectedDetail.totalDownloads} downloads
               </span>
             </div>
+
+            {/* Promoted badge */}
+            {selectedDetail.workbenchExampleId ? (
+              <div className="flex items-center gap-2 rounded-md border border-[hsl(var(--success)_/_0.3)] bg-[hsl(var(--success)_/_0.1)] p-3">
+                <Check className="h-4 w-4 text-[hsl(var(--success))]" />
+                <span className="text-sm font-medium text-[hsl(var(--success))]">
+                  Promoted to Workbench
+                </span>
+                <a
+                  href={`/workbench`}
+                  className="ml-auto flex items-center gap-1 text-xs text-[hsl(var(--primary))] hover:underline"
+                >
+                  View <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            ) : null}
 
             {/* Context info */}
             <div className="rounded-md border border-[hsl(var(--border))] p-3">
@@ -663,36 +747,83 @@ export function CurationTab({ token }: CurationTabProps) {
 
             {/* Actions */}
             {selectedDetail.status === "pending" || selectedDetail.status === "reviewing" ? (
-              <div className="flex gap-2 border-t border-[hsl(var(--border))] pt-3">
-                {selectedDetail.status === "pending" ? (
+              <div className="space-y-3 border-t border-[hsl(var(--border))] pt-3">
+                {/* Approve confirmation */}
+                {showApproveConfirm ? (
+                  <div className="rounded-md border border-[hsl(var(--warning)_/_0.5)] bg-[hsl(var(--warning)_/_0.05)] p-3">
+                    <p className="mb-2 text-sm font-medium">
+                      Promote this model to the workbench library?
+                    </p>
+                    <p className="mb-3 text-xs text-[hsl(var(--muted-foreground))]">
+                      This will copy files, create a workbench entry, generate an embedding, and attach tags.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        disabled={approving}
+                        onClick={() => void handleApprove()}
+                      >
+                        {approving ? (
+                          <><Spinner size="sm" /> Promoting...</>
+                        ) : (
+                          <><Check className="h-3.5 w-3.5" /> Confirm Approve</>
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={approving}
+                        onClick={() => setShowApproveConfirm(false)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="flex gap-2">
+                  {selectedDetail.status === "pending" ? (
+                    <Button
+                      variant="outline"
+                      disabled={busyIds.has(selectedDetail.id)}
+                      onClick={() =>
+                        void handleStatusUpdate(selectedDetail.id, "reviewing")
+                      }
+                    >
+                      Mark Reviewing
+                    </Button>
+                  ) : null}
+                  <Button
+                    disabled={
+                      busyIds.has(selectedDetail.id) ||
+                      approving ||
+                      !selectedDetail.distilledPrompt ||
+                      showApproveConfirm
+                    }
+                    onClick={() => setShowApproveConfirm(true)}
+                    title={!selectedDetail.distilledPrompt ? "Distill prompt first" : undefined}
+                  >
+                    <Check className="h-3.5 w-3.5" /> Approve
+                  </Button>
                   <Button
                     variant="outline"
                     disabled={busyIds.has(selectedDetail.id)}
                     onClick={() =>
-                      void handleStatusUpdate(selectedDetail.id, "reviewing")
+                      void handleStatusUpdate(selectedDetail.id, "dismissed")
                     }
                   >
-                    Mark Reviewing
+                    Dismiss
                   </Button>
-                ) : null}
-                <Button
-                  variant="outline"
-                  disabled={busyIds.has(selectedDetail.id)}
-                  onClick={() =>
-                    void handleStatusUpdate(selectedDetail.id, "dismissed")
-                  }
-                >
-                  Dismiss
-                </Button>
-                <Button
-                  variant="destructive"
-                  disabled={busyIds.has(selectedDetail.id)}
-                  onClick={() =>
-                    void handleStatusUpdate(selectedDetail.id, "rejected")
-                  }
-                >
-                  Reject
-                </Button>
+                  <Button
+                    variant="destructive"
+                    disabled={busyIds.has(selectedDetail.id)}
+                    onClick={() =>
+                      void handleStatusUpdate(selectedDetail.id, "rejected")
+                    }
+                  >
+                    Reject
+                  </Button>
+                </div>
               </div>
             ) : null}
           </div>

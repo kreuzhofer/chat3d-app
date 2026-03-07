@@ -206,6 +206,7 @@ export async function getCandidateDetail(candidateId: string) {
     notes: candidate.notes,
     distilledPrompt: candidate.distilledPrompt,
     originalPrompt: candidate.originalPrompt,
+    workbenchExampleId: candidate.workbenchExampleId,
     reviewedAt: candidate.reviewedAt?.toISOString() ?? null,
     createdAt: candidate.createdAt.toISOString(),
     updatedAt: candidate.updatedAt.toISOString(),

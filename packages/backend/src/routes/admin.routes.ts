@@ -33,6 +33,7 @@ import {
   distillPrompt,
   suggestTags,
 } from "../services/curation-llm.service.js";
+import { promoteCandidate } from "../services/curation-promote.service.js";
 import { prisma } from "../db/prisma.js";
 import {
   listAllModels,
@@ -706,6 +707,21 @@ adminRouter.post("/curation/candidates/:id/suggest-tags", async (req, res) => {
     res.status(200).json({ tags });
   } catch (error) {
     sendKnownError(res, error, "Failed to suggest tags");
+  }
+});
+
+adminRouter.post("/curation/candidates/:id/approve", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Invalid candidate id" });
+    return;
+  }
+
+  try {
+    const result = await promoteCandidate(id);
+    res.status(200).json(result);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to approve curation candidate");
   }
 });
 
