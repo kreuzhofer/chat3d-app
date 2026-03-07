@@ -106,6 +106,7 @@ export const LLM_PURPOSES = [
   "embedding",
   "prompt_distill",
   "tag_suggest",
+  "spec_generation",
 ] as const;
 
 export type LlmPurpose = (typeof LLM_PURPOSES)[number];

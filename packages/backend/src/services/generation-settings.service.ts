@@ -54,6 +54,8 @@ const SETTINGS_REGISTRY = new Map<string, SettingMeta>([
   ["chat.few_shot_example_limit", { default: 6, label: "Few-shot example limit", description: "Number of few-shot examples to include in prompt", pipeline: "chat", min: 0, max: 20 }],
   ["chat.codegen_base_temperature", { default: 0.3, label: "Codegen base temperature", description: "Base temperature for code generation (increases per fix iteration)", pipeline: "chat", min: 0, max: 1 }],
   ["chat.codegen_temperature_step", { default: 0.1, label: "Codegen temperature step", description: "Temperature increase per fix iteration", pipeline: "chat", min: 0, max: 0.3 }],
+  ["workbench.spec_generation_enabled", { default: 1, label: "Spec generation enabled", description: "Enable specification step before codegen (1=on, 0=off)", pipeline: "workbench", min: 0, max: 1 }],
+  ["chat.spec_generation_enabled", { default: 1, label: "Spec generation enabled", description: "Enable specification step before codegen (1=on, 0=off)", pipeline: "chat", min: 0, max: 1 }],
 ]);
 
 // ── In-memory cache ──────────────────────────────────────────────────
@@ -121,6 +123,10 @@ export async function getCodegenBaseTemperature(): Promise<number> {
 
 export async function getCodegenTemperatureStep(): Promise<number> {
   return getEffective("chat.codegen_temperature_step");
+}
+
+export async function isSpecGenerationEnabled(pipeline: Pipeline): Promise<boolean> {
+  return (await getEffective(`${pipeline}.spec_generation_enabled`)) === 1;
 }
 
 // ── Admin API ────────────────────────────────────────────────────────

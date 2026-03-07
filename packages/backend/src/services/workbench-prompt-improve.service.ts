@@ -26,6 +26,7 @@ export interface ImprovePromptInput {
   evalIssues: string[];
   evalSuggestions: string[];
   code: string;
+  disambiguationQuestions?: string[];
 }
 
 export interface ImprovePromptResult {
@@ -46,6 +47,9 @@ Each variation should:
 - Be a complete, self-contained prompt (not a diff or delta)
 - Be concise — one to three sentences, similar length to the original
 - Use precise engineering language (e.g., "centered at mid-height" not "in the middle area")
+
+Each variation should also:
+- If ambiguity questions are provided, ensure each variation explicitly addresses those ambiguities with specific choices
 
 The 3 variations should represent different interpretations or levels of detail:
 1. Minimal clarification — only add what is needed to resolve the most critical ambiguity
@@ -73,6 +77,10 @@ function buildImproveUserMessage(input: ImprovePromptInput): string {
 
   if (input.code) {
     sections.push(`\nGenerated Build123d code:\n\`\`\`python\n${input.code}\n\`\`\``);
+  }
+
+  if (input.disambiguationQuestions?.length) {
+    sections.push(`\nAmbiguity questions identified:\n${input.disambiguationQuestions.map((q) => `- ${q}`).join("\n")}`);
   }
 
   sections.push("\nGenerate 3 improved prompt variations as described.");

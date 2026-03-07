@@ -21,6 +21,12 @@ const EVAL_MAX_RETRIES = 2;
 
 // ── Result types ─────────────────────────────────────────────────────
 
+export interface ChecklistResult {
+  question: string;
+  pass: boolean;
+  detail: string;
+}
+
 export interface EvaluationResult {
   score: number;
   issues: string[];
@@ -29,6 +35,7 @@ export interface EvaluationResult {
   vlmModel: string;
   promptTokens: number;
   completionTokens: number;
+  checklistResults?: ChecklistResult[];
 }
 
 interface ParsedEvaluation {
@@ -43,8 +50,9 @@ function buildEvaluationSystemPrompt(
   userPrompt: string,
   categoryName: string,
   complexity: number,
+  verificationChecklist?: string[],
 ): string {
-  return `You are a 3D model quality evaluator for Build123d CAD models.
+  let prompt = `You are a 3D model quality evaluator for Build123d CAD models.
 
 The user requested: "${userPrompt}"
 Category: ${categoryName} (complexity level ${complexity}/10)
@@ -125,6 +133,21 @@ Return JSON only:
   "issues": ["<geometric/structural problem>", ...],
   "suggestions": ["<rendering observation or code improvement>", ...]
 }`;
+
+  if (verificationChecklist?.length) {
+    prompt += `
+
+Verification Checklist — answer each with pass/fail and a brief explanation:
+${verificationChecklist.map((q, i) => `${i + 1}. ${q}`).join("\n")}
+
+Include in your JSON response:
+"checklist": [
+  { "question": "...", "pass": true|false, "detail": "brief explanation" },
+  ...
+]`;
+  }
+
+  return prompt;
 }
 
 // ── Response parsing (three-level fallback) ──────────────────────────
@@ -199,6 +222,33 @@ export function parseEvaluationResponse(content: string): ParsedEvaluation {
   return extractFromText(content);
 }
 
+// ── Checklist parsing ────────────────────────────────────────────────
+
+function parseChecklistResults(content: string): ChecklistResult[] {
+  try {
+    // Try to extract JSON from code fence first
+    let jsonStr = content;
+    const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenceMatch) {
+      jsonStr = fenceMatch[1].trim();
+    }
+
+    const parsed = JSON.parse(jsonStr) as { checklist?: Array<{ question?: string; pass?: boolean; detail?: string }> };
+    if (parsed.checklist && Array.isArray(parsed.checklist)) {
+      return parsed.checklist
+        .filter((c) => typeof c.question === "string")
+        .map((c) => ({
+          question: c.question!,
+          pass: c.pass === true,
+          detail: typeof c.detail === "string" ? c.detail : "",
+        }));
+    }
+  } catch {
+    // Checklist parsing is best-effort — fail silently
+  }
+  return [];
+}
+
 // ── Main evaluation function ─────────────────────────────────────────
 
 export interface LabeledImage {
@@ -214,6 +264,8 @@ export interface EvaluateModelInput {
   images: LabeledImage[];
   /** Optional override for the looks-correct score threshold (default 7) */
   looksCorrectThreshold?: number;
+  /** Optional verification checklist from spec generation step */
+  verificationChecklist?: string[];
 }
 
 export async function evaluateModel(input: EvaluateModelInput): Promise<EvaluationResult> {
@@ -241,7 +293,7 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
   const vlmModelLabel = vlmConfig.label;
   logger.info({ model: vlmModelLabel }, "using VLM model");
 
-  const systemPrompt = buildEvaluationSystemPrompt(userPrompt, categoryName, complexity);
+  const systemPrompt = buildEvaluationSystemPrompt(userPrompt, categoryName, complexity, input.verificationChecklist);
 
   // Build user message with labeled image parts.
   // Each image is preceded by a text label so the VLM knows which angle it's viewing.
@@ -293,6 +345,15 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
 
         const parsed = parseEvaluationResponse(responseText);
 
+        // Parse checklist results if verification checklist was provided
+        let checklistResults: ChecklistResult[] | undefined;
+        if (input.verificationChecklist?.length) {
+          checklistResults = parseChecklistResults(responseText);
+          if (checklistResults.length > 0) {
+            logger.info({ checklistCount: checklistResults.length, passCount: checklistResults.filter(c => c.pass).length }, "checklist results parsed");
+          }
+        }
+
         logger.info(
           { score: parsed.score, issueCount: parsed.issues.length, suggestionCount: parsed.suggestions.length },
           "evaluation parsed",
@@ -304,6 +365,7 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
           vlmModel: vlmModelLabel,
           promptTokens: result.usage?.inputTokens ?? 0,
           completionTokens: result.usage?.outputTokens ?? 0,
+          checklistResults,
         };
       } catch (error) {
         // Never retry quota/credit exhaustion errors — abort immediately

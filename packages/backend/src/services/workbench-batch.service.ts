@@ -50,7 +50,7 @@ export interface BatchJob {
 export interface BatchPromptResult {
   promptId: string;
   promptText: string;
-  status: "success" | "error" | "skipped" | "rejected";
+  status: "success" | "error" | "skipped" | "rejected" | "disambiguation";
   exampleId: string | null;
   evalScore: number | null;
   approvalStatus: string | null;
@@ -501,7 +501,23 @@ async function runBatchJob(
     try {
       result = await generateForPrompt(prompt.id, buildProgressCallback(job, prompt.id));
 
-      if (result.approvalStatus === "rejected") {
+      if (result.disambiguationNeeded) {
+        // Prompt needs disambiguation — count as skipped
+        job.skipped += 1;
+        job.results.push({
+          promptId: prompt.id,
+          promptText: prompt.prompt,
+          status: "disambiguation",
+          exampleId: null,
+          evalScore: null,
+          approvalStatus: null,
+          error: `Needs clarification: ${result.disambiguationQuestions?.join("; ")}`,
+        });
+        logger.info(
+          { promptId: prompt.id, questions: result.disambiguationQuestions },
+          "prompt needs disambiguation, skipped",
+        );
+      } else if (result.approvalStatus === "rejected") {
         // Prompt was rejected by validation — count as completed (not failed)
         job.completed += 1;
         job.results.push({

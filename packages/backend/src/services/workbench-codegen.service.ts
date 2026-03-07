@@ -54,7 +54,9 @@ import {
   getAutoApproveThreshold,
   getLooksCorrectThreshold,
   getFewShotExampleLimit,
+  isSpecGenerationEnabled,
 } from "./generation-settings.service.js";
+import { generateSpec, type SpecResult } from "./spec-generation.service.js";
 import crypto from "node:crypto";
 
 export const MAX_FIX_ITERATIONS = 5;
@@ -102,11 +104,11 @@ export function wrapInTemplate(rawCode: string, baseFileName: string): string {
 export type ProgressCallback = (state: string, detail: string) => void;
 
 export interface GenerateResult {
-  exampleId: string;
+  exampleId: string | null;
   promptId: string;
   iteration: number;
   code: string;
-  renderStatus: "success" | "error";
+  renderStatus: "success" | "error" | "skipped";
   renderError: string | null;
   evalScore: number | null;
   evalIssues: string[] | null;
@@ -114,6 +116,8 @@ export interface GenerateResult {
   approvalStatus: "pending" | "auto_approved" | "rejected";
   llmModel: string;
   vlmModel: string | null;
+  disambiguationNeeded?: boolean;
+  disambiguationQuestions?: string[];
 }
 
 interface PromptContext {
@@ -919,6 +923,48 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     };
   }
 
+  // 2b. Spec generation (disambiguation check)
+  let specResult: SpecResult | null = null;
+  const specEnabled = await isSpecGenerationEnabled("workbench");
+  if (specEnabled) {
+    onProgress?.("analyzing", "Analyzing prompt specification...");
+    specResult = await generateSpec(ctx.prompt);
+
+    if (specResult.disambiguationNeeded) {
+      logger.info({ questions: specResult.disambiguationQuestions }, "prompt needs disambiguation — skipping codegen");
+      onProgress?.("skipped", "Prompt needs clarification");
+
+      // Store disambiguation info on the prompt
+      await prisma.workbenchExamplePrompt.update({
+        where: { id: ctx.promptId },
+        data: {
+          disambiguationQuestions: specResult.disambiguationQuestions,
+          disambiguationStatus: "needs_review",
+          specInterpretation: specResult.interpretation,
+        },
+      });
+
+      return {
+        exampleId: null,
+        promptId: ctx.promptId,
+        iteration: 0,
+        code: "",
+        renderStatus: "skipped",
+        renderError: null,
+        evalScore: null,
+        evalIssues: null,
+        evalSuggestions: null,
+        approvalStatus: "pending",
+        llmModel: llmModelLabel,
+        vlmModel: null,
+        disambiguationNeeded: true,
+        disambiguationQuestions: specResult.disambiguationQuestions,
+      };
+    }
+
+    logger.info({ interpretation: specResult.interpretation.slice(0, 100), checklistCount: specResult.verificationChecklist.length }, "spec generated");
+  }
+
   // 3. Load dynamic settings + few-shot examples
   const [dynMaxFix, dynAutoApprove, dynLooksCorrect, dynFewShotLimit] = await Promise.all([
     getMaxFixIterations("workbench"),
@@ -1180,6 +1226,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         complexity: ctx.complexity,
         images: vlmImages,
         looksCorrectThreshold: dynLooksCorrect,
+        verificationChecklist: specResult?.verificationChecklist,
       });
       // Accumulate VLM eval tokens into the total
       totalPromptTokens += evalResult.promptTokens;

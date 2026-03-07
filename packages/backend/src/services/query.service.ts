@@ -57,7 +57,9 @@ import {
   getFewShotExampleLimit,
   getCodegenBaseTemperature,
   getCodegenTemperatureStep,
+  isSpecGenerationEnabled,
 } from "./generation-settings.service.js";
+import { generateSpec, formatDisambiguationResponse } from "./spec-generation.service.js";
 import {
   getModelForPurpose,
   createProviderModel as createProviderModelFromConfig,
@@ -1313,6 +1315,70 @@ export async function executeQueryPipeline(input: {
 
     checkAborted();
 
+    // ── Spec generation (disambiguation check) ──
+    let epVerificationChecklist: string[] = [];
+    const specEnabled = await isSpecGenerationEnabled("chat");
+    if (specEnabled) {
+      await persistPhase("Analyzing request...");
+      checkAborted();
+
+      const specResult = await generateSpec(prompt);
+      epTotalPromptTokens += specResult.promptTokens;
+      epTotalCompletionTokens += specResult.completionTokens;
+      // Track spec cost
+      try {
+        const specCfg = await getModelForPurpose("spec_generation").catch(() => getModelForPurpose("conversation"));
+        const specCost = calculateCostUsd(specCfg, specResult.promptTokens, specResult.completionTokens);
+        epTotalCostUsd += specCost;
+        await incrementContextCost(input.contextId, specCost);
+        await persistItemCost();
+      } catch { /* spec cost tracking is best-effort */ }
+
+      if (specResult.disambiguationNeeded) {
+        queryLogger.info({ questions: specResult.disambiguationQuestions }, "prompt needs disambiguation — responding with questions");
+
+        const questionText = formatDisambiguationResponse(conversationText, specResult);
+        const disambigCost = Number(epTotalCostUsd.toFixed(8));
+
+        await updateChatItem({
+          userId: input.userId,
+          contextId: input.contextId,
+          itemId: assistantItemId,
+          messages: [
+            { itemType: "message", text: questionText, state: "completed", stateMessage: "" },
+            {
+              itemType: "meta",
+              text: "Chat diagnostics",
+              state: "completed",
+              stateMessage: "",
+              usage: {
+                inputTokens: epTotalPromptTokens,
+                outputTokens: epTotalCompletionTokens,
+                reasoningTokens: epTotalReasoningTokens,
+                totalTokens: epTotalPromptTokens + epTotalCompletionTokens,
+                estimatedCostUsd: disambigCost,
+              },
+            },
+          ],
+          promptTokens: epTotalPromptTokens,
+          completionTokens: epTotalCompletionTokens,
+          estimatedCostUsd: disambigCost,
+        });
+
+        await publishQueryState({
+          userId: input.userId,
+          contextId: input.contextId,
+          assistantItemId,
+          state: "completed",
+        });
+
+        return; // No codegen — wait for user's clarifying answer
+      }
+
+      epVerificationChecklist = specResult.verificationChecklist;
+      queryLogger.info({ interpretation: specResult.interpretation.slice(0, 100), checklistCount: epVerificationChecklist.length }, "spec generated");
+    }
+
     // ── Workbench-style iteration loop: codegen → render → VLM eval → fix ──
 
     const epSystemPromptContent = CODEGEN_SYSTEM_PROMPT;
@@ -1689,7 +1755,7 @@ export async function executeQueryPipeline(input: {
         await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "evaluating", detail: `Evaluating quality (attempt ${iteration}/${chatMaxFix})...` });
         await persistPhase(`Evaluating quality (attempt ${iteration}/${chatMaxFix})...`);
         try {
-          const evr = await evaluateModel({ userPrompt: prompt, categoryName: "chat", complexity: 5, images: epScreenshots.filter((s) => s.angle !== "isometric").map((s) => ({ angle: s.angle, base64: s.base64 })), looksCorrectThreshold: chatLooksCorrect });
+          const evr = await evaluateModel({ userPrompt: prompt, categoryName: "chat", complexity: 5, images: epScreenshots.filter((s) => s.angle !== "isometric").map((s) => ({ angle: s.angle, base64: s.base64 })), looksCorrectThreshold: chatLooksCorrect, verificationChecklist: epVerificationChecklist.length > 0 ? epVerificationChecklist : undefined });
           const vlmCost = calculateCostUsd(await getModelForPurpose("vlm_eval"), evr.promptTokens, evr.completionTokens);
           epTotalPromptTokens += evr.promptTokens;
           epTotalCompletionTokens += evr.completionTokens;
