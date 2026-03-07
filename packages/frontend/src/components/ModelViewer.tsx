@@ -248,10 +248,9 @@ export function ModelViewer({ token, filePath }: ModelViewerProps) {
   return (
     <div
       className={cn(
-        "relative",
         isFullscreen
-          ? "fixed inset-0 z-50 bg-[hsl(var(--surface-1))]"
-          : "space-y-2",
+          ? "fixed inset-0 z-50 flex flex-col bg-[hsl(var(--surface-1))]"
+          : "relative space-y-2",
       )}
     >
       {(viewerState === "loading" || viewerState === "idle") && (
@@ -290,7 +289,7 @@ export function ModelViewer({ token, filePath }: ModelViewerProps) {
         ref={hostRef}
         className={cn(
           "w-full overflow-hidden rounded-md border border-[hsl(var(--border))] transition-all",
-          isFullscreen ? "h-full" : "h-[320px]",
+          isFullscreen ? "flex-1 min-h-0" : "h-[320px]",
           (viewerState === "loading" || viewerState === "idle") && "hidden",
         )}
       />
