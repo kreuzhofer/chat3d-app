@@ -344,13 +344,19 @@ This mirrors the **CodeChain** pattern from research: "identify and cluster repr
 - **Implementation**: `generateSpec()` in `workbench-codegen.service.ts` and `query.service.ts`; `spec_generation_enabled` toggle per pipeline; spec result includes `interpretation`, `verificationChecklist`, `disambiguationQuestions`
 - **Note**: Uses natural-language interpretation rather than the structured JSON spec originally envisioned; the simpler approach proved sufficient
 
-**3b. Spec-to-Code with Verification Questions** — ⏳ Deferred
+**3b. Spec-to-Code with Verification Questions** — ✅ Partially Implemented (~75%)
 - After code generation, generate 3-5 binary verification questions from the spec
 - Use VLM to answer these questions against rendered screenshots
 - More targeted than current open-ended VLM evaluation
 - Example: "Does the model have exactly 3 holes?" rather than "Rate this model 1-10"
 - **Quality impact**: +5-9% geometric accuracy (CADCodeVerify research)
 - **Estimated effort**: 1 week
+- **Implementation**: Full pipeline works end-to-end: `generateSpec()` produces `verificationChecklist` (3-6 binary questions) → passed to `evaluateModel()` in both pipelines → VLM system prompt includes checklist → `parseChecklistResults()` extracts structured `ChecklistResult[]` from VLM response
+- **Remaining gaps**:
+  - Checklist results not persisted to DB (no schema fields on `WorkbenchExample` or `ChatItem`)
+  - Checklist pass/fail not used in approval decisions (score-only)
+  - Checklist results not exposed to frontend API
+  - No analytics or aggregation of checklist pass rates across examples
 
 ### Phase 4: Tiered Knowledge Architecture (Medium Effort, Medium Impact) — ✅ Partially Implemented
 
