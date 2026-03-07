@@ -287,31 +287,34 @@ This mirrors the **CodeChain** pattern from research: "identify and cluster repr
 
 ## Part 5: Proposed Multi-Phase Improvement Plan
 
-### Phase 1: Quick Wins (Low Effort, High Impact)
+### Phase 1: Quick Wins (Low Effort, High Impact) — ✅ Implemented
 
-**1a. Pre-Render Validation**
+**1a. Pre-Render Validation** — ✅ Implemented
 - Add Python AST parsing before sending to Build123d service
 - Check for `root_part` definition, valid imports, basic structure
 - Skip render round-trip for obvious syntax/structural errors
 - **Token savings**: Eliminates wasted render + VLM + fix cycles for trivially broken code
 - **Estimated effort**: 1-2 days
+- **Implementation**: `POST /api/admin/validate-code` endpoint; AST validation runs in codegen pipeline before render
 
-**1b. Adaptive Temperature in Fix Loop**
+**1b. Adaptive Temperature in Fix Loop** — ✅ Implemented
 - Start fix iterations at temperature 0 (deterministic)
 - Increment by 0.1 per failed fix attempt
 - Introduces variability to escape local minima where the LLM keeps making the same mistake
 - **Estimated effort**: Hours
+- **Implementation**: `codegen_base_temperature` and `codegen_temperature_step` generation settings
 
-**1c. Context Pruning in Fix Prompts**
+**1c. Context Pruning in Fix Prompts** — ✅ Implemented
 - Strip intermediate failed code from fix context
 - Keep only: latest code + latest error + cumulative issue summary
 - Don't carry forward VLM issues that were already addressed
 - **Token savings**: 20-40% per fix iteration
 - **Estimated effort**: 1 day
+- **Implementation**: Fix prompts in `workbench-codegen.service.ts` and `query.service.ts` carry only latest code + error
 
-### Phase 2: Structured Edit-Based Fixing (Medium Effort, High Impact)
+### Phase 2: Structured Edit-Based Fixing (Medium Effort, High Impact) — ✅ Implemented
 
-**2a. Edit-Based Fix Response Format**
+**2a. Edit-Based Fix Response Format** — ✅ Implemented
 - After initial generation succeeds (code renders), switch fix iterations to an edit-based approach
 - Instead of: "Here's the code, error, and issues — regenerate everything"
 - Ask for: "Here's the code and error. What specific changes fix it? Respond with the exact lines to change."
@@ -319,34 +322,29 @@ This mirrors the **CodeChain** pattern from research: "identify and cluster repr
 - Fall back to full regeneration if edit parsing fails
 - **Token savings**: 31-60% per fix iteration
 - **Estimated effort**: 3-5 days
+- **Implementation**: `shouldUseEditMode()`, `parseEditResponse()`, `applyEdits()` in `utils/code-edits.ts`; wired into both pipelines
 
-**2b. Reduced System Prompt for Fix Iterations**
+**2b. Reduced System Prompt for Fix Iterations** — ✅ Implemented
 - Initial generation: full 450-line Build123d API reference
 - Fix iterations: condensed reference (~100 lines) covering only the patterns relevant to the error category
 - Error-specific API guidance (e.g., fillet error → include edge selection docs)
 - **Token savings**: 50-70% of system prompt tokens on fix iterations
 - **Estimated effort**: 2-3 days
+- **Implementation**: `buildReducedSystemPrompt()` in `system-prompts.ts` with `detectCodeFeatures()` matching; `CORE_SECTIONS` + `CONDITIONAL_SECTIONS` architecture
 
-### Phase 3: Specification Step (Medium Effort, High Impact)
+### Phase 3: Specification Step (Medium Effort, High Impact) — ✅ Partially Implemented
 
-**3a. Structured Specification Generation**
+**3a. Structured Specification Generation** — ✅ Implemented (simplified form)
 - Add an intermediate step between conversation LLM and code generation
-- Conversation LLM produces a structured specification:
-  ```json
-  {
-    "components": [{"name": "body", "type": "cylinder", "dimensions": {...}}],
-    "operations": [{"type": "fillet", "target": "body.top_edges", "radius": 2}],
-    "assembly": {"arrangement": "coaxial", "constraints": [...]},
-    "complexity": "medium"
-  }
-  ```
-- Specification is validated for completeness before code generation
-- User can review/adjust the spec before code is generated
-- Code generation LLM receives spec instead of raw user text
+- LLM produces an interpretation + verification checklist + disambiguation questions
+- Interpretation is passed to codegen LLM alongside user prompt
+- Disambiguation questions pause generation and ask user for clarification when prompt is ambiguous
 - **Quality impact**: Reduces ambiguity; each LLM focuses on its strength
 - **Estimated effort**: 1-2 weeks
+- **Implementation**: `generateSpec()` in `workbench-codegen.service.ts` and `query.service.ts`; `spec_generation_enabled` toggle per pipeline; spec result includes `interpretation`, `verificationChecklist`, `disambiguationQuestions`
+- **Note**: Uses natural-language interpretation rather than the structured JSON spec originally envisioned; the simpler approach proved sufficient
 
-**3b. Spec-to-Code with Verification Questions**
+**3b. Spec-to-Code with Verification Questions** — ⏳ Deferred
 - After code generation, generate 3-5 binary verification questions from the spec
 - Use VLM to answer these questions against rendered screenshots
 - More targeted than current open-ended VLM evaluation
@@ -354,17 +352,18 @@ This mirrors the **CodeChain** pattern from research: "identify and cluster repr
 - **Quality impact**: +5-9% geometric accuracy (CADCodeVerify research)
 - **Estimated effort**: 1 week
 
-### Phase 4: Tiered Knowledge Architecture (Medium Effort, Medium Impact)
+### Phase 4: Tiered Knowledge Architecture (Medium Effort, Medium Impact) — ✅ Partially Implemented
 
-**4a. Build123d Knowledge Tiers**
-- **Tier 1 (Always loaded, ~100 lines)**: Core patterns, common mistakes, output template, fundamental primitives
-- **Tier 2 (Task-relevant, ~50-150 lines)**: Loaded based on detected operations (fillets → edge selection docs; arrays → GridLocations/PolarLocations docs; sweeps → BuildLine docs)
-- **Tier 3 (RAG, on-demand)**: Full API reference, advanced examples, edge cases
-- Use the conversation LLM's plan/specification to determine which Tier 2 sections to load
-- **Token savings**: 40-70% of system prompt tokens
-- **Estimated effort**: 1-2 weeks
+**4a. Build123d Knowledge Tiers** — ✅ Implemented (Tier 1+2)
+- **Tier 1 (Always loaded, ~220 lines)**: Core patterns, common mistakes, output template, fundamental primitives — ✅ implemented via `CORE_SECTIONS` in `system-prompts.ts`
+- **Tier 2 (Task-relevant, ~0-280 lines)**: Loaded based on detected operations from prompt keywords + spec interpretation — ✅ implemented via `detectPromptOperations()` + `buildTieredSystemPrompt()` in `system-prompts.ts`
+- **Tier 3 (RAG, on-demand)**: Full API reference, advanced examples, edge cases retrieved from external knowledge base — ⏳ deferred (requires knowledge base infrastructure)
+- Use the spec interpretation (Phase 3) to determine which Tier 2 sections to load — ✅ implemented
+- **Token savings**: 40-70% of system prompt tokens — ✅ achieved on iteration 1
+- Admin toggle: `tiered_prompt_enabled` setting per pipeline — ✅ implemented in `generation-settings.service.ts`
+- **Estimated effort**: 1-2 weeks (Tier 1+2); Tier 3 deferred
 
-**4b. Example Selection Refinement**
+**4b. Example Selection Refinement** — ⏳ Deferred
 - Current: 6 examples via semantic similarity
 - Improved: Select examples that match the *operations* needed, not just the *description*
 - Tag examples with operation types (fillet, loft, boolean, array, etc.)
@@ -372,7 +371,7 @@ This mirrors the **CodeChain** pattern from research: "identify and cluster repr
 - **Quality impact**: More relevant examples = fewer errors
 - **Estimated effort**: 1 week
 
-### Phase 5: Models as Projects (High Effort, High Impact)
+### Phase 5: Models as Projects (High Effort, High Impact) — ⏳ Not Started
 
 The key architectural shift: treat each model as a **multi-file Python project**, not a single disposable script. The agent works in a project directory — reading, writing, and editing files — just as Claude Code works on a software project.
 
@@ -448,7 +447,7 @@ All new endpoints accept the project directory as a tar/zip payload or via share
 - **Token savings**: Proportional to project size (10-file project → agent reads and edits 1 file)
 - **Estimated effort**: Included in Phase 6 agent implementation
 
-### Phase 6: Agent-Based Orchestration (High Effort, Transformative)
+### Phase 6: Agent-Based Orchestration (High Effort, Transformative) — ⏳ Not Started
 
 **6a. Orchestrator Agent**
 

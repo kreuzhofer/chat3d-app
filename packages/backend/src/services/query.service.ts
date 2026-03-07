@@ -34,7 +34,7 @@ import {
 } from "./stl-rendering-client.service.js";
 import { evaluateModel } from "./visual-eval.service.js";
 import { pushNotificationService } from "./push-notification.service.js";
-import { CODEGEN_SYSTEM_PROMPT } from "../prompts/system-prompts.js";
+import { CODEGEN_SYSTEM_PROMPT, buildTieredSystemPrompt } from "../prompts/system-prompts.js";
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
 import {
   buildInitialPrompt,
@@ -58,6 +58,7 @@ import {
   getCodegenBaseTemperature,
   getCodegenTemperatureStep,
   isSpecGenerationEnabled,
+  isTieredPromptEnabled,
 } from "./generation-settings.service.js";
 import { generateSpec, formatDisambiguationResponse } from "./spec-generation.service.js";
 import {
@@ -1381,9 +1382,6 @@ export async function executeQueryPipeline(input: {
 
     // ── Workbench-style iteration loop: codegen → render → VLM eval → fix ──
 
-    const epSystemPromptContent = CODEGEN_SYSTEM_PROMPT;
-    queryLogger.info({ promptLength: epSystemPromptContent.length }, "system prompt loaded (hard-coded)");
-
     let epFewShots: Array<{ prompt: string; code: string }> = [];
     try {
       const fewShotResult = await findSimilarExamples(prompt, chatFewShotLimit);
@@ -1401,6 +1399,17 @@ export async function executeQueryPipeline(input: {
         } catch { /* embedding cost tracking is best-effort */ }
       }
     } catch (err) { queryLogger.warn({ err: err instanceof Error ? err.message : String(err) }, "few-shot retrieval failed in executeQueryPipeline"); }
+
+    // Resolve system prompt: tiered (operation-aware) or full
+    const chatTieredEnabled = await isTieredPromptEnabled("chat");
+    const epSystemPromptContent = chatTieredEnabled
+      ? buildTieredSystemPrompt({
+          promptText: prompt,
+          interpretation: specResult?.interpretation,
+          fewShotCount: epFewShots.length,
+        })
+      : CODEGEN_SYSTEM_PROMPT;
+    queryLogger.info({ promptLength: epSystemPromptContent.length, fullLength: CODEGEN_SYSTEM_PROMPT.length, tiered: chatTieredEnabled }, "system prompt loaded");
 
     const epCodegenConfig = await getModelForPurpose("chat_codegen");
     const epCodegenModel = createProviderModelFromConfig(epCodegenConfig);

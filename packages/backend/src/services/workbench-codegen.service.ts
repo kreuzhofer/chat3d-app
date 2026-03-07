@@ -30,7 +30,7 @@ import {
   type RenderedScreenshot,
 } from "./stl-rendering-client.service.js";
 import { evaluateModel, type EvaluationResult } from "./visual-eval.service.js";
-import { CODEGEN_SYSTEM_PROMPT, buildReducedSystemPrompt } from "../prompts/system-prompts.js";
+import { CODEGEN_SYSTEM_PROMPT, buildReducedSystemPrompt, buildTieredSystemPrompt } from "../prompts/system-prompts.js";
 import {
   shouldUseEditMode,
   parseEditResponse,
@@ -55,6 +55,7 @@ import {
   getLooksCorrectThreshold,
   getFewShotExampleLimit,
   isSpecGenerationEnabled,
+  isTieredPromptEnabled,
 } from "./generation-settings.service.js";
 import { generateSpec, type SpecResult } from "./spec-generation.service.js";
 import crypto from "node:crypto";
@@ -966,16 +967,26 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
   }
 
   // 3. Load dynamic settings + few-shot examples
-  const [dynMaxFix, dynAutoApprove, dynLooksCorrect, dynFewShotLimit] = await Promise.all([
+  const [dynMaxFix, dynAutoApprove, dynLooksCorrect, dynFewShotLimit, tieredEnabled] = await Promise.all([
     getMaxFixIterations("workbench"),
     getAutoApproveThreshold("workbench"),
     getLooksCorrectThreshold("workbench"),
     getFewShotExampleLimit("workbench"),
+    isTieredPromptEnabled("workbench"),
   ]);
-  logger.info({ chars: CODEGEN_SYSTEM_PROMPT.length }, "system prompt loaded");
 
   const fewShots = await fetchFewShotExamples(ctx.prompt, ctx.categoryId, dynFewShotLimit);
   logger.info({ count: fewShots.length }, "few-shot examples loaded");
+
+  // Resolve system prompt: tiered (operation-aware) or full
+  const systemPromptContent = tieredEnabled
+    ? buildTieredSystemPrompt({
+        promptText: ctx.prompt,
+        interpretation: specResult?.interpretation,
+        fewShotCount: fewShots.length,
+      })
+    : CODEGEN_SYSTEM_PROMPT;
+  logger.info({ chars: systemPromptContent.length, fullChars: CODEGEN_SYSTEM_PROMPT.length, tiered: tieredEnabled }, "system prompt loaded");
 
   let currentCode = "";
   let renderError: string | null = null;
@@ -1029,10 +1040,10 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       logger.info({ iteration, category: renderErrorCtx?.classified.category ?? "vlm_only" }, "using edit mode for fix iteration");
     }
 
-    // 2. Generate code
+    // 2. Generate code — use tiered prompt for iteration 1, full/reduced for fixes
     const { system: cgSystem, userContent: cgUserContent } =
       iteration === 1
-        ? buildInitialPrompt(CODEGEN_SYSTEM_PROMPT, fewShots, ctx.prompt)
+        ? buildInitialPrompt(systemPromptContent, fewShots, ctx.prompt)
         : useEditMode
           ? buildEditFixPrompt(CODEGEN_SYSTEM_PROMPT, ctx.prompt, currentCode, iteration - 1, renderError, evalResult?.issues ?? null, evalResult?.suggestions ?? null, renderErrorCtx, { errorHistory, useReducedSystemPrompt: false })
           : buildFixPrompt(

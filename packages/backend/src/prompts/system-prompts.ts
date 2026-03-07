@@ -561,6 +561,96 @@ export function detectCodeFeatures(code: string): Set<string> {
   return features;
 }
 
+// ── Prompt-level operation detection ──────────────────────────────────
+//
+// Detects which Build123d sections are likely needed based on the user's
+// natural-language prompt text (and optional spec interpretation), BEFORE
+// any code exists. Used to build a tiered system prompt for iteration 1.
+
+/** Maps prompt-level keywords to the same section keys used by detectCodeFeatures(). */
+const PROMPT_OPERATION_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
+  { key: "2d_sketch",      pattern: /\b(sketch(es)?|circles?|rectangles?|polygons?|slots?|ellipses?|trapezoids?|2d\s*shapes?)\b/i },
+  { key: "sketch_ops",     pattern: /\b(sketch\s*fillets?|convex\s*hull|offset\s*sketch)\b/i },
+  { key: "3d_ops",         pattern: /\b(extru(de|sion)|revolve[ds]?|sweeps?|lofts?|thicken)\b/i },
+  { key: "edge_face",      pattern: /\b(edges?|faces?|select|top\s*face|bottom\s*face|side\s*face|sort|filter)\b/i },
+  { key: "fillets",        pattern: /\b(fillets?(ed)?|round(ed)?\s*(edges?|corners?)|chamfer(ed|s)?|bevels?(ed)?)\b/i },
+  { key: "offset_shell",   pattern: /\b(shells?|hollow(ed)?|thin\s*walls?|offsets?|wall\s*thickness)\b/i },
+  { key: "arrays",         pattern: /\b(arrays?|patterns?|grids?|evenly\s*spaced|polar|circular\s*pattern|repeats?)\b/i },
+  { key: "buildline",      pattern: /\b(profiles?|cross\s*sections?|custom\s*shapes?|polylines?|splines?|wires?|paths?|contours?)\b/i },
+  { key: "sweep",          pattern: /\b(sweeps?|along\s*path|helix|helical|springs?|threads?|coils?)\b/i },
+  { key: "loft",           pattern: /\b(lofts?|transitions?|morphs?|blend\s*between|taper(ed|ing|s)?)\b/i },
+  { key: "sketch_on_face", pattern: /\b(on\s*(top|side|bottom|face)|feature\s*on|tabs?|flanges?|boss(es)?|pockets?|counterbores?|countersinks?)\b/i },
+  { key: "revolve",        pattern: /\b(revolve[ds]?|axisymmetric|lathe[ds]?|turned|rotation(al)?)\b/i },
+  { key: "parametric",     pattern: /\b(parametric|math|computed|formulas?|equations?|trigonometric|sine|cosine|stars?)\b/i },
+];
+
+/**
+ * Detect which Build123d sections are likely needed based on prompt text.
+ * Unlike detectCodeFeatures() which matches against existing code,
+ * this matches against natural-language descriptions of what to build.
+ *
+ * Always includes 3d_ops and 2d_sketch since nearly every model needs them.
+ */
+export function detectPromptOperations(promptText: string, interpretation?: string): Set<string> {
+  const combined = interpretation ? `${promptText} ${interpretation}` : promptText;
+  const ops = new Set<string>();
+  for (const { key, pattern } of PROMPT_OPERATION_PATTERNS) {
+    if (pattern.test(combined)) {
+      ops.add(key);
+    }
+  }
+  // Always include 3d_ops and 2d_sketch — almost every model needs them
+  ops.add("3d_ops");
+  ops.add("2d_sketch");
+  return ops;
+}
+
+// ── Tiered system prompt for initial generation ──────────────────────
+//
+// Instead of sending the full ~500-line system prompt on the first codegen
+// call, include only Tier 1 (core sections) + Tier 2 (sections matching
+// detected operations from the user prompt). Saves 40-70% of system
+// prompt tokens.
+
+/**
+ * Build a tiered system prompt for the initial codegen call.
+ *
+ * Uses prompt-level operation detection to include only relevant API
+ * reference sections. Examples are included when few-shot examples are
+ * sparse (≤2) to ensure the LLM has at least some reference code.
+ */
+export function buildTieredSystemPrompt(options: {
+  promptText: string;
+  interpretation?: string;
+  fewShotCount?: number;
+}): string {
+  const ops = detectPromptOperations(options.promptText, options.interpretation);
+
+  // Tier 1: always included (same as CORE_SECTIONS)
+  const included = new Set(CORE_SECTIONS);
+
+  // Tier 2: include sections matching detected operations
+  for (const cs of CONDITIONAL_SECTIONS) {
+    if (ops.has(cs.key)) {
+      included.add(cs.section);
+    }
+  }
+
+  // Include basic example when few-shot examples are sparse (≤ 2)
+  const sparseFewShots = (options.fewShotCount ?? 0) <= 2;
+  if (sparseFewShots) {
+    included.add(CODEGEN_SECTION_EXAMPLE);
+  }
+  // MORE_EXAMPLES only when relevant advanced operations are detected and few-shots are sparse
+  if (sparseFewShots && (ops.has("buildline") || ops.has("loft") || ops.has("revolve") || ops.has("sketch_on_face") || ops.has("offset_shell"))) {
+    included.add(CODEGEN_SECTION_MORE_EXAMPLES);
+  }
+
+  return CODEGEN_ALL_SECTIONS
+    .filter(s => included.has(s))
+    .join("\n\n");
+}
+
 /**
  * Build a reduced system prompt for fix iterations.
  *
