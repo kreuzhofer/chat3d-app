@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   ChevronDown,
   ChevronRight,
+  Download,
   ExternalLink,
   Pencil,
   Plus,
   RefreshCw,
   Trash2,
+  Upload,
 } from "lucide-react";
 import {
   getKnowledgeStats,
@@ -20,6 +22,8 @@ import {
   triggerCrawl,
   triggerValidate,
   triggerEmbed,
+  exportKnowledge,
+  importKnowledge,
   type KnowledgeEntry,
   type KnowledgeStats,
   type KnowledgeSourceRow,
@@ -121,6 +125,12 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
   const [formPages, setFormPages] = useState("");
   const [formGithubToken, setFormGithubToken] = useState("");
   const [formSaving, setFormSaving] = useState(false);
+
+  // ── Export / Import ──
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importConfirm, setImportConfirm] = useState<File | null>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   // ── Data loading ──
 
@@ -348,6 +358,40 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
     }
   }
 
+  // ── Export / Import handlers ──
+
+  async function handleExport() {
+    setExporting(true);
+    setError(null);
+    try {
+      const backup = await exportKnowledge(token);
+      pushToast({ tone: "success", title: "Knowledge exported", description: `Backup "${backup.label}" created. View it on the Backups page.` });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleImport(file: File) {
+    setImporting(true);
+    setImportConfirm(null);
+    setError(null);
+    try {
+      const result = await importKnowledge(token, file);
+      pushToast({
+        tone: "success",
+        title: "Knowledge imported",
+        description: `${result.sources} sources, ${result.entries} entries imported.`,
+      });
+      await Promise.all([loadSources(), loadStats(), loadEntries(0)]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setImporting(false);
+    }
+  }
+
   // ── Derived ──
 
   const sourceFilterOptions = useMemo(() => [
@@ -538,7 +582,49 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
         ) : null}
       </SectionCard>
 
-      {/* ── Section 3: Entries ── */}
+      {/* ── Section 3: Data Transfer ── */}
+      <SectionCard
+        title="Data Transfer"
+        description="Export all knowledge data (sources + entries + embeddings) or import from a previous export."
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            size="sm"
+            iconLeft={<Download className="h-3.5 w-3.5" />}
+            onClick={() => void handleExport()}
+            disabled={exporting || totalEntries === 0}
+          >
+            {exporting ? "Exporting…" : "Export"}
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            iconLeft={<Upload className="h-3.5 w-3.5" />}
+            onClick={() => importFileRef.current?.click()}
+            disabled={importing}
+          >
+            {importing ? "Importing…" : "Import"}
+          </Button>
+          <input
+            ref={importFileRef}
+            type="file"
+            accept=".json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) setImportConfirm(file);
+              e.target.value = "";
+            }}
+          />
+
+          <span className="text-xs text-[hsl(var(--muted-foreground))]">
+            Exports appear on the Backups page for download.
+          </span>
+        </div>
+      </SectionCard>
+
+      {/* ── Section 4: Entries ── */}
       <SectionCard title="Entries" description="Browse and inspect knowledge base entries.">
         {/* Filter bar */}
         <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -813,6 +899,26 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
           <Button variant="outline" disabled={deleteBusy} onClick={() => setDeleteConfirm(null)}>Cancel</Button>
           <Button variant="destructive" loading={deleteBusy} disabled={deleteBusy} onClick={() => void executeDelete()}>
             Delete
+          </Button>
+        </div>
+      </Dialog>
+
+      {/* ── Import Confirmation Dialog ── */}
+      <Dialog
+        open={importConfirm !== null}
+        title="Import Knowledge"
+        description={`This will REPLACE ALL existing knowledge sources and entries with the data from "${importConfirm?.name}". This action cannot be undone.`}
+        onClose={() => { if (!importing) setImportConfirm(null); }}
+      >
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" disabled={importing} onClick={() => setImportConfirm(null)}>Cancel</Button>
+          <Button
+            variant="destructive"
+            loading={importing}
+            disabled={importing}
+            onClick={() => { if (importConfirm) void handleImport(importConfirm); }}
+          >
+            Replace All Data
           </Button>
         </div>
       </Dialog>

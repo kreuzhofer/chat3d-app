@@ -23,9 +23,13 @@ function formatDate(iso: string): string {
 function formatCounts(counts: Record<string, number> | null): string {
   if (!counts) return "";
   const parts: string[] = [];
+  // Workbench
   if (counts.categories) parts.push(`${counts.categories} categories`);
   if (counts.prompts) parts.push(`${counts.prompts} prompts`);
   if (counts.examples) parts.push(`${counts.examples} examples`);
+  // Knowledge
+  if (counts.sources) parts.push(`${counts.sources} sources`);
+  if (counts.entries) parts.push(`${counts.entries} entries`);
   return parts.join(", ");
 }
 
@@ -35,8 +39,9 @@ const statusTone: Record<string, "success" | "warning" | "danger" | "neutral"> =
   failed: "danger",
 };
 
-const typeTone: Record<string, "info" | "neutral"> = {
+const typeTone: Record<string, "info" | "neutral" | "success"> = {
   workbench: "info",
+  knowledge: "success",
 };
 
 export function BackupsPage() {
@@ -113,7 +118,7 @@ export function BackupsPage() {
       <PageHeader
         title="Backups"
         breadcrumbs={["Admin", "Backups"]}
-        description="Manage exported backup archives. Backups are created when workbench data is exported."
+        description="Manage exported backup archives. Backups are created when workbench or knowledge data is exported."
         actions={
           <Button size="sm" variant="outline" onClick={() => void loadBackups()}>
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
@@ -125,7 +130,7 @@ export function BackupsPage() {
       {!loading && backups.length === 0 ? (
         <EmptyState
           title="No backups yet"
-          description="Backups will appear here after you export workbench data from the Workbench page."
+          description="Backups will appear here after you export data from the Workbench or Knowledge pages."
         />
       ) : (
         <SectionCard title="All Backups" description={`${backups.length} backup${backups.length !== 1 ? "s" : ""}`}>

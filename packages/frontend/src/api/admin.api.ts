@@ -649,3 +649,27 @@ export async function createManualKnowledgeEntry(
 export async function deleteKnowledgeEntry(token: string, id: string): Promise<void> {
   await requestAdminJson(token, `/knowledge/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
+
+// ── Knowledge Export / Import ───────────────────────────────────────
+
+export async function exportKnowledge(token: string): Promise<{ id: string; label: string }> {
+  return requestAdminJson(token, "/knowledge/export", { method: "POST" });
+}
+
+export async function importKnowledge(
+  token: string,
+  file: File,
+): Promise<{ message: string; sources: number; entries: number }> {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetch(`${ADMIN_API_BASE}/knowledge/import`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(typeof body?.error === "string" ? body.error : "Import failed");
+  }
+  return body;
+}

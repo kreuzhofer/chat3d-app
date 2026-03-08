@@ -1,3 +1,5 @@
+import path from "node:path";
+import multer from "multer";
 import { Router, type RequestHandler, type Response } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
@@ -60,6 +62,8 @@ import {
   submitEmbedJob,
   getJobStatus,
 } from "../services/job-queue.service.js";
+import { exportKnowledge, importKnowledge } from "../services/knowledge-data-transfer.service.js";
+import { config } from "../config.js";
 import { prisma } from "../db/prisma.js";
 import {
   listAllModels,
@@ -1041,3 +1045,38 @@ adminRouter.delete("/knowledge/:id", async (req, res) => {
     sendKnownError(res, error, "Failed to delete knowledge entry");
   }
 });
+
+// ── Knowledge Export / Import ───────────────────────────────────────
+
+adminRouter.post("/knowledge/export", async (_req, res) => {
+  try {
+    const backup = await exportKnowledge();
+    res.status(200).json(backup);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to export knowledge");
+  }
+});
+
+const knowledgeImportUpload = multer({
+  dest: path.join(config.storage.rootDir, "knowledge-exports"),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
+});
+
+adminRouter.post(
+  "/knowledge/import",
+  knowledgeImportUpload.single("file") as RequestHandler,
+  async (req, res) => {
+    const file = (req as unknown as { file?: Express.Multer.File }).file;
+    if (!file) {
+      res.status(400).json({ error: "No file uploaded" });
+      return;
+    }
+
+    try {
+      const counts = await importKnowledge(file.path);
+      res.status(200).json({ message: "Import completed", ...counts });
+    } catch (error) {
+      sendKnownError(res, error, "Failed to import knowledge");
+    }
+  },
+);
