@@ -62,6 +62,7 @@ app = FastAPI()
 class ValidateRequest(BaseModel):
     code: str
     skip_root_part: bool = False
+    skip_lint: bool = False
 
 class LintWarning(BaseModel):
     rule: str
@@ -328,13 +329,15 @@ def validate_code(request: ValidateRequest):
                 "Missing 'root_part' assignment — code must assign the final solid to root_part"
             )
 
-    # Run lint rules
-    lint_warnings = lint_code(tree, request.code)
+    # Run lint rules (can be skipped for reference/knowledge validation)
+    lint_warnings = []
+    if not request.skip_lint:
+        lint_warnings = lint_code(tree, request.code)
 
-    # Lint errors also cause validation failure
-    for w in lint_warnings:
-        if w.severity == "error":
-            errors.append(f"[{w.rule}] {w.message} (line {w.line})")
+        # Lint errors also cause validation failure
+        for w in lint_warnings:
+            if w.severity == "error":
+                errors.append(f"[{w.rule}] {w.message} (line {w.line})")
 
     return ValidateResponse(
         valid=len(errors) == 0,

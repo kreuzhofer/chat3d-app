@@ -1,11 +1,16 @@
 /**
- * Validate Build123d knowledge entries against the Build123d container.
+ * Validate Build123d knowledge entries.
  *
- * Runs pending entries through POST /validate/ to confirm they parse and use valid APIs.
- * Marks entries as valid/invalid/error.
+ * Checks two things:
+ *   1. Does the code contain Build123d API usage? (string matching)
+ *   2. Is it valid Python syntax? (AST parse via Build123d container)
+ *
+ * We do NOT check template compliance (root_part, lint rules, forbidden imports).
+ * This is reference code from external sources — it just needs to be real,
+ * parseable Build123d code that the agent can learn patterns from.
  *
  * Usage:
- *   npx tsx src/scripts/validate-knowledge.ts [--limit 100] [--revalidate]
+ *   npx tsx src/scripts/validate-knowledge.ts [--limit=100] [--revalidate]
  */
 
 import { prisma } from "../db/prisma.js";
@@ -16,29 +21,50 @@ const logger = createLogger("validate-knowledge");
 
 const BUILD123D_URL = config.query.build123dUrl;
 
-interface ValidateResponse {
-  valid: boolean;
-  errors: string[];
-  warnings: Array<{ rule: string; message: string; line: number; severity: string }>;
+// Build123d API markers — if the code contains any of these, it's build123d code
+const BUILD123D_MARKERS = [
+  "BuildPart", "BuildSketch", "BuildLine",
+  "Box", "Cylinder", "Sphere", "Cone", "Torus", "Wedge",
+  "extrude", "revolve", "sweep", "loft", "fillet", "chamfer",
+  "offset", "Circle", "Rectangle", "Polygon", "Ellipse",
+  "Locations", "GridLocations", "PolarLocations",
+  "Mode.ADD", "Mode.SUBTRACT", "Mode.INTERSECT",
+  "build123d",
+];
+
+function isBuild123dCode(code: string): boolean {
+  return BUILD123D_MARKERS.some(marker => code.includes(marker));
 }
 
-async function validateCode(code: string): Promise<ValidateResponse> {
+/**
+ * Check if code is valid Python syntax by sending it to the Build123d container.
+ * We use skip_root_part and skip_lint to only check syntax.
+ */
+async function isValidPython(code: string): Promise<{ valid: boolean; error?: string }> {
   const resp = await fetch(`${BUILD123D_URL}/validate/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code, skip_root_part: true }),
+    body: JSON.stringify({ code, skip_root_part: true, skip_lint: true }),
   });
 
   if (!resp.ok) {
     throw new Error(`Build123d /validate/ returned ${resp.status}`);
   }
 
-  return resp.json() as Promise<ValidateResponse>;
+  const result = await resp.json() as { valid: boolean; errors: string[] };
+
+  // Only syntax errors matter — everything else is fine for reference code
+  const syntaxError = result.errors.find(e => e.startsWith("Syntax error:"));
+  if (syntaxError) {
+    return { valid: false, error: syntaxError };
+  }
+
+  return { valid: true };
 }
 
 async function main() {
   const args = process.argv.slice(2);
-  const limit = parseInt(args.find(a => a.startsWith("--limit="))?.split("=")[1] ?? "200", 10);
+  const limit = parseInt(args.find(a => a.startsWith("--limit="))?.split("=")[1] ?? "500", 10);
   const revalidate = args.includes("--revalidate");
 
   const where: Record<string, unknown> = revalidate
@@ -57,118 +83,51 @@ async function main() {
   let valid = 0;
   let invalid = 0;
   let errored = 0;
+  let notBuild123d = 0;
 
   for (const entry of entries) {
     try {
-      // For test functions, we need to wrap them — they're methods, not standalone scripts
-      let codeToValidate = entry.code;
-
-      // Test functions start with "def test_" and contain self references
-      if (entry.sourceType === "github_test" && codeToValidate.includes("def test_")) {
-        // Extract just the body, strip self references, add imports
-        codeToValidate = wrapTestCode(codeToValidate);
+      // Check 1: Is this actually Build123d code?
+      if (!isBuild123dCode(entry.code)) {
+        notBuild123d++;
+        await prisma.build123dKnowledge.update({
+          where: { id: entry.id },
+          data: { validationStatus: "invalid", validatedAt: new Date() },
+        });
+        logger.debug({ title: entry.title }, "not build123d code");
+        continue;
       }
 
-      // Strip imports and show/display calls that the template provides or that are
-      // specific to the OCP VSCode viewer — not relevant for knowledge validation
-      codeToValidate = codeToValidate
-        .replace(/^from build123d import \*\s*$/gm, "")
-        .replace(/^import build123d\s*$/gm, "")
-        .replace(/^from build123d import .+$/gm, "")
-        .replace(/^from ocp_vscode import .+$/gm, "")
-        .replace(/^import ocp_vscode.*$/gm, "")
-        .replace(/^show_object\(.*\)\s*$/gm, "")
-        .replace(/^show\(.*\)\s*$/gm, "")
-        .replace(/^# \[End\]\s*$/gm, "")
-        .trim();
-
-      const result = await validateCode(codeToValidate);
-
-      // For knowledge entries, only count syntax/parse errors, not lint warnings.
-      // The code may have show() calls, missing root_part, etc. which are fine
-      // for reference code — lint rules are about template compliance, not validity.
-      const isValid = result.valid;
+      // Check 2: Is it valid Python syntax?
+      const result = await isValidPython(entry.code);
 
       await prisma.build123dKnowledge.update({
         where: { id: entry.id },
         data: {
-          validationStatus: isValid ? "valid" : "invalid",
+          validationStatus: result.valid ? "valid" : "invalid",
           validatedAt: new Date(),
         },
       });
 
-      if (isValid) {
+      if (result.valid) {
         valid++;
       } else {
         invalid++;
-        logger.debug({
-          title: entry.title,
-          errors: result.errors.slice(0, 2),
-        }, "invalid entry");
+        logger.debug({ title: entry.title, error: result.error }, "syntax error");
       }
     } catch (err) {
       errored++;
       await prisma.build123dKnowledge.update({
         where: { id: entry.id },
-        data: {
-          validationStatus: "error",
-          validatedAt: new Date(),
-        },
+        data: { validationStatus: "error", validatedAt: new Date() },
       });
       const errMsg = err instanceof Error ? err.message : String(err);
       logger.warn({ error: errMsg, title: entry.title }, "validation error: " + errMsg);
     }
   }
 
-  logger.info({ valid, invalid, errored, total: entries.length }, "validation complete");
+  logger.info({ valid, invalid, notBuild123d, errored, total: entries.length }, "validation complete");
   await prisma.$disconnect();
-}
-
-/**
- * Wrap a test function body to make it a standalone script.
- * Strips `self.` references and adds a `root_part` assignment if missing.
- */
-function wrapTestCode(code: string): string {
-  // Remove the def line and self parameter, auto-detect indent level
-  const lines = code.split("\n");
-  const bodyLines: string[] = [];
-  let inBody = false;
-  let indentSize = 0;
-
-  for (const line of lines) {
-    if (!inBody) {
-      if (line.trim().startsWith("def test_")) {
-        inBody = true;
-        continue;
-      }
-    } else {
-      // Detect indent level from first non-empty body line
-      if (indentSize === 0 && line.trim().length > 0) {
-        const match = line.match(/^(\s+)/);
-        indentSize = match ? match[1].length : 0;
-      }
-      // Dedent by detected indent level
-      if (indentSize > 0 && line.startsWith(" ".repeat(indentSize))) {
-        bodyLines.push(line.slice(indentSize));
-      } else if (line.trim() === "") {
-        bodyLines.push("");
-      } else {
-        bodyLines.push(line);
-      }
-    }
-  }
-
-  let body = bodyLines.join("\n")
-    .replace(/self\.\w+/g, "result") // Replace self.xxx with result
-    .replace(/self,\s*/g, "") // Remove self from function calls
-    .trim();
-
-  // If no root_part assignment, add a dummy one for validation
-  if (!body.includes("root_part")) {
-    body += "\n\n# Added for validation\nroot_part = result if 'result' in dir() else Box(1, 1, 1)\n";
-  }
-
-  return body;
 }
 
 main().catch((err) => {
