@@ -170,6 +170,41 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
   return { embedded, skipped: 0 };
 }
 
+// ── Operation detection backfill ─────────────────────────────────────
+
+/**
+ * Backfill `detected_operations` on all workbench_example_prompts that
+ * have an empty array. This is a one-time migration for existing prompts.
+ */
+export async function backfillDetectedOperations(): Promise<{ updated: number }> {
+  const { detectPromptOperations } = await import("../prompts/system-prompts.js");
+
+  const rows = await prisma.workbenchExamplePrompt.findMany({
+    where: { detectedOperations: { isEmpty: true } },
+    select: { id: true, prompt: true },
+  });
+
+  if (rows.length === 0) {
+    logger.info("all prompts already have detected operations");
+    return { updated: 0 };
+  }
+
+  logger.info({ count: rows.length }, "backfilling detected operations");
+  let updated = 0;
+
+  for (const row of rows) {
+    const ops = [...detectPromptOperations(row.prompt)];
+    await prisma.workbenchExamplePrompt.update({
+      where: { id: row.id },
+      data: { detectedOperations: ops },
+    });
+    updated++;
+  }
+
+  logger.info({ updated }, "detected operations backfill complete");
+  return { updated };
+}
+
 // ── Vector similarity search ────────────────────────────────────────
 
 export interface FindSimilarResult {
@@ -180,13 +215,45 @@ export interface FindSimilarResult {
 /**
  * Find the most semantically similar approved examples across ALL categories.
  * Returns examples ordered by cosine similarity (highest first), plus embedding token usage.
+ *
+ * When `boostOperations` is provided, examples matching those operations get a
+ * relevance boost (combined semantic + operation overlap score).
  */
 export async function findSimilarExamples(
   promptText: string,
   limit = 6,
+  boostOperations?: Set<string>,
 ): Promise<FindSimilarResult> {
   const { embedding: queryEmbedding, tokens: embeddingTokens } = await embedPromptTextWithUsage(promptText);
   const pgVector = `[${queryEmbedding.join(",")}]`;
+
+  if (boostOperations && boostOperations.size > 0) {
+    const opsArray = [...boostOperations];
+    // Fetch 3x candidates, then re-rank with operation overlap boost
+    const candidateLimit = Math.min(limit * 3, 20);
+    const candidates = await prisma.$queryRaw<{ prompt: string; code: string; similarity: number; detected_operations: string[] }[]>`
+      SELECT p.prompt, e.code,
+              1 - (p.embedding <=> ${pgVector}::vector) AS similarity,
+              p.detected_operations
+       FROM workbench_examples e
+       JOIN workbench_example_prompts p ON p.id = e.prompt_id
+       WHERE p.embedding IS NOT NULL
+         AND e.approval_status IN ('auto_approved', 'human_approved')
+       ORDER BY p.embedding <=> ${pgVector}::vector ASC
+       LIMIT ${candidateLimit}
+    `;
+
+    // Re-rank: semantic similarity (0.7 weight) + operation overlap (0.3 weight)
+    const ranked = candidates.map((c: { prompt: string; code: string; similarity: number; detected_operations: string[] }) => {
+      const ops = c.detected_operations ?? [];
+      const overlap = ops.filter((op: string) => opsArray.includes(op)).length;
+      const overlapScore = opsArray.length > 0 ? overlap / opsArray.length : 0;
+      const combined = c.similarity * 0.7 + overlapScore * 0.3;
+      return { prompt: c.prompt, code: c.code, similarity: combined };
+    });
+    ranked.sort((a: { similarity: number }, b: { similarity: number }) => b.similarity - a.similarity);
+    return { matches: ranked.slice(0, limit), embeddingTokens };
+  }
 
   const rows = await prisma.$queryRaw<{ prompt: string; code: string; similarity: number }[]>`
     SELECT p.prompt, e.code,

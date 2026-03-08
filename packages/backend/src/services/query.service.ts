@@ -34,7 +34,7 @@ import {
 } from "./stl-rendering-client.service.js";
 import { evaluateModel } from "./visual-eval.service.js";
 import { pushNotificationService } from "./push-notification.service.js";
-import { CODEGEN_SYSTEM_PROMPT, buildTieredSystemPrompt } from "../prompts/system-prompts.js";
+import { CODEGEN_SYSTEM_PROMPT, buildTieredSystemPrompt, detectPromptOperations } from "../prompts/system-prompts.js";
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
 import {
   buildInitialPrompt,
@@ -1578,9 +1578,10 @@ export async function executeQueryPipeline(input: {
 
     // ── Workbench-style iteration loop: codegen → render → VLM eval → fix ──
 
+    const epDetectedOps = detectPromptOperations(prompt, epSpecInterpretation || undefined);
     let epFewShots: Array<{ prompt: string; code: string }> = [];
     try {
-      const fewShotResult = await findSimilarExamples(prompt, chatFewShotLimit);
+      const fewShotResult = await findSimilarExamples(prompt, chatFewShotLimit, epDetectedOps);
       epFewShots = fewShotResult.matches.map(({ prompt: p, code }) => ({ prompt: p, code }));
       queryLogger.info({ fewShotCount: epFewShots.length, embeddingTokens: fewShotResult.embeddingTokens }, "loaded few-shot examples");
       // Track embedding cost and persist immediately
@@ -1624,7 +1625,7 @@ export async function executeQueryPipeline(input: {
     let epRenderError: string | null = null;
     let epRenderErrorCtx: RenderErrorContext | null = null;
     const epErrorHistory: ClassifiedRenderError[] = [];
-    interface EpEvalState { score: number; issues: string[]; suggestions: string[]; vlmModel: string; }
+    interface EpEvalState { score: number; issues: string[]; suggestions: string[]; vlmModel: string; checklistResults?: Array<{ question: string; pass: boolean; detail: string }>; }
     let epEvalState: EpEvalState | null = null;
     let epBest: { code: string; score: number | null; evalState: EpEvalState | null; renderedFiles: Array<{ filename: string; contentBase64: string }>; screenshots: RenderedScreenshot[]; iteration: number } | null = null;
 
@@ -1975,7 +1976,7 @@ export async function executeQueryPipeline(input: {
           epTotalCostUsd += vlmCost;
           await incrementContextCost(input.contextId, vlmCost);
           await persistItemCost();
-          epEvalState = { score: evr.score, issues: evr.issues, suggestions: evr.suggestions, vlmModel: evr.vlmModel };
+          epEvalState = { score: evr.score, issues: evr.issues, suggestions: evr.suggestions, vlmModel: evr.vlmModel, checklistResults: evr.checklistResults };
           queryLogger.info({ iteration, score: evr.score, issueCount: evr.issues.length, vlmModel: evr.vlmModel }, "VLM evaluation completed");
         } catch (err) { queryLogger.warn({ iteration, err: err instanceof Error ? err.message : String(err) }, "VLM evaluation failed, skipping"); }
       }

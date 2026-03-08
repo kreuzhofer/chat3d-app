@@ -28,6 +28,7 @@ import {
 } from "../services/workbench-examples.service.js";
 import {
   backfillEmbeddings,
+  backfillDetectedOperations,
   getEmbeddingStatus,
 } from "../services/workbench-embeddings.service.js";
 import {
@@ -529,6 +530,18 @@ workbenchRouter.post("/embeddings/backfill", async (_req, res) => {
   } catch (error) {
     logger.error({ err: error }, "backfill failed");
     res.status(500).json({ error: "Embedding backfill failed", detail: String(error) });
+  }
+});
+
+workbenchRouter.post("/operations/backfill", async (_req, res) => {
+  try {
+    logger.info("operations backfill requested");
+    const result = await backfillDetectedOperations();
+    logger.info({ updated: result.updated }, "operations backfill complete");
+    res.status(200).json(result);
+  } catch (error) {
+    logger.error({ err: error }, "operations backfill failed");
+    res.status(500).json({ error: "Operations backfill failed", detail: String(error) });
   }
 });
 

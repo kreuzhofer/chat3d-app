@@ -1,5 +1,6 @@
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
+import { detectPromptOperations } from "../prompts/system-prompts.js";
 import { CurationError, getCandidateDetail } from "./curation.service.js";
 import {
   readStorageFile,
@@ -107,6 +108,7 @@ export async function promoteCandidate(candidateId: string): Promise<PromotionRe
       categoryId: category.id,
       index: nextIndex,
       prompt: detail.distilledPrompt,
+      detectedOperations: [...detectPromptOperations(detail.distilledPrompt)],
     },
   });
 

@@ -42,6 +42,7 @@ export interface ExampleDetail {
   evalScore: number | null;
   evalIssues: string[];
   evalSuggestions: string[];
+  evalChecklistResults: Array<{ question: string; pass: boolean; detail: string }> | null;
   approvalStatus: string;
   rejectionNote: string | null;
   llmModel: string | null;
@@ -63,6 +64,24 @@ function parseJsonbArray(value: unknown): string[] {
     }
   }
   return [];
+}
+
+function parseChecklistResultsJson(
+  value: unknown,
+): Array<{ question: string; pass: boolean; detail: string }> | null {
+  if (value == null) return null;
+  const arr = Array.isArray(value) ? value : (() => {
+    if (typeof value !== "string") return null;
+    try { return JSON.parse(value); } catch { return null; }
+  })();
+  if (!Array.isArray(arr)) return null;
+  return arr
+    .filter((v): v is { question: string; pass: boolean; detail: string } =>
+      typeof v === "object" && v !== null &&
+      typeof v.question === "string" &&
+      typeof v.pass === "boolean" &&
+      typeof v.detail === "string",
+    );
 }
 
 // ── List examples for a prompt ───────────────────────────────────────
@@ -114,6 +133,7 @@ function mapToExampleDetail(
     evalScore: row.evalScore,
     evalIssues: parseJsonbArray(row.evalIssues),
     evalSuggestions: parseJsonbArray(row.evalSuggestions),
+    evalChecklistResults: parseChecklistResultsJson(row.evalChecklistResults),
     approvalStatus: row.approvalStatus,
     rejectionNote: row.rejectionNote,
     llmModel: row.llmModel,

@@ -30,7 +30,7 @@ import {
   type RenderedScreenshot,
 } from "./stl-rendering-client.service.js";
 import { evaluateModel, type EvaluationResult } from "./visual-eval.service.js";
-import { CODEGEN_SYSTEM_PROMPT, buildReducedSystemPrompt, buildTieredSystemPrompt } from "../prompts/system-prompts.js";
+import { CODEGEN_SYSTEM_PROMPT, buildReducedSystemPrompt, buildTieredSystemPrompt, detectPromptOperations } from "../prompts/system-prompts.js";
 import {
   shouldUseEditMode,
   parseEditResponse,
@@ -118,6 +118,7 @@ export interface GenerateResult {
   evalScore: number | null;
   evalIssues: string[] | null;
   evalSuggestions: string[] | null;
+  evalChecklistResults: Array<{ question: string; pass: boolean; detail: string }> | null;
   approvalStatus: "pending" | "auto_approved" | "rejected";
   llmModel: string;
   vlmModel: string | null;
@@ -518,12 +519,13 @@ async function fetchFewShotExamples(
   promptText: string,
   categoryId: string,
   limit = 6,
+  detectedOperations?: Set<string>,
 ): Promise<FewShotExample[]> {
   try {
-    const { matches: results } = await findSimilarExamples(promptText, limit);
+    const { matches: results } = await findSimilarExamples(promptText, limit, detectedOperations);
     if (results.length > 0) {
       logger.info(
-        { count: results.length, similarityMin: results[results.length - 1].similarity.toFixed(3), similarityMax: results[0].similarity.toFixed(3) },
+        { count: results.length, similarityMin: results[results.length - 1].similarity.toFixed(3), similarityMax: results[0].similarity.toFixed(3), opsBoost: detectedOperations?.size ?? 0 },
         "vector search returned examples",
       );
       return results.map(({ prompt, code }) => ({ prompt, code }));
@@ -557,6 +559,24 @@ async function loadPromptContext(promptId: string): Promise<PromptContext> {
   };
 }
 
+// ── Approval logic ──────────────────────────────────────────────────
+
+/**
+ * Determine auto-approval: score must meet threshold AND, if checklist
+ * results exist, at least 80% of items must pass.
+ */
+function shouldAutoApprove(
+  score: number | null,
+  threshold: number,
+  checklistResults?: Array<{ pass: boolean }> | null,
+): boolean {
+  if (score === null || score < threshold) return false;
+  if (!checklistResults || checklistResults.length === 0) return true;
+  const passCount = checklistResults.filter((r) => r.pass).length;
+  const passRate = passCount / checklistResults.length;
+  return passRate >= 0.8;
+}
+
 // ── DB persistence ───────────────────────────────────────────────────
 
 async function insertExample(data: {
@@ -582,6 +602,7 @@ async function insertExample(data: {
   evalScore: number | null;
   evalIssues: string[] | null;
   evalSuggestions: string[] | null;
+  evalChecklistResults: Array<{ question: string; pass: boolean; detail: string }> | null;
   approvalStatus: string;
   rejectionNote?: string | null;
   llmModel: string;
@@ -613,6 +634,7 @@ async function insertExample(data: {
       evalScore: data.evalScore,
       evalIssues: data.evalIssues ?? undefined,
       evalSuggestions: data.evalSuggestions ?? undefined,
+      evalChecklistResults: data.evalChecklistResults ?? undefined,
       approvalStatus: data.approvalStatus,
       rejectionNote: data.rejectionNote ?? null,
       llmModel: data.llmModel,
@@ -906,6 +928,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       evalScore: null,
       evalIssues: null,
       evalSuggestions: null,
+      evalChecklistResults: null,
       approvalStatus: "rejected",
       rejectionNote: validation.reason,
       llmModel: llmModelLabel,
@@ -923,6 +946,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       evalScore: null,
       evalIssues: null,
       evalSuggestions: null,
+      evalChecklistResults: null,
       approvalStatus: "rejected",
       llmModel: llmModelLabel,
       vlmModel: null,
@@ -960,6 +984,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         evalScore: null,
         evalIssues: null,
         evalSuggestions: null,
+        evalChecklistResults: null,
         approvalStatus: "pending",
         llmModel: llmModelLabel,
         vlmModel: null,
@@ -989,8 +1014,11 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     }
   }
 
-  const fewShots = await fetchFewShotExamples(ctx.prompt, ctx.categoryId, dynFewShotLimit);
-  logger.info({ count: fewShots.length }, "few-shot examples loaded");
+  // Detect operations for both few-shot retrieval boost and tiered prompt
+  const detectedOps = detectPromptOperations(ctx.prompt, specResult?.interpretation);
+
+  const fewShots = await fetchFewShotExamples(ctx.prompt, ctx.categoryId, dynFewShotLimit, detectedOps);
+  logger.info({ count: fewShots.length, ops: [...detectedOps] }, "few-shot examples loaded");
 
   // Resolve system prompt: tiered (operation-aware) or full
   const systemPromptContent = tieredEnabled
@@ -1067,7 +1095,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     const agTotalPromptTokens = agResult.usage.promptTokens + (agEvalResult?.promptTokens ?? 0) + (specResult?.promptTokens ?? 0);
     const agTotalCompletionTokens = agResult.usage.completionTokens + (agEvalResult?.completionTokens ?? 0) + (specResult?.completionTokens ?? 0);
     const agScore = agEvalResult?.score ?? null;
-    const agApproved = agScore !== null && agScore >= dynAutoApprove;
+    const agApproved = shouldAutoApprove(agScore, dynAutoApprove, agEvalResult?.checklistResults);
 
     const exampleId = crypto.randomUUID();
     const filePaths = await persistWorkbenchFiles({
@@ -1101,6 +1129,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       evalScore: agScore,
       evalIssues: agEvalResult?.issues ?? null,
       evalSuggestions: agEvalResult?.suggestions ?? null,
+      evalChecklistResults: agEvalResult?.checklistResults ?? null,
       approvalStatus: agApproved ? "auto_approved" : "pending",
       llmModel: wbAgentModelConfig.label,
       vlmModel: agEvalResult?.vlmModel ?? null,
@@ -1123,6 +1152,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       evalScore: agScore,
       evalIssues: agEvalResult?.issues ?? null,
       evalSuggestions: agEvalResult?.suggestions ?? null,
+      evalChecklistResults: agEvalResult?.checklistResults ?? null,
       approvalStatus: agApproved ? "auto_approved" : "pending",
       llmModel: wbAgentModelConfig.label,
       vlmModel: agEvalResult?.vlmModel ?? null,
@@ -1288,7 +1318,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
           screenshotTop: null, screenshotBottom: null,
           screenshotOrtho45: null, screenshotOrtho45Bottom: null,
           screenshotIso: null, screenshotIsoBack: null,
-          evalScore: null, evalIssues: null, evalSuggestions: null,
+          evalScore: null, evalIssues: null, evalSuggestions: null, evalChecklistResults: null,
           approvalStatus: "pending",
           llmModel: llmModelLabel, vlmModel: null,
           promptTokens: totalPromptTokens, completionTokens: totalCompletionTokens,
@@ -1296,7 +1326,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         return {
           exampleId, promptId: ctx.promptId, iteration,
           code: currentCode, renderStatus: "error", renderError,
-          evalScore: null, evalIssues: null, evalSuggestions: null,
+          evalScore: null, evalIssues: null, evalSuggestions: null, evalChecklistResults: null,
           approvalStatus: "pending", llmModel: llmModelLabel, vlmModel: null,
         };
       }
@@ -1378,6 +1408,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
           evalScore: null,
           evalIssues: null,
           evalSuggestions: null,
+          evalChecklistResults: null,
           approvalStatus: "pending",
           llmModel: llmModelLabel,
           vlmModel: null,
@@ -1395,6 +1426,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
           evalScore: null,
           evalIssues: null,
           evalSuggestions: null,
+          evalChecklistResults: null,
           approvalStatus: "pending",
           llmModel: llmModelLabel,
           vlmModel: null,
@@ -1493,6 +1525,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         evalScore: null,
         evalIssues: ["Screenshot service unavailable — evaluation skipped"],
         evalSuggestions: null,
+        evalChecklistResults: null,
         approvalStatus: "pending",
         llmModel: llmModelLabel,
         vlmModel: null,
@@ -1510,6 +1543,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         evalScore: null,
         evalIssues: ["Screenshot service unavailable — evaluation skipped"],
         evalSuggestions: null,
+        evalChecklistResults: null,
         approvalStatus: "pending",
         llmModel: llmModelLabel,
         vlmModel: null,
@@ -1518,7 +1552,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
 
     // 6. Track best result and decide whether to continue fixing
     const score = evalResult?.score ?? null;
-    const approved = score !== null && score >= dynAutoApprove;
+    const approved = shouldAutoApprove(score, dynAutoApprove, evalResult?.checklistResults);
     const hasIssues = (evalResult?.issues ?? []).length > 0;
     logger.info({ score, threshold: dynAutoApprove, approved, hasIssues, lastIteration: iteration >= dynMaxFix }, "iteration evaluation summary");
 
@@ -1553,7 +1587,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         completionTokens: totalCompletionTokens,
       };
       const finalScore = final.score;
-      const finalApproved = finalScore !== null && finalScore >= dynAutoApprove;
+      const finalApproved = shouldAutoApprove(finalScore, dynAutoApprove, final.evalResult?.checklistResults);
 
       const exampleId = crypto.randomUUID();
       // Persist rendered files and screenshots to disk
@@ -1588,6 +1622,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         evalScore: finalScore,
         evalIssues: final.evalResult?.issues ?? null,
         evalSuggestions: final.evalResult?.suggestions ?? null,
+        evalChecklistResults: final.evalResult?.checklistResults ?? null,
         approvalStatus: finalApproved ? "auto_approved" : "pending",
         llmModel: llmModelLabel,
         vlmModel: final.evalResult?.vlmModel ?? null,
@@ -1610,6 +1645,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
         evalScore: finalScore,
         evalIssues: final.evalResult?.issues ?? null,
         evalSuggestions: final.evalResult?.suggestions ?? null,
+        evalChecklistResults: final.evalResult?.checklistResults ?? null,
         approvalStatus: finalApproved ? "auto_approved" : "pending",
         llmModel: llmModelLabel,
         vlmModel: final.evalResult?.vlmModel ?? null,
@@ -1701,6 +1737,7 @@ export async function reRenderForExample(exampleId: string, onProgress?: Progres
       evalScore: null,
       evalIssues: null,
       evalSuggestions: null,
+      evalChecklistResults: null,
       approvalStatus: "pending",
       llmModel: "manual",
       vlmModel: null,
@@ -1718,6 +1755,7 @@ export async function reRenderForExample(exampleId: string, onProgress?: Progres
       evalScore: null,
       evalIssues: null,
       evalSuggestions: null,
+      evalChecklistResults: null,
       approvalStatus: "pending",
       llmModel: "manual",
       vlmModel: null,
@@ -1772,7 +1810,7 @@ export async function reRenderForExample(exampleId: string, onProgress?: Progres
 
   // 5. Persist files to disk and create new example
   const score = evalResult?.score ?? null;
-  const approved = score !== null && score >= rrAutoApprove;
+  const approved = shouldAutoApprove(score, rrAutoApprove, evalResult?.checklistResults);
 
   const newExampleId = crypto.randomUUID();
   const filePaths = await persistWorkbenchFiles({
@@ -1806,6 +1844,7 @@ export async function reRenderForExample(exampleId: string, onProgress?: Progres
     evalScore: score,
     evalIssues: evalResult?.issues ?? null,
     evalSuggestions: evalResult?.suggestions ?? null,
+    evalChecklistResults: evalResult?.checklistResults ?? null,
     approvalStatus: approved ? "auto_approved" : "pending",
     llmModel: "manual",
     vlmModel: evalResult?.vlmModel ?? null,
@@ -1829,6 +1868,7 @@ export async function reRenderForExample(exampleId: string, onProgress?: Progres
     evalScore: score,
     evalIssues: evalResult?.issues ?? null,
     evalSuggestions: evalResult?.suggestions ?? null,
+    evalChecklistResults: evalResult?.checklistResults ?? null,
     approvalStatus: approved ? "auto_approved" : "pending",
     llmModel: "manual",
     vlmModel: evalResult?.vlmModel ?? null,

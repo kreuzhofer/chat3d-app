@@ -332,7 +332,7 @@ This mirrors the **CodeChain** pattern from research: "identify and cluster repr
 - **Estimated effort**: 2-3 days
 - **Implementation**: `buildReducedSystemPrompt()` in `system-prompts.ts` with `detectCodeFeatures()` matching; `CORE_SECTIONS` + `CONDITIONAL_SECTIONS` architecture
 
-### Phase 3: Specification Step (Medium Effort, High Impact) — ✅ Partially Implemented
+### Phase 3: Specification Step (Medium Effort, High Impact) — ✅ Implemented
 
 **3a. Structured Specification Generation** — ✅ Implemented (simplified form)
 - Add an intermediate step between conversation LLM and code generation
@@ -344,7 +344,7 @@ This mirrors the **CodeChain** pattern from research: "identify and cluster repr
 - **Implementation**: `generateSpec()` in `workbench-codegen.service.ts` and `query.service.ts`; `spec_generation_enabled` toggle per pipeline; spec result includes `interpretation`, `verificationChecklist`, `disambiguationQuestions`
 - **Note**: Uses natural-language interpretation rather than the structured JSON spec originally envisioned; the simpler approach proved sufficient
 
-**3b. Spec-to-Code with Verification Questions** — ✅ Partially Implemented (~75%)
+**3b. Spec-to-Code with Verification Questions** — ✅ Implemented
 - After code generation, generate 3-5 binary verification questions from the spec
 - Use VLM to answer these questions against rendered screenshots
 - More targeted than current open-ended VLM evaluation
@@ -352,30 +352,28 @@ This mirrors the **CodeChain** pattern from research: "identify and cluster repr
 - **Quality impact**: +5-9% geometric accuracy (CADCodeVerify research)
 - **Estimated effort**: 1 week
 - **Implementation**: Full pipeline works end-to-end: `generateSpec()` produces `verificationChecklist` (3-6 binary questions) → passed to `evaluateModel()` in both pipelines → VLM system prompt includes checklist → `parseChecklistResults()` extracts structured `ChecklistResult[]` from VLM response
-- **Remaining gaps**:
-  - Checklist results not persisted to DB (no schema fields on `WorkbenchExample` or `ChatItem`)
-  - Checklist pass/fail not used in approval decisions (score-only)
-  - Checklist results not exposed to frontend API
-  - No analytics or aggregation of checklist pass rates across examples
+- **Checklist persistence**: `eval_checklist_results` JSONB column on `WorkbenchExample`; stored as `ChecklistResult[]` (question, pass, detail) and exposed via the admin API `getExample()` endpoint
+- **Approval integration**: `shouldAutoApprove()` requires both score ≥ threshold AND ≥ 80% checklist pass rate (when checklist present); prevents auto-approving models that score well but fail specific verification questions
 
-### Phase 4: Tiered Knowledge Architecture (Medium Effort, Medium Impact) — ✅ Partially Implemented
+### Phase 4: Tiered Knowledge Architecture (Medium Effort, Medium Impact) — ✅ Implemented
 
-**4a. Build123d Knowledge Tiers** — ✅ Implemented (Tier 1+2)
+**4a. Build123d Knowledge Tiers** — ✅ Implemented (All 3 Tiers)
 - **Tier 1 (Always loaded, ~220 lines)**: Core patterns, common mistakes, output template, fundamental primitives — ✅ implemented via `CORE_SECTIONS` in `system-prompts.ts`
 - **Tier 2 (Task-relevant, ~0-280 lines)**: Loaded based on detected operations from prompt keywords + spec interpretation — ✅ implemented via `detectPromptOperations()` + `buildTieredSystemPrompt()` in `system-prompts.ts`
-- **Tier 3 (RAG, on-demand)**: Full API reference, advanced examples, edge cases retrieved from external knowledge base — ⏳ deferred (requires knowledge base infrastructure)
+- **Tier 3 (RAG, on-demand)**: External knowledge base with 516 entries (docs, GitHub examples, tests), validated and embedded — ✅ implemented via `knowledge.service.ts`, `knowledge-crawl.service.ts`, `knowledge-source.service.ts`. Agent tool `search_knowledge(query)` performs semantic search over the validated corpus.
 - Use the spec interpretation (Phase 3) to determine which Tier 2 sections to load — ✅ implemented
 - **Token savings**: 40-70% of system prompt tokens — ✅ achieved on iteration 1
 - Admin toggle: `tiered_prompt_enabled` setting per pipeline — ✅ implemented in `generation-settings.service.ts`
-- **Estimated effort**: 1-2 weeks (Tier 1+2); Tier 3 deferred
+- Knowledge base admin UI: `KnowledgeTab.tsx` with source management, crawl triggers, validation/embedding pipeline, entry browser
 
-**4b. Example Selection Refinement** — ⏳ Deferred
-- Current: 6 examples via semantic similarity
-- Improved: Select examples that match the *operations* needed, not just the *description*
-- Tag examples with operation types (fillet, loft, boolean, array, etc.)
-- If spec says "loft + fillet," retrieve examples that demonstrate both
-- **Quality impact**: More relevant examples = fewer errors
-- **Estimated effort**: 1 week
+**4b. Example Selection Refinement** — ✅ Implemented
+- `detected_operations` TEXT[] column on `workbench_example_prompts` with GIN index
+- Operations auto-detected on prompt creation via `detectPromptOperations()`; 1,101 existing prompts backfilled
+- `findSimilarExamples()` accepts optional `boostOperations` parameter
+- Re-ranking: fetches 3x candidates, scores with 70% semantic similarity + 30% operation overlap, returns top N
+- Wired into both chat (`query.service.ts`) and workbench (`workbench-codegen.service.ts`) pipelines
+- Admin backfill endpoint: `POST /api/admin/workbench/operations/backfill`
+- **Quality impact**: More relevant examples = fewer errors; examples matching the same operations (loft, fillet, etc.) are prioritized
 
 ### Phase 5: Models as Projects (Foundation) — ✅ Partially Complete
 
@@ -442,7 +440,7 @@ Lint errors (severity=`"error"`) cause `valid=false`. Warnings are returned for 
 - Only the modified file needs re-validation; the full project only re-renders
 - Unrelated components are preserved exactly as-is (no regeneration risk)
 
-### Phase 6: Agent-Based Orchestration (High Effort, Transformative) — ✅ Implemented
+### Phase 6: Agent-Based Orchestration (High Effort, Transformative) — ✅ Partially Implemented
 
 Replaced the linear pipeline with an agent loop using Vercel AI SDK `generateText()` with `stopWhen` conditions and Anthropic's `text_editor_20250728` built-in tool for file operations.
 
