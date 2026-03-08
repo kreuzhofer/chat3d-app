@@ -65,7 +65,7 @@ import {
 } from "./generation-settings.service.js";
 import { generateSpec, formatDisambiguationResponse } from "./spec-generation.service.js";
 import { updateProjectCode, updateProjectFiles, getProjectCode } from "./code-project.service.js";
-import { runAgentCodegen } from "./agent-codegen.service.js";
+import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
 import {
   getModelForPurpose,
   createProviderModel as createProviderModelFromConfig,
@@ -1424,10 +1424,16 @@ export async function executeQueryPipeline(input: {
       }
 
       const agMaxSteps = await getAgentMaxSteps("chat");
-      await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "codegen", detail: "Agent is working on your model..." });
-      await persistPhase("Agent is working on your model...");
+      const useMultiAgent = epSpecComplexity === "complex" && !agIsModification;
+      const agMode = useMultiAgent ? "multi-agent" : "single-agent";
+      const agDetail = useMultiAgent
+        ? "Orchestrating multi-agent build for complex model..."
+        : "Agent is working on your model...";
+      await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "codegen", detail: agDetail });
+      await persistPhase(agDetail);
+      queryLogger.info({ mode: agMode, complexity: epSpecComplexity }, "agent mode selected");
 
-      const agResult = await runAgentCodegen({
+      const agentInput: Parameters<typeof runAgentCodegen>[0] = {
         promptText: prompt,
         interpretation: epSpecInterpretation,
         isModification: agIsModification,
@@ -1440,7 +1446,11 @@ export async function executeQueryPipeline(input: {
         onProgress: (state, detail) => {
           void publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: state as QueryState, detail });
         },
-      });
+      };
+
+      const agResult = useMultiAgent
+        ? await runMultiAgentCodegen(agentInput)
+        : await runAgentCodegen(agentInput);
 
       // Track usage
       epTotalPromptTokens += agResult.usage.promptTokens;

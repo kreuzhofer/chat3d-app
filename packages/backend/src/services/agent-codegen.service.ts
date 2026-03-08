@@ -49,7 +49,12 @@ import {
   type LlmModelConfig,
 } from "./llm-config.service.js";
 import { wrapInTemplate } from "./workbench-codegen.service.js";
-import { buildAgentSystemPrompt, buildFullAgentSystemPrompt } from "../prompts/agent-system-prompt.js";
+import {
+  buildAgentSystemPrompt,
+  buildFullAgentSystemPrompt,
+  buildSubAgentSystemPrompt,
+  buildAssemblyAgentSystemPrompt,
+} from "../prompts/agent-system-prompt.js";
 
 const logger = createLogger("agent-codegen");
 
@@ -68,6 +73,12 @@ export interface AgentCodegenInput {
   signal?: AbortSignal;
   /** Callback for progress updates */
   onProgress?: (state: string, detail: string) => void;
+  /** Pre-populated files for the agent's filesystem (for assembly agents) */
+  initialFiles?: Map<string, string>;
+  /** If true, render_project tool is not available (for sub-agents) */
+  disableRender?: boolean;
+  /** Override system prompt (used by multi-agent orchestration) */
+  systemPromptOverride?: string;
 }
 
 export interface AgentCodegenResult {
@@ -128,24 +139,29 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
     complexity,
     signal,
     onProgress,
+    initialFiles,
+    disableRender,
+    systemPromptOverride,
   } = input;
 
   logger.info(
-    { prompt: promptText.slice(0, 80), isModification, maxSteps, model: modelConfig.label, complexity },
+    { prompt: promptText.slice(0, 80), isModification, maxSteps, model: modelConfig.label, complexity, disableRender },
     "starting agent codegen loop",
   );
 
   // Initialize virtual filesystem
   const fs = new AgentFilesystem();
-  if (isModification && baselineCode) {
+  if (initialFiles && initialFiles.size > 0) {
+    fs.initFromFiles(initialFiles);
+  } else if (isModification && baselineCode) {
     fs.initFromCode(baselineCode);
   }
 
   // Build system prompt
-  const useFullPrompt = complexity === "complex";
-  const systemPrompt = useFullPrompt
-    ? buildFullAgentSystemPrompt({ isModification })
-    : buildAgentSystemPrompt({ promptText, interpretation, isModification });
+  const systemPrompt = systemPromptOverride
+    ?? (complexity === "complex"
+      ? buildFullAgentSystemPrompt({ isModification })
+      : buildAgentSystemPrompt({ promptText, interpretation, isModification }));
 
   // Create Anthropic provider for text_editor tool
   const anthropicProvider = createAnthropicProviderForAgent(modelConfig);
@@ -365,14 +381,20 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
 
   // Run the agent loop
   try {
+    // Build tool set — optionally exclude render_project for sub-agents
+    const agentTools: Record<string, any> = {
+      ...customTools,
+      text_editor: textEditorTool,
+    };
+    if (disableRender) {
+      delete agentTools.render_project;
+    }
+
     const result = await generateText({
       model,
       system: systemPrompt,
       prompt: userMessage,
-      tools: {
-        ...customTools,
-        text_editor: textEditorTool,
-      } as Record<string, any>,
+      tools: agentTools,
       stopWhen: [
         stepCountIs(maxSteps),
         hasToolCall("submit_result"),
@@ -481,4 +503,265 @@ function buildAgentUserMessage(
   }
 
   return parts.join("\n");
+}
+
+// ── Multi-Agent Orchestration (Phase 6c) ────────────────────────────
+
+interface DecomposedComponent {
+  name: string;
+  description: string;
+}
+
+interface DecompositionResult {
+  components: DecomposedComponent[];
+  assemblyNotes: string;
+  promptTokens: number;
+  completionTokens: number;
+}
+
+/**
+ * Decompose a complex prompt into independent components using an LLM call.
+ */
+async function decomposePrompt(
+  promptText: string,
+  interpretation: string | undefined,
+  modelConfig: LlmModelConfig,
+): Promise<DecompositionResult> {
+  const anthropicProvider = createAnthropicProviderForAgent(modelConfig);
+  const model = anthropicProvider(modelConfig.modelName);
+
+  const systemPrompt = `You are a 3D CAD architect. Given a description of a complex 3D model, decompose it into independent components that can be built separately and assembled.
+
+Rules:
+- Each component must be a self-contained 3D part (solid body)
+- Components should be geometrically independent (buildable without reference to others)
+- Include dimensions and positioning info in each component's description
+- Keep the number of components between 2 and 6
+- Each component name must be a valid Python identifier (snake_case, no spaces)
+- The assembly notes should describe how to position and combine the components
+
+Respond with JSON only, no markdown:
+{"components":[{"name":"component_name","description":"Detailed description with dimensions"}],"assemblyNotes":"How to position and combine components"}`;
+
+  const fullPrompt = interpretation
+    ? `User request: ${promptText}\n\nInterpretation: ${interpretation}`
+    : promptText;
+
+  const result = await generateText({
+    model,
+    system: systemPrompt,
+    prompt: fullPrompt,
+    maxOutputTokens: 1024,
+  });
+
+  const promptTokens = result.usage?.inputTokens ?? 0;
+  const completionTokens = result.usage?.outputTokens ?? 0;
+
+  try {
+    // Strip markdown code fences if present
+    const cleanText = result.text
+      .replace(/^```(?:json)?\s*/m, "")
+      .replace(/\s*```\s*$/m, "")
+      .trim();
+    const parsed = JSON.parse(cleanText) as { components: DecomposedComponent[]; assemblyNotes: string };
+
+    if (!Array.isArray(parsed.components) || parsed.components.length < 2) {
+      throw new Error("Decomposition produced fewer than 2 components");
+    }
+
+    // Validate component names are valid Python identifiers
+    for (const c of parsed.components) {
+      c.name = c.name.replace(/[^a-z0-9_]/gi, "_").toLowerCase();
+    }
+
+    logger.info(
+      { componentCount: parsed.components.length, components: parsed.components.map(c => c.name) },
+      "prompt decomposed into components",
+    );
+
+    return {
+      components: parsed.components,
+      assemblyNotes: parsed.assemblyNotes || "",
+      promptTokens,
+      completionTokens,
+    };
+  } catch (err) {
+    logger.warn({ err: err instanceof Error ? err.message : String(err), text: result.text.slice(0, 200) }, "decomposition parsing failed");
+    throw new Error(`Failed to decompose prompt: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * Run multi-agent orchestration for complex models.
+ *
+ * 1. Decompose the prompt into components via LLM
+ * 2. Run sub-agents to build each component (validate only, no render)
+ * 3. Run an assembly agent to combine components and render the final model
+ */
+export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<AgentCodegenResult> {
+  const {
+    promptText,
+    interpretation,
+    baseFileName,
+    maxSteps,
+    modelConfig,
+    signal,
+    onProgress,
+  } = input;
+
+  logger.info(
+    { prompt: promptText.slice(0, 80), model: modelConfig.label },
+    "starting multi-agent orchestration",
+  );
+
+  // Accumulate usage across all agents
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
+  let totalReasoningTokens = 0;
+  let totalSteps = 0;
+
+  // Step 1: Decompose the prompt
+  onProgress?.("decomposing", "Breaking down the model into components...");
+
+  let decomposition: DecompositionResult;
+  try {
+    decomposition = await decomposePrompt(promptText, interpretation, modelConfig);
+  } catch (err) {
+    // Decomposition failed — fall back to single-agent
+    logger.warn({ err: err instanceof Error ? err.message : String(err) }, "decomposition failed, falling back to single agent");
+    return runAgentCodegen(input);
+  }
+
+  totalPromptTokens += decomposition.promptTokens;
+  totalCompletionTokens += decomposition.completionTokens;
+
+  // Step 2: Run sub-agents for each component
+  const componentFiles = new Map<string, string>();
+  const subAgentMaxSteps = Math.min(Math.floor(maxSteps / 2), 10);
+
+  for (let i = 0; i < decomposition.components.length; i++) {
+    const component = decomposition.components[i];
+    if (signal?.aborted) break;
+
+    onProgress?.("component", `Building component ${i + 1}/${decomposition.components.length}: ${component.name}...`);
+
+    const overallContext = `This is part of a larger model: "${promptText}".\n\nAll components:\n${decomposition.components.map(c => `- ${c.name}: ${c.description}`).join("\n")}\n\nAssembly plan: ${decomposition.assemblyNotes}`;
+
+    const subPrompt = buildSubAgentSystemPrompt({
+      componentName: component.name,
+      componentDescription: component.description,
+      overallContext,
+    });
+
+    try {
+      const subResult = await runAgentCodegen({
+        promptText: component.description,
+        isModification: false,
+        baseFileName,
+        maxSteps: subAgentMaxSteps,
+        modelConfig,
+        signal,
+        disableRender: true,
+        systemPromptOverride: subPrompt,
+        onProgress: (state, detail) => {
+          onProgress?.(state, `[${component.name}] ${detail}`);
+        },
+      });
+
+      totalPromptTokens += subResult.usage.promptTokens;
+      totalCompletionTokens += subResult.usage.completionTokens;
+      totalReasoningTokens += subResult.usage.reasoningTokens;
+      totalSteps += subResult.stepCount;
+
+      // Collect component code (sub-agent writes to main.py, we rename it)
+      if (subResult.code.trim()) {
+        componentFiles.set(`components/${component.name}.py`, subResult.code);
+        logger.info(
+          { component: component.name, codeLength: subResult.code.length, steps: subResult.stepCount },
+          "sub-agent completed component",
+        );
+      } else {
+        logger.warn({ component: component.name }, "sub-agent produced no code");
+      }
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : String(err), component: component.name }, "sub-agent failed");
+      // Continue with other components — the assembly agent can work with what we have
+    }
+  }
+
+  if (componentFiles.size === 0) {
+    logger.warn("no components produced, falling back to single agent");
+    return runAgentCodegen(input);
+  }
+
+  // Step 3: Run assembly agent
+  onProgress?.("assembling", "Assembling components into final model...");
+
+  const componentSummary = Array.from(componentFiles.entries())
+    .map(([path, code]) => {
+      const lines = code.split("\n");
+      const funcMatch = lines.find(l => l.startsWith("def "));
+      const funcSignature = funcMatch ?? "(function not found)";
+      return `- \`${path}\`: ${funcSignature}`;
+    })
+    .join("\n");
+
+  const assemblyPrompt = buildAssemblyAgentSystemPrompt({
+    originalPrompt: promptText,
+    assemblyNotes: decomposition.assemblyNotes,
+    componentSummary,
+  });
+
+  // Assembly agent gets more steps since it needs to render
+  const assemblyMaxSteps = Math.min(maxSteps, 15);
+
+  const assemblyResult = await runAgentCodegen({
+    promptText: `Assemble the components into the complete model. View the component files first, then write main.py.`,
+    isModification: false,
+    baseFileName,
+    maxSteps: assemblyMaxSteps,
+    modelConfig,
+    signal,
+    initialFiles: componentFiles,
+    systemPromptOverride: assemblyPrompt,
+    onProgress: (state, detail) => {
+      onProgress?.(state, `[assembly] ${detail}`);
+    },
+  });
+
+  totalPromptTokens += assemblyResult.usage.promptTokens;
+  totalCompletionTokens += assemblyResult.usage.completionTokens;
+  totalReasoningTokens += assemblyResult.usage.reasoningTokens;
+  totalSteps += assemblyResult.stepCount;
+
+  // Combine all files (components + assembly main.py)
+  const allFiles = assemblyResult.files;
+
+  logger.info(
+    {
+      componentCount: componentFiles.size,
+      assemblySteps: assemblyResult.stepCount,
+      totalSteps,
+      renderSuccess: assemblyResult.renderSuccess,
+      fileCount: allFiles.length,
+      promptTokens: totalPromptTokens,
+      completionTokens: totalCompletionTokens,
+    },
+    "multi-agent orchestration completed",
+  );
+
+  return {
+    code: assemblyResult.code,
+    files: allFiles,
+    renderedFiles: assemblyResult.renderedFiles,
+    renderSuccess: assemblyResult.renderSuccess,
+    usage: {
+      promptTokens: totalPromptTokens,
+      completionTokens: totalCompletionTokens,
+      reasoningTokens: totalReasoningTokens,
+      totalCostUsd: calculateCostUsd(modelConfig, totalPromptTokens, totalCompletionTokens),
+    },
+    stepCount: totalSteps,
+    submitted: assemblyResult.submitted,
+  };
 }

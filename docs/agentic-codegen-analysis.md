@@ -440,7 +440,7 @@ Lint errors (severity=`"error"`) cause `valid=false`. Warnings are returned for 
 - Only the modified file needs re-validation; the full project only re-renders
 - Unrelated components are preserved exactly as-is (no regeneration risk)
 
-### Phase 6: Agent-Based Orchestration (High Effort, Transformative) — ✅ Partially Implemented
+### Phase 6: Agent-Based Orchestration (High Effort, Transformative) — ✅ Implemented
 
 Replaced the linear pipeline with an agent loop using Vercel AI SDK `generateText()` with `stopWhen` conditions and Anthropic's `text_editor_20250728` built-in tool for file operations.
 
@@ -460,11 +460,15 @@ Agent mode is behind generation settings (default: off):
 - Requires `agent_codegen` LLM purpose configured in the admin UI
 - **Provider requirement**: Requires direct Anthropic provider (not Bedrock) for `text_editor_20250728` tool support
 
-**6c. Multi-Agent for Complex Models** — ⏳ Not Started
-- Orchestrator agent decomposes into sub-tasks
-- Sub-agents handle individual component files in parallel (each in isolated context)
-- Each sub-agent has access to the same file and build tools, scoped to its component
-- Orchestrator writes `main.py` to assemble the components and handles integration
+**6c. Multi-Agent for Complex Models** — ✅ Implemented
+- `decomposePrompt()` uses LLM to split complex prompts into 2-6 independent components
+- Sub-agents run sequentially via `runAgentCodegen()` with `disableRender: true` (validate-only, no wasted renders)
+- Each sub-agent gets isolated `AgentFilesystem` + component-specific system prompt
+- Assembly agent receives all component files via `initialFiles`, writes `main.py` to import/assemble, validates, renders
+- Automatic fallback to single-agent if decomposition fails or produces no components
+- Triggered when `complexity === "complex"` and agent mode enabled (non-modification scenarios)
+- Progress updates flow through to frontend: decomposing → component [N/M] → assembling
+- Usage tracking accumulates across all sub-agents + assembly agent
 
 ---
 
