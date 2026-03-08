@@ -596,6 +596,32 @@ model DataMigration {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// BUILD123D KNOWLEDGE BASE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+model Build123dKnowledge {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sourceUrl        String    @map("source_url") @db.Text
+  sourceType       String    @map("source_type") @db.VarChar(20)
+  title            String    @db.VarChar(500)
+  description      String?   @db.Text
+  code             String    @db.Text
+  concepts         String[]  @default([])
+  build123dVersion String?   @map("build123d_version") @db.VarChar(20)
+  validatedAt      DateTime? @map("validated_at") @db.Timestamptz()
+  validationStatus String    @default("pending") @map("validation_status") @db.VarChar(20)
+  qualityScore     Int?      @map("quality_score")
+  embedding        Unsupported("vector(1536)")? @map("embedding")
+  embeddingModel   String?   @map("embedding_model") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@index([sourceType], map: "idx_b123d_knowledge_source_type")
+  @@index([validationStatus], map: "idx_b123d_knowledge_validation")
+  @@map("build123d_knowledge")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // OBJECTS MANAGED OUTSIDE PRISMA
 //
 // These DB objects exist in the production database but cannot be expressed

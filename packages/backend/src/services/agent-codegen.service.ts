@@ -14,6 +14,7 @@ import { generateText, stepCountIs, hasToolCall, zodSchema } from "ai";
 import { z } from "zod";
 import { createLogger } from "../utils/logger.js";
 import { AgentFilesystem } from "./agent-filesystem.service.js";
+import { searchKnowledge } from "./knowledge.service.js";
 import {
   renderBuild123dProject,
   validateBuild123dProject,
@@ -288,6 +289,28 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
           return `Unknown topic: "${topic}". Available topics: ${available}`;
         }
         return section;
+      },
+    },
+
+    search_knowledge: {
+      type: "function" as const,
+      description: "Search the Build123d external knowledge base (official docs, repo examples, test patterns) for working code snippets related to a technique or concept. Use when you need to see how a specific API or pattern works beyond what's in the system prompt.",
+      inputSchema: zodSchema(z.object({
+        query: z.string().describe("Natural language description of what you want to find (e.g., 'how to create a helix sweep', 'loft between two sketches')"),
+      })),
+      execute: async ({ query }: { query: string }) => {
+        try {
+          const { matches } = await searchKnowledge(query, 3);
+          if (matches.length === 0) {
+            return "No matching knowledge entries found.";
+          }
+          return matches.map((m, i) =>
+            `### Reference ${i + 1}: ${m.title} (${m.sourceType}, ${(m.similarity * 100).toFixed(0)}% match)\n${m.description ? m.description + "\n\n" : ""}\`\`\`python\n${m.code}\n\`\`\`\nSource: ${m.sourceUrl}`
+          ).join("\n\n");
+        } catch (err) {
+          logger.warn({ err: err instanceof Error ? err.message : String(err) }, "search_knowledge tool error");
+          return "Knowledge search unavailable.";
+        }
       },
     },
 

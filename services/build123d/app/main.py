@@ -61,6 +61,7 @@ app = FastAPI()
 
 class ValidateRequest(BaseModel):
     code: str
+    skip_root_part: bool = False
 
 class LintWarning(BaseModel):
     rule: str
@@ -315,16 +316,17 @@ def validate_code(request: ValidateRequest):
     except SyntaxError as e:
         return ValidateResponse(valid=False, errors=[f"Syntax error: {e}"])
 
-    # Check that code assigns to root_part
-    has_root_part = any(
-        isinstance(node, ast.Assign)
-        and any(isinstance(t, ast.Name) and t.id == "root_part" for t in node.targets)
-        for node in ast.walk(tree)
-    )
-    if not has_root_part:
-        errors.append(
-            "Missing 'root_part' assignment — code must assign the final solid to root_part"
+    # Check that code assigns to root_part (can be skipped for reference/knowledge validation)
+    if not request.skip_root_part:
+        has_root_part = any(
+            isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "root_part" for t in node.targets)
+            for node in ast.walk(tree)
         )
+        if not has_root_part:
+            errors.append(
+                "Missing 'root_part' assignment — code must assign the final solid to root_part"
+            )
 
     # Run lint rules
     lint_warnings = lint_code(tree, request.code)

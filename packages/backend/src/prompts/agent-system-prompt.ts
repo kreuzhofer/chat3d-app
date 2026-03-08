@@ -52,6 +52,7 @@ All dimensions are in millimeters.
 - **Submit** when you have a successful render
 - If you're unsure about a Build123d API, use lookup_api to check documentation
 - If you want to see how similar models are built, use search_examples
+- If you need working code patterns for advanced techniques (sweep, loft, helix, joints), use search_knowledge to find real Build123d examples from the official docs and repo
 
 ## Common Build123d Pitfalls
 

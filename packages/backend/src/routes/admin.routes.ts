@@ -35,6 +35,16 @@ import {
 } from "../services/curation-llm.service.js";
 import { promoteCandidate } from "../services/curation-promote.service.js";
 import { checkSimilarity } from "../services/workbench-embeddings.service.js";
+import {
+  listKnowledgeEntries,
+  getKnowledgeEntry,
+  deleteKnowledgeEntry,
+  deleteKnowledgeBySource,
+  getKnowledgeStats,
+  backfillKnowledgeEmbeddings,
+  type KnowledgeSourceType,
+  type ValidationStatus,
+} from "../services/knowledge.service.js";
 import { prisma } from "../db/prisma.js";
 import {
   listAllModels,
@@ -822,5 +832,95 @@ adminRouter.delete("/curation/candidates/:id/tags/:tagId", async (req, res) => {
     res.status(200).json({ success: true });
   } catch (error) {
     sendKnownError(res, error, "Failed to remove tag");
+  }
+});
+
+// ── Knowledge Base ──────────────────────────────────────────────────
+
+const VALID_SOURCE_TYPES = new Set(["docs", "github_example", "github_test", "forum", "blog"]);
+const VALID_VALIDATION_STATUSES = new Set(["pending", "valid", "invalid", "error"]);
+
+adminRouter.get("/knowledge", async (req, res) => {
+  try {
+    const sourceType = typeof req.query.sourceType === "string" && VALID_SOURCE_TYPES.has(req.query.sourceType)
+      ? (req.query.sourceType as KnowledgeSourceType)
+      : undefined;
+    const validationStatus = typeof req.query.validationStatus === "string" && VALID_VALIDATION_STATUSES.has(req.query.validationStatus)
+      ? (req.query.validationStatus as ValidationStatus)
+      : undefined;
+    const limit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : undefined;
+    const offset = typeof req.query.offset === "string" ? parseInt(req.query.offset, 10) : undefined;
+
+    const result = await listKnowledgeEntries({ sourceType, validationStatus, limit, offset });
+    res.status(200).json(result);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to list knowledge entries");
+  }
+});
+
+adminRouter.get("/knowledge/stats", async (_req, res) => {
+  try {
+    const stats = await getKnowledgeStats();
+    res.status(200).json(stats);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to get knowledge stats");
+  }
+});
+
+adminRouter.get("/knowledge/:id", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Invalid knowledge entry id" });
+    return;
+  }
+
+  try {
+    const entry = await getKnowledgeEntry(id);
+    if (!entry) {
+      res.status(404).json({ error: "Knowledge entry not found" });
+      return;
+    }
+    res.status(200).json(entry);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to get knowledge entry");
+  }
+});
+
+adminRouter.delete("/knowledge/:id", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Invalid knowledge entry id" });
+    return;
+  }
+
+  try {
+    await deleteKnowledgeEntry(id);
+    res.status(204).send();
+  } catch (error) {
+    sendKnownError(res, error, "Failed to delete knowledge entry");
+  }
+});
+
+adminRouter.delete("/knowledge/source/:sourceType", async (req, res) => {
+  const sourceType = readPathParam(req.params.sourceType);
+  if (!sourceType || !VALID_SOURCE_TYPES.has(sourceType)) {
+    res.status(400).json({ error: "Invalid source type" });
+    return;
+  }
+
+  try {
+    const count = await deleteKnowledgeBySource(sourceType as KnowledgeSourceType);
+    res.status(200).json({ deleted: count });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to delete knowledge entries by source");
+  }
+});
+
+adminRouter.post("/knowledge/embed", async (_req, res) => {
+  try {
+    const result = await backfillKnowledgeEmbeddings();
+    res.status(200).json(result);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to embed knowledge entries");
   }
 });
