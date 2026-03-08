@@ -32,7 +32,7 @@
     "i18next": "^25.8.13",
     "i18next-fs-backend": "^2.6.1",
     "jose": "^6.1.0",
-    "multer": "^2.0.2",
+    "multer": "^2.1.1",
     "nodemailer": "^8.0.1",
     "pg": "^8.16.3",
     "pg-boss": "^12.14.0",
@@ -42,6 +42,11 @@
     "unzipper": "^0.12.3",
     "vercel-minimax-ai-provider": "^0.0.2",
     "web-push": "^3.6.7"
+  },
+  "overrides": {
+    "hono": "^4.12.5",
+    "@hono/node-server": "^1.19.11",
+    "lodash": "^4.17.23"
   },
   "devDependencies": {
     "@types/archiver": "^7.0.0",
