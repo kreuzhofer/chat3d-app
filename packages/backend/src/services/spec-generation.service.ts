@@ -18,17 +18,21 @@ import {
   createProviderModel as createProviderModelFromConfig,
   type LlmModelConfig,
 } from "./llm-config.service.js";
+import { detectPromptOperations } from "../prompts/system-prompts.js";
 import { createLogger } from "../utils/logger.js";
 
 const logger = createLogger("spec-gen");
 
 // ── Types ────────────────────────────────────────────────────────────
 
+export type SpecComplexity = "simple" | "medium" | "complex";
+
 export interface SpecResult {
   interpretation: string;
   verificationChecklist: string[];
   disambiguationNeeded: boolean;
   disambiguationQuestions: string[];
+  complexity: SpecComplexity;
   promptTokens: number;
   completionTokens: number;
 }
@@ -143,6 +147,18 @@ async function resolveSpecModel(): Promise<{ model: ReturnType<typeof createProv
   };
 }
 
+// ── Complexity derivation ────────────────────────────────────────────
+
+export function deriveComplexity(promptText: string, interpretation?: string): SpecComplexity {
+  const ops = detectPromptOperations(promptText, interpretation);
+  // 3d_ops and 2d_sketch are always added by detectPromptOperations,
+  // so subtract those to count only detected specific operations
+  const specificOps = ops.size - 2; // subtract always-included 3d_ops and 2d_sketch
+  if (specificOps <= 2) return "simple";
+  if (specificOps <= 5) return "medium";
+  return "complex";
+}
+
 // ── Main function ────────────────────────────────────────────────────
 
 export async function generateSpec(promptText: string): Promise<SpecResult> {
@@ -167,6 +183,7 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
     const parsed = parseSpecResponse(result.text);
     const promptTokens = result.usage?.inputTokens ?? 0;
     const completionTokens = result.usage?.outputTokens ?? 0;
+    const complexity = deriveComplexity(promptText, parsed.interpretation);
 
     logger.info(
       {
@@ -174,12 +191,14 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
         checklistCount: parsed.verificationChecklist.length,
         questionCount: parsed.disambiguationQuestions.length,
         interpretation: parsed.interpretation.slice(0, 100),
+        complexity,
       },
       "spec generated",
     );
 
     return {
       ...parsed,
+      complexity,
       promptTokens,
       completionTokens,
     };
@@ -194,6 +213,7 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
     logger.warn({ err: error }, "spec generation failed, proceeding without spec");
     return {
       ...EMPTY_SPEC,
+      complexity: deriveComplexity(promptText),
       promptTokens: 0,
       completionTokens: 0,
     };

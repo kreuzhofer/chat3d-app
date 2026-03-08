@@ -24,7 +24,7 @@ import {
 
 const logger = createLogger("workbench");
 import { extractExecutableCode } from "./llm.service.js";
-import { renderBuild123d, type RenderedFile } from "./rendering.service.js";
+import { renderBuild123d, validateBuild123dCode, type RenderedFile, type LintWarning } from "./rendering.service.js";
 import {
   renderModelScreenshots,
   type RenderedScreenshot,
@@ -54,6 +54,7 @@ import {
   getAutoApproveThreshold,
   getLooksCorrectThreshold,
   getFewShotExampleLimit,
+  getSimpleMaxFixCap,
   isSpecGenerationEnabled,
   isTieredPromptEnabled,
 } from "./generation-settings.service.js";
@@ -797,34 +798,35 @@ async function persistWorkbenchFiles(opts: {
   code: string;
   screenshots: RenderedScreenshot[];
 }): Promise<PersistedFilePaths> {
-  const prefix = `workbench/${opts.categoryId}/${opts.exampleId}`;
+  const artifactPrefix = `workbench/${opts.categoryId}/artifacts/${opts.exampleId}`;
+  const codePrefix = `workbench/${opts.categoryId}/code/${opts.exampleId}`;
 
-  // Persist rendered 3D files
+  // Persist rendered 3D files to artifacts/
   let stlPath: string | null = null;
   let stepPath: string | null = null;
   let threemfPath: string | null = null;
 
   for (const file of opts.renderedFiles) {
     const ext = mapExtension(file.filename);
-    const relativePath = `${prefix}.${ext}`;
+    const relativePath = `${artifactPrefix}.${ext}`;
     await writeStorageFile({ relativePath, contentBase64: file.contentBase64 });
     if (ext === "stl") stlPath = relativePath;
     else if (ext === "step") stepPath = relativePath;
     else if (ext === "3mf") threemfPath = relativePath;
   }
 
-  // Persist code as .b123d
+  // Persist code as .b123d to code/
   if (opts.code.trim()) {
     await writeStorageFile({
-      relativePath: `${prefix}.b123d`,
+      relativePath: `${codePrefix}.b123d`,
       contentBase64: Buffer.from(opts.code, "utf-8").toString("base64"),
     });
   }
 
-  // Persist screenshots — map angle names to file paths
+  // Persist screenshots to artifacts/
   const pathsByAngle: Record<string, string> = {};
   for (const ss of opts.screenshots) {
-    const ssPath = `${prefix}-screenshot-${ss.angle}.png`;
+    const ssPath = `${artifactPrefix}-screenshot-${ss.angle}.png`;
     await writeStorageFile({ relativePath: ssPath, contentBase64: ss.base64 });
     pathsByAngle[ss.angle] = ssPath;
   }
@@ -967,13 +969,22 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
   }
 
   // 3. Load dynamic settings + few-shot examples
-  const [dynMaxFix, dynAutoApprove, dynLooksCorrect, dynFewShotLimit, tieredEnabled] = await Promise.all([
+  let [dynMaxFix, dynAutoApprove, dynLooksCorrect, dynFewShotLimit, tieredEnabled] = await Promise.all([
     getMaxFixIterations("workbench"),
     getAutoApproveThreshold("workbench"),
     getLooksCorrectThreshold("workbench"),
     getFewShotExampleLimit("workbench"),
     isTieredPromptEnabled("workbench"),
   ]);
+
+  // Cap fix iterations for simple prompts
+  if (specResult?.complexity === "simple") {
+    const simpleCap = await getSimpleMaxFixCap("workbench");
+    if (dynMaxFix > simpleCap) {
+      logger.info({ original: dynMaxFix, capped: simpleCap, complexity: specResult.complexity }, "capping fix iterations for simple prompt");
+      dynMaxFix = simpleCap;
+    }
+  }
 
   const fewShots = await fetchFewShotExamples(ctx.prompt, ctx.categoryId, dynFewShotLimit);
   logger.info({ count: fewShots.length }, "few-shot examples loaded");
@@ -1103,6 +1114,67 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     evalResult = null;
     renderedFiles = [];
     screenshots = [];
+
+    // 2b. Pre-render validation (catches syntax errors + lint cheaply)
+    onProgress?.("validating", "Validating code structure...");
+    const wbValidation = await validateBuild123dCode(currentCode);
+    if (!wbValidation.valid) {
+      const validationMsg = wbValidation.errors.join("; ");
+      logger.warn({ iteration, validationErrors: wbValidation.errors }, "pre-render validation failed");
+      const classified: ClassifiedRenderError = {
+        rawMessage: validationMsg,
+        category: RenderErrorCategory.SYNTAX,
+        isInfrastructure: false,
+        fixGuidance: `Pre-render validation failed: ${validationMsg}. Fix the syntax errors or ensure the code assigns the final solid to root_part.`,
+        capturedDetail: null,
+      };
+      errorHistory.push(classified);
+      renderError = validationMsg;
+      const escalation = buildEscalatedGuidance(classified, errorHistory.slice(0, -1));
+      renderErrorCtx = { classified, escalationGuidance: escalation };
+
+      // Revert to pre-edit code if edit mode was used
+      if (useEditMode && preEditCode) {
+        logger.info({ iteration }, "edit mode: reverting to pre-edit code after validation failure");
+        currentCode = preEditCode;
+        preEditCode = null;
+      }
+
+      if (iteration >= dynMaxFix) {
+        onProgress?.("failed", renderError ?? "Validation failed");
+        const exampleId = crypto.randomUUID();
+        await insertExample({
+          id: exampleId,
+          promptId: ctx.promptId,
+          iteration,
+          code: currentCode,
+          renderStatus: "error",
+          renderError,
+          stlPath: null, stepPath: null, threemfPath: null,
+          screenshotFront: null, screenshotBack: null,
+          screenshotLeft: null, screenshotRight: null,
+          screenshotTop: null, screenshotBottom: null,
+          screenshotOrtho45: null, screenshotOrtho45Bottom: null,
+          screenshotIso: null, screenshotIsoBack: null,
+          evalScore: null, evalIssues: null, evalSuggestions: null,
+          approvalStatus: "pending",
+          llmModel: llmModelLabel, vlmModel: null,
+          promptTokens: totalPromptTokens, completionTokens: totalCompletionTokens,
+        });
+        return {
+          exampleId, promptId: ctx.promptId, iteration,
+          code: currentCode, renderStatus: "error", renderError,
+          evalScore: null, evalIssues: null, evalSuggestions: null,
+          approvalStatus: "pending", llmModel: llmModelLabel, vlmModel: null,
+        };
+      }
+      continue;
+    }
+
+    // Log lint warnings for informational use
+    if (wbValidation.warnings.length > 0) {
+      logger.warn({ iteration, warnings: wbValidation.warnings.map(w => `[${w.rule}] ${w.message}`) }, "lint warnings");
+    }
 
     // 3. Render with Build123d — wrap raw code in template for execution
     //    Uses infrastructure retry to avoid wasting iterations on service hiccups.

@@ -52,6 +52,8 @@ const SETTINGS_REGISTRY = new Map<string, SettingMeta>([
   ["chat.conversation_history_max_pairs", { default: 5, label: "Conversation history max pairs", description: "Max user/assistant exchange pairs for context", pipeline: "chat-only", min: 1, max: 50 }],
   ["workbench.few_shot_example_limit", { default: 6, label: "Few-shot example limit", description: "Number of few-shot examples to include in prompt", pipeline: "workbench", min: 0, max: 20 }],
   ["chat.few_shot_example_limit", { default: 6, label: "Few-shot example limit", description: "Number of few-shot examples to include in prompt", pipeline: "chat", min: 0, max: 20 }],
+  ["workbench.simple_max_fix_cap", { default: 3, label: "Simple prompt fix cap", description: "Maximum fix iterations for prompts assessed as 'simple' complexity", pipeline: "workbench", min: 1, max: 20 }],
+  ["chat.simple_max_fix_cap", { default: 3, label: "Simple prompt fix cap", description: "Maximum fix iterations for prompts assessed as 'simple' complexity", pipeline: "chat", min: 1, max: 20 }],
   ["chat.codegen_base_temperature", { default: 0.3, label: "Codegen base temperature", description: "Base temperature for code generation (increases per fix iteration)", pipeline: "chat", min: 0, max: 1 }],
   ["chat.codegen_temperature_step", { default: 0.1, label: "Codegen temperature step", description: "Temperature increase per fix iteration", pipeline: "chat", min: 0, max: 0.3 }],
   ["workbench.spec_generation_enabled", { default: 1, label: "Spec generation enabled", description: "Enable specification step before codegen (1=on, 0=off)", pipeline: "workbench", min: 0, max: 1 }],
@@ -117,6 +119,10 @@ export async function getConversationHistoryMaxPairs(): Promise<number> {
 
 export async function getFewShotExampleLimit(pipeline: Pipeline): Promise<number> {
   return getEffective(`${pipeline}.few_shot_example_limit`);
+}
+
+export async function getSimpleMaxFixCap(pipeline: Pipeline): Promise<number> {
+  return getEffective(`${pipeline}.simple_max_fix_cap`);
 }
 
 export async function getCodegenBaseTemperature(): Promise<number> {

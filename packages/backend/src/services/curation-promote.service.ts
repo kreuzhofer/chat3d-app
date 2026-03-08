@@ -115,11 +115,13 @@ export async function promoteCandidate(candidateId: string): Promise<PromotionRe
   // 6. Copy files from chat/ to workbench/ storage
   const filePaths = await copyFilesToWorkbench(contextId, bestItem.id, category.id, prompt.id);
 
-  // 7. Read b123d code
+  // 7. Read b123d code (check new path first, then old)
   let code = "";
-  const b123dSrc = `chat/${contextId}/${bestItem.id}.b123d`;
-  if (await storageFileExists(b123dSrc)) {
-    const buf = await readStorageFile({ relativePath: b123dSrc });
+  const b123dCodeNew = `chat/${contextId}/code/${bestItem.id}.b123d`;
+  const b123dCodeOld = `chat/${contextId}/${bestItem.id}.b123d`;
+  const b123dCodeSrc = (await storageFileExists(b123dCodeNew)) ? b123dCodeNew : (await storageFileExists(b123dCodeOld)) ? b123dCodeOld : null;
+  if (b123dCodeSrc) {
+    const buf = await readStorageFile({ relativePath: b123dCodeSrc });
     code = buf.toString("utf-8");
   }
 
@@ -202,15 +204,16 @@ async function findBestAssistantItem(
   const assistantItems = [...items].reverse().filter((i) => i.role === "assistant");
 
   for (const item of assistantItems) {
-    // Check if any model file exists on disk
+    // Check if any model file exists on disk (new paths first, then old)
     for (const ext of MODEL_EXTENSIONS) {
-      const filePath = `chat/${contextId}/${item.id}.${ext}`;
-      if (await storageFileExists(filePath)) {
+      const newPath = `chat/${contextId}/artifacts/${item.id}.${ext}`;
+      const oldPath = `chat/${contextId}/${item.id}.${ext}`;
+      if (await storageFileExists(newPath) || await storageFileExists(oldPath)) {
         return { id: item.id };
       }
     }
-    // Also check for b123d
-    if (await storageFileExists(`chat/${contextId}/${item.id}.b123d`)) {
+    // Also check for b123d (new path first, then old)
+    if (await storageFileExists(`chat/${contextId}/code/${item.id}.b123d`) || await storageFileExists(`chat/${contextId}/${item.id}.b123d`)) {
       return { id: item.id };
     }
   }
@@ -244,8 +247,12 @@ async function copyFilesToWorkbench(
   categoryId: string,
   exampleFileId: string,
 ): Promise<CopiedFilePaths> {
-  const srcPrefix = `chat/${contextId}/${itemId}`;
-  const dstPrefix = `workbench/${categoryId}/${exampleFileId}`;
+  const srcArtifactPrefix = `chat/${contextId}/artifacts/${itemId}`;
+  const srcArtifactPrefixOld = `chat/${contextId}/${itemId}`;
+  const srcCodePrefix = `chat/${contextId}/code/${itemId}`;
+  const srcCodePrefixOld = `chat/${contextId}/${itemId}`;
+  const dstArtifactPrefix = `workbench/${categoryId}/artifacts/${exampleFileId}`;
+  const dstCodePrefix = `workbench/${categoryId}/code/${exampleFileId}`;
 
   const result: CopiedFilePaths = {
     stlPath: null,
@@ -263,11 +270,13 @@ async function copyFilesToWorkbench(
     screenshotIsoBack: null,
   };
 
-  // Copy model files
+  // Copy model files (check new path first, then old)
   for (const ext of MODEL_EXTENSIONS) {
-    const src = `${srcPrefix}.${ext}`;
-    if (await storageFileExists(src)) {
-      const dst = `${dstPrefix}.${ext}`;
+    const srcNew = `${srcArtifactPrefix}.${ext}`;
+    const srcOld = `${srcArtifactPrefixOld}.${ext}`;
+    const src = (await storageFileExists(srcNew)) ? srcNew : (await storageFileExists(srcOld)) ? srcOld : null;
+    if (src) {
+      const dst = `${dstArtifactPrefix}.${ext}`;
       const buf = await readStorageFile({ relativePath: src });
       await writeStorageFileFromBuffer({ relativePath: dst, content: buf });
       if (ext === "stl") result.stlPath = dst;
@@ -277,20 +286,24 @@ async function copyFilesToWorkbench(
     }
   }
 
-  // Copy b123d source
-  const b123dSrc = `${srcPrefix}.b123d`;
-  if (await storageFileExists(b123dSrc)) {
-    const b123dDst = `${dstPrefix}.b123d`;
+  // Copy b123d source (check new path first, then old)
+  const b123dSrcNew = `${srcCodePrefix}.b123d`;
+  const b123dSrcOld = `${srcCodePrefixOld}.b123d`;
+  const b123dSrc = (await storageFileExists(b123dSrcNew)) ? b123dSrcNew : (await storageFileExists(b123dSrcOld)) ? b123dSrcOld : null;
+  if (b123dSrc) {
+    const b123dDst = `${dstCodePrefix}.b123d`;
     const buf = await readStorageFile({ relativePath: b123dSrc });
     await writeStorageFileFromBuffer({ relativePath: b123dDst, content: buf });
     logger.debug({ src: b123dSrc, dst: b123dDst }, "copied b123d file");
   }
 
-  // Copy screenshots
+  // Copy screenshots (check new path first, then old)
   for (const { suffix, column } of SCREENSHOT_ANGLES) {
-    const src = `${srcPrefix}-screenshot-${suffix}.png`;
-    if (await storageFileExists(src)) {
-      const dst = `${dstPrefix}-screenshot-${suffix}.png`;
+    const srcNew = `${srcArtifactPrefix}-screenshot-${suffix}.png`;
+    const srcOld = `${srcArtifactPrefixOld}-screenshot-${suffix}.png`;
+    const src = (await storageFileExists(srcNew)) ? srcNew : (await storageFileExists(srcOld)) ? srcOld : null;
+    if (src) {
+      const dst = `${dstArtifactPrefix}-screenshot-${suffix}.png`;
       const buf = await readStorageFile({ relativePath: src });
       await writeStorageFileFromBuffer({ relativePath: dst, content: buf });
       result[column] = dst;

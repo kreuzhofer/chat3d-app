@@ -280,7 +280,7 @@ async function writeScreenshotOnImport(
   base64Value: string | null,
 ): Promise<string | null> {
   if (!base64Value) return null;
-  const relativePath = `workbench/${categoryId}/${exampleId}-screenshot-${angle}.png`;
+  const relativePath = `workbench/${categoryId}/artifacts/${exampleId}-screenshot-${angle}.png`;
   try {
     await writeStorageFile({ relativePath, contentBase64: base64Value });
     return relativePath;
@@ -369,13 +369,15 @@ async function runExport(job: TransferJob): Promise<void> {
         { dbPath: r.threemfPath, ext: "3mf" },
       ];
 
-      // Also include b123d source file if it exists
+      // Also include b123d source file if it exists (check new path first, then old)
       if (categoryId) {
-        const b123dRelPath = `workbench/${categoryId}/${r.id}.b123d`;
-        if (await storageFileExists(b123dRelPath)) {
+        const b123dNewPath = `workbench/${categoryId}/code/${r.id}.b123d`;
+        const b123dOldPath = `workbench/${categoryId}/${r.id}.b123d`;
+        const b123dPath = (await storageFileExists(b123dNewPath)) ? b123dNewPath : (await storageFileExists(b123dOldPath)) ? b123dOldPath : null;
+        if (b123dPath) {
           filesToArchive.push({
-            zipPath: `files/${b123dRelPath}`,
-            storagePath: b123dRelPath,
+            zipPath: `files/${b123dPath}`,
+            storagePath: b123dPath,
           });
         }
       }
@@ -625,9 +627,10 @@ async function runZipImport(job: TransferJob, filePath: string): Promise<void> {
 
   let extractedCount = 0;
   for (const entry of fileEntries) {
-    // Strip "files/" prefix to get the storage-relative path
-    const relativePath = entry.path.slice("files/".length);
-    if (!relativePath) continue;
+    // Strip "files/" prefix to get the storage-relative path, then remap legacy flat paths
+    const rawPath = entry.path.slice("files/".length);
+    if (!rawPath) continue;
+    const relativePath = remapLegacyWorkbenchPath(rawPath);
 
     const buffer = await entry.buffer();
     await writeStorageFileFromBuffer({ relativePath, content: buffer });
@@ -707,19 +710,19 @@ async function runZipImport(job: TransferJob, filePath: string): Promise<void> {
           code: ex.code,
           renderStatus: ex.render_status,
           renderError: ex.render_error,
-          stlPath: ex.stl_path,
-          stepPath: ex.step_path,
-          threemfPath: ex.threemf_path,
-          screenshotFront: stripFilesPrefix(ex.screenshot_front),
-          screenshotBack: stripFilesPrefix(ex.screenshot_back),
-          screenshotLeft: stripFilesPrefix(ex.screenshot_left),
-          screenshotRight: stripFilesPrefix(ex.screenshot_right),
-          screenshotTop: stripFilesPrefix(ex.screenshot_top),
-          screenshotBottom: stripFilesPrefix(ex.screenshot_bottom),
-          screenshotOrtho45: stripFilesPrefix(ex.screenshot_ortho_45),
-          screenshotOrtho45Bottom: stripFilesPrefix(ex.screenshot_ortho_45_bottom),
-          screenshotIso: stripFilesPrefix(ex.screenshot_iso),
-          screenshotIsoBack: stripFilesPrefix(ex.screenshot_iso_back),
+          stlPath: ex.stl_path ? remapLegacyWorkbenchPath(ex.stl_path) : null,
+          stepPath: ex.step_path ? remapLegacyWorkbenchPath(ex.step_path) : null,
+          threemfPath: ex.threemf_path ? remapLegacyWorkbenchPath(ex.threemf_path) : null,
+          screenshotFront: remapNullable(stripFilesPrefix(ex.screenshot_front)),
+          screenshotBack: remapNullable(stripFilesPrefix(ex.screenshot_back)),
+          screenshotLeft: remapNullable(stripFilesPrefix(ex.screenshot_left)),
+          screenshotRight: remapNullable(stripFilesPrefix(ex.screenshot_right)),
+          screenshotTop: remapNullable(stripFilesPrefix(ex.screenshot_top)),
+          screenshotBottom: remapNullable(stripFilesPrefix(ex.screenshot_bottom)),
+          screenshotOrtho45: remapNullable(stripFilesPrefix(ex.screenshot_ortho_45)),
+          screenshotOrtho45Bottom: remapNullable(stripFilesPrefix(ex.screenshot_ortho_45_bottom)),
+          screenshotIso: remapNullable(stripFilesPrefix(ex.screenshot_iso)),
+          screenshotIsoBack: remapNullable(stripFilesPrefix(ex.screenshot_iso_back)),
           evalScore: ex.eval_score,
           evalIssues: ex.eval_issues ? ex.eval_issues as object : undefined,
           evalSuggestions: ex.eval_suggestions ? ex.eval_suggestions as object : undefined,
@@ -760,6 +763,38 @@ function stripFilesPrefix(value: string | null): string | null {
   if (!value) return null;
   if (value.startsWith("files/")) return value.slice("files/".length);
   return value;
+}
+
+function remapNullable(value: string | null): string | null {
+  return value ? remapLegacyWorkbenchPath(value) : null;
+}
+
+const MODEL_EXTENSIONS = new Set(["stl", "step", "3mf"]);
+const CODE_EXTENSIONS = new Set(["b123d"]);
+
+/**
+ * Remap a legacy flat workbench path to the new code/artifacts structure.
+ *
+ *   workbench/{cat}/{id}.stl        → workbench/{cat}/artifacts/{id}.stl
+ *   workbench/{cat}/{id}.b123d      → workbench/{cat}/code/{id}.b123d
+ *   workbench/{cat}/{id}-screenshot-front.png → workbench/{cat}/artifacts/{id}-screenshot-front.png
+ *
+ * Paths already containing /artifacts/ or /code/ are returned unchanged.
+ */
+function remapLegacyWorkbenchPath(p: string): string {
+  if (!p.startsWith("workbench/")) return p;
+  if (p.includes("/artifacts/") || p.includes("/code/")) return p;
+  const segments = p.split("/");
+  if (segments.length !== 3) return p; // Already nested or unexpected
+  const fileName = segments[2];
+  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+  if (CODE_EXTENSIONS.has(ext)) {
+    return `${segments[0]}/${segments[1]}/code/${fileName}`;
+  }
+  if (MODEL_EXTENSIONS.has(ext) || (ext === "png" && fileName.includes("-screenshot-"))) {
+    return `${segments[0]}/${segments[1]}/artifacts/${fileName}`;
+  }
+  return p; // Unknown extension — leave as-is
 }
 
 // ── JSON Import (v1/v2 — backwards compatible) ──────────────────────
@@ -906,9 +941,9 @@ async function runJsonImport(job: TransferJob, filePath: string): Promise<void> 
           code: ex.code,
           renderStatus: ex.render_status,
           renderError: ex.render_error,
-          stlPath: ex.stl_path,
-          stepPath: ex.step_path,
-          threemfPath: ex.threemf_path,
+          stlPath: ex.stl_path ? remapLegacyWorkbenchPath(ex.stl_path) : null,
+          stepPath: ex.step_path ? remapLegacyWorkbenchPath(ex.step_path) : null,
+          threemfPath: ex.threemf_path ? remapLegacyWorkbenchPath(ex.threemf_path) : null,
           screenshotFront: ssFront,
           screenshotBack: ssBack,
           screenshotLeft: ssLeft,

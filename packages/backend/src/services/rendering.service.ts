@@ -53,9 +53,17 @@ function mockRenderedFiles(baseFileName: string): RenderedFile[] {
 
 // ── Pre-render validation ──────────────────────────────────────────────────
 
+export interface LintWarning {
+  rule: string;
+  message: string;
+  line: number;
+  severity: "error" | "warning";
+}
+
 export interface Build123dValidationResult {
   valid: boolean;
   errors: string[];
+  warnings: LintWarning[];
 }
 
 /**
@@ -65,7 +73,7 @@ export interface Build123dValidationResult {
  */
 export async function validateBuild123dCode(code: string): Promise<Build123dValidationResult> {
   if (config.query.renderMode === "mock") {
-    return { valid: true, errors: [] };
+    return { valid: true, errors: [], warnings: [] };
   }
 
   const url = `${config.query.build123dUrl.replace(/\/$/, "")}/validate/`;
@@ -80,10 +88,11 @@ export async function validateBuild123dCode(code: string): Promise<Build123dVali
     });
     clearTimeout(timer);
 
-    const body = (await response.json()) as { valid?: boolean; errors?: string[] };
+    const body = (await response.json()) as { valid?: boolean; errors?: string[]; warnings?: LintWarning[] };
     return {
       valid: body.valid === true,
       errors: Array.isArray(body.errors) ? body.errors : [],
+      warnings: Array.isArray(body.warnings) ? body.warnings : [],
     };
   } catch (err) {
     // If the validate endpoint is unreachable, skip validation rather than blocking
@@ -91,7 +100,7 @@ export async function validateBuild123dCode(code: string): Promise<Build123dVali
       { err: err instanceof Error ? err.message : String(err) },
       "validate endpoint unreachable — skipping pre-render validation",
     );
-    return { valid: true, errors: [] };
+    return { valid: true, errors: [], warnings: [] };
   }
 }
 

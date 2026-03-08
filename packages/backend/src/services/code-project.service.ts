@@ -1,0 +1,117 @@
+/**
+ * Code Project Service
+ *
+ * Tracks the current working code per chat context and maintains
+ * a version history. Replaces fragile findMostRecentCode() approach
+ * with deterministic project state.
+ */
+
+import { prisma } from "../db/prisma.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("code-project");
+
+export interface CodeProject {
+  id: string;
+  chatContextId: string;
+  currentCode: string;
+  lastRenderedItemId: string | null;
+  fileCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CodeProjectVersion {
+  id: string;
+  projectId: string;
+  chatItemId: string | null;
+  code: string;
+  versionNumber: number;
+  createdAt: Date;
+}
+
+/**
+ * Get or create a code project for a chat context.
+ */
+export async function getOrCreateProject(contextId: string): Promise<CodeProject> {
+  const existing = await prisma.codeProject.findUnique({
+    where: { chatContextId: contextId },
+  });
+  if (existing) return existing;
+
+  const created = await prisma.codeProject.create({
+    data: { chatContextId: contextId },
+  });
+  logger.info({ contextId, projectId: created.id }, "created new code project");
+  return created;
+}
+
+/**
+ * Update the project's current code and create a version entry.
+ * Called after a successful render.
+ */
+export async function updateProjectCode(
+  contextId: string,
+  code: string,
+  chatItemId: string,
+): Promise<void> {
+  const project = await getOrCreateProject(contextId);
+
+  // Determine next version number
+  const lastVersion = await prisma.codeProjectVersion.findFirst({
+    where: { projectId: project.id },
+    orderBy: { versionNumber: "desc" },
+    select: { versionNumber: true },
+  });
+  const nextVersion = (lastVersion?.versionNumber ?? 0) + 1;
+
+  await prisma.$transaction([
+    prisma.codeProject.update({
+      where: { id: project.id },
+      data: {
+        currentCode: code,
+        lastRenderedItemId: chatItemId,
+        updatedAt: new Date(),
+      },
+    }),
+    prisma.codeProjectVersion.create({
+      data: {
+        projectId: project.id,
+        chatItemId,
+        code,
+        versionNumber: nextVersion,
+      },
+    }),
+  ]);
+
+  logger.info({ contextId, projectId: project.id, version: nextVersion, codeLength: code.length }, "project code updated");
+}
+
+/**
+ * Get the current working code for a chat context.
+ * Returns null if no project exists yet.
+ */
+export async function getProjectCode(contextId: string): Promise<string | null> {
+  const project = await prisma.codeProject.findUnique({
+    where: { chatContextId: contextId },
+    select: { currentCode: true },
+  });
+  if (!project || !project.currentCode) return null;
+  return project.currentCode;
+}
+
+/**
+ * Get all code versions for a chat context.
+ */
+export async function getProjectVersions(contextId: string): Promise<CodeProjectVersion[]> {
+  const project = await prisma.codeProject.findUnique({
+    where: { chatContextId: contextId },
+    select: { id: true },
+  });
+  if (!project) return [];
+
+  return prisma.codeProjectVersion.findMany({
+    where: { projectId: project.id },
+    orderBy: { versionNumber: "asc" },
+  });
+}

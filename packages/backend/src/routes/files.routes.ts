@@ -185,10 +185,11 @@ filesRouter.get("/download", async (req, res) => {
     if (isExplicitDownload && domainInfo.domain === "chat") {
       const fileName = basename(relativePath);
       if (/\.(3mf|stl|step|b123d)$/i.test(fileName)) {
-        const segments = relativePath.replace(/\\/g, "/").split("/");
-        // Pattern: chat/{contextId}/{itemId}.ext
-        if (segments.length >= 3 && segments[2]) {
-          const itemId = segments[2].replace(/\.[^.]+$/, "");
+        // Extract itemId from the file name (last segment minus extension)
+        // Handles both old flat paths: chat/{contextId}/{itemId}.ext
+        // and new structured paths: chat/{contextId}/artifacts/{itemId}.ext
+        const itemId = fileName.replace(/\.[^.]+$/, "");
+        if (itemId) {
           prisma.chatItem
             .update({ where: { id: itemId }, data: { downloadCount: { increment: 1 } } })
             .catch((err) => logger.debug({ err, itemId }, "failed to increment download count"));

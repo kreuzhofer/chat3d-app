@@ -377,81 +377,70 @@ This mirrors the **CodeChain** pattern from research: "identify and cluster repr
 - **Quality impact**: More relevant examples = fewer errors
 - **Estimated effort**: 1 week
 
-### Phase 5: Models as Projects (High Effort, High Impact) — ⏳ Not Started
+### Phase 5: Models as Projects (Foundation) — ✅ Partially Complete
 
-The key architectural shift: treat each model as a **multi-file Python project**, not a single disposable script. The agent works in a project directory — reading, writing, and editing files — just as Claude Code works on a software project.
+Lays the structural foundation for treating models as projects (Phase 6 agent loop). Delivers standalone value via lint enforcement, complexity-based fix capping, and project code tracking.
 
-**5a. Project Directory Structure**
+**5a. Project Directory Structure** — ✅ Implemented
 
-Currently, all per-context files live flat in `chat/{contextId}/`:
-
-```
-chat/{contextId}/
-  {itemId}.b123d
-  {itemId}.stl
-  {itemId}.step
-  {itemId}.3mf
-  {itemId}-screenshot-front.png
-  ...
-```
-
-The new structure separates **artifacts** (render outputs) from **code** (the agent's working directory):
+File storage restructured from flat layout to `code/` + `artifacts/` subdirectories for both chat and workbench domains:
 
 ```
 chat/{contextId}/
-  artifacts/                              # Render outputs (generated, not edited)
+  artifacts/                              # Render outputs
     {itemId}.stl
     {itemId}.step
     {itemId}.3mf
     {itemId}-screenshot-{angle}.png
-  code/                                   # Agent's working directory (the "project")
-    main.py                               # Entry point — imports, assembles, assigns root_part
-    components/                           # Reusable component modules
-      gear.py                             # e.g., parametric gear generator
-      bracket.py                          # e.g., mounting bracket
-    utils/                                # Shared helpers
-      bolt_patterns.py                    # e.g., common hole patterns
-      profiles.py                         # e.g., reusable 2D sketches
-    params.py                             # Shared dimensions/constants
+  code/                                   # Source code
+    {itemId}.b123d
+  {contextId}-{uuid}.{ext}               # User uploads (unchanged)
 ```
 
-The agent decides the file structure based on complexity:
-- Simple model → single `main.py`
-- Multi-component model → `main.py` + component files
-- Reusable patterns → extracted into `utils/`
-- Shared parameters → `params.py`
+- One-time data migration (`v2_file_restructure`) moves existing files and rewrites DB path references (JSONB in `chat_items.messages`, columns in `workbench_examples`)
+- Data migration runner (`run-data-migrations.ts`) executes between `prisma migrate deploy` and app start; tracked in `data_migrations` table for idempotency
+- All services updated: file serving, workbench data transfer (export/import), curation promotion (chat → workbench)
+- Multi-file projects (`components/`, `utils/`, `params.py`) deferred to Phase 6
 
-The Build123d render service receives the entire `code/` directory (not a single file) and executes `main.py` as the entry point. The `artifacts/` directory is populated by the render service output.
+**5b. Build123d Lint Rules** — ✅ Implemented
 
-**5b. Build123d Container API Extensions**
+10 AST-based lint rules merged into the existing `/validate/` endpoint (zero pipeline orchestration changes — both chat and workbench pipelines get lint for free):
 
-The Build123d container currently exposes only `POST /render/`. To support agentic workflows, it needs additional APIs that serve as **tools for the agent**:
+| Rule ID | What it catches | Severity |
+|---------|----------------|----------|
+| `no_box_centered` | `Box()` with `centered` kwarg | error |
+| `no_shell_class` | Call to `Shell()` | error |
+| `locations_bare_int` | `Locations()` with bare int args | error |
+| `no_export_calls` | `export_step()`, `Mesher()` | warning |
+| `no_build123d_import` | `from build123d import *` | warning |
+| `no_forbidden_imports` | `import sys`, `matplotlib`, etc. | error |
+| `no_show_calls` | `show()`, `show_object()` | error |
+| `no_interactive` | `input()`, `print()` | warning |
+| `missing_make_face` | `BuildLine` in `BuildSketch` without `make_face()` | warning |
+| `fillet_before_boolean` | `fillet()`/`chamfer()` before boolean ops | warning |
 
-| Endpoint | Purpose | Agent Tool Equivalent |
-|----------|---------|----------------------|
-| `POST /render/` | Execute `main.py`, export .step/.stl/.3mf | Existing — the expensive "build & run" step |
-| `POST /validate` | AST parse all .py files, check imports resolve, verify `root_part` defined in `main.py` | Claude Code's `tsc --noEmit` equivalent |
-| `POST /analyze` | List defined functions/classes per file, map imports between files, detect unused code | Claude Code's "read and understand the project" |
-| `POST /lint` | Check for common Build123d mistakes (the 15+ known issues from the system prompt, as executable checks) | Claude Code's linter |
-| `POST /execute-partial` | Run a single file in isolation to verify it doesn't error (without full render/export) | Running a single test file |
+Lint errors (severity=`"error"`) cause `valid=false`. Warnings are returned for informational use and logged. Workbench pipeline now also calls `/validate/` before render (was missing).
 
-All new endpoints accept the project directory as a tar/zip payload or via shared volume mount. They return structured JSON results the agent can reason about.
+- `POST /analyze`, `POST /execute-partial` deferred to Phase 6 ⏳
+- Multi-file `/render/` deferred to Phase 6 ⏳
 
-**Implementation note**: Since the Build123d container already has Python + Build123d installed, these APIs are lightweight additions — `POST /validate` is essentially `python -c "import ast; ast.parse(code)"` with Build123d-specific checks on top. The infrastructure already exists; we're just exposing it.
+**5c. Complexity-Based Routing** — ✅ Implemented (simplified)
 
-**5c. Complexity-Based Routing**
-- Assess model complexity from the specification (Phase 3)
-- Simple models (1-3 operations): Single `main.py`, direct generation
-- Medium models (4-8 operations): Single `main.py` with edit-based fixing
-- Complex models (9+ operations, multiple components): Multi-file project with component decomposition
-- **Estimated effort**: 1-2 days (routing logic)
+- Complexity derived from `detectPromptOperations()` count: 0-2 → `"simple"`, 3-5 → `"medium"`, 6+ → `"complex"`
+- Simple prompts cap `maxFixIterations` to admin-tunable `simple_max_fix_cap` (default: 3)
+- No additional LLM call needed — deterministic computation from existing spec data
 
-**5d. Incremental Modification**
+**5d. Project Code Tracking** — ✅ Implemented
+
+- `code_projects` table: one per chat context, stores `current_code` and `last_rendered_item_id`
+- `code_project_versions` table: version history with code snapshots per successful render
+- Modification detection now uses `getProjectCode(contextId)` (reliable, survives message deletion) with fallback to `findMostRecentCode()` for backward compat
+- After successful render: `updateProjectCode()` persists working code atomically
+
+**5e. Incremental Modification** — ⏳ Deferred to Phase 6
 - When user says "make the handle longer," the agent reads the project files, identifies which file/function defines the handle, and edits that specific code
 - Only the modified file needs re-validation; the full project only re-renders
 - Unrelated components are preserved exactly as-is (no regeneration risk)
-- **Token savings**: Proportional to project size (10-file project → agent reads and edits 1 file)
-- **Estimated effort**: Included in Phase 6 agent implementation
 
 ### Phase 6: Agent-Based Orchestration (High Effort, Transformative) — ⏳ Not Started
 

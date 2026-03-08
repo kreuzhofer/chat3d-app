@@ -18,7 +18,7 @@ import {
   LlmServiceError,
   type LlmUsageMetadata,
 } from "./llm.service.js";
-import { renderBuild123d, RenderingServiceError, validateBuild123dCode } from "./rendering.service.js";
+import { renderBuild123d, RenderingServiceError, validateBuild123dCode, type LintWarning } from "./rendering.service.js";
 import {
   classifyRenderError,
   buildEscalatedGuidance,
@@ -57,10 +57,12 @@ import {
   getFewShotExampleLimit,
   getCodegenBaseTemperature,
   getCodegenTemperatureStep,
+  getSimpleMaxFixCap,
   isSpecGenerationEnabled,
   isTieredPromptEnabled,
 } from "./generation-settings.service.js";
 import { generateSpec, formatDisambiguationResponse } from "./spec-generation.service.js";
+import { updateProjectCode, getProjectCode } from "./code-project.service.js";
 import {
   getModelForPurpose,
   createProviderModel as createProviderModelFromConfig,
@@ -1185,7 +1187,7 @@ export async function executeQueryPipeline(input: {
     const conversationPrompt = `${prompt}${formatAttachmentContext(attachments)}`;
 
     // Fetch dynamic generation settings for the chat pipeline
-    const [chatMaxFix, chatAutoApprove, chatLooksCorrect, chatMaxPairs, chatFewShotLimit, chatBaseTemp, chatTempStep] = await Promise.all([
+    let [chatMaxFix, chatAutoApprove, chatLooksCorrect, chatMaxPairs, chatFewShotLimit, chatBaseTemp, chatTempStep] = await Promise.all([
       getMaxFixIterations("chat"),
       getAutoApproveThreshold("chat"),
       getLooksCorrectThreshold("chat"),
@@ -1318,6 +1320,7 @@ export async function executeQueryPipeline(input: {
 
     // ── Spec generation (disambiguation check) ──
     let epVerificationChecklist: string[] = [];
+    let epSpecInterpretation: string | undefined;
     const specEnabled = await isSpecGenerationEnabled("chat");
     if (specEnabled) {
       await persistPhase("Analyzing request...");
@@ -1377,7 +1380,18 @@ export async function executeQueryPipeline(input: {
       }
 
       epVerificationChecklist = specResult.verificationChecklist;
-      queryLogger.info({ interpretation: specResult.interpretation.slice(0, 100), checklistCount: epVerificationChecklist.length }, "spec generated");
+      epSpecInterpretation = specResult.interpretation;
+
+      // Cap fix iterations for simple prompts
+      if (specResult.complexity === "simple") {
+        const simpleCap = await getSimpleMaxFixCap("chat");
+        if (chatMaxFix > simpleCap) {
+          queryLogger.info({ original: chatMaxFix, capped: simpleCap, complexity: specResult.complexity }, "capping fix iterations for simple prompt");
+          chatMaxFix = simpleCap;
+        }
+      }
+
+      queryLogger.info({ interpretation: specResult.interpretation.slice(0, 100), checklistCount: epVerificationChecklist.length, complexity: specResult.complexity }, "spec generated");
     }
 
     // ── Workbench-style iteration loop: codegen → render → VLM eval → fix ──
@@ -1405,7 +1419,7 @@ export async function executeQueryPipeline(input: {
     const epSystemPromptContent = chatTieredEnabled
       ? buildTieredSystemPrompt({
           promptText: prompt,
-          interpretation: specResult?.interpretation,
+          interpretation: epSpecInterpretation,
           fewShotCount: epFewShots.length,
         })
       : CODEGEN_SYSTEM_PROMPT;
@@ -1416,8 +1430,8 @@ export async function executeQueryPipeline(input: {
     const epExtraOpts = buildGenerateOptions(epCodegenConfig);
     queryLogger.info({ model: epCodegenConfig.label, provider: epCodegenConfig.provider, modelName: epCodegenConfig.modelName, maxOutputTokens: epCodegenConfig.maxOutputTokens, thinkingEffort: epCodegenConfig.thinkingEffort, supportsThinking: epCodegenConfig.supportsThinking }, "resolved chat codegen model");
 
-    // Detect modification scenario: check if conversation history has previous Build123d code
-    const epBaselineCode = findMostRecentCode(conversationHistory);
+    // Detect modification scenario: check project tracking first, fall back to conversation scan
+    const epBaselineCode = await getProjectCode(input.contextId) ?? findMostRecentCode(conversationHistory);
     const epConvHistoryText = formatConversationHistory(conversationHistory);
     const epIsModification = !!epBaselineCode;
     if (epIsModification) {
@@ -1682,6 +1696,11 @@ export async function executeQueryPipeline(input: {
         continue;
       }
 
+      // Log lint warnings for informational use
+      if (epValidation.warnings.length > 0) {
+        queryLogger.warn({ iteration, warnings: epValidation.warnings.map((w: LintWarning) => `[${w.rule}] ${w.message}`) }, "lint warnings");
+      }
+
       checkAborted();
       await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "rendering", detail: "Rendering 3D model..." });
       await persistPhase("Rendering 3D model...");
@@ -1796,27 +1815,36 @@ export async function executeQueryPipeline(input: {
     const epFinalFiles: Array<{ path: string; filename: string }> = [];
     const epFinalCode = epBest?.code ?? epCurrentCode;
 
-    // Save rendered model files (STL, STEP, 3MF)
+    // Save rendered model files (STL, STEP, 3MF) to artifacts/
     for (const file of epBest?.renderedFiles ?? []) {
       const ext = mapExtension(file.filename);
-      const rp = `chat/${input.contextId}/${assistantItemId}.${ext}`;
+      const rp = `chat/${input.contextId}/artifacts/${assistantItemId}.${ext}`;
       await writeStorageFile({ relativePath: rp, contentBase64: file.contentBase64 });
       epFinalFiles.push({ path: rp, filename: file.filename });
     }
 
-    // Save the best code as .b123d file for future workbench routing
+    // Save the best code as .b123d file to code/
     if (epFinalCode?.trim()) {
-      const codeRelPath = `chat/${input.contextId}/${assistantItemId}.b123d`;
+      const codeRelPath = `chat/${input.contextId}/code/${assistantItemId}.b123d`;
       await writeStorageFile({ relativePath: codeRelPath, contentBase64: Buffer.from(epFinalCode, "utf-8").toString("base64") });
       epFinalFiles.push({ path: codeRelPath, filename: `${assistantItemId}.b123d` });
     }
 
-    // Save preview screenshots as PNGs for future workbench routing
+    // Save preview screenshots as PNGs to artifacts/
     const epScreenshotFiles: Array<{ path: string; filename: string }> = [];
     for (const ss of epBest?.screenshots ?? []) {
-      const ssPath = `chat/${input.contextId}/${assistantItemId}-screenshot-${ss.angle}.png`;
+      const ssPath = `chat/${input.contextId}/artifacts/${assistantItemId}-screenshot-${ss.angle}.png`;
       await writeStorageFile({ relativePath: ssPath, contentBase64: ss.base64 });
       epScreenshotFiles.push({ path: ssPath, filename: `${assistantItemId}-screenshot-${ss.angle}.png` });
+    }
+
+    // Persist project code tracking (for reliable modification detection)
+    if (epFinalCode?.trim()) {
+      try {
+        await updateProjectCode(input.contextId, epFinalCode, assistantItemId);
+      } catch (err) {
+        queryLogger.warn({ err: err instanceof Error ? err.message : String(err) }, "failed to update project code (non-fatal)");
+      }
     }
 
     const epFinalEval = epBest?.evalState ?? epEvalState;
