@@ -61,7 +61,7 @@ import {
   getAgentMaxSteps,
 } from "./generation-settings.service.js";
 import { generateSpec, type SpecResult } from "./spec-generation.service.js";
-import { runAgentCodegen } from "./agent-codegen.service.js";
+import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
 import crypto from "node:crypto";
 
 export const MAX_FIX_ITERATIONS = 5;
@@ -1044,9 +1044,14 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
 
   if (wbAgentModelConfig) {
     const wbAgMaxSteps = await getAgentMaxSteps("workbench");
-    onProgress?.("codegen", "Agent is working on your model...");
+    const wbUseMultiAgent = specResult?.complexity === "complex";
+    const wbAgDetail = wbUseMultiAgent
+      ? "Orchestrating multi-agent build for complex model..."
+      : "Agent is working on your model...";
+    onProgress?.("codegen", wbAgDetail);
+    logger.info({ mode: wbUseMultiAgent ? "multi-agent" : "single-agent", complexity: specResult?.complexity }, "workbench agent mode selected");
 
-    const agResult = await runAgentCodegen({
+    const wbAgInput = {
       promptText: ctx.prompt,
       interpretation: specResult?.interpretation,
       isModification: false,
@@ -1055,8 +1060,12 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       modelConfig: wbAgentModelConfig,
       complexity: specResult?.complexity,
       signal: pipelineSignal,
-      onProgress: (state, detail) => onProgress?.(state, detail),
-    });
+      onProgress: (state: string, detail: string) => onProgress?.(state, detail),
+    };
+
+    const agResult = wbUseMultiAgent
+      ? await runMultiAgentCodegen(wbAgInput)
+      : await runAgentCodegen(wbAgInput);
 
     // Take screenshots if render succeeded
     let agScreenshots: RenderedScreenshot[] = [];
