@@ -1,9 +1,12 @@
 /**
  * Agent-based codegen loop (Phase 6).
  *
- * Uses Anthropic's text_editor_20250728 built-in tool plus custom Build123d
- * tools (validate_code, render_project, search_examples, lookup_api, submit_result)
- * in a multi-step tool-use loop via Vercel AI SDK's generateText with stopWhen.
+ * Uses a custom text_editor tool plus Build123d tools (validate_code,
+ * render_project, search_examples, lookup_api, submit_result) in a
+ * multi-step tool-use loop via Vercel AI SDK's generateText with stopWhen.
+ *
+ * Provider-agnostic: works with any LLM provider (Anthropic, Bedrock,
+ * OpenAI, etc.) via the standard createProviderModel() path.
  *
  * The agent operates on an in-memory virtual filesystem (AgentFilesystem) to
  * avoid disk I/O during the loop. Results are returned for the caller
@@ -43,7 +46,7 @@ import {
   CODEGEN_SECTION_PARAMETRIC,
 } from "../prompts/system-prompts.js";
 import {
-  createAnthropicProviderForAgent,
+  createProviderModel,
   buildGenerateOptions,
   calculateCostUsd,
   type LlmModelConfig,
@@ -166,9 +169,8 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       ? buildFullAgentSystemPrompt({ isModification })
       : buildAgentSystemPrompt({ promptText, interpretation, isModification }));
 
-  // Create Anthropic provider for text_editor tool
-  const { provider: anthropicProvider, modelName: resolvedModelName } = await createAnthropicProviderForAgent(modelConfig);
-  const model = anthropicProvider(resolvedModelName);
+  // Create model from configured provider (works with any provider)
+  const model = createProviderModel(modelConfig);
 
   // Build extra options (thinking, etc.)
   const extraOpts = buildGenerateOptions(modelConfig);
@@ -352,40 +354,65 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
     },
   };
 
-  // Get text_editor tool from Anthropic provider
-  const textEditorTool = anthropicProvider.tools.textEditor_20250728({
-    execute: async (params) => {
+  // Custom text_editor tool — provider-agnostic replacement for
+  // Anthropic's built-in text_editor_20250728. Same interface, works
+  // with any LLM provider that supports tool use.
+  const textEditorTool = {
+    type: "function" as const,
+    description: `A text editor for viewing and editing Python files in the project directory.
+
+Commands:
+- view: View file contents with line numbers. Optionally specify view_range as [startLine, endLine].
+- create: Create a new file with the given content. Fails if the file already exists — use str_replace to edit.
+- str_replace: Replace exactly one occurrence of old_str with new_str in the file. The old_str must match exactly one location; include enough surrounding context to make it unique.
+- insert: Insert new text after the specified line number. Use insert_line=0 to prepend.
+
+All paths are relative (e.g., "main.py", "components/base.py"). Only .py files are allowed.
+Always view a file before editing it to see the current line numbers and content.`,
+    inputSchema: zodSchema(z.object({
+      command: z.enum(["view", "create", "str_replace", "insert"]).describe("The editor command to execute"),
+      path: z.string().describe("Relative file path (e.g., 'main.py')"),
+      file_text: z.string().optional().describe("Full file content for 'create' command"),
+      old_str: z.string().optional().describe("Exact string to find for 'str_replace' — must match exactly one location"),
+      new_str: z.string().optional().describe("Replacement string for 'str_replace', or text to insert for 'insert'"),
+      view_range: z.array(z.number()).length(2).optional().describe("[startLine, endLine] to view a specific range (1-indexed)"),
+      insert_line: z.number().optional().describe("Line number to insert after (0 = prepend) for 'insert' command"),
+    })),
+    execute: async (params: {
+      command: string;
+      path: string;
+      file_text?: string;
+      old_str?: string;
+      new_str?: string;
+      view_range?: number[];
+      insert_line?: number;
+    }) => {
       const { command, path: filePath } = params;
 
       switch (command) {
         case "view": {
-          const viewRange = params.view_range as number[] | undefined;
-          return fs.view(filePath, viewRange as [number, number] | undefined);
+          return fs.view(filePath, params.view_range as [number, number] | undefined);
         }
         case "create": {
-          const fileText = params.file_text as string;
-          if (!fileText) return "ERROR: file_text is required for create command.";
-          return fs.create(filePath, fileText);
+          if (!params.file_text) return "ERROR: file_text is required for create command.";
+          return fs.create(filePath, params.file_text);
         }
         case "str_replace": {
-          const oldStr = params.old_str as string;
-          const newStr = params.new_str as string;
-          if (oldStr === undefined) return "ERROR: old_str is required for str_replace command.";
-          if (newStr === undefined) return "ERROR: new_str is required for str_replace command.";
-          return fs.strReplace(filePath, oldStr, newStr);
+          if (params.old_str === undefined) return "ERROR: old_str is required for str_replace command.";
+          if (params.new_str === undefined) return "ERROR: new_str is required for str_replace command.";
+          return fs.strReplace(filePath, params.old_str, params.new_str);
         }
         case "insert": {
-          const insertLine = params.insert_line as number;
-          const insertText = params.insert_text ?? params.new_str;
-          if (insertLine === undefined) return "ERROR: insert_line is required for insert command.";
-          if (!insertText) return "ERROR: insert_text (or new_str) is required for insert command.";
-          return fs.insert(filePath, insertLine, insertText as string);
+          const insertText = params.new_str;
+          if (params.insert_line === undefined) return "ERROR: insert_line is required for insert command.";
+          if (!insertText) return "ERROR: new_str is required for insert command.";
+          return fs.insert(filePath, params.insert_line, insertText);
         }
         default:
           return `ERROR: Unknown command: ${command}`;
       }
     },
-  });
+  };
 
   // Run the agent loop
   try {
@@ -535,8 +562,7 @@ async function decomposePrompt(
   interpretation: string | undefined,
   modelConfig: LlmModelConfig,
 ): Promise<DecompositionResult> {
-  const { provider: anthropicProvider, modelName: resolvedModelName } = await createAnthropicProviderForAgent(modelConfig);
-  const model = anthropicProvider(resolvedModelName);
+  const model = createProviderModel(modelConfig);
 
   const systemPrompt = `You are a 3D CAD architect. Given a description of a complex 3D model, decompose it into independent components that can be built separately and assembled.
 
