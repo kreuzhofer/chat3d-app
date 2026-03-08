@@ -599,6 +599,25 @@ model DataMigration {
 // BUILD123D KNOWLEDGE BASE
 // ═══════════════════════════════════════════════════════════════════════════════
 
+model KnowledgeSource {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String    @db.VarChar(200)
+  strategy        String    @db.VarChar(30)
+  config          Json      @default("{}")
+  isActive        Boolean   @default(true) @map("is_active")
+  lastCrawlAt     DateTime? @map("last_crawl_at") @db.Timestamptz()
+  lastCrawlStatus String?   @default("idle") @map("last_crawl_status") @db.VarChar(20)
+  lastCrawlMessage String?  @map("last_crawl_message") @db.Text
+  lastCrawlAdded  Int?      @default(0) @map("last_crawl_added")
+  lastCrawlSkipped Int?     @default(0) @map("last_crawl_skipped")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  entries Build123dKnowledge[]
+
+  @@map("knowledge_sources")
+}
+
 model Build123dKnowledge {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   sourceUrl        String    @map("source_url") @db.Text
@@ -613,11 +632,15 @@ model Build123dKnowledge {
   qualityScore     Int?      @map("quality_score")
   embedding        Unsupported("vector(1536)")? @map("embedding")
   embeddingModel   String?   @map("embedding_model") @db.Text
+  sourceId         String?   @map("source_id") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
+  source KnowledgeSource? @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
   @@index([sourceType], map: "idx_b123d_knowledge_source_type")
   @@index([validationStatus], map: "idx_b123d_knowledge_validation")
+  @@index([sourceId], map: "idx_b123d_knowledge_source_id")
   @@map("build123d_knowledge")
 }
 

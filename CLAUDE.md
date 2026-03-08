@@ -70,6 +70,7 @@ Copy `example.env` to `.env` and configure:
 | `SCREENSHOT_SERVICE_URL` | URL of the screenshot rendering service (default: `http://screenshot-service:80`) |
 | `QUERY_RENDER_MODE` | `live` (default) or `mock` — controls whether Build123d rendering is real or stubbed |
 | `QUERY_LLM_MODE` | `live` (default) or `mock` — controls whether LLM calls are real or stubbed |
+| `GITHUB_TOKEN` | GitHub personal access token for knowledge base crawling (optional, avoids rate limits) |
 | `FRONTEND_PORT` | Host port for the frontend (default: `80`) |
 | `LOG_LEVEL` | Logging level: `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` (default: `info`) |
 | `LOG_FORMAT` | Log output format: `json` (structured, default in Docker) or `pretty` (human-readable) |

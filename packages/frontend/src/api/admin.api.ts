@@ -511,3 +511,141 @@ export async function updateLlmPurpose(
     body: JSON.stringify(patch),
   });
 }
+
+// ── Knowledge Sources ───────────────────────────────────────────────
+
+export interface KnowledgeSourceRow {
+  id: string;
+  name: string;
+  strategy: string;
+  config: Record<string, unknown>;
+  isActive: boolean;
+  lastCrawlAt: string | null;
+  lastCrawlStatus: string | null;
+  lastCrawlMessage: string | null;
+  lastCrawlAdded: number | null;
+  lastCrawlSkipped: number | null;
+  entryCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function listKnowledgeSources(token: string): Promise<KnowledgeSourceRow[]> {
+  const resp = await requestAdminJson<{ sources: KnowledgeSourceRow[] }>(token, "/knowledge/sources");
+  return Array.isArray(resp.sources) ? resp.sources : [];
+}
+
+export async function createKnowledgeSource(
+  token: string,
+  input: { name: string; strategy: string; config: Record<string, unknown> },
+): Promise<KnowledgeSourceRow> {
+  return requestAdminJson(token, "/knowledge/sources", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateKnowledgeSource(
+  token: string,
+  id: string,
+  patch: { name?: string; config?: Record<string, unknown>; isActive?: boolean },
+): Promise<KnowledgeSourceRow> {
+  return requestAdminJson(token, `/knowledge/sources/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteKnowledgeSource(token: string, id: string): Promise<void> {
+  await requestAdminJson(token, `/knowledge/sources/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function triggerCrawl(token: string, sourceId: string): Promise<{ jobId: string }> {
+  return requestAdminJson(token, `/knowledge/sources/${encodeURIComponent(sourceId)}/crawl`, { method: "POST" });
+}
+
+// ── Knowledge Pipeline ──────────────────────────────────────────────
+
+export async function triggerValidate(token: string, revalidateAll?: boolean): Promise<{ jobId: string }> {
+  return requestAdminJson(token, "/knowledge/validate", {
+    method: "POST",
+    body: JSON.stringify({ revalidateAll: revalidateAll ?? false }),
+  });
+}
+
+export async function triggerEmbed(token: string): Promise<{ jobId: string }> {
+  return requestAdminJson(token, "/knowledge/embed", { method: "POST" });
+}
+
+export interface KnowledgeJobStatus {
+  id: string;
+  name: string;
+  state: string;
+  data: unknown;
+  createdOn: string;
+  startedOn: string | null;
+  completedOn: string | null;
+  output: unknown;
+}
+
+export async function getKnowledgeJobStatus(token: string, jobId: string): Promise<KnowledgeJobStatus> {
+  return requestAdminJson(token, `/knowledge/jobs/${encodeURIComponent(jobId)}`);
+}
+
+// ── Knowledge Entries ───────────────────────────────────────────────
+
+export interface KnowledgeEntry {
+  id: string;
+  sourceUrl: string;
+  sourceType: string;
+  sourceId: string | null;
+  title: string;
+  description: string | null;
+  code: string;
+  concepts: string[];
+  validatedAt: string | null;
+  validationStatus: string;
+  embeddingModel: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeStats {
+  total: number;
+  bySourceType: Record<string, number>;
+  byValidation: Record<string, number>;
+  embedded: number;
+  notEmbedded: number;
+}
+
+export async function getKnowledgeStats(token: string): Promise<KnowledgeStats> {
+  return requestAdminJson(token, "/knowledge/stats");
+}
+
+export async function listKnowledgeEntries(
+  token: string,
+  opts?: { sourceType?: string; validationStatus?: string; sourceId?: string; limit?: number; offset?: number },
+): Promise<{ entries: KnowledgeEntry[]; total: number }> {
+  const params = new URLSearchParams();
+  if (opts?.sourceType) params.set("sourceType", opts.sourceType);
+  if (opts?.validationStatus) params.set("validationStatus", opts.validationStatus);
+  if (opts?.sourceId) params.set("sourceId", opts.sourceId);
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  if (opts?.offset) params.set("offset", String(opts.offset));
+  const qs = params.toString();
+  return requestAdminJson(token, `/knowledge${qs ? `?${qs}` : ""}`);
+}
+
+export async function createManualKnowledgeEntry(
+  token: string,
+  input: { sourceId: string; title: string; code: string; description?: string; concepts?: string[] },
+): Promise<KnowledgeEntry> {
+  return requestAdminJson(token, "/knowledge/entries", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteKnowledgeEntry(token: string, id: string): Promise<void> {
+  await requestAdminJson(token, `/knowledge/${encodeURIComponent(id)}`, { method: "DELETE" });
+}

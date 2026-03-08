@@ -7,6 +7,7 @@
  */
 
 import { prisma } from "../db/prisma.js";
+import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
 import { embedPromptText, embedPromptTextWithUsage } from "./workbench-embeddings.service.js";
 import { getModelForPurpose } from "./llm-config.service.js";
@@ -110,12 +111,14 @@ export async function createKnowledgeEntries(entries: Array<{
 export async function listKnowledgeEntries(options?: {
   sourceType?: KnowledgeSourceType;
   validationStatus?: ValidationStatus;
+  sourceId?: string;
   limit?: number;
   offset?: number;
 }): Promise<{ entries: KnowledgeEntry[]; total: number }> {
   const where: Record<string, unknown> = {};
   if (options?.sourceType) where.sourceType = options.sourceType;
   if (options?.validationStatus) where.validationStatus = options.validationStatus;
+  if (options?.sourceId) where.sourceId = options.sourceId;
 
   const [entries, total] = await Promise.all([
     prisma.build123dKnowledge.findMany({
@@ -321,6 +324,127 @@ export async function searchKnowledge(
     })),
     embeddingTokens,
   };
+}
+
+// ── Validation Pipeline ──────────────────────────────────────────────
+
+const BUILD123D_MARKERS = [
+  "BuildPart", "BuildSketch", "BuildLine",
+  "Box", "Cylinder", "Sphere", "Cone", "Torus", "Wedge",
+  "extrude", "revolve", "sweep", "loft", "fillet", "chamfer",
+  "offset", "Circle", "Rectangle", "Polygon", "Ellipse",
+  "Locations", "GridLocations", "PolarLocations",
+  "Mode.ADD", "Mode.SUBTRACT", "Mode.INTERSECT",
+  "build123d",
+];
+
+function isBuild123dCode(code: string): boolean {
+  return BUILD123D_MARKERS.some(marker => code.includes(marker));
+}
+
+async function isValidPython(code: string): Promise<{ valid: boolean; error?: string }> {
+  const build123dUrl = config.query.build123dUrl;
+  const resp = await fetch(`${build123dUrl}/validate/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code, skip_root_part: true, skip_lint: true }),
+  });
+
+  if (!resp.ok) {
+    throw new Error(`Build123d /validate/ returned ${resp.status}`);
+  }
+
+  const result = await resp.json() as { valid: boolean; errors: string[] };
+  const syntaxError = result.errors.find(e => e.startsWith("Syntax error:"));
+  if (syntaxError) {
+    return { valid: false, error: syntaxError };
+  }
+  return { valid: true };
+}
+
+/**
+ * Validate pending (or all) knowledge entries.
+ * Returns counts of how many moved to each status.
+ */
+export async function validatePendingEntries(opts?: {
+  sourceId?: string;
+  revalidateAll?: boolean;
+  limit?: number;
+}): Promise<{ validated: number; valid: number; invalid: number; errors: number }> {
+  const where: Record<string, unknown> = {};
+  if (!opts?.revalidateAll) where.validationStatus = "pending";
+  if (opts?.sourceId) where.sourceId = opts.sourceId;
+
+  const entries = await prisma.build123dKnowledge.findMany({
+    where,
+    select: { id: true, title: true, code: true },
+    take: opts?.limit ?? 500,
+    orderBy: { createdAt: "asc" },
+  });
+
+  logger.info({ count: entries.length, revalidateAll: !!opts?.revalidateAll }, "starting validation");
+
+  let valid = 0;
+  let invalid = 0;
+  let errored = 0;
+
+  for (const entry of entries) {
+    try {
+      if (!isBuild123dCode(entry.code)) {
+        await prisma.build123dKnowledge.update({
+          where: { id: entry.id },
+          data: { validationStatus: "invalid", validatedAt: new Date() },
+        });
+        invalid++;
+        continue;
+      }
+
+      const result = await isValidPython(entry.code);
+      await prisma.build123dKnowledge.update({
+        where: { id: entry.id },
+        data: {
+          validationStatus: result.valid ? "valid" : "invalid",
+          validatedAt: new Date(),
+        },
+      });
+
+      if (result.valid) valid++;
+      else invalid++;
+    } catch (err) {
+      errored++;
+      await prisma.build123dKnowledge.update({
+        where: { id: entry.id },
+        data: { validationStatus: "error", validatedAt: new Date() },
+      });
+      logger.warn({ err: err instanceof Error ? err.message : String(err), title: entry.title }, "validation error");
+    }
+  }
+
+  logger.info({ valid, invalid, errored, total: entries.length }, "validation complete");
+  return { validated: entries.length, valid, invalid, errors: errored };
+}
+
+// ── Manual Entry ─────────────────────────────────────────────────────
+
+export async function createManualEntry(input: {
+  sourceId: string;
+  title: string;
+  code: string;
+  description?: string;
+  concepts?: string[];
+}): Promise<KnowledgeEntry> {
+  const entry = await prisma.build123dKnowledge.create({
+    data: {
+      sourceUrl: `manual://${Date.now()}`,
+      sourceType: "manual",
+      title: input.title,
+      description: input.description ?? null,
+      code: input.code,
+      concepts: input.concepts ?? [],
+      sourceId: input.sourceId,
+    },
+  });
+  return entry as unknown as KnowledgeEntry;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────

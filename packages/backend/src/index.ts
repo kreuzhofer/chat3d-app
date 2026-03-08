@@ -5,6 +5,7 @@ import { prisma } from "./db/prisma.js";
 import { resumeStalePipelines } from "./services/query.service.js";
 import { initializeI18n } from "./i18n/config.js";
 import { emailService } from "./services/email.service.js";
+import { startJobQueue, stopJobQueue } from "./services/job-queue.service.js";
 const logger = createLogger("backend");
 
 await initializeI18n();
@@ -28,18 +29,27 @@ const server = app.listen(config.port, () => {
   void resumeStalePipelines().catch((err) => {
     logger.error({ err }, "failed to resume stale pipelines on startup");
   });
+
+  // Start persistent job queue for knowledge pipeline
+  void startJobQueue().catch((err) => {
+    logger.error({ err }, "failed to start job queue");
+  });
 });
 
 function shutdown(signal: string) {
   logger.info({ signal }, "shutting down");
   server.close(() => {
-    prisma.$disconnect().then(() => {
-      logger.info("prisma disconnected");
-      process.exit(0);
-    }).catch((err) => {
-      logger.error({ err }, "prisma disconnect error");
-      process.exit(1);
-    });
+    void stopJobQueue()
+      .catch((err) => logger.error({ err }, "job queue stop error"))
+      .then(() => prisma.$disconnect())
+      .then(() => {
+        logger.info("prisma disconnected");
+        process.exit(0);
+      })
+      .catch((err) => {
+        logger.error({ err }, "prisma disconnect error");
+        process.exit(1);
+      });
   });
 }
 

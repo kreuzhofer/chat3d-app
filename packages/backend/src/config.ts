@@ -147,6 +147,9 @@ export const config = {
   workbench: {
     dataDir: readEnv("WORKBENCH_DATA_DIR", "workbench"),
   },
+  github: {
+    token: readOptionalEnv("GITHUB_TOKEN"),
+  },
   logging: {
     level: readLogLevel(),
     format: readLogFormat(),

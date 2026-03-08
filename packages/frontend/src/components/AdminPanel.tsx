@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
+  BookOpen,
   Cpu,
   KeyRound,
   LayoutDashboard,
@@ -50,6 +51,7 @@ import { ModelsTab } from "./admin/ModelsTab";
 import { ProvidersTab } from "./admin/ProvidersTab";
 import { GenerationTab } from "./admin/GenerationTab";
 import { CurationTab } from "./admin/CurationTab";
+import { KnowledgeTab } from "./admin/KnowledgeTab";
 import {
   toErrorMessage,
   sortUsersByCreatedDate,
@@ -59,8 +61,8 @@ import {
   type ConfirmState,
 } from "./admin/utils";
 
-type AdminTab = "dashboard" | "users" | "waitlist" | "settings" | "providers" | "models" | "generation" | "curation";
-const VALID_TABS: ReadonlySet<string> = new Set<AdminTab>(["dashboard", "users", "waitlist", "settings", "providers", "models", "generation", "curation"]);
+type AdminTab = "dashboard" | "users" | "waitlist" | "settings" | "providers" | "models" | "generation" | "curation" | "knowledge";
+const VALID_TABS: ReadonlySet<string> = new Set<AdminTab>(["dashboard", "users", "waitlist", "settings", "providers", "models", "generation", "curation", "knowledge"]);
 type UserStatusFilter = "all" | "active" | "deactivated" | "pending_registration";
 
 export function AdminPanel() {
@@ -479,6 +481,7 @@ export function AdminPanel() {
           { id: "models", label: "Models", icon: <Cpu className="h-4 w-4" /> },
           { id: "generation", label: "Generation", icon: <Sliders className="h-4 w-4" /> },
           { id: "curation", label: "Curation", icon: <Star className="h-4 w-4" /> },
+          { id: "knowledge", label: "Knowledge", icon: <BookOpen className="h-4 w-4" /> },
         ]}
         activeTab={activeTab}
         onChange={(tabId) => setActiveTab(tabId as AdminTab)}
@@ -551,6 +554,8 @@ export function AdminPanel() {
       {activeTab === "generation" && token ? <GenerationTab token={token} /> : null}
 
       {activeTab === "curation" && token ? <CurationTab token={token} /> : null}
+
+      {activeTab === "knowledge" && token ? <KnowledgeTab token={token} /> : null}
 
       <Drawer
         open={selectedUser !== null}

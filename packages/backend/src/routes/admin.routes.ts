@@ -42,9 +42,24 @@ import {
   deleteKnowledgeBySource,
   getKnowledgeStats,
   backfillKnowledgeEmbeddings,
+  createManualEntry,
   type KnowledgeSourceType,
   type ValidationStatus,
 } from "../services/knowledge.service.js";
+import {
+  listKnowledgeSources,
+  getKnowledgeSource,
+  createKnowledgeSource,
+  updateKnowledgeSource,
+  deleteKnowledgeSource,
+  validateSourceConfig,
+} from "../services/knowledge-source.service.js";
+import {
+  submitCrawlJob,
+  submitValidateJob,
+  submitEmbedJob,
+  getJobStatus,
+} from "../services/job-queue.service.js";
 import { prisma } from "../db/prisma.js";
 import {
   listAllModels,
@@ -835,9 +850,120 @@ adminRouter.delete("/curation/candidates/:id/tags/:tagId", async (req, res) => {
   }
 });
 
-// ── Knowledge Base ──────────────────────────────────────────────────
+// ── Knowledge Sources ───────────────────────────────────────────────
 
-const VALID_SOURCE_TYPES = new Set(["docs", "github_example", "github_test", "forum", "blog"]);
+adminRouter.get("/knowledge/sources", async (_req, res) => {
+  try {
+    const sources = await listKnowledgeSources();
+    res.status(200).json({ sources });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to list knowledge sources");
+  }
+});
+
+adminRouter.post("/knowledge/sources", async (req, res) => {
+  try {
+    const { name, strategy, config } = req.body;
+    if (!name || !strategy) {
+      res.status(400).json({ error: "name and strategy are required" });
+      return;
+    }
+    const validation = validateSourceConfig(strategy, config ?? {});
+    if (!validation.valid) {
+      res.status(400).json({ error: validation.errors.join(", ") });
+      return;
+    }
+    const source = await createKnowledgeSource({ name, strategy, config: config ?? {} });
+    res.status(201).json(source);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to create knowledge source");
+  }
+});
+
+adminRouter.get("/knowledge/sources/:id", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) { res.status(400).json({ error: "Invalid source id" }); return; }
+  try {
+    const source = await getKnowledgeSource(id);
+    if (!source) { res.status(404).json({ error: "Source not found" }); return; }
+    res.status(200).json(source);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to get knowledge source");
+  }
+});
+
+adminRouter.patch("/knowledge/sources/:id", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) { res.status(400).json({ error: "Invalid source id" }); return; }
+  try {
+    const source = await updateKnowledgeSource(id, req.body);
+    res.status(200).json(source);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to update knowledge source");
+  }
+});
+
+adminRouter.delete("/knowledge/sources/:id", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) { res.status(400).json({ error: "Invalid source id" }); return; }
+  try {
+    await deleteKnowledgeSource(id);
+    res.status(204).send();
+  } catch (error) {
+    sendKnownError(res, error, "Failed to delete knowledge source");
+  }
+});
+
+adminRouter.post("/knowledge/sources/:id/crawl", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) { res.status(400).json({ error: "Invalid source id" }); return; }
+  try {
+    const source = await getKnowledgeSource(id);
+    if (!source) { res.status(404).json({ error: "Source not found" }); return; }
+    if (source.strategy === "manual") { res.status(400).json({ error: "Cannot crawl a manual source" }); return; }
+    const jobId = await submitCrawlJob(id);
+    res.status(202).json({ jobId, message: "Crawl job submitted" });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to submit crawl job");
+  }
+});
+
+// ── Knowledge Pipeline ──────────────────────────────────────────────
+
+adminRouter.post("/knowledge/validate", async (req, res) => {
+  try {
+    const revalidateAll = req.body?.revalidateAll === true;
+    const jobId = await submitValidateJob({ revalidateAll });
+    res.status(202).json({ jobId, message: "Validate job submitted" });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to submit validate job");
+  }
+});
+
+adminRouter.post("/knowledge/embed", async (_req, res) => {
+  try {
+    const jobId = await submitEmbedJob();
+    res.status(202).json({ jobId, message: "Embed job submitted" });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to submit embed job");
+  }
+});
+
+adminRouter.get("/knowledge/jobs/:jobId", async (req, res) => {
+  const jobId = readPathParam(req.params.jobId);
+  if (!jobId) { res.status(400).json({ error: "Invalid job id" }); return; }
+  try {
+    const status = await getJobStatus(jobId);
+    if (!status) { res.status(404).json({ error: "Job not found" }); return; }
+    res.status(200).json(status);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to get job status");
+  }
+});
+
+// ── Knowledge Entries ───────────────────────────────────────────────
+
+const VALID_SOURCE_TYPES = new Set(["docs", "github_example", "github_test", "forum", "blog", "manual"]);
 const VALID_VALIDATION_STATUSES = new Set(["pending", "valid", "invalid", "error"]);
 
 adminRouter.get("/knowledge", async (req, res) => {
@@ -848,10 +974,11 @@ adminRouter.get("/knowledge", async (req, res) => {
     const validationStatus = typeof req.query.validationStatus === "string" && VALID_VALIDATION_STATUSES.has(req.query.validationStatus)
       ? (req.query.validationStatus as ValidationStatus)
       : undefined;
+    const sourceId = typeof req.query.sourceId === "string" ? req.query.sourceId : undefined;
     const limit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : undefined;
     const offset = typeof req.query.offset === "string" ? parseInt(req.query.offset, 10) : undefined;
 
-    const result = await listKnowledgeEntries({ sourceType, validationStatus, limit, offset });
+    const result = await listKnowledgeEntries({ sourceType, validationStatus, sourceId, limit, offset });
     res.status(200).json(result);
   } catch (error) {
     sendKnownError(res, error, "Failed to list knowledge entries");
@@ -864,6 +991,20 @@ adminRouter.get("/knowledge/stats", async (_req, res) => {
     res.status(200).json(stats);
   } catch (error) {
     sendKnownError(res, error, "Failed to get knowledge stats");
+  }
+});
+
+adminRouter.post("/knowledge/entries", async (req, res) => {
+  try {
+    const { sourceId, title, code, description, concepts } = req.body;
+    if (!sourceId || !title || !code) {
+      res.status(400).json({ error: "sourceId, title, and code are required" });
+      return;
+    }
+    const entry = await createManualEntry({ sourceId, title, code, description, concepts });
+    res.status(201).json(entry);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to create manual entry");
   }
 });
 
@@ -898,29 +1039,5 @@ adminRouter.delete("/knowledge/:id", async (req, res) => {
     res.status(204).send();
   } catch (error) {
     sendKnownError(res, error, "Failed to delete knowledge entry");
-  }
-});
-
-adminRouter.delete("/knowledge/source/:sourceType", async (req, res) => {
-  const sourceType = readPathParam(req.params.sourceType);
-  if (!sourceType || !VALID_SOURCE_TYPES.has(sourceType)) {
-    res.status(400).json({ error: "Invalid source type" });
-    return;
-  }
-
-  try {
-    const count = await deleteKnowledgeBySource(sourceType as KnowledgeSourceType);
-    res.status(200).json({ deleted: count });
-  } catch (error) {
-    sendKnownError(res, error, "Failed to delete knowledge entries by source");
-  }
-});
-
-adminRouter.post("/knowledge/embed", async (_req, res) => {
-  try {
-    const result = await backfillKnowledgeEmbeddings();
-    res.status(200).json(result);
-  } catch (error) {
-    sendKnownError(res, error, "Failed to embed knowledge entries");
   }
 });
