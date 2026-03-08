@@ -36,3 +36,8 @@ packages/backend/.chat3d-storage/
 
 # Database backups
 backups/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
