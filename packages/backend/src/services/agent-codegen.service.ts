@@ -79,6 +79,8 @@ export interface AgentCodegenInput {
   disableRender?: boolean;
   /** Override system prompt (used by multi-agent orchestration) */
   systemPromptOverride?: string;
+  /** Override user message (used by multi-agent orchestration) */
+  userMessageOverride?: string;
 }
 
 export interface AgentCodegenResult {
@@ -142,6 +144,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
     initialFiles,
     disableRender,
     systemPromptOverride,
+    userMessageOverride,
   } = input;
 
   logger.info(
@@ -164,8 +167,8 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       : buildAgentSystemPrompt({ promptText, interpretation, isModification }));
 
   // Create Anthropic provider for text_editor tool
-  const anthropicProvider = createAnthropicProviderForAgent(modelConfig);
-  const model = anthropicProvider(modelConfig.modelName);
+  const { provider: anthropicProvider, modelName: resolvedModelName } = await createAnthropicProviderForAgent(modelConfig);
+  const model = anthropicProvider(resolvedModelName);
 
   // Build extra options (thinking, etc.)
   const extraOpts = buildGenerateOptions(modelConfig);
@@ -181,7 +184,18 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
   let totalReasoningTokens = 0;
 
   // Build initial user message
-  const userMessage = buildAgentUserMessage(promptText, isModification, baselineCode);
+  const userMessage = userMessageOverride ?? buildAgentUserMessage(promptText, isModification, baselineCode);
+
+  // Helper: wrap files for rendering/validation. Only main.py gets the full template
+  // (with export calls referencing root_part). Component files get just the import.
+  const wrapProjectFiles = (): ProjectFile[] => {
+    return fs.getFiles().map(f => ({
+      path: f.path,
+      content: f.path === "main.py"
+        ? wrapInTemplate(f.content, baseFileName)
+        : `from build123d import *\nimport math\n${f.content}`,
+    }));
+  };
 
   // Define custom Build123d tools.
   // The tool() helper has strict type inference that conflicts with our async execute
@@ -198,10 +212,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
           return "ERROR: No files in the project. Create main.py first.";
         }
 
-        const projectFiles: ProjectFile[] = files.map(f => ({
-          path: f.path,
-          content: wrapInTemplate(f.content, baseFileName),
-        }));
+        const projectFiles = wrapProjectFiles();
 
         onProgress?.("validating", "Validating code...");
 
@@ -238,10 +249,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
           return "ERROR: No main.py found. The project must have a main.py as the entry point.";
         }
 
-        const projectFiles: ProjectFile[] = files.map(f => ({
-          path: f.path,
-          content: wrapInTemplate(f.content, baseFileName),
-        }));
+        const projectFiles = wrapProjectFiles();
 
         onProgress?.("rendering", "Rendering 3D model...");
 
@@ -527,21 +535,21 @@ async function decomposePrompt(
   interpretation: string | undefined,
   modelConfig: LlmModelConfig,
 ): Promise<DecompositionResult> {
-  const anthropicProvider = createAnthropicProviderForAgent(modelConfig);
-  const model = anthropicProvider(modelConfig.modelName);
+  const { provider: anthropicProvider, modelName: resolvedModelName } = await createAnthropicProviderForAgent(modelConfig);
+  const model = anthropicProvider(resolvedModelName);
 
   const systemPrompt = `You are a 3D CAD architect. Given a description of a complex 3D model, decompose it into independent components that can be built separately and assembled.
 
 Rules:
 - Each component must be a self-contained 3D part (solid body)
 - Components should be geometrically independent (buildable without reference to others)
-- Include dimensions and positioning info in each component's description
-- Keep the number of components between 2 and 6
+- Include key dimensions in each component description (keep descriptions under 100 words)
+- Keep the number of components between 2 and 5
 - Each component name must be a valid Python identifier (snake_case, no spaces)
-- The assembly notes should describe how to position and combine the components
+- Assembly notes: brief positioning instructions (under 50 words)
 
-Respond with JSON only, no markdown:
-{"components":[{"name":"component_name","description":"Detailed description with dimensions"}],"assemblyNotes":"How to position and combine components"}`;
+Respond with raw JSON only. No markdown, no code fences, no explanation:
+{"components":[{"name":"component_name","description":"Brief description with dimensions"}],"assemblyNotes":"Brief positioning instructions"}`;
 
   const fullPrompt = interpretation
     ? `User request: ${promptText}\n\nInterpretation: ${interpretation}`
@@ -551,7 +559,7 @@ Respond with JSON only, no markdown:
     model,
     system: systemPrompt,
     prompt: fullPrompt,
-    maxOutputTokens: 1024,
+    maxOutputTokens: 2048,
   });
 
   const promptTokens = result.usage?.inputTokens ?? 0;
@@ -654,6 +662,8 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     });
 
     try {
+      const subUserMessage = `Create the "${component.name}" component.\n\n${component.description}\n\nWrite a function called \`${component.name}\` in main.py that returns the Part. Validate your code, then submit when validation passes. Do NOT render.`;
+
       const subResult = await runAgentCodegen({
         promptText: component.description,
         isModification: false,
@@ -663,6 +673,7 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
         signal,
         disableRender: true,
         systemPromptOverride: subPrompt,
+        userMessageOverride: subUserMessage,
         onProgress: (state, detail) => {
           onProgress?.(state, `[${component.name}] ${detail}`);
         },
@@ -715,8 +726,11 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   // Assembly agent gets more steps since it needs to render
   const assemblyMaxSteps = Math.min(maxSteps, 15);
 
+  const componentFileList = Array.from(componentFiles.keys()).map(p => `- ${p}`).join("\n");
+  const assemblyUserMessage = `Assemble the components into the complete model.\n\nAvailable component files:\n${componentFileList}\n\nView each component file to understand its function signature and dimensions, then write main.py that imports and assembles them. Validate, render, and submit when the render succeeds.`;
+
   const assemblyResult = await runAgentCodegen({
-    promptText: `Assemble the components into the complete model. View the component files first, then write main.py.`,
+    promptText: assemblyUserMessage,
     isModification: false,
     baseFileName,
     maxSteps: assemblyMaxSteps,
@@ -724,6 +738,7 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     signal,
     initialFiles: componentFiles,
     systemPromptOverride: assemblyPrompt,
+    userMessageOverride: assemblyUserMessage,
     onProgress: (state, detail) => {
       onProgress?.(state, `[assembly] ${detail}`);
     },

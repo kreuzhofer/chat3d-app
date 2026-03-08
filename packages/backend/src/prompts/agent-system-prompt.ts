@@ -183,7 +183,12 @@ Create your component in \`main.py\`. Write a function called \`${options.compon
 Validate your code, then submit when validation passes.
 `);
 
-  parts.push("## Build123d API Reference\n\n" + CODEGEN_SYSTEM_PROMPT);
+  // Use tiered (operation-aware) API reference for sub-agents — much smaller than full prompt
+  const apiReference = buildTieredSystemPrompt({
+    promptText: options.componentDescription,
+    fewShotCount: 0,
+  });
+  parts.push("## Build123d API Reference\n\n" + apiReference);
 
   return parts.join("\n");
 }

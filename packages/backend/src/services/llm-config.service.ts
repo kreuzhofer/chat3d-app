@@ -335,16 +335,38 @@ export function createProviderModel(cfg: LlmModelConfig): any {
 /**
  * Create an Anthropic provider instance with access to built-in tools.
  * Used by the agent codegen loop for text_editor_20250728.
- * Requires the model config to be an Anthropic provider (not Bedrock).
+ *
+ * If the model config uses Bedrock, falls back to the Anthropic provider's
+ * API key (the text_editor tool requires direct Anthropic API access).
+ * Returns both the provider and the resolved model name.
  */
-export function createAnthropicProviderForAgent(cfg: LlmModelConfig) {
-  if (cfg.provider !== "anthropic") {
-    throw new Error(`Agent mode requires Anthropic provider, got: ${cfg.provider}`);
+export async function createAnthropicProviderForAgent(cfg: LlmModelConfig): Promise<{
+  provider: ReturnType<typeof createAnthropic>;
+  modelName: string;
+}> {
+  if (cfg.provider === "anthropic") {
+    if (!cfg.apiKey) {
+      throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
+    }
+    return { provider: createAnthropic({ apiKey: cfg.apiKey }), modelName: cfg.modelName };
   }
-  if (!cfg.apiKey) {
-    throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
+
+  if (cfg.provider === "bedrock") {
+    // text_editor_20250728 requires direct Anthropic API — look up the anthropic provider's API key
+    const anthropicProvider = await prisma.llmProvider.findUnique({ where: { name: "anthropic" } });
+    if (!anthropicProvider?.apiKey) {
+      throw new Error(
+        `Agent mode with Bedrock requires an Anthropic provider with API key configured (for text_editor tool). ` +
+        `Configure the "anthropic" provider in Admin → Providers, or switch agent_codegen to use the Anthropic provider directly.`,
+      );
+    }
+    // Map Bedrock model name to Anthropic model name
+    // e.g., "global.anthropic.claude-sonnet-4-6" → "claude-sonnet-4-6"
+    const anthropicModelName = cfg.modelName.replace(/^(global\.)?anthropic\./, "");
+    return { provider: createAnthropic({ apiKey: anthropicProvider.apiKey }), modelName: anthropicModelName };
   }
-  return createAnthropic({ apiKey: cfg.apiKey });
+
+  throw new Error(`Agent mode requires Anthropic or Bedrock provider, got: ${cfg.provider}`);
 }
 
 /**
