@@ -10,6 +10,7 @@ import { SectionCard } from "../layout/SectionCard";
 import { InlineAlert } from "../layout/InlineAlert";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Switch } from "../ui/switch";
 
 interface GenerationTabProps {
   token: string;
@@ -94,10 +95,34 @@ export function GenerationTab({ token }: GenerationTabProps) {
   const workbenchSettings = settings.filter((s) => s.pipeline === "workbench");
   const chatSettings = settings.filter((s) => s.pipeline === "chat" || s.pipeline === "chat-only");
 
+  function isBoolean(setting: GenerationSettingDescriptor): boolean {
+    return setting.min === 0 && setting.max === 1;
+  }
+
+  async function handleToggle(key: string, checked: boolean) {
+    const value = checked ? 1 : 0;
+    setEditValues((prev) => ({ ...prev, [key]: String(value) }));
+    setBusyKeys((prev) => new Set(prev).add(key));
+    setError(null);
+    try {
+      await updateGenerationSetting(token, key, value);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  }
+
   function renderSettingRow(setting: GenerationSettingDescriptor) {
     const busy = busyKeys.has(setting.key);
     const overridden = setting.isOverridden;
     const dirty = isDirty(setting);
+    const isBool = isBoolean(setting);
     return (
       <div
         key={setting.key}
@@ -110,38 +135,55 @@ export function GenerationTab({ token }: GenerationTabProps) {
           <div className="min-w-0 flex-1">
             <h4 className="text-sm font-medium">{setting.label}</h4>
             <p className="mt-0.5 text-xs text-[hsl(var(--muted-foreground))]">{setting.description}</p>
-            <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
-              Default: {setting.defaultValue} &middot; Range: {setting.min}–{setting.max}
-            </p>
+            {!isBool && (
+              <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+                Default: {setting.defaultValue} &middot; Range: {setting.min}–{setting.max}
+              </p>
+            )}
+            {isBool && (
+              <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+                Default: {setting.defaultValue === 1 ? "On" : "Off"}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={setting.min}
-              max={setting.max}
-              step={1}
-              value={editValues[setting.key] ?? String(setting.effectiveValue)}
-              disabled={busy}
-              className="w-20 text-center"
-              style={overridden ? { borderColor: "hsl(var(--warning))", color: "hsl(var(--warning))" } : undefined}
-              onChange={(e) => {
-                setEditValues((prev) => ({ ...prev, [setting.key]: e.target.value }));
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  void handleSave(setting.key);
-                }
-              }}
-            />
-            <Button
-              variant="default"
-              size="sm"
-              disabled={!dirty || busy}
-              onClick={() => void handleSave(setting.key)}
-              title="Save override"
-            >
-              <Save className="h-3.5 w-3.5" />
-            </Button>
+            {isBool ? (
+              <Switch
+                checked={Number(editValues[setting.key] ?? setting.effectiveValue) === 1}
+                disabled={busy}
+                onCheckedChange={(checked) => void handleToggle(setting.key, checked)}
+              />
+            ) : (
+              <>
+                <Input
+                  type="number"
+                  min={setting.min}
+                  max={setting.max}
+                  step={1}
+                  value={editValues[setting.key] ?? String(setting.effectiveValue)}
+                  disabled={busy}
+                  className="w-20 text-center"
+                  style={overridden ? { borderColor: "hsl(var(--warning))", color: "hsl(var(--warning))" } : undefined}
+                  onChange={(e) => {
+                    setEditValues((prev) => ({ ...prev, [setting.key]: e.target.value }));
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      void handleSave(setting.key);
+                    }
+                  }}
+                />
+                <Button
+                  variant="default"
+                  size="sm"
+                  disabled={!dirty || busy}
+                  onClick={() => void handleSave(setting.key)}
+                  title="Save override"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                </Button>
+              </>
+            )}
             <Button
               variant="outline"
               size="sm"
