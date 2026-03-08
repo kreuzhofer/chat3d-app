@@ -148,6 +148,7 @@ describe("formatDisambiguationResponse", () => {
         "Should the lid be hinged or removable?",
         "Should the container be round or rectangular?",
       ],
+      complexity: "simple",
       promptTokens: 100,
       completionTokens: 50,
     };
@@ -167,6 +168,7 @@ describe("formatDisambiguationResponse", () => {
       verificationChecklist: [],
       disambiguationNeeded: true,
       disambiguationQuestions: ["Should the bracket be L-shaped or U-shaped?"],
+      complexity: "simple",
       promptTokens: 50,
       completionTokens: 25,
     };

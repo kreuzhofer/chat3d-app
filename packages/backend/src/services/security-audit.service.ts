@@ -17,7 +17,7 @@ export async function recordSecurityEvent(input: {
         userId: input.userId ?? null,
         ipAddress: input.ipAddress ?? null,
         path: input.path ?? null,
-        metadata: input.metadata ?? {},
+        metadata: (input.metadata ?? {}) as object,
       },
     });
   } catch (error) {

@@ -1,6 +1,9 @@
 from typing import Union, List, Optional
 import ast
 import os
+import sys
+import tempfile
+import shutil
 import traceback
 import logging
 import base64
@@ -94,6 +97,20 @@ class ExtractedParameter(BaseModel):
 
 class ExtractParamsResponse(BaseModel):
     parameters: List[ExtractedParameter] = []
+
+class ProjectFile(BaseModel):
+    path: str      # e.g., "main.py", "components/gear.py"
+    content: str   # file content (plain text, not base64)
+
+class RenderProjectRequest(BaseModel):
+    files: List[ProjectFile]
+    filename: str = "output.step"  # base filename for outputs
+
+class ValidateProjectResponse(BaseModel):
+    valid: bool
+    errors: List[str] = []
+    warnings: List[LintWarning] = []
+    file_errors: dict = {}   # { "components/gear.py": ["error msg"] }
 
 # ── Lint rules ────────────────────────────────────────────────────────
 
@@ -465,6 +482,181 @@ def render_post(request: RenderRequest):
             content=response.dict(),
             status_code=status.HTTP_202_ACCEPTED
         )
+
+# ── Multi-file project endpoints ──────────────────────────────────────
+
+@app.post("/render-project/")
+def render_project(request: RenderProjectRequest):
+    """Render a multi-file project. Executes main.py as the entry point."""
+    tmpdir = tempfile.mkdtemp()
+    original_cwd = os.getcwd()
+    try:
+        # Find main.py in the file list
+        main_file = None
+        for f in request.files:
+            if f.path == "main.py":
+                main_file = f
+                break
+
+        if main_file is None:
+            return JSONResponse(
+                content=RenderResponse(
+                    success=False,
+                    message="Project must contain a 'main.py' file as the entry point."
+                ).dict(),
+                status_code=status.HTTP_202_ACCEPTED,
+            )
+
+        # Write all files to the temp directory, maintaining directory structure
+        for f in request.files:
+            file_path = os.path.join(tmpdir, f.path)
+            file_dir = os.path.dirname(file_path)
+            os.makedirs(file_dir, exist_ok=True)
+            with open(file_path, "w", encoding="utf-8") as fh:
+                fh.write(f.content)
+
+        # Add tmpdir to sys.path so imports between project files work
+        sys.path.insert(0, tmpdir)
+
+        # Change to tmpdir so relative file outputs land there
+        os.chdir(tmpdir)
+
+        # Execute main.py content directly (same pattern as /render/)
+        logger.info("Executing project main.py from tmpdir: %s", tmpdir)
+        exec(main_file.content, {})
+
+        # Glob for output files (same pattern as /render/)
+        base_filename = os.path.splitext(request.filename)[0]
+        pattern = os.path.join(tmpdir, f"{base_filename}*")
+        matching_files = glob.glob(pattern)
+
+        files_data = []
+        for fp in matching_files:
+            if os.path.isfile(fp):
+                with open(fp, "rb") as fh:
+                    file_content = fh.read()
+                encoded_content = base64.b64encode(file_content).decode("utf-8")
+                files_data.append(FileData(
+                    filename=os.path.basename(fp),
+                    content=encoded_content,
+                ))
+
+        if not files_data:
+            return JSONResponse(
+                content=RenderResponse(
+                    success=False,
+                    message="No files were generated matching the specified filename pattern",
+                ).dict(),
+                status_code=status.HTTP_202_ACCEPTED,
+            )
+
+        response = RenderResponse(
+            success=True,
+            files=files_data,
+            message=f"Successfully generated {len(files_data)} file(s)",
+        )
+        return JSONResponse(
+            content=response.dict(),
+            status_code=status.HTTP_200_OK,
+        )
+
+    except SyntaxError as e:
+        error_details = f"Syntax error in project code: {str(e)}"
+        logger.error(error_details)
+        return JSONResponse(
+            content=RenderResponse(success=False, message=error_details).dict(),
+            status_code=status.HTTP_202_ACCEPTED,
+        )
+    except NameError as e:
+        error_details = f"Name error in project code: {str(e)}"
+        logger.error(error_details)
+        return JSONResponse(
+            content=RenderResponse(success=False, message=error_details).dict(),
+            status_code=status.HTTP_202_ACCEPTED,
+        )
+    except Exception as e:
+        error_details = f"Execution error: {str(e)}\n{traceback.format_exc()}"
+        logger.error(error_details)
+        return JSONResponse(
+            content=RenderResponse(success=False, message=error_details).dict(),
+            status_code=status.HTTP_202_ACCEPTED,
+        )
+    finally:
+        # Clean up: restore cwd, remove tmpdir from sys.path, delete temp files
+        os.chdir(original_cwd)
+        if tmpdir in sys.path:
+            sys.path.remove(tmpdir)
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+@app.post("/validate-project/")
+def validate_project(request: RenderProjectRequest):
+    """Validate a multi-file project without executing it."""
+    errors: List[str] = []
+    all_warnings: List[LintWarning] = []
+    file_errors: dict = {}
+
+    # Check that main.py exists
+    main_file = None
+    for f in request.files:
+        if f.path == "main.py":
+            main_file = f
+            break
+
+    if main_file is None:
+        errors.append("Project must contain a 'main.py' file as the entry point.")
+        return ValidateProjectResponse(
+            valid=False,
+            errors=errors,
+            file_errors=file_errors,
+        )
+
+    # Parse each file and collect syntax errors per file
+    for f in request.files:
+        try:
+            ast.parse(f.content)
+        except SyntaxError as e:
+            msg = f"Syntax error: {e}"
+            if f.path not in file_errors:
+                file_errors[f.path] = []
+            file_errors[f.path].append(msg)
+            errors.append(f"[{f.path}] {msg}")
+
+    # Run lint rules on main.py (the entry point)
+    if main_file.path not in file_errors:
+        try:
+            tree = ast.parse(main_file.content)
+
+            # Check that main.py assigns to root_part
+            has_root_part = any(
+                isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "root_part" for t in node.targets)
+                for node in ast.walk(tree)
+            )
+            if not has_root_part:
+                errors.append(
+                    "Missing 'root_part' assignment in main.py — code must assign the final solid to root_part"
+                )
+
+            # Lint main.py
+            lint_warnings = lint_code(tree, main_file.content)
+            all_warnings.extend(lint_warnings)
+
+            # Lint errors also cause validation failure
+            for w in lint_warnings:
+                if w.severity == "error":
+                    errors.append(f"[{w.rule}] {w.message} (line {w.line})")
+
+        except SyntaxError:
+            pass  # Already caught above
+
+    return ValidateProjectResponse(
+        valid=len(errors) == 0,
+        errors=errors,
+        warnings=all_warnings,
+        file_errors=file_errors,
+    )
+
 
 # ── Parameter extraction ─────────────────────────────────────────────
 

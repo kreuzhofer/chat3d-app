@@ -558,6 +558,7 @@ model CodeProject {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   chatContextId    String   @unique @map("chat_context_id") @db.Uuid
   currentCode      String   @default("") @map("current_code") @db.Text
+  currentFiles     Json?    @map("current_files")
   lastRenderedItemId String? @map("last_rendered_item_id") @db.Uuid
   fileCount        Int      @default(1) @map("file_count")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()

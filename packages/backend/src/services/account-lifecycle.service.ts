@@ -66,7 +66,7 @@ async function createAccountAction(input: {
       userId: input.userId,
       actionType: input.actionType,
       tokenHash,
-      payload: input.payload,
+      payload: input.payload as object,
       status: "pending",
       expiresAt: new Date(Date.now() + expiresInHours * 3600 * 1000),
     },

@@ -442,157 +442,31 @@ Lint errors (severity=`"error"`) cause `valid=false`. Warnings are returned for 
 - Only the modified file needs re-validation; the full project only re-renders
 - Unrelated components are preserved exactly as-is (no regeneration risk)
 
-### Phase 6: Agent-Based Orchestration (High Effort, Transformative) — ⏳ Not Started
+### Phase 6: Agent-Based Orchestration (High Effort, Transformative) — ✅ Implemented
 
-**6a. Orchestrator Agent**
+Replaced the linear pipeline with an agent loop using Vercel AI SDK `generateText()` with `stopWhen` conditions and Anthropic's `text_editor_20250728` built-in tool for file operations.
 
-Replace the linear pipeline with an agent loop that works on the project directory.
+**6a. Core Components**
 
-#### File Tools: Use Anthropic's Built-In Text Editor Tool
+- **Agent codegen service** (`agent-codegen.service.ts`): Agent loop using `generateText()` with `stopWhen` conditions. The agent decides the workflow — view files, plan changes, create/edit code, validate, render — iterating until the model passes validation or max turns reached.
+- **Agent filesystem** (`agent-filesystem.service.ts`): In-memory virtual filesystem (`Map<string, string>`) with `view`, `create`, `str_replace`, and `insert` operations, path validation, and line number formatting. Executes Anthropic `text_editor_20250728` tool_use blocks against the VFS.
+- **Custom agent tools**: `validate_code`, `render_project`, `search_examples`, `lookup_api`, `submit_result` — all callable by the agent during the tool-use loop alongside the built-in text editor.
+- **Build123d multi-file endpoints**: `/render-project/` and `/validate-project/` in `main.py` for multi-file project rendering and validation.
+- **Multi-file project support**: `code_projects.current_files` JSONB column, `updateProjectFiles()` and `getProjectFiles()` service functions.
 
-**We do not implement custom file tools.** The Anthropic API provides `text_editor_20250728` — a built-in, schema-less tool that Claude 4.x models are specifically trained to use. It costs only 700 additional input tokens per request and handles file viewing, exact-string replacement, file creation, and line insertion. Claude Code itself is built on this same foundation.
+**6b. Feature Flags & Configuration**
 
-The tool is added to the API request with no schema required:
+Agent mode is behind generation settings (default: off):
+- `chat.agent_mode_enabled` — enables agent mode for chat codegen
+- `workbench.agent_mode_enabled` — enables agent mode for workbench codegen
+- Requires `agent_codegen` LLM purpose configured in the admin UI
+- **Provider requirement**: Requires direct Anthropic provider (not Bedrock) for `text_editor_20250728` tool support
 
-```typescript
-const response = await anthropic.messages.create({
-  model: "claude-opus-4-6",
-  max_tokens: 8192,
-  tools: [
-    // Built-in file tool — no schema needed, Claude knows how to use it
-    {
-      type: "text_editor_20250728",
-      name: "str_replace_based_edit_tool",
-    },
-    // Custom Build123d tools defined below
-    ...build123dTools,
-  ],
-  messages: [...],
-});
-```
-
-Claude outputs `tool_use` blocks with these commands:
-
-| Command | Parameters | Description |
-|---------|-----------|-------------|
-| `view` | `path`, `view_range?` | Read a file (with optional line range) or list a directory |
-| `str_replace` | `path`, `old_str`, `new_str` | Replace exact text — must match uniquely (whitespace-sensitive) |
-| `create` | `path`, `file_text` | Create a new file with content |
-| `insert` | `path`, `insert_line`, `insert_text` | Insert text after a specific line number |
-
-**Our backend implements the execution layer** — it intercepts these tool_use blocks, maps the `path` parameter to the project directory (`chat/{contextId}/code/`), executes the file operation, and returns the result:
-
-```typescript
-function handleTextEditorTool(
-  contextId: string,
-  command: string,
-  input: Record<string, unknown>
-): string {
-  const projectRoot = `chat/${contextId}/code`;
-  const resolvedPath = resolveSafePath(projectRoot, input.path as string);
-
-  switch (command) {
-    case "view": {
-      if (isDirectory(resolvedPath)) {
-        return listDirectory(resolvedPath);
-      }
-      const content = readFile(resolvedPath);
-      const lines = content.split("\n");
-      // Return with line numbers (cat -n format) — critical for view_range and insert
-      return lines.map((line, i) => `${i + 1}: ${line}`).join("\n");
-    }
-
-    case "str_replace": {
-      const content = readFile(resolvedPath);
-      const count = countOccurrences(content, input.old_str as string);
-      if (count === 0) return "Error: No match found for replacement.";
-      if (count > 1) return `Error: Found ${count} matches. Provide more context.`;
-      const newContent = content.replace(input.old_str as string, input.new_str as string);
-      writeFile(resolvedPath, newContent);
-      return "Successfully replaced text at exactly one location.";
-    }
-
-    case "create": {
-      writeFile(resolvedPath, input.file_text as string);
-      return "File created successfully.";
-    }
-
-    case "insert": {
-      const content = readFile(resolvedPath);
-      const lines = content.split("\n");
-      const insertLine = input.insert_line as number;
-      lines.splice(insertLine, 0, input.insert_text as string);
-      writeFile(resolvedPath, lines.join("\n"));
-      return "Text inserted successfully.";
-    }
-  }
-}
-```
-
-**Why this is the right approach:**
-- **Claude is already trained on it** — the model knows exactly how to use `str_replace`, `view`, `create`, and `insert`. No prompt engineering needed to teach it a custom Edit tool.
-- **Battle-tested** — this is the same mechanism that powers Claude Code, which handles millions of file edits daily.
-- **Exact string matching with uniqueness check** — the `str_replace` command requires the target text to be unique in the file, preventing ambiguous edits. If multiple matches exist, the agent must provide more surrounding context. This is the surgical precision we need.
-- **No reinvention** — we implement ~50 lines of execution logic, not an entire tool system.
-- **Path sandboxing** — our execution layer maps all paths to `chat/{contextId}/code/` and validates no directory traversal, so the agent can only access its project directory.
-
-#### Custom Build123d Tools
-
-The domain-specific tools are defined as standard Vercel AI SDK `tool_use` definitions alongside the built-in text editor:
-
-**Build tools** (call Build123d container APIs):
-
-| Tool | Description |
-|------|-------------|
-| `validate_project` | AST parse + import check + structure validation (`POST /validate`) |
-| `analyze_project` | List functions/classes, imports, dependencies (`POST /analyze`) |
-| `lint_project` | Check for common Build123d mistakes (`POST /lint`) |
-| `render_project` | Full render → .step/.stl/.3mf + screenshots (`POST /render/`) |
-| `run_file(path)` | Execute a single file to verify it works (`POST /execute-partial`) |
-
-**Knowledge tools** (retrieve context on demand):
-
-| Tool | Description |
-|------|-------------|
-| `lookup_api(topic)` | Retrieve relevant Build123d API docs (tiered knowledge, Phase 4) |
-| `search_examples(query)` | Semantic search over workbench examples |
-| `search_knowledge(query)` | Search external Build123d knowledge base (see Appendix A) |
-
-**Evaluation tools**:
-
-| Tool | Description |
-|------|-------------|
-| `evaluate_visual(screenshots, prompt)` | VLM evaluation of rendered model |
-
-#### The Agent Loop
-
-1. Receives the user request + conversation history + existing project state
-2. Decides what to do: view files, plan changes, create/edit code, validate, render, evaluate
-3. Uses the text editor tool for all file operations and custom tools for Build123d-specific actions
-4. Iterates until the model passes validation and VLM evaluation, or max turns reached
-5. The agent decides the workflow — not a fixed pipeline
-
-**6b. Agent Coding Principles**
-
-The agent's system prompt includes coding principles (equivalent to CLAUDE.md for the agent). These guide how the agent works on Build123d projects:
-
-1. **Read before edit** — Always read existing code before modifying it. Understand the project structure before making changes.
-2. **Edit over write** — Prefer targeted edits to full file regeneration. A one-line fix should change one line, not rewrite the file.
-3. **Validate after every change** — Call `validate_project` after each edit. Don't accumulate changes and hope they work.
-4. **Single responsibility per file** — One component per file for non-trivial parts. `main.py` is the assembly point.
-5. **Extract reusable geometry** — If a pattern appears twice, extract it into `utils/`. If a component is self-contained, give it its own file in `components/`.
-6. **Parameters at module level** — Named variables at the top of each file, not hardcoded numbers inline. Shared parameters go in `params.py`.
-7. **Keep files focused** — If a file exceeds ~80 lines, consider splitting. Each file should be readable in one pass.
-8. **`main.py` is always the entry point** — It imports from components/utils, assembles the model, and assigns `root_part`. The render service executes only `main.py`.
-9. **Verify with the cheapest tool first** — `validate_project` (free) → `run_file` (fast) → `render_project` (expensive). Don't render until validation passes.
-10. **Use knowledge tools proactively** — When unsure about a Build123d API, call `lookup_api` rather than guessing. When implementing a common pattern, call `search_examples` for reference.
-
-**6c. Multi-Agent for Complex Models**
+**6c. Multi-Agent for Complex Models** — ⏳ Not Started
 - Orchestrator agent decomposes into sub-tasks
 - Sub-agents handle individual component files in parallel (each in isolated context)
 - Each sub-agent has access to the same file and build tools, scoped to its component
 - Orchestrator writes `main.py` to assemble the components and handles integration
-- **Estimated effort**: 4-6 weeks (on top of 6a)
 
 ---
 

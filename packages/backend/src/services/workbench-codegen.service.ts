@@ -57,8 +57,11 @@ import {
   getSimpleMaxFixCap,
   isSpecGenerationEnabled,
   isTieredPromptEnabled,
+  isAgentModeEnabled,
+  getAgentMaxSteps,
 } from "./generation-settings.service.js";
 import { generateSpec, type SpecResult } from "./spec-generation.service.js";
+import { runAgentCodegen } from "./agent-codegen.service.js";
 import crypto from "node:crypto";
 
 export const MAX_FIX_ITERATIONS = 5;
@@ -998,6 +1001,135 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       })
     : CODEGEN_SYSTEM_PROMPT;
   logger.info({ chars: systemPromptContent.length, fullChars: CODEGEN_SYSTEM_PROMPT.length, tiered: tieredEnabled }, "system prompt loaded");
+
+  // ── Agent mode branch ──
+  const wbAgentEnabled = await isAgentModeEnabled("workbench");
+  let wbAgentModelConfig: LlmModelConfig | null = null;
+  if (wbAgentEnabled) {
+    try {
+      wbAgentModelConfig = await getModelForPurpose("agent_codegen");
+      logger.info({ model: wbAgentModelConfig.label }, "workbench agent mode enabled");
+    } catch {
+      logger.info("workbench agent mode enabled but no agent_codegen model configured — falling back");
+    }
+  }
+
+  if (wbAgentModelConfig) {
+    const wbAgMaxSteps = await getAgentMaxSteps("workbench");
+    onProgress?.("codegen", "Agent is working on your model...");
+
+    const agResult = await runAgentCodegen({
+      promptText: ctx.prompt,
+      interpretation: specResult?.interpretation,
+      isModification: false,
+      baseFileName: crypto.randomUUID(),
+      maxSteps: wbAgMaxSteps,
+      modelConfig: wbAgentModelConfig,
+      complexity: specResult?.complexity,
+      signal: pipelineSignal,
+      onProgress: (state, detail) => onProgress?.(state, detail),
+    });
+
+    // Take screenshots if render succeeded
+    let agScreenshots: RenderedScreenshot[] = [];
+    if (agResult.renderSuccess && agResult.renderedFiles.length > 0) {
+      onProgress?.("evaluating", "Taking screenshots...");
+      try {
+        const stlFile = agResult.renderedFiles.find(f => f.filename.toLowerCase().endsWith(".stl"));
+        if (stlFile) {
+          const ssResult = await renderModelScreenshots(
+            { modelData: stlFile.contentBase64, format: "stl", width: 512, height: 512 },
+          );
+          agScreenshots = ssResult.images;
+        }
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, "agent: screenshot failed (non-fatal)");
+      }
+    }
+
+    // VLM evaluation
+    let agEvalResult: EvaluationResult | null = null;
+    if (agScreenshots.length > 0) {
+      onProgress?.("evaluating", "Evaluating quality...");
+      const vlmImages = agScreenshots.filter(s => s.angle !== "isometric").map(s => ({ angle: s.angle, base64: s.base64 }));
+      if (vlmImages.length > 0) {
+        agEvalResult = await evaluateModel({
+          userPrompt: ctx.prompt,
+          categoryName: ctx.categoryName,
+          complexity: ctx.complexity,
+          images: vlmImages,
+          looksCorrectThreshold: dynLooksCorrect,
+          verificationChecklist: specResult?.verificationChecklist,
+        });
+      }
+    }
+
+    const agTotalPromptTokens = agResult.usage.promptTokens + (agEvalResult?.promptTokens ?? 0) + (specResult?.promptTokens ?? 0);
+    const agTotalCompletionTokens = agResult.usage.completionTokens + (agEvalResult?.completionTokens ?? 0) + (specResult?.completionTokens ?? 0);
+    const agScore = agEvalResult?.score ?? null;
+    const agApproved = agScore !== null && agScore >= dynAutoApprove;
+
+    const exampleId = crypto.randomUUID();
+    const filePaths = await persistWorkbenchFiles({
+      categoryId: ctx.categoryId,
+      exampleId,
+      renderedFiles: agResult.renderedFiles,
+      code: agResult.code,
+      screenshots: agScreenshots,
+    });
+
+    await insertExample({
+      id: exampleId,
+      promptId: ctx.promptId,
+      iteration: agResult.stepCount,
+      code: agResult.code,
+      renderStatus: agResult.renderSuccess ? "success" : "error",
+      renderError: agResult.renderSuccess ? null : "Agent codegen failed to render",
+      stlPath: filePaths.stlPath,
+      stepPath: filePaths.stepPath,
+      threemfPath: filePaths.threemfPath,
+      screenshotFront: filePaths.screenshotFrontPath,
+      screenshotBack: filePaths.screenshotBackPath,
+      screenshotLeft: filePaths.screenshotLeftPath,
+      screenshotRight: filePaths.screenshotRightPath,
+      screenshotTop: filePaths.screenshotTopPath,
+      screenshotBottom: filePaths.screenshotBottomPath,
+      screenshotOrtho45: filePaths.screenshotOrtho45Path,
+      screenshotOrtho45Bottom: filePaths.screenshotOrtho45BottomPath,
+      screenshotIso: filePaths.screenshotIsoPath,
+      screenshotIsoBack: filePaths.screenshotIsoBackPath,
+      evalScore: agScore,
+      evalIssues: agEvalResult?.issues ?? null,
+      evalSuggestions: agEvalResult?.suggestions ?? null,
+      approvalStatus: agApproved ? "auto_approved" : "pending",
+      llmModel: wbAgentModelConfig.label,
+      vlmModel: agEvalResult?.vlmModel ?? null,
+      promptTokens: agTotalPromptTokens,
+      completionTokens: agTotalCompletionTokens,
+    });
+
+    logger.info(
+      { promptId: ctx.promptId, steps: agResult.stepCount, score: agScore, status: agApproved ? "auto_approved" : "pending" },
+      "agent example persisted",
+    );
+
+    return {
+      exampleId,
+      promptId: ctx.promptId,
+      iteration: agResult.stepCount,
+      code: agResult.code,
+      renderStatus: agResult.renderSuccess ? "success" : "error",
+      renderError: agResult.renderSuccess ? null : "Agent codegen failed to render",
+      evalScore: agScore,
+      evalIssues: agEvalResult?.issues ?? null,
+      evalSuggestions: agEvalResult?.suggestions ?? null,
+      approvalStatus: agApproved ? "auto_approved" : "pending",
+      llmModel: wbAgentModelConfig.label,
+      vlmModel: agEvalResult?.vlmModel ?? null,
+    };
+  }
+
+  // ── Fixed iteration loop (fallback when agent mode is disabled) ──
 
   let currentCode = "";
   let renderError: string | null = null;

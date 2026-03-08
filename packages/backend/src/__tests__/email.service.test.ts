@@ -44,6 +44,7 @@ describe("email service", () => {
       },
       transporter: {
         sendMail,
+        verify: vi.fn().mockResolvedValue(true),
       },
     });
 
@@ -73,6 +74,7 @@ describe("email service", () => {
       },
       transporter: {
         sendMail,
+        verify: vi.fn().mockResolvedValue(true),
       },
     });
 

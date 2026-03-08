@@ -20,7 +20,7 @@ export class NotificationService {
     payload: Record<string, unknown>,
   ): Promise<PersistedNotificationEvent> {
     const row = await prisma.notification.create({
-      data: { userId, eventType, payload },
+      data: { userId, eventType, payload: payload as object },
     });
 
     return {

@@ -15,7 +15,7 @@ import {
 } from "./llm-config.service.js";
 import { createLogger } from "../utils/logger.js";
 import { CONVERSATION_SYSTEM_PROMPT } from "../prompts/system-prompts.js";
-import type { CoreMessage } from "ai";
+import type { ModelMessage as CoreMessage } from "ai";
 import type { ConversationHistoryEntry, CollectedImage } from "./query.service.js";
 
 const logger = createLogger("llm");
@@ -333,11 +333,11 @@ async function generateWithConfig(
         }
 
         text = fullText;
-        reasoningText = finalResult.reasoningText;
-        reasoning = finalResult.reasoning;
+        reasoningText = await finalResult.reasoningText;
+        reasoning = await finalResult.reasoning;
         // Workaround: Bedrock streaming via AI SDK v6.0.111 doesn't propagate usage to the resolved promise.
         // Fall back to usage captured from the finish-step stream event.
-        const resolvedUsage = finalResult.usage;
+        const resolvedUsage = await finalResult.usage;
         const hasResolvedUsage = resolvedUsage && Object.keys(resolvedUsage).length > 0 && (resolvedUsage as Record<string, unknown>).inputTokens != null;
         usage = hasResolvedUsage ? resolvedUsage : (streamStepUsage ?? resolvedUsage);
         if (!hasResolvedUsage && streamStepUsage) {
@@ -500,7 +500,7 @@ async function streamWithMessages(
       }
 
       // Workaround: use finish-step usage when resolved promise usage is empty
-      const resolvedUsage = finalResult.usage;
+      const resolvedUsage = await finalResult.usage;
       const hasResolvedUsage = resolvedUsage && Object.keys(resolvedUsage).length > 0 && (resolvedUsage as Record<string, unknown>).inputTokens != null;
       const effectiveUsage = hasResolvedUsage ? resolvedUsage : (streamStepUsage ?? resolvedUsage);
       if (!hasResolvedUsage && streamStepUsage) {
@@ -590,24 +590,26 @@ async function streamWithConfig(
         throw awaitError;
       }
 
-      if (finalResult.reasoningText) {
+      const awaitedReasoningText = await finalResult.reasoningText;
+      const awaitedReasoning = await finalResult.reasoning;
+      if (awaitedReasoningText) {
         logger.info(
-          { provider: cfg.provider, model: cfg.modelName, reasoningLength: finalResult.reasoningText.length },
+          { provider: cfg.provider, model: cfg.modelName, reasoningLength: awaitedReasoningText.length },
           "thinking output received",
         );
         logger.trace(
-          { provider: cfg.provider, model: cfg.modelName, reasoning: finalResult.reasoningText },
+          { provider: cfg.provider, model: cfg.modelName, reasoning: awaitedReasoningText },
           "thinking output content",
         );
       } else {
         logger.debug(
-          { provider: cfg.provider, model: cfg.modelName, reasoningBlocks: finalResult.reasoning?.length ?? 0 },
+          { provider: cfg.provider, model: cfg.modelName, reasoningBlocks: awaitedReasoning?.length ?? 0 },
           "no thinking output in response",
         );
       }
 
       // Workaround: use finish-step usage when resolved promise usage is empty
-      const resolvedUsage = finalResult.usage;
+      const resolvedUsage = await finalResult.usage;
       const hasResolvedUsage = resolvedUsage && Object.keys(resolvedUsage).length > 0 && (resolvedUsage as Record<string, unknown>).inputTokens != null;
       const effectiveUsage = hasResolvedUsage ? resolvedUsage : (streamStepUsage ?? resolvedUsage);
       if (!hasResolvedUsage && streamStepUsage) {

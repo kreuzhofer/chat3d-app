@@ -11,7 +11,7 @@ export async function recordAdminAuditLog(input: {
       adminUserId: input.adminUserId,
       action: input.action,
       targetUserId: input.targetUserId ?? null,
-      metadata: input.metadata ?? {},
+      metadata: (input.metadata ?? {}) as object,
     },
   });
 }

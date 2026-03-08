@@ -228,3 +228,179 @@ async function _renderBuild123dInner(input: {
     renderer: "build123d",
   };
 }
+
+// ── Project-level rendering (multi-file) ──────────────────────────────
+
+export interface ProjectFile {
+  path: string;
+  content: string;
+}
+
+export async function renderBuild123dProject(
+  input: { files: ProjectFile[]; baseFileName: string },
+  opts?: { signal?: AbortSignal },
+): Promise<Build123dRenderResult> {
+  if (config.query.renderMode === "mock") {
+    logger.info({ baseFileName: input.baseFileName }, "mock mode, returning mock files");
+    return {
+      files: mockRenderedFiles(input.baseFileName),
+      renderer: "mock",
+    };
+  }
+
+  return build123dSemaphore.run(
+    () => _renderBuild123dProjectInner(input, opts),
+  );
+}
+
+async function _renderBuild123dProjectInner(
+  input: { files: ProjectFile[]; baseFileName: string },
+  opts?: { signal?: AbortSignal },
+): Promise<Build123dRenderResult> {
+  const url = `${config.query.build123dUrl.replace(/\/$/, "")}/render-project/`;
+  const payload = {
+    files: input.files,
+    filename: input.baseFileName,
+  };
+
+  logger.info({ url, fileCount: input.files.length, filename: payload.filename }, "POST to Build123d /render-project/");
+
+  let response: Response | undefined;
+  let lastError: RenderingServiceError | undefined;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), BUILD123D_TIMEOUT_MS);
+
+      // Forward external abort signal
+      if (opts?.signal) {
+        opts.signal.addEventListener("abort", () => controller.abort(), { once: true });
+      }
+
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      // Got a response — break out of retry loop
+      lastError = undefined;
+      break;
+    } catch (fetchError) {
+      const msg = fetchError instanceof Error ? fetchError.message : String(fetchError);
+      const isTimeout = fetchError instanceof Error && fetchError.name === "AbortError";
+      lastError = new RenderingServiceError(
+        isTimeout
+          ? `Build123d service timeout after ${BUILD123D_TIMEOUT_MS / 1000}s`
+          : `Build123d service unreachable: ${msg}`,
+        502,
+        true,
+      );
+
+      if (attempt < MAX_RETRIES) {
+        const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        logger.warn(
+          { url, err: msg, isTimeout, attempt, maxRetries: MAX_RETRIES, retryDelayMs: delay },
+          `Build123d /render-project/ failed (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay}ms`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      } else {
+        logger.error(
+          { url, err: msg, isTimeout, attempt, maxRetries: MAX_RETRIES },
+          `Build123d /render-project/ failed after ${MAX_RETRIES} attempts`,
+        );
+      }
+    }
+  }
+
+  if (lastError || !response) {
+    throw lastError ?? new RenderingServiceError("Build123d service failed after retries", 502, true);
+  }
+
+  logger.info({ status: response.status, statusText: response.statusText }, "Build123d /render-project/ response received");
+
+  const body = await response.json().catch(() => ({}));
+  const files = Array.isArray((body as { files?: unknown[] }).files)
+    ? ((body as { files: Array<{ filename?: unknown; content?: unknown }> }).files ?? [])
+    : [];
+
+  logger.info({ bodyKeys: Object.keys(body as object), fileCount: files.length }, "Build123d /render-project/ response body parsed");
+
+  if (!response.ok || files.length === 0) {
+    const message =
+      typeof (body as { message?: unknown }).message === "string"
+        ? (body as { message: string }).message
+        : "Rendering request failed";
+    logger.error({ message, status: response.status }, "render-project error");
+    throw new RenderingServiceError(message, response.status >= 400 ? response.status : 502);
+  }
+
+  const mappedFiles: RenderedFile[] = [];
+  for (const file of files) {
+    if (typeof file.filename !== "string" || typeof file.content !== "string") {
+      logger.warn({ file: JSON.stringify(file).slice(0, 200) }, "skipping invalid file entry");
+      continue;
+    }
+    logger.info({ filename: file.filename, contentLength: file.content.length }, "received file");
+    mappedFiles.push({
+      filename: file.filename,
+      contentBase64: file.content,
+    });
+  }
+
+  if (mappedFiles.length === 0) {
+    throw new RenderingServiceError("Rendering service returned no valid files", 502);
+  }
+
+  logger.info({ fileCount: mappedFiles.length, baseFileName: input.baseFileName }, "render-project success");
+  return {
+    files: mappedFiles,
+    renderer: "build123d",
+  };
+}
+
+// ── Project-level validation ──────────────────────────────────────────
+
+export async function validateBuild123dProject(
+  files: ProjectFile[],
+): Promise<Build123dValidationResult & { fileErrors?: Record<string, string[]> }> {
+  if (config.query.renderMode === "mock") {
+    return { valid: true, errors: [], warnings: [] };
+  }
+
+  const url = `${config.query.build123dUrl.replace(/\/$/, "")}/validate-project/`;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), BUILD123D_VALIDATE_TIMEOUT_MS);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ files }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const body = (await response.json()) as {
+      valid?: boolean;
+      errors?: string[];
+      warnings?: LintWarning[];
+      file_errors?: Record<string, string[]>;
+    };
+    return {
+      valid: body.valid === true,
+      errors: Array.isArray(body.errors) ? body.errors : [],
+      warnings: Array.isArray(body.warnings) ? body.warnings : [],
+      fileErrors: body.file_errors ?? undefined,
+    };
+  } catch (err) {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "validate-project endpoint unreachable — skipping pre-render validation",
+    );
+    return { valid: true, errors: [], warnings: [] };
+  }
+}

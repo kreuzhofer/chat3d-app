@@ -168,7 +168,7 @@ async function updateChatItemPaths(stats: MigrationStats): Promise<void> {
     if (changed) {
       await prisma.chatItem.update({
         where: { id: item.id },
-        data: { messages: updated },
+        data: { messages: updated as unknown as object[] },
       });
       stats.chatPathsUpdated++;
     }

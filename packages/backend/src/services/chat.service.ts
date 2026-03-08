@@ -243,7 +243,8 @@ export async function updateChatItem(input: {
   const r = await prisma.chatItem.update({
     where: { id: input.itemId },
     data: {
-      messages: nextMessages !== undefined ? (nextMessages as object[]) : existing.messages,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      messages: (nextMessages !== undefined ? nextMessages : existing.messages) as any,
       rating: nextRating !== undefined ? nextRating : existing.rating,
       promptTokens: input.promptTokens,
       completionTokens: input.completionTokens,

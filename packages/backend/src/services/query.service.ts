@@ -60,9 +60,12 @@ import {
   getSimpleMaxFixCap,
   isSpecGenerationEnabled,
   isTieredPromptEnabled,
+  isAgentModeEnabled,
+  getAgentMaxSteps,
 } from "./generation-settings.service.js";
 import { generateSpec, formatDisambiguationResponse } from "./spec-generation.service.js";
-import { updateProjectCode, getProjectCode } from "./code-project.service.js";
+import { updateProjectCode, updateProjectFiles, getProjectCode } from "./code-project.service.js";
+import { runAgentCodegen } from "./agent-codegen.service.js";
 import {
   getModelForPurpose,
   createProviderModel as createProviderModelFromConfig,
@@ -90,7 +93,7 @@ interface UserPromptRow {
   messages: unknown;
 }
 
-export type QueryState = "queued" | "conversation" | "codegen" | "rendering" | "evaluating" | "fixing" | "retrying" | "completed" | "failed" | "cancelled";
+export type QueryState = "queued" | "conversation" | "codegen" | "rendering" | "validating" | "evaluating" | "fixing" | "retrying" | "agent" | "completed" | "failed" | "cancelled";
 
 export interface StreamTokenEvent {
   type: "stream-token";
@@ -961,7 +964,7 @@ async function generateChatName(input: {
     const result = await generateText({
       model: providerModel,
       prompt: `Summarize the following user request as a short chat title (maximum 5 words, no quotes, no punctuation at the end):\n\n"${truncatedPrompt}"`,
-      maxTokens: 30,
+      maxOutputTokens: 30,
     });
 
     const name = result.text.trim().replace(/^["']|["']$/g, "").slice(0, 80);
@@ -1112,6 +1115,12 @@ export async function executeQueryPipeline(input: {
     state: "queued",
   });
 
+  // Pipeline-wide cost accumulators — hoisted above try so they're accessible in the catch block
+  let epTotalPromptTokens = 0;
+  let epTotalCompletionTokens = 0;
+  let epTotalReasoningTokens = 0;
+  let epTotalCostUsd = 0;
+
   try {
     await publishQueryState({
       userId: input.userId,
@@ -1166,12 +1175,6 @@ export async function executeQueryPipeline(input: {
           emitToken(token);
         }
       : undefined;
-
-    // Pipeline-wide cost accumulators — initialized here so conversation cost is included
-    let epTotalPromptTokens = 0;
-    let epTotalCompletionTokens = 0;
-    let epTotalReasoningTokens = 0;
-    let epTotalCostUsd = 0;
 
     /** Persist the running cost on the item so partial costs survive crashes/restarts. */
     const persistItemCost = () =>
@@ -1321,6 +1324,7 @@ export async function executeQueryPipeline(input: {
     // ── Spec generation (disambiguation check) ──
     let epVerificationChecklist: string[] = [];
     let epSpecInterpretation: string | undefined;
+    let epSpecComplexity: "simple" | "medium" | "complex" | undefined;
     const specEnabled = await isSpecGenerationEnabled("chat");
     if (specEnabled) {
       await persistPhase("Analyzing request...");
@@ -1338,7 +1342,9 @@ export async function executeQueryPipeline(input: {
         await persistItemCost();
       } catch { /* spec cost tracking is best-effort */ }
 
-      if (specResult.disambiguationNeeded) {
+      // Skip disambiguation for modification scenarios — the existing model provides context
+      const hasBaseline = !!(await getProjectCode(input.contextId) ?? findMostRecentCode(conversationHistory));
+      if (specResult.disambiguationNeeded && !hasBaseline) {
         queryLogger.info({ questions: specResult.disambiguationQuestions }, "prompt needs disambiguation — responding with questions");
 
         const questionText = formatDisambiguationResponse(conversationText, specResult);
@@ -1381,6 +1387,7 @@ export async function executeQueryPipeline(input: {
 
       epVerificationChecklist = specResult.verificationChecklist;
       epSpecInterpretation = specResult.interpretation;
+      epSpecComplexity = specResult.complexity;
 
       // Cap fix iterations for simple prompts
       if (specResult.complexity === "simple") {
@@ -1392,6 +1399,181 @@ export async function executeQueryPipeline(input: {
       }
 
       queryLogger.info({ interpretation: specResult.interpretation.slice(0, 100), checklistCount: epVerificationChecklist.length, complexity: specResult.complexity }, "spec generated");
+    }
+
+    // ── Agent mode branch ──
+    // When agent mode is enabled and an agent_codegen model is configured,
+    // use the agentic tool-use loop instead of the fixed iteration pipeline.
+    const agentEnabled = await isAgentModeEnabled("chat");
+    let agentModelConfig: LlmModelConfig | null = null;
+    if (agentEnabled) {
+      try {
+        agentModelConfig = await getModelForPurpose("agent_codegen");
+        queryLogger.info({ model: agentModelConfig.label, provider: agentModelConfig.provider }, "agent mode enabled, resolved agent_codegen model");
+      } catch {
+        queryLogger.info("agent mode enabled but no agent_codegen model configured — falling back to iteration loop");
+      }
+    }
+
+    if (agentModelConfig) {
+      // Detect modification scenario
+      const agBaselineCode = await getProjectCode(input.contextId) ?? findMostRecentCode(conversationHistory);
+      const agIsModification = !!agBaselineCode;
+      if (agIsModification) {
+        queryLogger.info({ baselineCodeLength: agBaselineCode!.length }, "agent: modification scenario detected");
+      }
+
+      const agMaxSteps = await getAgentMaxSteps("chat");
+      await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "codegen", detail: "Agent is working on your model..." });
+      await persistPhase("Agent is working on your model...");
+
+      const agResult = await runAgentCodegen({
+        promptText: prompt,
+        interpretation: epSpecInterpretation,
+        isModification: agIsModification,
+        baselineCode: agBaselineCode ?? undefined,
+        baseFileName: assistantItemId,
+        maxSteps: agMaxSteps,
+        modelConfig: agentModelConfig,
+        complexity: epSpecComplexity,
+        signal: pipelineSignal,
+        onProgress: (state, detail) => {
+          void publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: state as QueryState, detail });
+        },
+      });
+
+      // Track usage
+      epTotalPromptTokens += agResult.usage.promptTokens;
+      epTotalCompletionTokens += agResult.usage.completionTokens;
+      epTotalReasoningTokens += agResult.usage.reasoningTokens;
+      epTotalCostUsd += agResult.usage.totalCostUsd;
+      await incrementContextCost(input.contextId, agResult.usage.totalCostUsd);
+      await persistItemCost();
+
+      // Take screenshots if render succeeded
+      let agScreenshots: RenderedScreenshot[] = [];
+      if (agResult.renderSuccess && agResult.renderedFiles.length > 0) {
+        await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "evaluating", detail: "Taking screenshots..." });
+        try {
+          const stlFile = agResult.renderedFiles.find(f => f.filename.toLowerCase().endsWith(".stl"));
+          const threemfFile = agResult.renderedFiles.find(f => f.filename.toLowerCase().endsWith(".3mf"));
+          const screenshotSource = stlFile ?? threemfFile;
+          if (screenshotSource) {
+            const ssResult = await renderModelScreenshots({
+              modelData: screenshotSource.contentBase64,
+              format: stlFile ? "stl" : "3mf",
+            });
+            agScreenshots = ssResult.images;
+          }
+        } catch (err) {
+          queryLogger.warn({ err: err instanceof Error ? err.message : String(err) }, "agent: screenshot service failed (non-fatal)");
+        }
+      }
+
+      // Persist files to storage
+      const agFinalFiles: Array<{ path: string; filename: string }> = [];
+      const agFinalCode = agResult.code;
+
+      for (const file of agResult.renderedFiles) {
+        const ext = mapExtension(file.filename);
+        const rp = `chat/${input.contextId}/artifacts/${assistantItemId}.${ext}`;
+        await writeStorageFile({ relativePath: rp, contentBase64: file.contentBase64 });
+        agFinalFiles.push({ path: rp, filename: file.filename });
+      }
+
+      if (agFinalCode?.trim()) {
+        const codeRelPath = `chat/${input.contextId}/code/${assistantItemId}.b123d`;
+        await writeStorageFile({ relativePath: codeRelPath, contentBase64: Buffer.from(agFinalCode, "utf-8").toString("base64") });
+        agFinalFiles.push({ path: codeRelPath, filename: `${assistantItemId}.b123d` });
+      }
+
+      const agScreenshotFiles: Array<{ path: string; filename: string }> = [];
+      for (const ss of agScreenshots) {
+        const ssPath = `chat/${input.contextId}/artifacts/${assistantItemId}-screenshot-${ss.angle}.png`;
+        await writeStorageFile({ relativePath: ssPath, contentBase64: ss.base64 });
+        agScreenshotFiles.push({ path: ssPath, filename: `${assistantItemId}-screenshot-${ss.angle}.png` });
+      }
+
+      // Persist project code tracking (multi-file for agent, single-file fallback)
+      if (agFinalCode?.trim()) {
+        try {
+          if (agResult.files.length > 1) {
+            await updateProjectFiles(input.contextId, agResult.files, assistantItemId);
+          } else {
+            await updateProjectCode(input.contextId, agFinalCode, assistantItemId);
+          }
+        } catch (err) {
+          queryLogger.warn({ err: err instanceof Error ? err.message : String(err) }, "agent: failed to update project code (non-fatal)");
+        }
+      }
+
+      // Build assistant messages
+      const agArtifact = summarizeArtifacts(agFinalFiles);
+      const agUsage: QueryUsageSummary = {
+        inputTokens: epTotalPromptTokens,
+        outputTokens: epTotalCompletionTokens,
+        reasoningTokens: epTotalReasoningTokens,
+        totalTokens: epTotalPromptTokens + epTotalCompletionTokens,
+        estimatedCostUsd: Number(epTotalCostUsd.toFixed(8)),
+      };
+
+      const agAllFailed = agFinalFiles.length === 0;
+      const agAssistantMessages = [
+        { itemType: "message", text: conversationText, state: "completed", stateMessage: "" },
+        ...(agFinalFiles.length > 0 ? [{
+          itemType: "3dmodel",
+          text: agArtifact.previewStatus === "ready" ? "Generated 3D preview." : `Preview unavailable in-browser. ${agArtifact.detail}`,
+          attachment: agArtifact.previewFilePath ?? "",
+          state: "completed",
+          stateMessage: "",
+          artifact: agArtifact,
+          files: [...agFinalFiles, ...agScreenshotFiles],
+          previews: agScreenshotFiles,
+        }] : []),
+        ...(agFinalCode?.trim() ? [{ itemType: "code", text: agFinalCode, state: "completed", stateMessage: "" }] : []),
+        ...(agAllFailed ? [{
+          itemType: "errormessage",
+          text: "Agent codegen failed to produce a valid 3D model.",
+          state: "error",
+          stateMessage: "",
+        }] : []),
+        {
+          itemType: "meta",
+          text: "Generation diagnostics",
+          state: "completed",
+          stateMessage: "",
+          usage: agUsage,
+          artifact: agArtifact,
+          llm: { conversationModel: "pipeline", codegenModel: agentModelConfig.label, vlmModel: null, evalScore: null, iterations: agResult.stepCount },
+          files: agFinalFiles,
+        },
+      ];
+
+      await updateChatItem({
+        userId: input.userId,
+        contextId: input.contextId,
+        itemId: assistantItemId,
+        messages: agAssistantMessages,
+        promptTokens: epTotalPromptTokens,
+        completionTokens: epTotalCompletionTokens,
+        estimatedCostUsd: Number(epTotalCostUsd.toFixed(8)),
+      });
+
+      await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "completed" });
+
+      void pushNotificationService.sendToUser(input.userId, {
+        title: "Your 3D model is ready!",
+        body: "Come back to Chat3D to see your generated model.",
+        tag: `query-${assistantItemId}`,
+        url: `/chat/${input.contextId}`,
+      }).catch(() => {/* ignore push errors */});
+
+      queryLogger.info(
+        { steps: agResult.stepCount, submitted: agResult.submitted, renderSuccess: agResult.renderSuccess, fileCount: agFinalFiles.length, cost: Number(epTotalCostUsd.toFixed(6)) },
+        "agent codegen pipeline completed",
+      );
+
+      return; // Agent path complete — skip iteration loop below
     }
 
     // ── Workbench-style iteration loop: codegen → render → VLM eval → fix ──
@@ -1572,13 +1754,13 @@ export async function executeQueryPipeline(input: {
               }
               // Workaround: Bedrock streaming via AI SDK v6.0.111 doesn't propagate usage to the resolved promise.
               // Fall back to usage captured from the finish-step stream event.
-              const resolvedUsage = finalResult.usage;
+              const resolvedUsage = await finalResult.usage;
               const hasResolvedUsage = resolvedUsage && Object.keys(resolvedUsage).length > 0 && resolvedUsage.inputTokens != null;
               const effectiveUsage = hasResolvedUsage ? resolvedUsage : streamStepUsage;
               if (!hasResolvedUsage && streamStepUsage) {
                 queryLogger.debug({ iteration }, "using finish-step usage (resolved promise usage was empty)");
               }
-              return { text, reasoningText: finalResult.reasoningText, reasoning: finalResult.reasoning, usage: effectiveUsage as typeof finalResult.usage };
+              return { text, reasoningText: await finalResult.reasoningText, reasoning: await finalResult.reasoning, usage: effectiveUsage as typeof resolvedUsage };
             }
             return generateText({ model: epCodegenModel, ...cgCallOpts });
           },
@@ -1594,18 +1776,20 @@ export async function executeQueryPipeline(input: {
           },
         },
       );
-      if (cgResult.reasoningText) {
+      const cgReasoningText = await cgResult.reasoningText;
+      const cgReasoning = await cgResult.reasoning;
+      if (cgReasoningText) {
         queryLogger.info(
-          { iteration, provider: epCodegenConfig.provider, model: epCodegenConfig.modelName, reasoningLength: cgResult.reasoningText.length },
+          { iteration, provider: epCodegenConfig.provider, model: epCodegenConfig.modelName, reasoningLength: cgReasoningText.length },
           "chat codegen thinking output received",
         );
         queryLogger.trace(
-          { iteration, reasoning: cgResult.reasoningText },
+          { iteration, reasoning: cgReasoningText },
           "chat codegen thinking output content",
         );
       } else {
         queryLogger.debug(
-          { iteration, provider: epCodegenConfig.provider, model: epCodegenConfig.modelName, reasoningBlocks: cgResult.reasoning?.length ?? 0 },
+          { iteration, provider: epCodegenConfig.provider, model: epCodegenConfig.modelName, reasoningBlocks: cgReasoning?.length ?? 0 },
           "no thinking output in chat codegen response",
         );
       }
@@ -1636,17 +1820,18 @@ export async function executeQueryPipeline(input: {
       } else {
         epCurrentCode = stripTemplateBoilerplate(extractExecutableCode(cgResult.text));
       }
+      const cgUsage = await cgResult.usage;
       queryLogger.debug({
         iteration,
-        rawUsage: JSON.stringify((cgResult.usage as Record<string, unknown>)?.raw),
-        inputTokenDetails: JSON.stringify((cgResult.usage as Record<string, unknown>)?.inputTokenDetails, (_, v) => v === undefined ? "__undef__" : v),
+        rawUsage: JSON.stringify((cgUsage as Record<string, unknown>)?.raw),
+        inputTokenDetails: JSON.stringify((cgUsage as Record<string, unknown>)?.inputTokenDetails, (_, v) => v === undefined ? "__undef__" : v),
       }, "codegen usage debug");
-      const cgPT = cgResult.usage?.inputTokens ?? 0;
-      const cgCT = cgResult.usage?.outputTokens ?? 0;
-      const cgRT = (cgResult.usage as Record<string, unknown>)?.reasoningTokens as number ?? 0;
+      const cgPT = cgUsage?.inputTokens ?? 0;
+      const cgCT = cgUsage?.outputTokens ?? 0;
+      const cgRT = (cgUsage as Record<string, unknown>)?.reasoningTokens as number ?? 0;
       // Extract cache token details for cost calculation
-      const cgInputDetails = typeof (cgResult.usage as Record<string, unknown>)?.inputTokenDetails === "object"
-        ? (cgResult.usage as Record<string, unknown>).inputTokenDetails as Record<string, unknown>
+      const cgInputDetails = typeof (cgUsage as Record<string, unknown>)?.inputTokenDetails === "object"
+        ? (cgUsage as Record<string, unknown>).inputTokenDetails as Record<string, unknown>
         : null;
       const cgCacheRead = (cgInputDetails?.cacheReadTokens ?? cgInputDetails?.cachedTokens ?? 0) as number;
       const cgCacheWrite = (cgInputDetails?.cacheWriteTokens ?? cgInputDetails?.cacheCreationTokens ?? 0) as number;

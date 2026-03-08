@@ -15,6 +15,7 @@ export interface CodeProject {
   id: string;
   chatContextId: string;
   currentCode: string;
+  currentFiles: Record<string, string> | null;
   lastRenderedItemId: string | null;
   fileCount: number;
   createdAt: Date;
@@ -98,6 +99,76 @@ export async function getProjectCode(contextId: string): Promise<string | null> 
   });
   if (!project || !project.currentCode) return null;
   return project.currentCode;
+}
+
+/**
+ * Update the project with a multi-file project from agent mode.
+ * Stores both main.py code (in currentCode) and all files (in currentFiles JSONB).
+ */
+export async function updateProjectFiles(
+  contextId: string,
+  files: Array<{ path: string; content: string }>,
+  chatItemId: string,
+): Promise<void> {
+  const project = await getOrCreateProject(contextId);
+
+  // Build file map
+  const fileMap: Record<string, string> = {};
+  for (const f of files) {
+    fileMap[f.path] = f.content;
+  }
+
+  // Main code is always main.py
+  const mainCode = fileMap["main.py"] ?? "";
+
+  const lastVersion = await prisma.codeProjectVersion.findFirst({
+    where: { projectId: project.id },
+    orderBy: { versionNumber: "desc" },
+    select: { versionNumber: true },
+  });
+  const nextVersion = (lastVersion?.versionNumber ?? 0) + 1;
+
+  await prisma.$transaction([
+    prisma.codeProject.update({
+      where: { id: project.id },
+      data: {
+        currentCode: mainCode,
+        currentFiles: files.length > 1 ? fileMap : null,
+        fileCount: files.length,
+        lastRenderedItemId: chatItemId,
+        updatedAt: new Date(),
+      },
+    }),
+    prisma.codeProjectVersion.create({
+      data: {
+        projectId: project.id,
+        chatItemId,
+        code: mainCode,
+        versionNumber: nextVersion,
+      },
+    }),
+  ]);
+
+  logger.info({ contextId, projectId: project.id, version: nextVersion, fileCount: files.length }, "project files updated");
+}
+
+/**
+ * Get the current project files for a chat context.
+ * Returns null if no project exists.
+ * Returns a file map if multi-file, or { "main.py": code } for single-file.
+ */
+export async function getProjectFiles(contextId: string): Promise<Record<string, string> | null> {
+  const project = await prisma.codeProject.findUnique({
+    where: { chatContextId: contextId },
+    select: { currentCode: true, currentFiles: true },
+  });
+  if (!project || !project.currentCode) return null;
+
+  if (project.currentFiles && typeof project.currentFiles === "object") {
+    return project.currentFiles as Record<string, string>;
+  }
+
+  return { "main.py": project.currentCode };
 }
 
 /**

@@ -249,7 +249,7 @@ publicRouter.get("/gallery/models/:id/screenshot/:angle", async (req, res) => {
       select: { [fieldName]: true },
     });
 
-    const value = example?.[fieldName as keyof typeof example] as string | null;
+    const value = (example?.[fieldName as keyof typeof example] ?? null) as string | null;
     if (!example || !value) {
       res.status(404).json({ error: "Screenshot not found" });
       return;

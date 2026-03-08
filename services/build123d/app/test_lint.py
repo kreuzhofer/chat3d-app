@@ -3,7 +3,15 @@ import ast
 import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
-from main import lint_code, LintWarning, validate_code, ValidateRequest
+from main import (
+    lint_code, LintWarning, validate_code, ValidateRequest,
+    RenderProjectRequest, ProjectFile, ValidateProjectResponse,
+    validate_project, render_project,
+)
+from fastapi.testclient import TestClient
+from main import app
+
+client = TestClient(app)
 
 
 def _lint(code: str) -> list[LintWarning]:
@@ -222,3 +230,71 @@ root_part = part.part
     assert resp.valid is True
     assert len(resp.errors) == 0
     assert len(resp.warnings) == 0
+
+
+# ── Project endpoint tests ────────────────────────────────────────────
+
+def test_render_project_single_file():
+    """Render a single-file project with main.py."""
+    code = '''
+import math
+result = math.sqrt(16)
+# Write a simple output file to verify execution
+with open("output.txt", "w") as f:
+    f.write(f"result={result}")
+'''
+    response = client.post("/render-project/", json={
+        "files": [{"path": "main.py", "content": code}],
+        "filename": "output.txt",
+    })
+    data = response.json()
+    assert data["success"] is True
+    assert len(data["files"]) >= 1
+    assert any(f["filename"] == "output.txt" for f in data["files"])
+
+
+def test_render_project_multi_file():
+    """Render a project with main.py importing from components/helper.py."""
+    helper_code = '''
+def compute_value():
+    return 42
+'''
+    main_code = '''
+from components.helper import compute_value
+val = compute_value()
+with open("output.txt", "w") as f:
+    f.write(f"value={val}")
+'''
+    response = client.post("/render-project/", json={
+        "files": [
+            {"path": "main.py", "content": main_code},
+            {"path": "components/__init__.py", "content": ""},
+            {"path": "components/helper.py", "content": helper_code},
+        ],
+        "filename": "output.txt",
+    })
+    data = response.json()
+    assert data["success"] is True
+    assert len(data["files"]) >= 1
+    # Verify the content is correct
+    import base64
+    for fd in data["files"]:
+        if fd["filename"] == "output.txt":
+            content = base64.b64decode(fd["content"]).decode("utf-8")
+            assert content == "value=42"
+            break
+    else:
+        assert False, "output.txt not found in response files"
+
+
+def test_validate_project_missing_main():
+    """Validate a project without main.py — should fail."""
+    response = client.post("/validate-project/", json={
+        "files": [
+            {"path": "helper.py", "content": "x = 1"},
+        ],
+        "filename": "output.step",
+    })
+    data = response.json()
+    assert data["valid"] is False
+    assert any("main.py" in e for e in data["errors"])

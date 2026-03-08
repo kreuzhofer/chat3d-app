@@ -493,7 +493,7 @@ async function runExport(job: TransferJob): Promise<void> {
         fileName,
         filePath,
         sizeBytes: BigInt(fileStat.size),
-        counts: job.counts ?? undefined,
+        counts: job.counts ? { ...job.counts } as Record<string, number> : undefined,
         completedAt: new Date(),
       });
     } catch (backupErr) {

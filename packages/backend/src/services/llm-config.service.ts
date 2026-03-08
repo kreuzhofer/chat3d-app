@@ -102,6 +102,7 @@ export const LLM_PURPOSES = [
   "conversation",
   "chat_codegen",
   "workbench_codegen",
+  "agent_codegen",
   "vlm_eval",
   "embedding",
   "prompt_distill",
@@ -332,6 +333,21 @@ export function createProviderModel(cfg: LlmModelConfig): any {
 }
 
 /**
+ * Create an Anthropic provider instance with access to built-in tools.
+ * Used by the agent codegen loop for text_editor_20250728.
+ * Requires the model config to be an Anthropic provider (not Bedrock).
+ */
+export function createAnthropicProviderForAgent(cfg: LlmModelConfig) {
+  if (cfg.provider !== "anthropic") {
+    throw new Error(`Agent mode requires Anthropic provider, got: ${cfg.provider}`);
+  }
+  if (!cfg.apiKey) {
+    throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
+  }
+  return createAnthropic({ apiKey: cfg.apiKey });
+}
+
+/**
  * Create a Vercel AI SDK EmbeddingModel from a resolved config.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -472,11 +488,17 @@ export function buildCachePointOptions(provider: string): Record<string, unknown
  * Wrap a system prompt string into a SystemModelMessage with cache providerOptions
  * for supported providers. Returns a plain string for others.
  * Skips caching for prompts below the minimum size threshold.
+ *
+ * The return type uses `as any` for providerOptions because the AI SDK's
+ * SharedV3ProviderOptions expects Record<string, JSONObject> which is not
+ * structurally compatible with Record<string, unknown> at compile time,
+ * even though the runtime values are valid.
  */
 export function buildCacheableSystem(
   provider: string,
   systemContent: string,
-): string | { role: "system"; content: string; providerOptions: Record<string, unknown> } {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): string | any {
   if (systemContent.length < MIN_CACHEABLE_CHARS) {
     return systemContent;
   }
