@@ -282,7 +282,7 @@ export function ModelViewer({ token, filePath }: ModelViewerProps) {
           onZoomToFit={handleResetCamera}
           onToggleFullscreen={() => setIsFullscreen((prev) => !prev)}
           isFullscreen={isFullscreen}
-          className="absolute bottom-3 left-3 z-10"
+          className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
         />
       )}
       <div

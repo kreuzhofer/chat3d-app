@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { MessageSquare, Search, SquarePen, X } from "lucide-react";
 import { useChatContexts } from "../../hooks/useChatContexts";
+import { useSidebar } from "../../hooks/useSidebar";
 
 interface SearchChatsModalProps {
   open: boolean;
@@ -13,6 +14,7 @@ export function SearchChatsModal({ open, onClose }: SearchChatsModalProps) {
   const { t } = useTranslation("common");
   const navigate = useNavigate();
   const { groupedContexts } = useChatContexts();
+  const { isMobile, setOpen: setSidebarOpen } = useSidebar();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -27,15 +29,15 @@ export function SearchChatsModal({ open, onClose }: SearchChatsModalProps) {
       .filter((group) => group.items.length > 0);
   }, [groupedContexts, query]);
 
-  // Focus input on open
+  // Focus input on open; close sidebar on mobile
   useEffect(() => {
     if (open) {
-      // Small delay to ensure DOM is ready
+      if (isMobile) setSidebarOpen(false);
       requestAnimationFrame(() => inputRef.current?.focus());
     } else {
       setQuery("");
     }
-  }, [open]);
+  }, [open, isMobile, setSidebarOpen]);
 
   // Close on Escape
   useEffect(() => {
@@ -71,24 +73,24 @@ export function SearchChatsModal({ open, onClose }: SearchChatsModalProps) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center pt-[15vh]" role="presentation">
-      {/* Backdrop */}
+    <div className="fixed inset-0 z-[70] flex items-start justify-center md:pt-[15vh]" role="presentation">
+      {/* Backdrop (hidden on mobile since modal is fullscreen) */}
       <button
         aria-label="Close"
-        className="absolute inset-0 bg-black/40 animate-fade-in"
+        className="absolute inset-0 bg-black/40 animate-fade-in hidden md:block"
         onClick={onClose}
         type="button"
       />
 
-      {/* Modal */}
-      <div className="relative z-[71] w-full max-w-lg animate-scale-in rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] shadow-[var(--elevation-3)]">
+      {/* Modal — fullscreen on mobile, centered card on desktop */}
+      <div className="relative z-[71] flex h-full w-full flex-col bg-[hsl(var(--surface-1))] md:h-auto md:max-w-lg md:animate-scale-in md:rounded-xl md:border md:border-[hsl(var(--border))] md:shadow-[var(--elevation-3)]">
         {/* Search input */}
         <div className="flex items-center gap-3 border-b border-[hsl(var(--border)_/_0.5)] px-4 py-3">
           <Search className="h-4 w-4 shrink-0 text-[hsl(var(--muted-foreground))]" />
           <input
             ref={inputRef}
             type="text"
-            className="min-w-0 flex-1 bg-transparent text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] outline-none"
+            className="min-w-0 flex-1 bg-transparent text-base md:text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] outline-none"
             placeholder={t("sidebar.searchPlaceholder")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -113,7 +115,7 @@ export function SearchChatsModal({ open, onClose }: SearchChatsModalProps) {
         </button>
 
         {/* Results */}
-        <div className="max-h-[50vh] overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto md:max-h-[50vh] md:flex-none">
           {filteredGroups.map((group) => (
             <div key={group.bucket}>
               <div className="px-4 pb-1 pt-3 text-xs text-[hsl(var(--muted-foreground))]">

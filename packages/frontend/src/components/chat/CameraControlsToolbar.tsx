@@ -1,5 +1,4 @@
 import { Focus, Maximize2, Minimize2, RotateCcw } from "lucide-react";
-import { Button } from "../ui/button";
 import { cn } from "../../lib/cn";
 
 export interface CameraControlsToolbarProps {
@@ -34,48 +33,42 @@ export function CameraControlsToolbar({
   return (
     <div
       className={cn(
-        "flex items-center gap-1 rounded-md bg-[hsl(var(--surface-1)_/_0.85)] p-1 backdrop-blur-sm",
+        "flex items-center gap-0.5 rounded-lg bg-[hsl(var(--surface-1)_/_0.8)] p-0.5 shadow-sm backdrop-blur-md",
         className,
       )}
       role="toolbar"
       aria-label="Camera controls"
       data-testid="camera-controls-toolbar"
     >
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label="Reset View"
+      <button
+        type="button"
+        aria-label="Reset camera"
         onClick={onResetView}
-        iconLeft={<RotateCcw className="h-3.5 w-3.5" />}
+        className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))] active:scale-95"
       >
-        Reset View
-      </Button>
+        <RotateCcw className="h-3 w-3" />
+        Reset
+      </button>
 
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label="Zoom to Fit"
+      <button
+        type="button"
+        aria-label="Zoom to fit"
         onClick={onZoomToFit}
-        iconLeft={<Focus className="h-3.5 w-3.5" />}
+        className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))] active:scale-95"
       >
-        Zoom to Fit
-      </Button>
+        <Focus className="h-3 w-3" />
+        Fit
+      </button>
 
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+      <button
+        type="button"
+        aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
         onClick={onToggleFullscreen}
-        iconLeft={
-          isFullscreen ? (
-            <Minimize2 className="h-3.5 w-3.5" />
-          ) : (
-            <Maximize2 className="h-3.5 w-3.5" />
-          )
-        }
+        className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))] active:scale-95"
       >
-        {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-      </Button>
+        {isFullscreen ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
+        {isFullscreen ? "Exit" : "Fullscreen"}
+      </button>
     </div>
   );
 }

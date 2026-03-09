@@ -160,7 +160,7 @@ export function Sidebar() {
 
   const navLinkClass = (isActive: boolean) =>
     cn(
-      "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition",
+      "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition",
       isActive
         ? "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))] font-medium"
         : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted)_/_0.5)] hover:text-[hsl(var(--foreground))]",
@@ -171,9 +171,9 @@ export function Sidebar() {
       ref={sidebarRef}
       className="flex h-full min-w-0 flex-col bg-[hsl(var(--surface-2))]"
     >
-      {/* Header */}
-      <div className="flex items-center px-3 py-3">
-        <span className="text-sm font-semibold text-[hsl(var(--foreground))]">{t("appName")}</span>
+      {/* Header — h-[42px] matches the topbar so logo stays on the same axis */}
+      <div className="flex h-[42px] shrink-0 items-center px-5">
+        <span className="text-lg font-semibold text-[hsl(var(--foreground))]">{t("appName")}</span>
         <button
           type="button"
           className="ml-auto rounded p-1 text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
@@ -184,11 +184,11 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* Primary actions */}
+      {/* Navigation */}
       <div className="space-y-0.5 px-2">
         <button
           type="button"
-          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted)_/_0.5)] hover:text-[hsl(var(--foreground))]"
+          className={navLinkClass(isChatRoute && !activeContextId)}
           onClick={() => {
             navigate("/chat");
             if (isMobile) setOpen(false);
@@ -199,16 +199,12 @@ export function Sidebar() {
         </button>
         <button
           type="button"
-          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted)_/_0.5)] hover:text-[hsl(var(--foreground))]"
+          className={navLinkClass(false)}
           onClick={() => setSearchOpen(true)}
         >
           <Search className="h-4 w-4" />
           {t("sidebar.searchChats")}
         </button>
-      </div>
-
-      {/* App navigation */}
-      <div className="mt-2 space-y-0.5 px-2">
         {navItems.map((item) => (
           <NavLink
             key={item.to}
@@ -387,29 +383,49 @@ export function Sidebar() {
     </nav>
   );
 
-  if (!isOpen) return null;
-
-  // Desktop: inline sidebar
+  // Desktop: animated inline sidebar (always rendered, width transitions)
   if (!isMobile) {
     return (
-      <aside className="flex h-screen w-[260px] shrink-0 overflow-hidden border-r border-[hsl(var(--border))]">
-        {sidebarContent}
+      <aside
+        className={cn(
+          "flex h-screen shrink-0 overflow-hidden border-r border-[hsl(var(--border))] transition-[width] duration-200 ease-in-out",
+          isOpen ? "w-[260px]" : "w-0 border-r-0",
+        )}
+      >
+        <div className="flex h-full w-[260px] min-w-[260px] flex-col">
+          {sidebarContent}
+        </div>
       </aside>
     );
   }
 
-  // Mobile: overlay
+  // Mobile: overlay (always rendered, animated via translate)
   return (
-    <div className="fixed inset-0 z-50 flex">
-      <aside className="h-full w-[70%] max-w-[320px] shadow-xl">
-        {sidebarContent}
-      </aside>
+    <div
+      className={cn(
+        "fixed inset-0 z-50 transition-visibility",
+        isOpen ? "visible" : "pointer-events-none invisible",
+      )}
+    >
+      {/* Backdrop (behind sidebar) */}
       <button
         type="button"
-        className="flex-1 bg-black/40 animate-fade-in"
+        className={cn(
+          "absolute inset-0 transition-opacity duration-200 ease-in-out",
+          isOpen ? "bg-black/40 opacity-100" : "opacity-0",
+        )}
         aria-label={t("actions.close")}
         onClick={() => setOpen(false)}
       />
+      {/* Sidebar (above backdrop) */}
+      <aside
+        className={cn(
+          "relative z-10 h-full w-[70%] max-w-[320px] shadow-xl transition-transform duration-200 ease-in-out",
+          isOpen ? "translate-x-0" : "-translate-x-full",
+        )}
+      >
+        {sidebarContent}
+      </aside>
     </div>
   );
 }

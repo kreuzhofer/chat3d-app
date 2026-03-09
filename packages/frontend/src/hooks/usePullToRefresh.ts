@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 
-const THRESHOLD = 80; // px to pull before triggering refresh
-const MAX_PULL = 120; // px cap for visual indicator
+const DEAD_ZONE = 30; // raw px of initial pull ignored (absorbs scroll momentum)
+const THRESHOLD = 140; // raw px (after dead zone) to trigger refresh
+const VISUAL_MAX = 80; // visual px the indicator travels at most
+const RESISTANCE = 0.4; // rubber-band factor — maps raw pull to visual pull
 const RELEASE_MS = 300; // spring-back animation duration
-
-export const PULL_THRESHOLD_RATIO = THRESHOLD / MAX_PULL;
 
 interface UsePullToRefreshOptions {
   /** "element" attaches to the returned ref; "window" uses document scroll. */
@@ -12,7 +12,7 @@ interface UsePullToRefreshOptions {
 }
 
 export interface PullState {
-  /** 0–1 normalized pull distance. */
+  /** 0–1 normalized visual pull distance. */
   progress: number;
   /** True when pull exceeds the refresh threshold. */
   thresholdReached: boolean;
@@ -37,7 +37,7 @@ export function usePullToRefresh({ mode = "element" }: UsePullToRefreshOptions =
   });
   const startY = useRef(0);
   const pulling = useRef(false);
-  const progressRef = useRef(0);
+  const reachedRef = useRef(false);
 
   useEffect(() => {
     const isWindowMode = mode === "window";
@@ -52,26 +52,35 @@ export function usePullToRefresh({ mode = "element" }: UsePullToRefreshOptions =
 
     function handleTouchStart(e: Event) {
       const te = e as TouchEvent;
+      const target = te.target as HTMLElement;
+      if (target.tagName === "CANVAS" || target.closest("canvas")) return;
       if (getScrollTop() > 0) return;
       startY.current = te.touches[0].clientY;
       pulling.current = true;
+      reachedRef.current = false;
     }
 
     function handleTouchMove(e: Event) {
       if (!pulling.current) return;
       const te = e as TouchEvent;
-      const deltaY = te.touches[0].clientY - startY.current;
-      if (deltaY < 0) {
+      const rawDelta = te.touches[0].clientY - startY.current;
+      if (rawDelta < 0) {
         pulling.current = false;
-        progressRef.current = 0;
+        reachedRef.current = false;
         setState({ progress: 0, thresholdReached: false, releasing: false, refreshing: false });
         return;
       }
-      const progress = Math.min(deltaY / MAX_PULL, 1);
-      progressRef.current = progress;
+      // Dead zone absorbs scroll-to-top momentum
+      const effective = Math.max(0, rawDelta - DEAD_ZONE);
+      if (effective === 0) return;
+      // Rubber-band: visual distance grows slower than finger distance
+      const visual = effective * RESISTANCE;
+      const progress = Math.min(visual / VISUAL_MAX, 1);
+      const reached = effective >= THRESHOLD;
+      reachedRef.current = reached;
       setState({
         progress,
-        thresholdReached: progress >= PULL_THRESHOLD_RATIO,
+        thresholdReached: reached,
         releasing: false,
         refreshing: false,
       });
@@ -80,15 +89,13 @@ export function usePullToRefresh({ mode = "element" }: UsePullToRefreshOptions =
     function handleTouchEnd() {
       if (!pulling.current) return;
       pulling.current = false;
-      const reached = progressRef.current >= PULL_THRESHOLD_RATIO;
-      progressRef.current = 0;
+      const reached = reachedRef.current;
+      reachedRef.current = false;
 
       if (reached) {
-        // Show refreshing state briefly before reload
         setState({ progress: 1, thresholdReached: true, releasing: false, refreshing: true });
         setTimeout(() => window.location.reload(), 400);
       } else {
-        // Spring back
         setState((prev) => ({ ...prev, releasing: true }));
         setTimeout(() => {
           setState({ progress: 0, thresholdReached: false, releasing: false, refreshing: false });

@@ -34,11 +34,11 @@ export function AppShell({ children, className }: AppShellProps) {
       {/* Main content area */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Minimal topbar */}
-        <div className="flex h-10 shrink-0 items-center justify-between border-b border-[hsl(var(--border)_/_0.3)] px-3">
+        <div className="flex h-[42px] shrink-0 items-center justify-between border-b border-[hsl(var(--border)_/_0.3)] px-3">
           <div className="flex items-center gap-2">
             <SidebarToggle />
             {!isOpen || isMobile ? (
-              <span className="text-sm font-semibold text-[hsl(var(--foreground))]">Chat3D</span>
+              <span className="text-lg font-semibold text-[hsl(var(--foreground))]">Chat3D</span>
             ) : null}
           </div>
           <div className="flex items-center gap-2">

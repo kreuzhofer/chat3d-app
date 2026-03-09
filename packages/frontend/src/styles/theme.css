@@ -144,57 +144,60 @@
   to { transform: rotate(360deg); }
 }
 
-/* ── Resets ── */
-* {
-  box-sizing: border-box;
-}
+/* ── Resets (in @layer base so Tailwind utilities can override) ── */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
 
-html,
-body,
-#root {
-  min-height: 100%;
-}
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
 
-body {
-  margin: 0;
-  font-family: var(--font-sans);
-  font-size: var(--text-base);
-  line-height: 1.5;
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
-  text-rendering: optimizeLegibility;
-}
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: 1.5;
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    text-rendering: optimizeLegibility;
+  }
 
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
-  margin: 0;
-  line-height: 1.2;
-  letter-spacing: -0.01em;
-}
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    margin: 0;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+  }
 
-p {
-  margin: 0;
-}
+  p {
+    margin: 0;
+  }
 
-a {
-  color: inherit;
-}
+  a {
+    color: inherit;
+  }
 
-button,
-input,
-textarea,
-select {
-  font: inherit;
-}
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+  }
 
-code,
-pre,
-kbd {
-  font-family: var(--font-mono);
+  code,
+  pre,
+  kbd {
+    font-family: var(--font-mono);
+  }
 }
 
 :focus-visible {
