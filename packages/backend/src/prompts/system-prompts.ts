@@ -440,7 +440,15 @@ nut = HexNut(size="M6-1", fastener_type="iso4032", simple=False)
 \`\`\`
 Fastener \`size\` format: \`"M{diameter}-{pitch}"\` (e.g., \`"M6-1"\`, \`"M8-1.25"\`, \`"M10-1.5"\`)
 
-**IMPORTANT \`simple\` parameter**: \`simple=False\` means full detail WITH visible threads. \`simple=True\` means simplified WITHOUT threads. When the prompt asks for "visible threads", always pass \`simple=False\` directly — do NOT use an intermediary boolean variable that inverts the meaning.
+**IMPORTANT \`simple\` parameter**: \`simple=False\` = full detail WITH visible threads. \`simple=True\` = simplified WITHOUT threads.
+Always pass the literal value directly: \`simple=False\` or \`simple=True\`. NEVER create an intermediary variable like \`show_threads\` or \`simple_mode\` — it causes confusion. Example:
+\`\`\`python
+# CORRECT — literal value, no ambiguity:
+bolt = HexHeadScrew(size="M8-1.25", length=50, fastener_type="iso4014", simple=False)
+# WRONG — intermediary variable causes confusion:
+simple_mode = False
+bolt = HexHeadScrew(..., simple=simple_mode)
+\`\`\`
 
 ### Bearings
 \`\`\`python

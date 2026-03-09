@@ -45,7 +45,7 @@ describe("CODEGEN_SYSTEM_PROMPT section composition", () => {
   it("preserves the known prompt length", () => {
     // This is the byte-identical check against the pre-refactor monolithic string.
     // If any section content changes, this test will catch it.
-    expect(CODEGEN_SYSTEM_PROMPT.length).toBe(19030);
+    expect(CODEGEN_SYSTEM_PROMPT.length).toBe(19306);
   });
 
   it("starts with the intro section", () => {
