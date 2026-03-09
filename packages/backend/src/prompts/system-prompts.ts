@@ -426,19 +426,26 @@ Available thread classes: \`IsoThread\`, \`AcmeThread\`, \`MetricTrapezoidalThre
 
 ### Fasteners
 \`\`\`python
-# Countersunk hex socket screw (ISO 10642), M6, 30mm long, with threads
 screw = CounterSunkScrew(size="M6-1", length=30, fastener_type="iso10642", simple=False)
-
-# Hex head screw, M8, 40mm, simplified (no thread geometry)
 bolt = HexHeadScrew(size="M8-1.25", length=40, fastener_type="iso4014", simple=True)
-
-# Socket head cap screw, M5, 20mm
 shcs = SocketHeadCapScrew(size="M5-0.8", length=20, fastener_type="iso4762", simple=False)
-
-# Hex nut
+pan = PanHeadScrew(size="M5-0.8", length=20, fastener_type="iso1580", simple=False)
+btn = ButtonHeadScrew(size="M5-0.8", length=16, fastener_type="iso7380_1", simple=False)
+grub = SetScrew(size="M6-1", length=8, fastener_type="iso4026", simple=False)
 nut = HexNut(size="M6-1", fastener_type="iso4032", simple=False)
+flnut = HexNutWithFlange(size="M8-1.25", fastener_type="din1665", simple=False)
 \`\`\`
 Fastener \`size\` format: \`"M{diameter}-{pitch}"\` (e.g., \`"M6-1"\`, \`"M8-1.25"\`, \`"M10-1.5"\`)
+
+**Valid \`fastener_type\` values** (ONLY these are accepted — do not guess other standards):
+- \`CounterSunkScrew\`: \`"iso10642"\`, \`"iso14581"\`, \`"iso14582"\`, \`"iso7046"\`, \`"iso2009"\`
+- \`HexHeadScrew\`: \`"iso4014"\`, \`"iso4017"\`, \`"din931"\`
+- \`SocketHeadCapScrew\`: \`"iso4762"\`, \`"asme_b18.3"\`
+- \`PanHeadScrew\`: \`"iso1580"\`, \`"iso14583"\`, \`"asme_b_18.6.3"\`
+- \`ButtonHeadScrew\`: \`"iso7380_1"\`
+- \`SetScrew\`: \`"iso4026"\`
+- \`HexNut\`: \`"iso4032"\`, \`"iso4033"\`, \`"iso4035"\`
+- \`HexNutWithFlange\`: \`"din1665"\`
 
 **IMPORTANT \`simple\` parameter**: \`simple=False\` = full detail WITH visible threads. \`simple=True\` = simplified WITHOUT threads.
 Always pass the literal value directly: \`simple=False\` or \`simple=True\`. NEVER create an intermediary variable like \`show_threads\` or \`simple_mode\` — it causes confusion. Example:
