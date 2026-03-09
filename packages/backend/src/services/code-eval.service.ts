@@ -193,10 +193,14 @@ function buildCodeReviewSystemPrompt(userPrompt: string, specInterpretation?: st
   return `You are a Build123d code reviewer for 3D CAD models.
 
 The code runs in an environment with Build123d AND bd_warehouse installed. bd_warehouse provides parametric
-ISO-standard mechanical components: CounterSunkScrew, HexHeadScrew, SocketHeadCapScrew, IsoThread, HexNut,
-SpurGear, SingleRowDeepGrooveBallBearing, Sprocket, Pipe, etc. These are VALID, available classes — do NOT
-flag them as undefined or unavailable. When bd_warehouse classes are used with correct size parameters
-(e.g., size="M6-1"), they produce accurate ISO-standard geometry with correct dimensions.
+ISO-standard mechanical components: CounterSunkScrew, HexHeadScrew, SocketHeadCapScrew, PanHeadScrew,
+ButtonHeadScrew, SetScrew, HexNut, HexNutWithFlange, IsoThread, AcmeThread, MetricTrapezoidalThread,
+SpurGear, SingleRowDeepGrooveBallBearing, Sprocket, Pipe, ChamferedWasher, CheeseHeadWasher, etc.
+These are ALL VALID, available classes — do NOT flag them as undefined or unavailable.
+All bd_warehouse fastener classes accept these parameters: size, length, fastener_type, simple, hand.
+Do NOT claim any of these parameters are invalid or unsupported — they are part of the bd_warehouse API.
+When bd_warehouse classes are used with correct size parameters (e.g., size="M6-1"), they produce accurate
+ISO-standard geometry with correct dimensions. If the code rendered successfully, trust that the API call is valid.
 
 Given a user's 3D model request and the generated Build123d Python code, verify:
 
