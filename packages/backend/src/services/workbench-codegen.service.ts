@@ -1292,7 +1292,10 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
               { useReducedSystemPrompt: false, errorHistory, codeEvalIssues: codeEvalResult?.issues ?? null },
             );
 
-    logger.info({ promptChars: cgUserContent.length, systemChars: cgSystem.length }, "LLM prompt built");
+    logger.info(
+      { iteration, mode: iteration === 1 ? "initial" : useEditMode ? "edit-fix" : "full-fix", promptChars: cgUserContent.length, systemChars: cgSystem.length, prompt: ctx.prompt.slice(0, 80) },
+      "starting codegen LLM call",
+    );
     if (iteration > 1) {
       const issues = evalResult?.issues ?? [];
       const suggestions = evalResult?.suggestions ?? [];

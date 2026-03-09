@@ -49,17 +49,21 @@ export const CODEGEN_SECTION_OUTPUT_CONTRACT = `## Output Contract
   - Or \`root_part = your_solid\` when building directly
 - All dimensions are in millimeters
 - No interactive elements, no \`import sys\`, no \`matplotlib\`, no \`show()\` calls
-- No imports from \`ocp_vscode\` or any other library
+- No imports from \`ocp_vscode\` or other libraries not listed above
+- The template also pre-imports \`bd_warehouse\` classes (threads, fasteners, bearings, gears, pipes, sprockets). Use them when applicable — see the bd_warehouse reference section below.
 
 Your code will be inserted into this template:
 \`\`\`
 from build123d import *
+from bd_warehouse.thread import IsoThread, AcmeThread, MetricTrapezoidalThread
+from bd_warehouse.fastener import CounterSunkScrew, HexHeadScrew, SocketHeadCapScrew, ...
+from bd_warehouse.bearing import SingleRowDeepGrooveBallBearing
+from bd_warehouse.gear import SpurGear
+from bd_warehouse.pipe import Pipe, PipeSection
+from bd_warehouse.sprocket import Sprocket
 {YOUR CODE HERE}
 export_step(root_part, "model.step")
-exporter = Mesher()
-exporter.add_shape(root_part)
-exporter.write("model.3mf")
-exporter.write("model.stl")
+...
 \`\`\``;
 
 export const CODEGEN_SECTION_BUILD_CONTEXTS = `## Build123d Reference
@@ -232,7 +236,7 @@ export const CODEGEN_SECTION_COMMON_MISTAKES = `## Common Mistakes to Avoid
 7. **Extrude direction matters** — positive goes along face normal, negative goes opposite.
 8. **Don't forget \`mode=Mode.SUBTRACT\`** when cutting holes or pockets.
 9. **Fillet radius must be smaller** than the shortest adjacent edge.
-10. **No imports or exports** — the template handles \`from build123d import *\` and all export calls.`;
+10. **No imports or exports** — the template handles \`from build123d import *\`, \`bd_warehouse\` imports, and all export calls.`;
 
 export const CODEGEN_SECTION_EXAMPLE = `## Complete Example
 
@@ -401,6 +405,61 @@ export const CODEGEN_SECTION_CRITICAL_RULES = `## Critical Rules for Reliable Ge
 7. **Revolve axis must not intersect the sketch** — otherwise the resulting solid self-intersects.
 8. **For \`sort_by()\` use the method form** — \`part.faces().sort_by(Axis.Z)[-1]\` is equivalent to \`(part.faces() > Axis.Z)[-1]\`.`;
 
+export const CODEGEN_SECTION_BD_WAREHOUSE = `## bd_warehouse — Parametric Mechanical Components
+
+The template pre-imports \`bd_warehouse\` classes. Use them instead of building threads, fasteners, bearings, gears, or pipes from scratch.
+
+### Threads
+\`\`\`python
+# ISO metric external thread (e.g., M6 bolt thread)
+thread = IsoThread(major_diameter=6, pitch=1, length=20, external=True,
+                   end_finishes=("fade", "chamfer"))
+# Access thread.min_radius for the root radius
+core = Cylinder(thread.min_radius, thread.length, align=(Align.CENTER, Align.CENTER, Align.MIN))
+threaded_rod = thread.fuse(core)
+
+# ISO metric internal thread (e.g., inside a nut)
+int_thread = IsoThread(major_diameter=6, pitch=1, length=5, external=False,
+                       end_finishes=("chamfer", "fade"))
+\`\`\`
+Available thread classes: \`IsoThread\`, \`AcmeThread\`, \`MetricTrapezoidalThread\`
+
+### Fasteners
+\`\`\`python
+# Countersunk hex socket screw (ISO 10642), M6, 30mm long, with threads
+screw = CounterSunkScrew(size="M6-1", length=30, fastener_type="iso10642", simple=False)
+
+# Hex head screw, M8, 40mm, simplified (no thread geometry)
+bolt = HexHeadScrew(size="M8-1.25", length=40, fastener_type="iso4014", simple=True)
+
+# Socket head cap screw, M5, 20mm
+shcs = SocketHeadCapScrew(size="M5-0.8", length=20, fastener_type="iso4762", simple=False)
+
+# Hex nut
+nut = HexNut(size="M6-1", fastener_type="iso4032", simple=False)
+\`\`\`
+Fastener \`size\` format: \`"M{diameter}-{pitch}"\` (e.g., \`"M6-1"\`, \`"M8-1.25"\`, \`"M10-1.5"\`)
+Set \`simple=False\` for visible thread geometry, \`simple=True\` for smooth (faster rendering).
+
+### Bearings
+\`\`\`python
+# Deep groove ball bearing (e.g., 608 bearing: 8mm bore, 22mm OD)
+bearing = SingleRowDeepGrooveBallBearing(size="M8-22-7", bearing_type="SKT")
+\`\`\`
+
+### Gears
+\`\`\`python
+# Spur gear: 20 teeth, module 2, 10mm thick
+gear = SpurGear(module=2, tooth_count=20, thickness=10)
+\`\`\`
+
+### Pipes
+\`\`\`python
+pipe = Pipe(nps="1", material="steel", identifier="40", path=Line((0,0,0), (0,0,100)))
+\`\`\`
+
+**MANDATORY**: When the prompt requests screws, bolts, nuts, threads, gears, bearings, or other standard mechanical components, you MUST use bd_warehouse classes. NEVER build these manually with Cone, Cylinder, Helix, or sweep — bd_warehouse produces accurate ISO-standard geometry that is impossible to replicate manually. If the user specifies dimensions (e.g., "M6", "12mm head diameter"), map them to the closest standard size parameter (e.g., \`size="M6-1"\`). User-stated dimensions are typically approximations of the ISO standard.`;
+
 export const CODEGEN_SECTION_MORE_EXAMPLES = `## More Examples
 
 ### Hollow Cylinder (Tube)
@@ -490,6 +549,7 @@ export const CODEGEN_ALL_SECTIONS = [
   CODEGEN_SECTION_REVOLVE,
   CODEGEN_SECTION_PARAMETRIC,
   CODEGEN_SECTION_CRITICAL_RULES,
+  CODEGEN_SECTION_BD_WAREHOUSE,
   CODEGEN_SECTION_MORE_EXAMPLES,
 ];
 
@@ -545,6 +605,7 @@ const CONDITIONAL_SECTIONS: ConditionalSection[] = [
   { key: "sketch_on_face", section: CODEGEN_SECTION_SKETCH_ON_FACE, pattern: /BuildSketch\([^)]+\)/ },
   { key: "revolve", section: CODEGEN_SECTION_REVOLVE, pattern: /revolve\(/ },
   { key: "parametric", section: CODEGEN_SECTION_PARAMETRIC, pattern: /import math|math\./ },
+  { key: "bd_warehouse", section: CODEGEN_SECTION_BD_WAREHOUSE, pattern: /IsoThread|AcmeThread|CounterSunkScrew|HexHeadScrew|SocketHeadCapScrew|HexNut|SpurGear|SingleRowDeepGrooveBallBearing|Sprocket|bd_warehouse/ },
 ];
 
 /**
@@ -582,6 +643,7 @@ const PROMPT_OPERATION_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
   { key: "sketch_on_face", pattern: /\b(on\s*(top|side|bottom|face)|feature\s*on|tabs?|flanges?|boss(es)?|pockets?|counterbores?|countersinks?)\b/i },
   { key: "revolve",        pattern: /\b(revolve[ds]?|axisymmetric|lathe[ds]?|turned|rotation(al)?)\b/i },
   { key: "parametric",     pattern: /\b(parametric|math|computed|formulas?|equations?|trigonometric|sine|cosine|stars?)\b/i },
+  { key: "bd_warehouse",  pattern: /\b(threads?|threaded|M[0-9]+|screw|bolts?|nuts?|fastener|bearing|gear|spur\s*gear|sprocket|pipe\s*fitting|flange[ds]?)\b/i },
 ];
 
 /**

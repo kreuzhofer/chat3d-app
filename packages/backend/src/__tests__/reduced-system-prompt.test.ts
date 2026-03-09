@@ -38,14 +38,14 @@ describe("CODEGEN_SYSTEM_PROMPT section composition", () => {
     expect(CODEGEN_SYSTEM_PROMPT).toBe(CODEGEN_ALL_SECTIONS.join("\n\n"));
   });
 
-  it("has exactly 24 sections", () => {
-    expect(CODEGEN_ALL_SECTIONS).toHaveLength(24);
+  it("has exactly 25 sections", () => {
+    expect(CODEGEN_ALL_SECTIONS).toHaveLength(25);
   });
 
   it("preserves the known prompt length", () => {
     // This is the byte-identical check against the pre-refactor monolithic string.
     // If any section content changes, this test will catch it.
-    expect(CODEGEN_SYSTEM_PROMPT.length).toBe(15844);
+    expect(CODEGEN_SYSTEM_PROMPT.length).toBe(18833);
   });
 
   it("starts with the intro section", () => {

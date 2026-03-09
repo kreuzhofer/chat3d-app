@@ -6,6 +6,8 @@ pydantic==2.12.5
 # - uses ocpsvg>=0.6 and ocp_gordon>=0.2 (compatible with OCP 7.9.x)
 # See: https://github.com/gumyr/build123d/pull/1236
 build123d @ git+https://github.com/gumyr/build123d.git@dev
+# bd_warehouse: parametric mechanical components (threads, fasteners, bearings, gears, pipes)
+bd_warehouse
 # pyrender-based screenshot rendering (EGL offscreen)
 trimesh>=4.0
 pyrender>=0.1.45
