@@ -4,15 +4,26 @@ import { useTranslation } from "react-i18next";
 import {
   ArchiveRestore,
   Bell,
+  BookOpen,
+  ChevronRight,
+  Cpu,
+  DollarSign,
   FlaskConical,
   Layers,
+  LayoutDashboard,
+  ListChecks,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  Plug,
   Search,
+  Settings,
   Shield,
+  Sliders,
   SquarePen,
+  Star,
   User,
+  Users,
   X,
 } from "lucide-react";
 import { cn } from "../../lib/cn";
@@ -53,6 +64,7 @@ export function Sidebar() {
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
+  const [adminExpanded, setAdminExpanded] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
 
@@ -61,6 +73,12 @@ export function Sidebar() {
     location.pathname === "/chat" ||
     location.pathname === "/chat/new" ||
     location.pathname.startsWith("/chat/");
+  const isAdminRoute = location.pathname === "/admin" || location.pathname.startsWith("/admin/");
+
+  // Auto-expand admin sub-menu when on admin routes
+  useEffect(() => {
+    if (isAdminRoute && !adminExpanded) setAdminExpanded(true);
+  }, [isAdminRoute, adminExpanded]);
 
   // Close user menu on outside click
   useEffect(() => {
@@ -93,7 +111,6 @@ export function Sidebar() {
     ];
     if (isAdmin) {
       items.push(
-        { to: "/admin", label: t("nav.admin"), icon: <Shield className="h-4 w-4" />, adminOnly: true },
         { to: "/workbench", label: t("nav.workbench"), icon: <FlaskConical className="h-4 w-4" />, adminOnly: true },
         { to: "/backups", label: t("nav.backups"), icon: <ArchiveRestore className="h-4 w-4" />, adminOnly: true },
         { to: "/notifications", label: t("nav.notifications"), icon: <Bell className="h-4 w-4" />, adminOnly: true },
@@ -101,6 +118,19 @@ export function Sidebar() {
     }
     return items;
   }, [isAdmin, t]);
+
+  const adminSubItems = useMemo<NavItem[]>(() => [
+    { to: "/admin", label: t("admin.dashboard"), icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
+    { to: "/admin/users", label: t("admin.users"), icon: <Users className="h-3.5 w-3.5" /> },
+    { to: "/admin/waitlist", label: t("admin.waitlist"), icon: <ListChecks className="h-3.5 w-3.5" /> },
+    { to: "/admin/settings", label: t("admin.settings"), icon: <Settings className="h-3.5 w-3.5" /> },
+    { to: "/admin/providers", label: t("admin.providers"), icon: <Plug className="h-3.5 w-3.5" /> },
+    { to: "/admin/models", label: t("admin.models"), icon: <Cpu className="h-3.5 w-3.5" /> },
+    { to: "/admin/generation", label: t("admin.generation"), icon: <Sliders className="h-3.5 w-3.5" /> },
+    { to: "/admin/curation", label: t("admin.curation"), icon: <Star className="h-3.5 w-3.5" /> },
+    { to: "/admin/knowledge", label: t("admin.knowledge"), icon: <BookOpen className="h-3.5 w-3.5" /> },
+    { to: "/admin/costs", label: t("admin.costs"), icon: <DollarSign className="h-3.5 w-3.5" /> },
+  ], [t]);
 
   // Flatten all grouped items with a count limit
   const { flatItems, totalCount } = useMemo(() => {
@@ -200,7 +230,10 @@ export function Sidebar() {
         <button
           type="button"
           className={navLinkClass(false)}
-          onClick={() => setSearchOpen(true)}
+          onClick={() => {
+            if (isMobile) setOpen(false);
+            setSearchOpen(true);
+          }}
         >
           <Search className="h-4 w-4" />
           {t("sidebar.searchChats")}
@@ -215,6 +248,53 @@ export function Sidebar() {
             {item.label}
           </NavLink>
         ))}
+
+        {/* Admin collapsible sub-menu */}
+        {isAdmin ? (
+          <>
+            <button
+              type="button"
+              className={cn(
+                navLinkClass(isAdminRoute),
+                "justify-between",
+              )}
+              onClick={() => setAdminExpanded((prev) => !prev)}
+            >
+              <span className="flex items-center gap-3">
+                <Shield className="h-4 w-4" />
+                {t("nav.admin")}
+              </span>
+              <ChevronRight
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform duration-150",
+                  adminExpanded && "rotate-90",
+                )}
+              />
+            </button>
+            {adminExpanded ? (
+              <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--border)_/_0.3)] pl-2">
+                {adminSubItems.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.to === "/admin"}
+                    className={({ isActive }) =>
+                      cn(
+                        "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs transition",
+                        isActive
+                          ? "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))] font-medium"
+                          : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted)_/_0.5)] hover:text-[hsl(var(--foreground))]",
+                      )
+                    }
+                  >
+                    {item.icon}
+                    {item.label}
+                  </NavLink>
+                ))}
+              </div>
+            ) : null}
+          </>
+        ) : null}
       </div>
 
       {/* Recent chats (only on chat routes) */}
@@ -356,9 +436,7 @@ export function Sidebar() {
             </button>
 
             {/* Language selector (inline) */}
-            <div className="px-2.5 py-1">
-              <LanguageSelector />
-            </div>
+            <LanguageSelector />
 
             <div className="my-1 h-px bg-[hsl(var(--border)_/_0.5)]" />
 
@@ -379,54 +457,61 @@ export function Sidebar() {
         ) : null}
       </div>
 
-      <SearchChatsModal open={searchOpen} onClose={() => setSearchOpen(false)} />
     </nav>
   );
+
+  const searchModal = <SearchChatsModal open={searchOpen} onClose={() => setSearchOpen(false)} />;
 
   // Desktop: animated inline sidebar (always rendered, width transitions)
   if (!isMobile) {
     return (
-      <aside
-        className={cn(
-          "flex h-screen shrink-0 overflow-hidden border-r border-[hsl(var(--border))] transition-[width] duration-200 ease-in-out",
-          isOpen ? "w-[260px]" : "w-0 border-r-0",
-        )}
-      >
-        <div className="flex h-full w-[260px] min-w-[260px] flex-col">
-          {sidebarContent}
-        </div>
-      </aside>
+      <>
+        <aside
+          className={cn(
+            "flex h-screen shrink-0 overflow-hidden border-r border-[hsl(var(--border))] transition-[width] duration-200 ease-in-out",
+            isOpen ? "w-[260px]" : "w-0 border-r-0",
+          )}
+        >
+          <div className="flex h-full w-[260px] min-w-[260px] flex-col">
+            {sidebarContent}
+          </div>
+        </aside>
+        {searchModal}
+      </>
     );
   }
 
   // Mobile: overlay (always rendered, animated via translate)
   return (
-    <div
-      className={cn(
-        "fixed inset-0 z-50 transition-visibility",
-        isOpen ? "visible" : "pointer-events-none invisible",
-      )}
-    >
-      {/* Backdrop (behind sidebar) */}
-      <button
-        type="button"
+    <>
+      <div
         className={cn(
-          "absolute inset-0 transition-opacity duration-200 ease-in-out",
-          isOpen ? "bg-black/40 opacity-100" : "opacity-0",
-        )}
-        aria-label={t("actions.close")}
-        onClick={() => setOpen(false)}
-      />
-      {/* Sidebar (above backdrop) */}
-      <aside
-        className={cn(
-          "relative z-10 h-full w-[70%] max-w-[320px] shadow-xl transition-transform duration-200 ease-in-out",
-          isOpen ? "translate-x-0" : "-translate-x-full",
+          "fixed inset-0 z-50 transition-visibility",
+          isOpen ? "visible" : "pointer-events-none invisible",
         )}
       >
-        {sidebarContent}
-      </aside>
-    </div>
+        {/* Backdrop (behind sidebar) */}
+        <button
+          type="button"
+          className={cn(
+            "absolute inset-0 transition-opacity duration-200 ease-in-out",
+            isOpen ? "bg-black/40 opacity-100" : "opacity-0",
+          )}
+          aria-label={t("actions.close")}
+          onClick={() => setOpen(false)}
+        />
+        {/* Sidebar (above backdrop) */}
+        <aside
+          className={cn(
+            "relative z-10 h-full w-[70%] max-w-[320px] shadow-xl transition-transform duration-200 ease-in-out",
+            isOpen ? "translate-x-0" : "-translate-x-full",
+          )}
+        >
+          {sidebarContent}
+        </aside>
+      </div>
+      {searchModal}
+    </>
   );
 }
 

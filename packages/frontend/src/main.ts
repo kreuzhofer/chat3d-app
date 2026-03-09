@@ -16,7 +16,7 @@ export * from "./contexts/AuthContext";
 export * from "./contexts/NotificationsContext";
 export * from "./hooks/useAuth";
 export * from "./hooks/useSSE";
-export * from "./components/AdminPanel";
+export * from "./pages/admin/AdminLayout";
 export * from "./components/RequireAuth";
 export * from "./components/RequireRole";
 export * from "./components/ui/button";

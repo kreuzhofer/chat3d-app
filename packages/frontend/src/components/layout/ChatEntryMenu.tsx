@@ -34,7 +34,7 @@ export function ChatEntryMenu({ onRename, onDelete }: ChatEntryMenuProps) {
     <div ref={rootRef} className="relative">
       <button
         type="button"
-        className="rounded p-0.5 text-[hsl(var(--muted-foreground))] opacity-0 transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))] group-hover:opacity-100"
+        className="rounded p-0.5 text-[hsl(var(--muted-foreground))] opacity-100 transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))] md:opacity-0 md:group-hover:opacity-100"
         aria-label="Chat actions"
         onClick={(e) => {
           e.stopPropagation();

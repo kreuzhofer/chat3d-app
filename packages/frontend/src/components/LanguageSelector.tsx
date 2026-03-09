@@ -60,21 +60,21 @@ export function LanguageSelector() {
       <button
         ref={triggerRef}
         type="button"
-        className="flex items-center gap-1.5 rounded-md p-2 text-sm text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
+        className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
         onClick={() => setOpen((prev) => !prev)}
         aria-label={languageNames[currentLang]}
         aria-expanded={open}
         aria-haspopup="menu"
       >
         <Globe className="h-4 w-4" />
-        <span className="hidden sm:inline">{languageNames[currentLang]}</span>
+        <span>{languageNames[currentLang]}</span>
       </button>
 
       {open ? (
         <div
           ref={menuRef}
           role="menu"
-          className="absolute right-0 top-full z-50 mt-1 min-w-[120px] rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] py-1 shadow-[var(--elevation-2)]"
+          className="absolute left-0 top-full z-50 mt-1 min-w-[120px] rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] py-1 shadow-[var(--elevation-2)]"
         >
           {supportedLanguages.map((lng) => (
             <button

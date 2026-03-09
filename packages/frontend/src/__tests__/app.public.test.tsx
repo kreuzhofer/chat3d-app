@@ -64,8 +64,8 @@ vi.mock("../components/ProfilePanel", () => ({
 vi.mock("../components/NotificationCenter", () => ({
   NotificationCenter: () => <div>NotificationCenterMock</div>,
 }));
-vi.mock("../components/AdminPanel", () => ({
-  AdminPanel: () => <div>AdminPanelMock</div>,
+vi.mock("../pages/admin/AdminLayout", () => ({
+  AdminLayout: () => <div>AdminLayoutMock</div>,
 }));
 
 describe("app public UX routes", () => {

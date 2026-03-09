@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { MessageSquare, Search, SquarePen, X } from "lucide-react";
 import { useChatContexts } from "../../hooks/useChatContexts";
-import { useSidebar } from "../../hooks/useSidebar";
 
 interface SearchChatsModalProps {
   open: boolean;
@@ -14,7 +13,6 @@ export function SearchChatsModal({ open, onClose }: SearchChatsModalProps) {
   const { t } = useTranslation("common");
   const navigate = useNavigate();
   const { groupedContexts } = useChatContexts();
-  const { isMobile, setOpen: setSidebarOpen } = useSidebar();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -29,15 +27,14 @@ export function SearchChatsModal({ open, onClose }: SearchChatsModalProps) {
       .filter((group) => group.items.length > 0);
   }, [groupedContexts, query]);
 
-  // Focus input on open; close sidebar on mobile
+  // Focus input on open
   useEffect(() => {
     if (open) {
-      if (isMobile) setSidebarOpen(false);
       requestAnimationFrame(() => inputRef.current?.focus());
     } else {
       setQuery("");
     }
-  }, [open, isMobile, setSidebarOpen]);
+  }, [open]);
 
   // Close on Escape
   useEffect(() => {

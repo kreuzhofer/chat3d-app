@@ -102,6 +102,18 @@
     "joinWaitlist": "Join Waitlist",
     "startBuilding": "Start Building"
   },
+  "admin": {
+    "dashboard": "Dashboard",
+    "users": "Users",
+    "waitlist": "Waitlist",
+    "settings": "Settings",
+    "providers": "Providers",
+    "models": "Models",
+    "generation": "Generation",
+    "curation": "Curation",
+    "knowledge": "Knowledge",
+    "costs": "Costs"
+  },
   "sidebar": {
     "newChat": "New Chat",
     "searchChats": "Search Chats",

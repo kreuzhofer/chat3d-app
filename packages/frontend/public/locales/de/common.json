@@ -102,6 +102,18 @@
     "joinWaitlist": "Warteliste beitreten",
     "startBuilding": "Jetzt starten"
   },
+  "admin": {
+    "dashboard": "Dashboard",
+    "users": "Benutzer",
+    "waitlist": "Warteliste",
+    "settings": "Einstellungen",
+    "providers": "Anbieter",
+    "models": "Modelle",
+    "generation": "Generierung",
+    "curation": "Kuratierung",
+    "knowledge": "Wissensbasis",
+    "costs": "Kosten"
+  },
   "sidebar": {
     "newChat": "Neuer Chat",
     "searchChats": "Chats durchsuchen",

@@ -114,7 +114,7 @@ export function BackupsPage() {
   );
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-6">
+    <section className="space-y-4">
       <PageHeader
         title="Backups"
         breadcrumbs={["Admin", "Backups"]}
@@ -187,6 +187,6 @@ export function BackupsPage() {
           </Button>
         </div>
       </Dialog>
-    </div>
+    </section>
   );
 }

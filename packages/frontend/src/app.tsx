@@ -25,9 +25,49 @@ import { SetupPage } from "./pages/public/SetupPage";
 import { TermsPage } from "./pages/public/TermsPage";
 import { WaitlistPage } from "./pages/public/WaitlistPage";
 
-const AdminPanel = lazy(async () => {
-  const module = await import("./components/AdminPanel");
-  return { default: module.AdminPanel };
+const AdminLayout = lazy(async () => {
+  const module = await import("./pages/admin/AdminLayout");
+  return { default: module.AdminLayout };
+});
+const AdminDashboardPage = lazy(async () => {
+  const module = await import("./pages/admin/AdminDashboardPage");
+  return { default: module.AdminDashboardPage };
+});
+const AdminUsersPage = lazy(async () => {
+  const module = await import("./pages/admin/AdminUsersPage");
+  return { default: module.AdminUsersPage };
+});
+const AdminWaitlistPage = lazy(async () => {
+  const module = await import("./pages/admin/AdminWaitlistPage");
+  return { default: module.AdminWaitlistPage };
+});
+const AdminSettingsPage = lazy(async () => {
+  const module = await import("./pages/admin/AdminSettingsPage");
+  return { default: module.AdminSettingsPage };
+});
+const AdminProvidersPage = lazy(async () => {
+  const module = await import("./pages/admin/AdminProvidersPage");
+  return { default: module.AdminProvidersPage };
+});
+const AdminModelsPage = lazy(async () => {
+  const module = await import("./pages/admin/AdminModelsPage");
+  return { default: module.AdminModelsPage };
+});
+const AdminGenerationPage = lazy(async () => {
+  const module = await import("./pages/admin/AdminGenerationPage");
+  return { default: module.AdminGenerationPage };
+});
+const AdminCurationPage = lazy(async () => {
+  const module = await import("./pages/admin/AdminCurationPage");
+  return { default: module.AdminCurationPage };
+});
+const AdminKnowledgePage = lazy(async () => {
+  const module = await import("./pages/admin/AdminKnowledgePage");
+  return { default: module.AdminKnowledgePage };
+});
+const AdminCostsPage = lazy(async () => {
+  const module = await import("./pages/admin/AdminCostsPage");
+  return { default: module.AdminCostsPage };
 });
 const BackupsPage = lazy(async () => {
   const module = await import("./components/BackupsPage");
@@ -115,7 +155,18 @@ function AuthenticatedApp() {
           <Route path="/chat/:contextId" element={<ChatPage />} />
           <Route path="/profile" element={<ProfilePanel />} />
           <Route path="/notifications" element={<AdminRouteGuard><NotificationCenter /></AdminRouteGuard>} />
-          <Route path="/admin" element={<AdminRouteGuard><AdminPanel /></AdminRouteGuard>} />
+          <Route path="/admin" element={<AdminRouteGuard><AdminLayout /></AdminRouteGuard>}>
+            <Route index element={<AdminDashboardPage />} />
+            <Route path="users" element={<AdminUsersPage />} />
+            <Route path="waitlist" element={<AdminWaitlistPage />} />
+            <Route path="settings" element={<AdminSettingsPage />} />
+            <Route path="providers" element={<AdminProvidersPage />} />
+            <Route path="models" element={<AdminModelsPage />} />
+            <Route path="generation" element={<AdminGenerationPage />} />
+            <Route path="curation" element={<AdminCurationPage />} />
+            <Route path="knowledge" element={<AdminKnowledgePage />} />
+            <Route path="costs" element={<AdminCostsPage />} />
+          </Route>
           <Route path="/workbench" element={<AdminRouteGuard><WorkbenchPage /></AdminRouteGuard>} />
           <Route path="/workbench/:categoryId" element={<AdminRouteGuard><WorkbenchCategoryPage /></AdminRouteGuard>} />
           <Route path="/workbench/:categoryId/:promptId" element={<AdminRouteGuard><WorkbenchPromptPage /></AdminRouteGuard>} />
