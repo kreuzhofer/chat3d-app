@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -12,7 +12,6 @@ import {
   Layers,
   LayoutDashboard,
   ListChecks,
-  LogOut,
   PanelLeftClose,
   PanelLeftOpen,
   Plug,
@@ -22,7 +21,6 @@ import {
   Sliders,
   SquarePen,
   Star,
-  User,
   Users,
   X,
 } from "lucide-react";
@@ -30,42 +28,26 @@ import { cn } from "../../lib/cn";
 import { useSidebar } from "../../hooks/useSidebar";
 import { useChatContexts } from "../../hooks/useChatContexts";
 import { useAuth } from "../../hooks/useAuth";
-import { Avatar } from "../ui/avatar";
-import { ChatEntryMenu } from "./ChatEntryMenu";
 import { SearchChatsModal } from "./SearchChatsModal";
-import { LanguageSelector } from "../LanguageSelector";
-
-const INITIAL_VISIBLE = 20;
-const LOAD_MORE_INCREMENT = 20;
+import { SidebarChatList } from "./SidebarChatList";
+import { SidebarUserMenu } from "./SidebarUserMenu";
 
 interface NavItem {
   to: string;
   label: string;
   icon: React.ReactNode;
-  adminOnly?: boolean;
 }
 
 export function Sidebar() {
   const { t } = useTranslation("common");
   const { isOpen, isMobile, toggle, setOpen } = useSidebar();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const {
-    groupedContexts,
-    activeContextId,
-    busyAction,
-    renameContext,
-    deleteContext,
-  } = useChatContexts();
+  const { activeContextId } = useChatContexts();
 
   const [searchOpen, setSearchOpen] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingValue, setEditingValue] = useState("");
   const [adminExpanded, setAdminExpanded] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
 
   const isAdmin = user?.role === "admin";
@@ -80,44 +62,17 @@ export function Sidebar() {
     if (isAdminRoute && !adminExpanded) setAdminExpanded(true);
   }, [isAdminRoute, adminExpanded]);
 
-  // Close user menu on outside click
-  useEffect(() => {
-    if (!userMenuOpen) return;
-    function handlePointerDown(e: PointerEvent) {
-      if (!userMenuRef.current?.contains(e.target as Node)) {
-        setUserMenuOpen(false);
-      }
-    }
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setUserMenuOpen(false);
-    }
-    window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [userMenuOpen]);
-
   // Close mobile sidebar on navigation
   useEffect(() => {
     if (isMobile && isOpen) setOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
-  const navItems = useMemo<NavItem[]>(() => {
-    const items: NavItem[] = [
-      { to: "/gallery", label: t("nav.gallery"), icon: <Layers className="h-4 w-4" /> },
-    ];
-    if (isAdmin) {
-      items.push(
-        { to: "/workbench", label: t("nav.workbench"), icon: <FlaskConical className="h-4 w-4" />, adminOnly: true },
-        { to: "/backups", label: t("nav.backups"), icon: <ArchiveRestore className="h-4 w-4" />, adminOnly: true },
-        { to: "/notifications", label: t("nav.notifications"), icon: <Bell className="h-4 w-4" />, adminOnly: true },
-      );
-    }
-    return items;
-  }, [isAdmin, t]);
+  const adminNavItems = useMemo<NavItem[]>(() => [
+    { to: "/workbench", label: t("nav.workbench"), icon: <FlaskConical className="h-4 w-4" /> },
+    { to: "/backups", label: t("nav.backups"), icon: <ArchiveRestore className="h-4 w-4" /> },
+    { to: "/notifications", label: t("nav.notifications"), icon: <Bell className="h-4 w-4" /> },
+  ], [t]);
 
   const adminSubItems = useMemo<NavItem[]>(() => [
     { to: "/admin", label: t("admin.dashboard"), icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
@@ -131,62 +86,6 @@ export function Sidebar() {
     { to: "/admin/knowledge", label: t("admin.knowledge"), icon: <BookOpen className="h-3.5 w-3.5" /> },
     { to: "/admin/costs", label: t("admin.costs"), icon: <DollarSign className="h-3.5 w-3.5" /> },
   ], [t]);
-
-  // Flatten all grouped items with a count limit
-  const { flatItems, totalCount } = useMemo(() => {
-    let count = 0;
-    const flat: { bucket: string; items: typeof groupedContexts[0]["items"] }[] = [];
-    for (const group of groupedContexts) {
-      const remaining = visibleCount - count;
-      if (remaining <= 0) break;
-      const sliced = group.items.slice(0, remaining);
-      flat.push({ bucket: group.bucket, items: sliced });
-      count += sliced.length;
-    }
-    const total = groupedContexts.reduce((sum, g) => sum + g.items.length, 0);
-    return { flatItems: flat, totalCount: total };
-  }, [groupedContexts, visibleCount]);
-
-  const startRename = useCallback(
-    (context: { id: string; name: string }) => {
-      setEditingId(context.id);
-      setEditingValue(context.name);
-    },
-    [],
-  );
-
-  const commitRename = useCallback(
-    (context: { id: string; name: string }) => {
-      const trimmed = editingValue.trim();
-      setEditingId(null);
-      if (trimmed && trimmed !== context.name) {
-        void renameContext(context as Parameters<typeof renameContext>[0], trimmed);
-      }
-    },
-    [editingValue, renameContext],
-  );
-
-  const cancelRename = useCallback(() => {
-    setEditingId(null);
-    setEditingValue("");
-  }, []);
-
-  const handleDelete = useCallback(
-    (context: { id: string; name: string }) => {
-      if (window.confirm(`Delete "${context.name}"?`)) {
-        void deleteContext(context as Parameters<typeof deleteContext>[0]);
-      }
-    },
-    [deleteContext],
-  );
-
-  // Map bucket keys to i18n
-  const bucketI18n: Record<string, string> = {
-    Today: t("sidebar.today"),
-    Yesterday: t("sidebar.yesterday"),
-    "Previous 7 Days": t("sidebar.previous7Days"),
-    "Previous 30 Days": t("sidebar.previous30Days"),
-  };
 
   const navLinkClass = (isActive: boolean) =>
     cn(
@@ -214,7 +113,7 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* Navigation */}
+      {/* Fixed navigation — always visible */}
       <div className="space-y-0.5 px-2">
         <button
           type="button"
@@ -238,224 +137,86 @@ export function Sidebar() {
           <Search className="h-4 w-4" />
           {t("sidebar.searchChats")}
         </button>
-        {navItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={({ isActive }) => navLinkClass(isActive)}
-          >
-            {item.icon}
-            {item.label}
-          </NavLink>
-        ))}
-
-        {/* Admin collapsible sub-menu */}
-        {isAdmin ? (
-          <>
-            <button
-              type="button"
-              className={cn(
-                navLinkClass(isAdminRoute),
-                "justify-between",
-              )}
-              onClick={() => setAdminExpanded((prev) => !prev)}
-            >
-              <span className="flex items-center gap-3">
-                <Shield className="h-4 w-4" />
-                {t("nav.admin")}
-              </span>
-              <ChevronRight
-                className={cn(
-                  "h-3.5 w-3.5 transition-transform duration-150",
-                  adminExpanded && "rotate-90",
-                )}
-              />
-            </button>
-            {adminExpanded ? (
-              <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--border)_/_0.3)] pl-2">
-                {adminSubItems.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.to === "/admin"}
-                    className={({ isActive }) =>
-                      cn(
-                        "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs transition",
-                        isActive
-                          ? "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))] font-medium"
-                          : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted)_/_0.5)] hover:text-[hsl(var(--foreground))]",
-                      )
-                    }
-                  >
-                    {item.icon}
-                    {item.label}
-                  </NavLink>
-                ))}
-              </div>
-            ) : null}
-          </>
-        ) : null}
+        <NavLink
+          to="/gallery"
+          className={({ isActive }) => navLinkClass(isActive)}
+        >
+          <Layers className="h-4 w-4" />
+          {t("nav.gallery")}
+        </NavLink>
       </div>
 
-      {/* Recent chats (only on chat routes) */}
-      {isChatRoute ? (
-        <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-[hsl(var(--border)_/_0.3)] pt-2">
-          <div className="flex-1 overflow-y-auto px-2">
-            {flatItems.map((group) => (
-              <div key={group.bucket}>
-                <div className="px-3 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wider text-[hsl(var(--muted-foreground)_/_0.7)]">
-                  {bucketI18n[group.bucket] ?? group.bucket}
-                </div>
-                {group.items.map((ctx) => (
-                  <div
-                    key={ctx.id}
-                    role="button"
-                    tabIndex={editingId === ctx.id ? -1 : 0}
-                    className={cn(
-                      "group flex min-w-0 cursor-pointer items-center justify-between gap-1 rounded-md px-3 py-1.5 text-sm transition",
-                      activeContextId === ctx.id
-                        ? "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]"
-                        : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted)_/_0.5)] hover:text-[hsl(var(--foreground))]",
-                    )}
-                    onClick={() => {
-                      if (editingId !== ctx.id) {
-                        navigate(`/chat/${encodeURIComponent(ctx.id)}`);
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (editingId !== ctx.id && (e.key === "Enter" || e.key === " ")) {
-                        e.preventDefault();
-                        navigate(`/chat/${encodeURIComponent(ctx.id)}`);
-                      }
-                    }}
-                  >
-                    {editingId === ctx.id ? (
-                      <input
-                        type="text"
-                        className="min-w-0 flex-1 rounded bg-[hsl(var(--muted))] px-1.5 py-0.5 text-sm text-[hsl(var(--foreground))] outline-none ring-1 ring-[hsl(var(--primary)_/_0.5)]"
-                        value={editingValue}
-                        onChange={(e) => setEditingValue(e.target.value)}
-                        onBlur={() => commitRename(ctx)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            (e.target as HTMLInputElement).blur();
-                          }
-                          if (e.key === "Escape") {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            cancelRename();
-                          }
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        autoFocus
-                      />
-                    ) : (
-                      <span className="truncate">{ctx.name}</span>
-                    )}
-                    {editingId !== ctx.id ? (
-                      <ChatEntryMenu
-                        onRename={() => startRename(ctx)}
-                        onDelete={() => handleDelete(ctx)}
-                      />
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ))}
+      {/* Scrollable area — admin items + chat context list */}
+      <div className="mt-1 flex min-h-0 flex-1 flex-col border-t border-[hsl(var(--border)_/_0.3)]">
+        <div className="flex-1 overflow-y-auto">
+          {/* Admin nav items */}
+          {isAdmin ? (
+            <div className="space-y-0.5 px-2 pt-2">
+              {adminNavItems.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) => navLinkClass(isActive)}
+                >
+                  {item.icon}
+                  {item.label}
+                </NavLink>
+              ))}
 
-            {visibleCount < totalCount ? (
+              {/* Admin collapsible sub-menu */}
               <button
                 type="button"
-                className="w-full px-3 py-2 text-left text-xs text-[hsl(var(--primary))] transition hover:underline"
-                onClick={() => setVisibleCount((prev) => prev + LOAD_MORE_INCREMENT)}
+                className={cn(
+                  navLinkClass(isAdminRoute),
+                  "justify-between",
+                )}
+                onClick={() => setAdminExpanded((prev) => !prev)}
               >
-                {t("sidebar.showMore")}
+                <span className="flex items-center gap-3">
+                  <Shield className="h-4 w-4" />
+                  {t("nav.admin")}
+                </span>
+                <ChevronRight
+                  className={cn(
+                    "h-3.5 w-3.5 transition-transform duration-150",
+                    adminExpanded && "rotate-90",
+                  )}
+                />
               </button>
-            ) : null}
-          </div>
+              {adminExpanded ? (
+                <div className="ml-3 space-y-0.5 border-l border-[hsl(var(--border)_/_0.3)] pl-2">
+                  {adminSubItems.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.to === "/admin"}
+                      className={({ isActive }) =>
+                        cn(
+                          "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs transition",
+                          isActive
+                            ? "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))] font-medium"
+                            : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted)_/_0.5)] hover:text-[hsl(var(--foreground))]",
+                        )
+                      }
+                    >
+                      {item.icon}
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Chat context list */}
+          {isChatRoute ? (
+            <SidebarChatList activeContextId={activeContextId} />
+          ) : null}
         </div>
-      ) : (
-        <div className="flex-1" />
-      )}
+      </div>
 
       {/* User menu (pinned bottom) */}
-      <div ref={userMenuRef} className="relative border-t border-[hsl(var(--border)_/_0.3)] px-2 py-2">
-        <button
-          type="button"
-          className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 transition hover:bg-[hsl(var(--muted)_/_0.5)]"
-          onClick={() => setUserMenuOpen((prev) => !prev)}
-          disabled={!user}
-        >
-          <Avatar name={user?.display_name || user?.email || "?"} size="sm" />
-          <div className="min-w-0 flex-1 text-left">
-            <div className="truncate text-sm font-medium text-[hsl(var(--foreground))]">
-              {user?.display_name || user?.email || ""}
-            </div>
-            {isAdmin ? (
-              <div className="text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground)_/_0.7)]">
-                admin
-              </div>
-            ) : null}
-          </div>
-        </button>
-
-        {/* User menu popover (opens upward) */}
-        {userMenuOpen ? (
-          <div
-            role="menu"
-            className="absolute bottom-full left-2 right-2 z-50 mb-1 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-1 shadow-[var(--elevation-2)]"
-          >
-            {/* Profile header */}
-            <div className="flex items-center gap-2.5 px-2.5 py-2">
-              <Avatar name={user?.display_name || user?.email || "?"} size="sm" />
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-[hsl(var(--foreground))]">
-                  {user?.display_name || ""}
-                </div>
-                <div className="truncate text-xs text-[hsl(var(--muted-foreground))]">
-                  {user?.email || ""}
-                </div>
-              </div>
-            </div>
-
-            <div className="my-1 h-px bg-[hsl(var(--border)_/_0.5)]" />
-
-            {/* Profile link */}
-            <button
-              type="button"
-              role="menuitem"
-              className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
-              onClick={() => {
-                setUserMenuOpen(false);
-                navigate("/profile");
-              }}
-            >
-              <User className="h-4 w-4" />
-              {t("nav.profile")}
-            </button>
-
-            {/* Language selector (inline) */}
-            <LanguageSelector />
-
-            <div className="my-1 h-px bg-[hsl(var(--border)_/_0.5)]" />
-
-            {/* Logout */}
-            <button
-              type="button"
-              role="menuitem"
-              className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm text-[hsl(var(--destructive))] transition hover:bg-[hsl(var(--destructive)_/_0.1)]"
-              onClick={() => {
-                setUserMenuOpen(false);
-                void logout();
-              }}
-            >
-              <LogOut className="h-4 w-4" />
-              {t("actions.logout")}
-            </button>
-          </div>
-        ) : null}
-      </div>
+      <SidebarUserMenu />
 
     </nav>
   );
