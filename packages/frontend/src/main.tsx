@@ -5,7 +5,9 @@ import "./i18n/config";
 import { App } from "./app";
 import { ToastProvider } from "./components/ui/toast";
 import { AuthProvider } from "./contexts/AuthContext";
+import { ChatContextsProvider } from "./contexts/ChatContextsContext";
 import { NotificationsProvider } from "./contexts/NotificationsContext";
+import { SidebarProvider } from "./contexts/SidebarContext";
 import "./styles/theme.css";
 
 const rootElement = document.getElementById("root");
@@ -20,9 +22,13 @@ createRoot(rootElement).render(
       <BrowserRouter>
         <AuthProvider>
           <NotificationsProvider>
-            <ToastProvider>
-              <App />
-            </ToastProvider>
+            <SidebarProvider>
+              <ChatContextsProvider>
+                <ToastProvider>
+                  <App />
+                </ToastProvider>
+              </ChatContextsProvider>
+            </SidebarProvider>
           </NotificationsProvider>
         </AuthProvider>
       </BrowserRouter>

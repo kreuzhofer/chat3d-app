@@ -51,7 +51,7 @@ export function WorkbenchPane({
   }, [parameters, tweakedValues]);
 
   return (
-    <div className="space-y-3 rounded-xl border bg-[hsl(var(--surface-1))] p-3 shadow-[var(--elevation-1)]">
+    <div className="h-full space-y-3 overflow-y-auto p-3">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-base font-semibold">3D Workbench</h3>
       </div>

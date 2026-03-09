@@ -102,6 +102,20 @@
     "joinWaitlist": "Join Waitlist",
     "startBuilding": "Start Building"
   },
+  "sidebar": {
+    "newChat": "New Chat",
+    "searchChats": "Search Chats",
+    "recentChats": "Recent Chats",
+    "showMore": "Show more...",
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
+    "searchPlaceholder": "Search chats...",
+    "noResults": "No chats found",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "previous7Days": "Previous 7 Days",
+    "previous30Days": "Previous 30 Days"
+  },
   "drawer": {
     "navigationTitle": "Navigation",
     "navigationDescription": "Switch primary workflow areas"

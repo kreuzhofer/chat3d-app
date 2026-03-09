@@ -102,6 +102,20 @@
     "joinWaitlist": "Warteliste beitreten",
     "startBuilding": "Jetzt starten"
   },
+  "sidebar": {
+    "newChat": "Neuer Chat",
+    "searchChats": "Chats durchsuchen",
+    "recentChats": "Letzte Chats",
+    "showMore": "Mehr anzeigen...",
+    "collapse": "Seitenleiste einklappen",
+    "expand": "Seitenleiste ausklappen",
+    "searchPlaceholder": "Chats suchen...",
+    "noResults": "Keine Chats gefunden",
+    "today": "Heute",
+    "yesterday": "Gestern",
+    "previous7Days": "Letzte 7 Tage",
+    "previous30Days": "Letzte 30 Tage"
+  },
   "drawer": {
     "navigationTitle": "Navigation",
     "navigationDescription": "Zwischen Arbeitsbereichen wechseln"

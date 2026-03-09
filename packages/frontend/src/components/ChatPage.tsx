@@ -3,14 +3,11 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
-import { Bot, Box, MessageSquare, Sidebar, User } from "lucide-react";
+import { Bot, Box, MessageSquare, User } from "lucide-react";
 import {
   createChatContext,
-  deleteChatContext,
-  listChatContexts,
   listChatItems,
   revertToItem,
-  type ChatContext,
   type ChatItem,
   updateChatContext,
   updateChatItem,
@@ -36,8 +33,8 @@ import { adaptChatItem } from "../features/chat/chat-adapters";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 import { toErrorMessage, fileExtension, uniqueFilesByPath } from "./chat/utils";
-import { ContextSidebar } from "./chat/ContextSidebar";
 import { MessageBubble } from "./chat/MessageBubble";
+import { useChatContexts } from "../hooks/useChatContexts";
 import { PromptComposer } from "./chat/PromptComposer";
 import { WorkbenchPane } from "./chat/WorkbenchPane";
 import { useStreamingQuery } from "../hooks/useStreamingQuery";
@@ -47,9 +44,7 @@ import { CapabilityHints } from "./chat/CapabilityHints";
 import { PushToggle } from "./chat/PushToggle";
 import { getNotificationPermission, isPushSubscribed, subscribeToPush } from "../services/push";
 
-type MobilePane = "contexts" | "thread" | "workbench";
-
-type ContextBucket = "Today" | "Last 7 days" | "Older";
+type MobilePane = "thread" | "workbench";
 
 function asContextId(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
@@ -82,37 +77,6 @@ function inferAttachmentKind(file: File): "image" | "file" {
   return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"].includes(extension) ? "image" : "file";
 }
 
-function contextBucketLabel(updatedAt: string): ContextBucket {
-  const now = Date.now();
-  const ageMs = now - Date.parse(updatedAt);
-  const oneDay = 24 * 60 * 60 * 1000;
-  if (ageMs < oneDay) {
-    return "Today";
-  }
-  if (ageMs < 7 * oneDay) {
-    return "Last 7 days";
-  }
-  return "Older";
-}
-
-function groupContexts(contexts: ChatContext[]): Record<ContextBucket, ChatContext[]> {
-  const grouped: Record<ContextBucket, ChatContext[]> = {
-    Today: [],
-    "Last 7 days": [],
-    Older: [],
-  };
-
-  for (const context of contexts) {
-    grouped[contextBucketLabel(context.updatedAt)].push(context);
-  }
-
-  for (const key of Object.keys(grouped) as ContextBucket[]) {
-    grouped[key] = grouped[key].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-  }
-
-  return grouped;
-}
-
 export function ChatPage() {
   const { t } = useTranslation(["pages", "common"]);
   const { token, user } = useAuth();
@@ -123,10 +87,9 @@ export function ChatPage() {
 
   const isDraftRoute = location.pathname === "/chat" || location.pathname === "/chat/new";
   const isAdmin = user?.role === "admin";
-  const [contexts, setContexts] = useState<ChatContext[]>([]);
+  const { contexts, activeContextId, refreshContexts } = useChatContexts();
   const [items, setItems] = useState<ChatItem[]>([]);
   const [models, setModels] = useState<LlmModel[]>([]);
-  const [newContextName, setNewContextName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -162,8 +125,6 @@ export function ChatPage() {
   /** When true, the auto-selection effect will pick the latest assistant item on next refresh. */
   const selectLatestOnRefreshRef = useRef(false);
 
-  const activeContextId = !isDraftRoute ? contextIdParam ?? null : null;
-
   const activeContext = useMemo(
     () => (activeContextId ? contexts.find((context) => context.id === activeContextId) ?? null : null),
     [activeContextId, contexts],
@@ -197,8 +158,6 @@ export function ChatPage() {
     () => timelineItems.slice(Math.max(timelineItems.length - visibleTimelineCount, 0)),
     [timelineItems, visibleTimelineCount],
   );
-
-  const groupedContexts = useMemo(() => groupContexts(contexts), [contexts]);
 
   const activeAssistantItems = useMemo(
     () => timelineItems.filter((item) => item.role === "assistant"),
@@ -352,17 +311,6 @@ export function ChatPage() {
     }
   }, [token, pushBusy]);
 
-  const refreshContexts = useCallback(async () => {
-    if (!token) {
-      setContexts([]);
-      return;
-    }
-
-    const loaded = await listChatContexts(token);
-    setContexts(loaded);
-    setError("");
-  }, [token]);
-
   const refreshItems = useCallback(async () => {
     if (!token || !activeContextId) {
       setItems([]);
@@ -386,9 +334,8 @@ export function ChatPage() {
   }, [token]);
 
   useEffect(() => {
-    void refreshContexts().catch((loadError) => setError(toErrorMessage(loadError)));
     void refreshModels().catch((loadError) => setError(toErrorMessage(loadError)));
-  }, [refreshContexts, refreshModels]);
+  }, [refreshModels]);
 
   useEffect(() => {
     void refreshItems().catch((loadError) => setError(toErrorMessage(loadError)));
@@ -597,96 +544,6 @@ export function ChatPage() {
     };
   }, [token, activeContextId, selectedAssistantItem?.id, selectedAssistantItem?.segments]);
 
-  async function createContextAction(overrideName?: string) {
-    if (!token) {
-      return;
-    }
-
-    const name = (overrideName ?? newContextName).trim() || t("pages:chat.newConversation");
-    setBusyAction("create-context");
-    setError("");
-    setMessage("");
-
-    try {
-      const created = await createChatContext(token, name);
-      setNewContextName("");
-      await refreshContexts();
-      navigate(routeForContext(created.id));
-      setMessage(t("pages:chat.contextCreated"));
-      setMobilePane("thread");
-    } catch (actionError) {
-      setError(toErrorMessage(actionError));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function renameContextAction(context: ChatContext) {
-    if (!token) {
-      return;
-    }
-
-    const nextName = window.prompt(t("pages:chat.renameContextPrompt"), context.name);
-    if (nextName === null) {
-      return;
-    }
-
-    const trimmed = nextName.trim();
-    if (trimmed === "") {
-      setError(t("pages:chat.contextNameEmpty"));
-      return;
-    }
-
-    setBusyAction(`rename-${context.id}`);
-    setError("");
-    setMessage("");
-
-    try {
-      await updateChatContext(token, context.id, {
-        name: trimmed,
-      });
-      await refreshContexts();
-      setMessage(t("pages:chat.contextRenamed"));
-    } catch (actionError) {
-      setError(toErrorMessage(actionError));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function deleteContextAction(context: ChatContext) {
-    if (!token) {
-      return;
-    }
-
-    const confirmed = window.confirm(t("pages:chat.deleteContextConfirm", { name: context.name }));
-    if (!confirmed) {
-      return;
-    }
-
-    setBusyAction(`delete-${context.id}`);
-    setError("");
-    setMessage("");
-
-    try {
-      await deleteChatContext(token, context.id);
-      if (activeContextId === context.id) {
-        // Clear context-specific state immediately to prevent stale renders
-        setItems([]);
-        setSelectedAssistantItemId(null);
-        setStreamingAssistantItemId(null);
-        setOptimisticPrompt(null);
-        navigate("/chat", { replace: true });
-      }
-      await refreshContexts();
-      setMessage(t("pages:chat.contextDeleted"));
-    } catch (actionError) {
-      setError(toErrorMessage(actionError));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
   async function ensureContextForPrompt(): Promise<string | null> {
     if (!token) {
       return null;
@@ -696,7 +553,7 @@ export function ChatPage() {
       return activeContextId;
     }
 
-    const fallbackName = newContextName.trim() || `New chat ${new Date().toLocaleString()}`;
+    const fallbackName = `New chat ${new Date().toLocaleString()}`;
     const created = await createChatContext(token, fallbackName);
 
     if (conversationModelId || codegenModelId) {
@@ -973,31 +830,20 @@ export function ChatPage() {
   }
 
   const mobilePaneTabs = [
-    { id: "contexts", labelKey: "pages:chat.mobileTabs.contexts" },
-    { id: "thread", labelKey: "pages:chat.mobileTabs.thread" },
-    { id: "workbench", labelKey: "pages:chat.mobileTabs.model" },
-  ] as const;
+    { id: "thread" as const, labelKey: "pages:chat.mobileTabs.thread", icon: MessageSquare },
+    { id: "workbench" as const, labelKey: "pages:chat.mobileTabs.model", icon: Box },
+  ];
 
   return (
-    <section className="space-y-3">
-      <header>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-xl font-semibold text-[hsl(var(--foreground))]">
-            {activeContext ? activeContext.name : t("pages:chat.newConversation")}
-          </h2>
-          <div className="flex items-center gap-2">
-          </div>
-        </div>
-      </header>
-
+    <section className="flex h-full flex-col">
       {message ? <InlineAlert tone="success">{message}</InlineAlert> : null}
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
 
-      <div className="sticky top-[64px] z-20 rounded-lg border bg-[hsl(var(--surface-1))] p-1 xl:hidden">
-        <div className="grid grid-cols-3 gap-1">
+      {/* Mobile pane toggle (2 tabs: thread + workbench) */}
+      <div className="sticky top-0 z-20 border-b border-[hsl(var(--border)_/_0.3)] bg-[hsl(var(--background))] p-1 xl:hidden">
+        <div className="grid grid-cols-2 gap-1">
           {mobilePaneTabs.map((tab) => {
-            const icons: Record<MobilePane, typeof Sidebar> = { contexts: Sidebar, thread: MessageSquare, workbench: Box };
-            const Icon = icons[tab.id];
+            const Icon = tab.icon;
             return (
               <button
                 key={tab.id}
@@ -1017,28 +863,9 @@ export function ChatPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)_380px]">
-        <aside className={`${mobilePane === "contexts" ? "block" : "hidden"} xl:block`}>
-          <ContextSidebar
-            groupedContexts={groupedContexts}
-            activeContextId={activeContextId}
-            isDraftRoute={isDraftRoute}
-            busyAction={busyAction}
-            token={token}
-            isAdmin={isAdmin}
-            onNavigateNew={() => navigate("/chat")}
-            onCreateNamed={(name) => void createContextAction(name)}
-            onSelect={(contextId) => {
-              navigate(routeForContext(contextId));
-              setMobilePane("thread");
-            }}
-            onRename={(context) => void renameContextAction(context)}
-            onDelete={(context) => void deleteContextAction(context)}
-          />
-        </aside>
-
-        <section className={`${mobilePane === "thread" ? "block" : "hidden"} min-w-0 xl:block`}>
-          <div className="space-y-3 rounded-xl border bg-[hsl(var(--surface-1))] p-3 shadow-[var(--elevation-1)]">
+      <div className="flex min-h-0 flex-1 gap-0">
+        <section className={`${mobilePane === "thread" ? "block" : "hidden"} min-w-0 flex-1 xl:block`}>
+          <div className="flex h-full flex-col space-y-3 p-3">
             <div className="flex items-center justify-between gap-2 border-b border-[hsl(var(--border)_/_0.5)] pb-2">
               <h3 className="text-sm font-medium text-[hsl(var(--muted-foreground))]">
                 {activeContext ? t("common:labels.conversation") : t("pages:chat.newDraft")}
@@ -1166,7 +993,7 @@ export function ChatPage() {
           </div>
         </section>
 
-        <aside className={`${mobilePane === "workbench" ? "block" : "hidden"} xl:block`}>
+        <aside className={`${mobilePane === "workbench" ? "block" : "hidden"} w-[380px] shrink-0 border-l border-[hsl(var(--border)_/_0.3)] xl:block`}>
           <WorkbenchPane
             selectedAssistantItem={selectedAssistantItem}
             selectedAssistantFiles={selectedAssistantFiles}

@@ -1,26 +1,47 @@
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
+import { useNotifications } from "../../contexts/NotificationsContext";
+import { useAuth } from "../../hooks/useAuth";
+import { useSidebar } from "../../hooks/useSidebar";
+import { Sidebar, SidebarToggle } from "./Sidebar";
 
 interface AppShellProps {
-  sidebar?: ReactNode;
-  topbar?: ReactNode;
   children: ReactNode;
   className?: string;
 }
 
-export function AppShell({ sidebar, topbar, children, className }: AppShellProps) {
+export function AppShell({ children, className }: AppShellProps) {
+  const { isOpen, isMobile } = useSidebar();
+  const { user } = useAuth();
+  const { connectionState } = useNotifications();
+  const isAdmin = user?.role === "admin";
+
   return (
-    <div className={cn("min-h-screen bg-[hsl(var(--background))] text-[hsl(var(--foreground))]", className)}>
-      {topbar ? <div className="sticky top-0 z-30 border-b border-[hsl(var(--border))] bg-[hsl(var(--surface-1)_/_0.9)] px-4 py-3 backdrop-blur">{topbar}</div> : null}
-      <div className="mx-auto flex w-full max-w-[1600px] gap-4 px-3 py-3 md:px-4">
-        {sidebar ? (
-          <aside className="hidden w-[280px] flex-shrink-0 lg:block">
-            <div className="sticky top-[74px] h-[calc(100vh-88px)] overflow-y-auto rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3 shadow-[var(--elevation-1)]">
-              {sidebar}
-            </div>
-          </aside>
-        ) : null}
-        <main className="min-w-0 flex-1">{children}</main>
+    <div className={cn("flex h-screen bg-[hsl(var(--background))] text-[hsl(var(--foreground))]", className)}>
+      {/* Sidebar */}
+      <Sidebar />
+
+      {/* Main content area */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Minimal topbar */}
+        <div className="flex h-10 shrink-0 items-center justify-between border-b border-[hsl(var(--border)_/_0.3)] px-3">
+          <div className="flex items-center gap-2">
+            <SidebarToggle />
+            {!isOpen || isMobile ? (
+              <span className="text-sm font-semibold text-[hsl(var(--foreground))]">Chat3D</span>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2">
+            {isAdmin && connectionState !== "open" ? (
+              <span className="h-2 w-2 rounded-full bg-[hsl(var(--warning))]" title="SSE disconnected" />
+            ) : null}
+          </div>
+        </div>
+
+        {/* Page content */}
+        <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+          {children}
+        </main>
       </div>
     </div>
   );
