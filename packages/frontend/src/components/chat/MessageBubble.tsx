@@ -280,6 +280,9 @@ export function MessageBubble({
               const isMeta = segment.kind === "meta";
               const hasFiles = segment.files.length > 0;
 
+              // Meta segments (generation diagnostics) are admin-only
+              if (isMeta && !isAdmin) return null;
+
               if (segment.kind === "error") {
                 return (
                   <div
@@ -365,8 +368,8 @@ export function MessageBubble({
                     </CollapsibleSection>
                   ) : null}
 
-                  {/* File list wrapped in CollapsibleSection for progressive disclosure (assistant only) */}
-                  {hasFiles && item.role === "assistant" ? (
+                  {/* File list wrapped in CollapsibleSection for progressive disclosure (admin only) */}
+                  {isAdmin && hasFiles && item.role === "assistant" ? (
                     <div className="mt-2">
                       <CollapsibleSection title={t("common:labels.files")} defaultExpanded={false}>
                         <ul className="list-disc pl-5 text-sm">
