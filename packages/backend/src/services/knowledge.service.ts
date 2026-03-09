@@ -438,7 +438,14 @@ export async function searchKnowledgeByTags(
 /** Common CAD/engineering keywords to look for in prompts */
 const REFERENCE_KEYWORDS: Record<string, string[]> = {
   "usb-c": ["usb-c", "usb type-c", "usb type c", "type-c", "usbc"],
-  "usb": ["usb-a", "usb-b", "usb port", "usb connector"],
+  "usb-a": ["usb-a", "usb type-a", "usb type a"],
+  "usb": ["usb port", "usb connector"],
+  "hdmi": ["hdmi"],
+  "hdmi-micro": ["micro hdmi", "hdmi micro", "hdmi type d", "hdmi-micro"],
+  "rj45": ["rj45", "ethernet port", "ethernet jack", "ethernet connector"],
+  "barrel-jack": ["barrel jack", "dc jack", "power jack", "dc connector", "barrel connector"],
+  "audio-jack": ["audio jack", "headphone jack", "3.5mm jack", "3.5 mm jack", "aux jack"],
+  "pin-header": ["pin header", "gpio header", "header pin"],
   "fastener": ["screw", "bolt", "nut", "washer", "m2", "m3", "m4", "m5", "m6", "m8", "fastener", "iso 4762", "iso4762", "cap screw", "hex socket"],
   "3d-printing": ["3d print", "fdm", "tolerance", "clearance", "snap-fit", "snap fit", "wall thickness", "overhang", "print"],
   "connector": ["connector", "receptacle", "plug", "jack", "socket", "port"],
@@ -446,6 +453,9 @@ const REFERENCE_KEYWORDS: Record<string, string[]> = {
   "mounting": ["mounting hole", "mount", "standoff", "spacer"],
   "raspberry-pi": ["raspberry pi", "rpi", "raspi"],
   "arduino": ["arduino", "uno", "nano", "mega"],
+  "esp32": ["esp32", "esp-32", "devkitc", "devkit"],
+  "dev-board": ["dev board", "development board", "devboard", "pcb case", "enclosure for"],
+  "pico": ["pico"],
 };
 
 /**
