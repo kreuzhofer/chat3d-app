@@ -100,8 +100,6 @@ export interface PurposeAssignment {
 
 export const LLM_PURPOSES = [
   "conversation",
-  "chat_codegen",
-  "workbench_codegen",
   "agent_codegen",
   "vlm_eval",
   "embedding",

@@ -132,7 +132,7 @@ function parseVariations(text: string): string[] {
 // ── Main function ───────────────────────────────────────────────────
 
 export async function improvePrompt(input: ImprovePromptInput): Promise<ImprovePromptResult> {
-  const cfg: LlmModelConfig = await getModelForPurpose("workbench_codegen");
+  const cfg: LlmModelConfig = await getModelForPurpose("agent_codegen");
   const model = createProviderModelFromConfig(cfg);
   const generateOptions = buildGenerateOptions(cfg);
 

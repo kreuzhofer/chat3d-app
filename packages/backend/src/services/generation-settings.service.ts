@@ -60,9 +60,7 @@ const SETTINGS_REGISTRY = new Map<string, SettingMeta>([
   ["chat.spec_generation_enabled", { default: 1, label: "Spec generation enabled", description: "Enable specification step before codegen (1=on, 0=off)", pipeline: "chat", min: 0, max: 1 }],
   ["workbench.tiered_prompt_enabled", { default: 1, label: "Tiered prompt enabled", description: "Use operation-aware tiered system prompt instead of full prompt (1=on, 0=off)", pipeline: "workbench", min: 0, max: 1 }],
   ["chat.tiered_prompt_enabled", { default: 1, label: "Tiered prompt enabled", description: "Use operation-aware tiered system prompt instead of full prompt (1=on, 0=off)", pipeline: "chat", min: 0, max: 1 }],
-  ["chat.agent_mode_enabled", { default: 0, label: "Agent mode enabled", description: "When enabled and an agent_codegen model is configured, uses agentic tool-use loop instead of fixed iteration pipeline", pipeline: "chat", min: 0, max: 1 }],
   ["chat.agent_max_steps", { default: 15, label: "Agent max tool-use steps", description: "Maximum number of tool-use steps in the agent codegen loop", pipeline: "chat", min: 3, max: 50 }],
-  ["workbench.agent_mode_enabled", { default: 0, label: "Agent mode enabled", description: "When enabled and an agent_codegen model is configured, uses agentic tool-use loop instead of fixed iteration pipeline", pipeline: "workbench", min: 0, max: 1 }],
   ["workbench.agent_max_steps", { default: 15, label: "Agent max tool-use steps", description: "Maximum number of tool-use steps in the agent codegen loop", pipeline: "workbench", min: 3, max: 50 }],
   ["workbench.code_eval_enabled", { default: 0, label: "Code eval enabled", description: "Enable LLM-based code review alongside VLM visual eval (1=on, 0=off)", pipeline: "workbench", min: 0, max: 1 }],
   ["chat.code_eval_enabled", { default: 0, label: "Code eval enabled", description: "Enable LLM-based code review alongside VLM visual eval (1=on, 0=off)", pipeline: "chat", min: 0, max: 1 }],
@@ -147,11 +145,6 @@ export async function isSpecGenerationEnabled(pipeline: Pipeline): Promise<boole
 
 export async function isTieredPromptEnabled(pipeline: Pipeline): Promise<boolean> {
   return (await getEffective(`${pipeline}.tiered_prompt_enabled`)) === 1;
-}
-
-export async function isAgentModeEnabled(pipeline: "chat" | "workbench"): Promise<boolean> {
-  const val = await getEffective(`${pipeline}.agent_mode_enabled`);
-  return val >= 1;
 }
 
 export async function getAgentMaxSteps(pipeline: "chat" | "workbench"): Promise<number> {

@@ -90,7 +90,7 @@ export function extractExecutableCode(raw: string): string {
  * Map stage name to DB purpose name.
  */
 function stageToPurpose(stage: "conversation" | "codegen"): string {
-  return stage === "conversation" ? "conversation" : "chat_codegen";
+  return stage === "conversation" ? "conversation" : "agent_codegen";
 }
 
 /**

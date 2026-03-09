@@ -1446,21 +1446,11 @@ async function executeQueryPipelineInner(input: {
       queryLogger.info({ interpretation: specResult.interpretation.slice(0, 100), checklistCount: epVerificationChecklist.length, complexity: specResult.complexity }, "spec generated");
     }
 
-    // ── Agent mode branch ──
-    // When agent mode is enabled and an agent_codegen model is configured,
-    // use the agentic tool-use loop instead of the fixed iteration pipeline.
-    const agentEnabled = await isAgentModeEnabled("chat");
-    let agentModelConfig: LlmModelConfig | null = null;
-    if (agentEnabled) {
-      try {
-        agentModelConfig = await getModelForPurpose("agent_codegen");
-        queryLogger.info({ model: agentModelConfig.label, provider: agentModelConfig.provider }, "agent mode enabled, resolved agent_codegen model");
-      } catch {
-        queryLogger.info("agent mode enabled but no agent_codegen model configured — falling back to iteration loop");
-      }
-    }
+    // ── Agent codegen ──
+    const agentModelConfig = await getModelForPurpose("agent_codegen");
+    queryLogger.info({ model: agentModelConfig.label, provider: agentModelConfig.provider }, "resolved agent_codegen model");
 
-    if (agentModelConfig) {
+    {
       // Detect modification scenario
       const agBaselineCode = await getProjectCode(input.contextId) ?? findMostRecentCode(conversationHistory);
       const agIsModification = !!agBaselineCode;
