@@ -40,83 +40,51 @@ CadQuery code can still be valuable as a *conversion source* — see §CadQuery-
 |--------|----------|---------|-------------|
 | **build123d for Noobs** | `readthedocs` | 27 | Beginner-focused docs from `cepeu.github.io/build123-for-noobs/` — primitives, OpenSCAD migration, visualization |
 
+### Reference Knowledge (Tier 3 — Technical Specifications)
+
+| Source | Strategy | Entries | Description |
+|--------|----------|---------|-------------|
+| **Connector & Fastener Dimensions** | `reference_upload` | ~12 | USB-C, USB-A, HDMI, HDMI Micro, barrel jack, RJ45, audio jack, pin header, and ISO metric fastener dimensions (M2–M8) |
+| **3D Printing Design Guidelines** | `reference_upload` | ~3 | FDM tolerances, wall thickness, overhang angles, snap-fit clearances, hole compensation |
+| **Development Board Datasheets** | `reference_upload` | ~6 | RPi 4 Model B, RPi Zero 2W, RPi Pico, Arduino Uno R3, Arduino Nano, ESP32-DevKitC V4 — board dimensions, mounting holes, port positions |
+| **Prusa 3D Printing KB** | `reference_url` | ~13 | Crawled from Prusa help article on modeling for 3D printing (HTML → Markdown, heading-based chunks) |
+| **Osban RPi Mounting** | `reference_url` | ~8 | RPi 3/4/5 mounting dimensions and screw hole specifications (HTML → Markdown, heading-based chunks) |
+
 ### Totals
 
 | Metric | Count |
 |--------|-------|
-| Total entries | 593 |
-| Valid (pass syntax + build123d check) | 538 |
-| Embedded (vector indexed) | 541 |
+| Total entries | ~630 |
+| Valid (pass syntax + build123d check) | ~576 |
+| Embedded (vector indexed) | ~579 |
+| Reference entries | ~38 |
 
 ---
 
-## Planned Sources — Tier 3: Technical Specifications
+## Completed Sources — Tier 3: Technical Specifications (DONE)
 
-These sources support the **Parts Knowledge Library** (see `build123d-llm-workbench.md` §15) and are needed for higher-complexity workbench categories (8–11: mechanical components, electronic components, enclosures, PCB cases).
+All Tier 3 sources have been implemented as reference knowledge entries. These support higher-complexity workbench categories (mechanical components, electronic components, enclosures, PCB cases). See the "Reference Knowledge" section above for the active sources and entry counts.
 
-### Development Board Datasheets
+### What was added
 
-To be curated as structured Markdown files in `workbench/parts/`.
+**Development Board Datasheets** — RPi 4 Model B, RPi Zero 2W, RPi Pico, Arduino Uno R3, Arduino Nano, ESP32-DevKitC V4. Each entry includes board dimensions, mounting hole positions/diameters, and port locations. Sources: official datasheets, Osban coordinates, Adafruit drawings, Espressif user guide.
 
-| Board | Dimensions (mm) | Mounting | Best Source |
-|-------|-----------------|----------|-------------|
-| Raspberry Pi 5/4/3 B+ | 85 x 56 | 4 holes M2.5, 58x49mm pattern | [Official mechanical PDFs](https://datasheets.raspberrypi.com/) + [Osban coordinates](https://osban.se/raspberry-pi-3-4-5-mounting-dimensions-and-screw-hole-specifications/) |
-| Raspberry Pi Zero/Zero 2 W | 65 x 30 | 4 holes M2.5, 58x23mm pattern | [Official PDF](https://datasheets.raspberrypi.com/rpizero2/raspberry-pi-zero-2-w-mechanical-drawing.pdf) |
-| Raspberry Pi Pico | 51 x 21, 1mm thick | 4 holes M2, 2.1mm dia | [Pico datasheet](https://datasheets.raspberrypi.com/pico/pico-datasheet.pdf) |
-| Arduino Uno R3 | 68.6 x 53.4 | 4 holes 3.2mm, M3 | [Adafruit drawing](https://cdn-shop.adafruit.com/datasheets/arduino_hole_dimensions.pdf) |
-| Arduino Nano | 45 x 18 | No mounting holes | [docs.arduino.cc](https://docs.arduino.cc/hardware/nano) |
-| ESP32-DevKitC V4 | 54.4 x 27.9 | — | [Espressif user guide](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32/esp32-devkitc/user_guide.html) |
+**Connector Dimensions** — USB-C (8.34×2.56mm), USB-A (11.5×4.5mm), HDMI Type A (13.9×4.45mm), HDMI Micro (5.83×2.20mm), barrel jack (5.5mm OD), RJ45 (~16×13.5mm), 3.5mm audio jack (6mm dia), 2.54mm pin header. Sources: USB-IF spec, HDMI spec, standard references.
 
-### Connector Dimensions (for port cutouts)
+**Fastener Dimensions** — ISO metric M2–M8 socket cap screw dimensions (pitch, head diameter, head height, hex socket size). Sources: ISO standards, bd_warehouse.
 
-| Connector | Opening (mm) | Source |
-|-----------|-------------|--------|
-| USB-A receptacle | 11.5 x 4.5 | USB-IF spec |
-| USB-C receptacle | 8.34 x 2.56, 6.20mm deep | [USB Type-C Spec R2.0](https://www.usb.org/sites/default/files/USB%20Type-C%20Spec%20R2.0%20-%20August%202019.pdf) |
-| HDMI Type A | 13.9 x 4.45 | HDMI spec |
-| HDMI Micro (Type D) | 5.83 x 2.20 | HDMI spec |
-| Barrel jack (DC) | 5.5mm OD, 2.1/2.5mm pin | Standard |
-| 2.54mm pin header | 0.64mm pins, 2.54mm pitch | Standard |
-| RJ45 (Ethernet) | ~16 x 13.5 | Standard |
-| 3.5mm audio jack | 6mm dia | Standard |
+**3D Printing Constraints** — FDM tolerances, wall thickness, overhang angles, snap-fit clearances, hole compensation, bridge spans. Sources: Formlabs, JLC3DP, Prusa KB, 3DChimera, Hubs.
 
-### Fastener Dimensions
+### Pre-retrieval mechanism
 
-| Source | Format | Content |
-|--------|--------|---------|
-| [FreeCAD FastenersWB](https://github.com/shaise/FreeCAD_FastenersWB) | 189 CSV files | ISO/DIN/ASME fasteners M1.6–M64+. Best machine-readable source |
-| [bd_warehouse](https://github.com/gumyr/bd_warehouse) | Python dicts | Already crawled — fasteners, bearings, threads in Build123d format |
-| [BOLTS](https://boltsparts.github.io/) | YAML | 92 standards, 16 part collections |
+Reference knowledge is **not** passively searched via RAG. Instead, a **keyword-based pre-retrieval** system automatically injects matching reference entries into the codegen system prompt:
 
-**Key ISO metric fastener dimensions (commonly needed):**
+1. `REFERENCE_KEYWORDS` lookup table maps ~20 tag groups to keyword patterns (e.g., `"usb-c"` → `["usb-c", "usb type-c", "type-c", "usbc"]`)
+2. Before code generation, `preRetrieveReferenceKnowledge()` scans the user prompt + interpretation for keyword matches
+3. Matched entries are appended to the system prompt with explicit instruction: *"Use these exact dimensions and specifications"*
+4. Implemented in both iteration loop (`query.service.ts`) and agent loop (`agent-codegen.service.ts`)
 
-| Size | Pitch (mm) | Socket cap head dia (mm) | Head height (mm) | Hex socket (mm) |
-|------|-----------|-------------------------|-----------------|-----------------|
-| M2 | 0.4 | 3.98 | 2.0 | 1.5 |
-| M2.5 | 0.45 | 4.68 | 2.5 | 2.0 |
-| M3 | 0.5 | 5.68 | 3.0 | 2.5 |
-| M4 | 0.7 | 7.22 | 4.0 | 3.0 |
-| M5 | 0.8 | 8.72 | 5.0 | 4.0 |
-| M6 | 1.0 | 10.22 | 6.0 | 5.0 |
-| M8 | 1.25 | 13.27 | 8.0 | 6.0 |
-
-### 3D Printing Constraints
-
-To be curated as `workbench/3d-printing-guidelines.md` (see `build123d-llm-workbench.md` §16).
-
-| Constraint | FDM Value | Source |
-|-----------|-----------|--------|
-| Min wall thickness (supported) | 0.8mm | [Formlabs](https://formlabs.com/blog/minimum-wall-thickness-3d-printing/) |
-| Min wall thickness (unsupported) | 1.2mm | Same |
-| Max overhang angle (safe) | 45 deg | [JLC3DP](https://jlc3dp.com/help/article/3D-Printing-Design-Guideline) |
-| Hole diameter compensation | +0.1–0.3mm | [Prusa KB](https://help.prusa3d.com/article/modeling-with-3d-printing-in-mind_164135) |
-| Clearance/sliding fit | 0.4–0.6mm gap | [3DChimera](https://3dchimera.com/blogs/connecting-the-dots/3d-printing-tolerances-fits) |
-| Press fit (interference) | 0.0–0.1mm | Same |
-| Snap-fit gap (FDM) | 0.5mm | [Hubs](https://www.hubs.com/knowledge-base/how-design-snap-fit-joints-3d-printing/) |
-| Snap-fit gap (SLA/SLS) | 0.3mm | Same |
-| Min printable thread (FDM) | M5+ printed, M3+ tapped | [Hubs assembly guide](https://www.hubs.com/knowledge-base/how-assemble-3d-printed-parts-threaded-fasteners/) |
-| Max bridge span (reliable) | 10mm | General consensus |
-| Base tolerance (FDM) | +/-0.15 to +/-0.3mm | Multiple sources |
+**Tested and verified:** Before/after comparisons show exact dimension usage (e.g., USB-C 8.34mm instead of hallucinated 8.94mm, exact RPi4 mounting hole positions, exact Arduino Uno hole coordinates).
 
 ---
 
@@ -266,6 +234,37 @@ All strategies produce the same `RawEntry` interface, so validation, embedding, 
 
 **Best for:** Hand-curated examples, converted code, custom reference material.
 
+#### `reference_upload` — Admin-created reference entries via UI
+
+**Config:** `{}` (empty)
+
+**Behavior:** No crawling. Reference entries created individually via "Add Reference" button in the Knowledge admin tab. Content stored as Markdown in the `code` field. Auto-validated (no syntax/marker checks). Tags stored in `concepts` field.
+
+**Best for:** Curated dimension specs, design guidelines, datasheet summaries — anything that isn't executable code but helps the LLM generate better models.
+
+#### `reference_url` — Fetch and convert reference content from URL
+
+**Config:**
+```json
+{
+  "url": "https://example.com/article",
+  "format": "html",
+  "chunkStrategy": "heading",
+  "maxChunkTokens": 1000,
+  "tags": ["connector", "usb-c"]
+}
+```
+
+**Behavior:**
+- Fetches the URL content and converts to Markdown based on format
+- Supported formats: `html` (content extraction via Cheerio, table conversion), `md` (stored as-is)
+- PDF support deferred (requires `pdf-parse` dependency)
+- Chunks content based on `chunkStrategy`: `heading` (split on `##`), `fixed` (token-based with overlap), `none` (store whole document)
+- Each chunk stored as a reference entry with configured tags
+- Auto-validated, then embedded
+
+**Best for:** Blog posts, knowledge base articles, spec pages, any web content with structured headings.
+
 ### How to Add a Source (Step by Step)
 
 **Via API:**
@@ -337,7 +336,7 @@ To support a new source type (e.g., CSV files, YAML specs, PDF docs), the follow
 **1. `knowledge-source.service.ts`** — Add to `SourceStrategy` type union, add config interface, add validation rules:
 ```typescript
 // Add to SourceStrategy union:
-export type SourceStrategy = "github_file" | "github_test_functions" | "readthedocs" | "manual" | "csv_specs";
+export type SourceStrategy = "github_file" | "github_test_functions" | "readthedocs" | "manual" | "reference_upload" | "reference_url" | "csv_specs";
 
 // Add config interface:
 export interface CsvSpecsConfig {
@@ -386,13 +385,11 @@ See §CadQuery-to-Build123d Conversion below for details on the conversion trans
 
 ---
 
-## Reference Knowledge Pipeline (Planned)
+## Reference Knowledge Pipeline (Implemented)
 
-### Problem
+### Problem (Solved)
 
-The current knowledge base only handles Python code entries. Many valuable sources for improving code generation are **not code** — they're dimensional specs, design guidelines, connector standards, and engineering reference data stored in PDFs, CSVs, YAML, HTML tables, or proprietary formats. These need a different pipeline to get into the knowledge base.
-
-Examples: USB-C connector dimensions from a PDF spec, fastener tables from CSV files, PCB form factor specs from HTML pages, 3D printing tolerance guidelines from blog posts.
+The knowledge base originally only handled Python code entries. Many valuable sources for improving code generation are **not code** — they're dimensional specs, design guidelines, connector standards, and engineering reference data. These required a different pipeline, which is now fully implemented.
 
 ### Design Goals
 
@@ -572,9 +569,13 @@ Results are combined and injected into the codegen prompt with clear section hea
 
 **Trade-off:** Extra LLM call adds latency and cost, but maximizes retrieval precision.
 
-#### Recommendation
+#### What Was Implemented
 
-Start with **Approach 1** (passive RAG) — it requires no pipeline changes beyond storing and embedding reference entries. Add **Approach 2** (tag-based) when we have enough reference entries to warrant it. Consider **Approach 3** only if retrieval quality is demonstrably insufficient.
+**Approach 1 (passive RAG)** was tried first but proved insufficient — the agent LLM never invoked the `search_reference` tool because it was confident from training data.
+
+**Approach 2 (tag-based pre-retrieval)** was implemented and is the active approach. A `REFERENCE_KEYWORDS` lookup table in `knowledge.service.ts` maps ~20 tag groups to keyword patterns. Before code generation, `preRetrieveReferenceKnowledge()` scans the prompt for matches and injects reference entries directly into the system prompt. This bypasses the agent's decision of whether to search and ensures exact dimensions are always available. See "Pre-retrieval mechanism" in the Tier 3 section above.
+
+**Approach 3** (LLM planning) remains deferred — the keyword-based approach has proven effective in before/after testing.
 
 ### Implementation Phases
 
@@ -610,21 +611,25 @@ Start with **Approach 1** (passive RAG) — it requires no pipeline changes beyo
 - [x] Updated `search_knowledge` tool description to mention reference material
 - [x] Updated `search_knowledge` tool response formatting — reference entries rendered as Markdown prose instead of code blocks
 - [x] System prompt updated to guide agent to use `search_reference` for component dimensions/specs
-- [ ] Two-stage retrieval with LLM planning (deferred — evaluate need after reference entries accumulate)
+- [x] **Keyword-based pre-retrieval** — `REFERENCE_KEYWORDS` lookup + `preRetrieveReferenceKnowledge()` automatically injects matching reference entries into codegen system prompt (both iteration and agent loops)
+- [x] **Before/after testing** — verified exact dimension usage for USB-C, HDMI, RPi4, Arduino Uno
+- [ ] Two-stage retrieval with LLM planning (deferred — keyword pre-retrieval is sufficient)
 - [ ] A/B test: code-only RAG vs. code + reference RAG (deferred — needs production data)
 
-### Example Sources for Phase R1 (Manual Upload)
+### Example Sources for Phase R1 (All Done)
 
-These could be added immediately once Phase R1 is implemented — manually download, convert to Markdown, upload:
+All initially planned reference sources have been added:
 
-| Source | Content | Format |
+| Source | Content | Status |
 |--------|---------|--------|
-| Raspberry Pi mechanical drawings | Board dims, mounting holes, port positions | PDF → Markdown |
-| Arduino hole dimensions | Mounting patterns for Uno/Mega/Nano | PDF → Markdown |
-| ISO metric thread table | M2–M8 pitch, major/minor diameters | Wikipedia HTML → Markdown table |
-| USB-C connector dimensions | Receptacle opening, depth, tolerances | Spec PDF → Markdown |
-| FDM 3D printing guidelines | Wall thickness, overhangs, tolerances | Blog posts → curated Markdown |
-| Gridfinity specification | Grid size, height units, wall dimensions | Web page → Markdown |
+| Raspberry Pi mechanical drawings | Board dims, mounting holes, port positions | Done (`reference_upload` + `reference_url` via Osban) |
+| Arduino hole dimensions | Mounting patterns for Uno/Nano | Done (`reference_upload`) |
+| ISO metric fastener table | M2–M8 socket cap screw dimensions | Done (`reference_upload`) |
+| USB-C connector dimensions | Receptacle opening, depth, tolerances | Done (`reference_upload`) |
+| FDM 3D printing guidelines | Wall thickness, overhangs, tolerances | Done (`reference_upload` + `reference_url` via Prusa KB) |
+| Gridfinity specification | Grid size, height units, wall dimensions | Not yet added |
+
+Additional connectors also added: USB-A, HDMI, HDMI Micro, barrel jack, RJ45, audio jack, pin header.
 
 ---
 
