@@ -439,7 +439,8 @@ shcs = SocketHeadCapScrew(size="M5-0.8", length=20, fastener_type="iso4762", sim
 nut = HexNut(size="M6-1", fastener_type="iso4032", simple=False)
 \`\`\`
 Fastener \`size\` format: \`"M{diameter}-{pitch}"\` (e.g., \`"M6-1"\`, \`"M8-1.25"\`, \`"M10-1.5"\`)
-Set \`simple=False\` for visible thread geometry, \`simple=True\` for smooth (faster rendering).
+
+**IMPORTANT \`simple\` parameter**: \`simple=False\` means full detail WITH visible threads. \`simple=True\` means simplified WITHOUT threads. When the prompt asks for "visible threads", always pass \`simple=False\` directly — do NOT use an intermediary boolean variable that inverts the meaning.
 
 ### Bearings
 \`\`\`python
