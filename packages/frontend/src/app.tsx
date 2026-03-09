@@ -45,10 +45,6 @@ const ProfilePanel = lazy(async () => {
   const module = await import("./components/ProfilePanel");
   return { default: module.ProfilePanel };
 });
-const QueryWorkbench = lazy(async () => {
-  const module = await import("./components/QueryWorkbench");
-  return { default: module.QueryWorkbench };
-});
 const WorkbenchPage = lazy(async () => {
   const module = await import("./components/WorkbenchPage");
   return { default: module.WorkbenchPage };
@@ -117,7 +113,6 @@ function AuthenticatedApp() {
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/chat/new" element={<ChatPage />} />
           <Route path="/chat/:contextId" element={<ChatPage />} />
-          <Route path="/query" element={<AdminRouteGuard><QueryWorkbench /></AdminRouteGuard>} />
           <Route path="/profile" element={<ProfilePanel />} />
           <Route path="/notifications" element={<AdminRouteGuard><NotificationCenter /></AdminRouteGuard>} />
           <Route path="/admin" element={<AdminRouteGuard><AdminPanel /></AdminRouteGuard>} />
