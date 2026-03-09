@@ -79,6 +79,7 @@ import {
   buildCacheableSystem,
   type LlmModelConfig,
 } from "./llm-config.service.js";
+import { preRetrieveReferenceKnowledge, formatReferenceSection } from "./knowledge.service.js";
 import { createLogger } from "../utils/logger.js";
 
 const queryLogger = createLogger("query");
@@ -1653,13 +1654,25 @@ async function executeQueryPipelineInner(input: {
 
     // Resolve system prompt: tiered (operation-aware) or full
     const chatTieredEnabled = await isTieredPromptEnabled("chat");
-    const epSystemPromptContent = chatTieredEnabled
+    let epSystemPromptContent = chatTieredEnabled
       ? buildTieredSystemPrompt({
           promptText: prompt,
           interpretation: epSpecInterpretation,
           fewShotCount: epFewShots.length,
         })
       : CODEGEN_SYSTEM_PROMPT;
+
+    // Pre-retrieve reference knowledge matching the prompt and inject into system prompt
+    try {
+      const refMatches = await preRetrieveReferenceKnowledge(prompt, epSpecInterpretation ?? undefined);
+      if (refMatches.length > 0) {
+        epSystemPromptContent += "\n\n" + formatReferenceSection(refMatches);
+        queryLogger.info({ matchCount: refMatches.length, titles: refMatches.map(m => m.title) }, "pre-retrieved reference knowledge for codegen");
+      }
+    } catch (err) {
+      queryLogger.warn({ err: err instanceof Error ? err.message : String(err) }, "reference pre-retrieval failed, continuing without");
+    }
+
     queryLogger.info({ promptLength: epSystemPromptContent.length, fullLength: CODEGEN_SYSTEM_PROMPT.length, tiered: chatTieredEnabled }, "system prompt loaded");
 
     const epCodegenConfig = await getModelForPurpose("chat_codegen");

@@ -18,7 +18,7 @@ import { trackedGenerateText } from "./tracked-llm.service.js";
 import { z } from "zod";
 import { createLogger } from "../utils/logger.js";
 import { AgentFilesystem } from "./agent-filesystem.service.js";
-import { searchKnowledge, searchKnowledgeByTags } from "./knowledge.service.js";
+import { searchKnowledge, searchKnowledgeByTags, preRetrieveReferenceKnowledge, formatReferenceSection } from "./knowledge.service.js";
 import {
   renderBuild123dProject,
   validateBuild123dProject,
@@ -165,10 +165,26 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
   }
 
   // Build system prompt
-  const systemPrompt = systemPromptOverride
+  let systemPrompt = systemPromptOverride
     ?? (complexity === "complex"
       ? buildFullAgentSystemPrompt({ isModification })
       : buildAgentSystemPrompt({ promptText, interpretation, isModification }));
+
+  // Pre-retrieval: search for reference knowledge matching the prompt and inject into system prompt.
+  // This ensures reference data (specs, dimensions, tolerances) is always available without
+  // relying on the agent to proactively invoke search tools.
+  if (!systemPromptOverride) {
+    try {
+      const refMatches = await preRetrieveReferenceKnowledge(promptText, interpretation);
+      if (refMatches.length > 0) {
+        const refSection = formatReferenceSection(refMatches);
+        systemPrompt += "\n\n" + refSection;
+        logger.info({ matchCount: refMatches.length, titles: refMatches.map(m => m.title) }, "pre-retrieved reference knowledge");
+      }
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, "reference pre-retrieval failed, continuing without");
+    }
+  }
 
   // Create model from configured provider (works with any provider)
   const model = createProviderModel(modelConfig);
@@ -852,3 +868,4 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     submitted: assemblyResult.submitted,
   };
 }
+

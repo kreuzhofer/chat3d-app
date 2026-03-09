@@ -377,6 +377,73 @@ export async function searchKnowledgeByTags(
   }));
 }
 
+// ── Reference Pre-Retrieval ──────────────────────────────────────────
+
+/** Common CAD/engineering keywords to look for in prompts */
+const REFERENCE_KEYWORDS: Record<string, string[]> = {
+  "usb-c": ["usb-c", "usb type-c", "usb type c", "type-c", "usbc"],
+  "usb": ["usb-a", "usb-b", "usb port", "usb connector"],
+  "fastener": ["screw", "bolt", "nut", "washer", "m2", "m3", "m4", "m5", "m6", "m8", "fastener", "iso 4762", "iso4762", "cap screw", "hex socket"],
+  "3d-printing": ["3d print", "fdm", "tolerance", "clearance", "snap-fit", "snap fit", "wall thickness", "overhang", "print"],
+  "connector": ["connector", "receptacle", "plug", "jack", "socket", "port"],
+  "dimensions": ["dimension", "specification", "standard", "iso ", "din "],
+  "mounting": ["mounting hole", "mount", "standoff", "spacer"],
+  "raspberry-pi": ["raspberry pi", "rpi", "raspi"],
+  "arduino": ["arduino", "uno", "nano", "mega"],
+};
+
+/**
+ * Extract tags from the prompt text by matching against known keyword patterns.
+ */
+function extractReferenceTags(promptText: string, interpretation?: string): string[] {
+  const text = `${promptText} ${interpretation ?? ""}`.toLowerCase();
+  const tags = new Set<string>();
+
+  for (const [tag, keywords] of Object.entries(REFERENCE_KEYWORDS)) {
+    if (keywords.some(kw => text.includes(kw))) {
+      tags.add(tag);
+    }
+  }
+
+  return Array.from(tags);
+}
+
+export interface PreRetrievedReference {
+  title: string;
+  content: string;
+  concepts: string[];
+}
+
+/**
+ * Pre-retrieve reference knowledge entries matching the prompt.
+ * Uses tag-based search (no embedding cost) to find relevant reference data.
+ */
+export async function preRetrieveReferenceKnowledge(
+  promptText: string,
+  interpretation?: string,
+): Promise<PreRetrievedReference[]> {
+  const tags = extractReferenceTags(promptText, interpretation);
+  if (tags.length === 0) return [];
+
+  const matches = await searchKnowledgeByTags(tags, 3);
+
+  // Only include reference-type entries (not code examples)
+  return matches
+    .filter(m => m.sourceType === "reference")
+    .map(m => ({ title: m.title, content: m.code, concepts: m.concepts }));
+}
+
+/**
+ * Format pre-retrieved reference knowledge as a prompt section.
+ */
+export function formatReferenceSection(matches: PreRetrievedReference[]): string {
+  const entries = matches.map(m =>
+    `### ${m.title}\n\n${m.content}`
+  ).join("\n\n---\n\n");
+
+  return `## Reference Data (Pre-Retrieved)\n\nThe following reference specifications are relevant to this request. Use these exact dimensions and guidelines — do NOT use approximate or memorized values.\n\n${entries}`;
+}
+
 // ── Validation Pipeline ──────────────────────────────────────────────
 
 const BUILD123D_MARKERS = [
