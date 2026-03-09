@@ -6,6 +6,7 @@ import { remixModel } from "./api/gallery.api";
 import { AppShell } from "./components/layout/AppShell";
 import { LoadingView } from "./components/layout/StateViews";
 import { useAuth } from "./hooks/useAuth";
+import { useChatContextsContext } from "./contexts/ChatContextsContext";
 import { AdminRouteGuard } from "./components/AdminRouteGuard";
 import { CookieBanner } from "./components/CookieBanner";
 import { VersionFooter } from "./components/VersionFooter";
@@ -111,6 +112,7 @@ function AuthCatchAllRedirect() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { token } = useAuth();
+  const { refreshContexts } = useChatContextsContext();
   const [processing, setProcessing] = useState(false);
   const [done, setDone] = useState(false);
   const { t } = useTranslation("common");
@@ -130,14 +132,15 @@ function AuthCatchAllRedirect() {
     setProcessing(true);
 
     remixModel(token, remixId)
-      .then(({ contextId }) => {
+      .then(async ({ contextId }) => {
+        await refreshContexts();
         navigate(`/chat/${contextId}`, { replace: true });
       })
       .catch(() => {
         navigate("/chat", { replace: true });
       })
       .finally(() => setDone(true));
-  }, [remixId, token, navigate, processing, done]);
+  }, [remixId, token, navigate, processing, done, refreshContexts]);
 
   return <LoadingView label={t("common:labels.loading")} />;
 }

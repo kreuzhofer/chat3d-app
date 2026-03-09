@@ -11,6 +11,7 @@ import {
   type GalleryModelSummary,
 } from "../../api/gallery.api";
 import { useAuth } from "../../hooks/useAuth";
+import { useChatContextsContext } from "../../contexts/ChatContextsContext";
 
 interface ModelCardProps {
   model: GalleryModelSummary;
@@ -18,6 +19,7 @@ interface ModelCardProps {
 
 export function ModelCard({ model }: ModelCardProps) {
   const { token, isAuthenticated } = useAuth();
+  const { refreshContexts } = useChatContextsContext();
   const navigate = useNavigate();
   const [remixing, setRemixing] = useState(false);
 
@@ -31,6 +33,7 @@ export function ModelCard({ model }: ModelCardProps) {
     setRemixing(true);
     try {
       const { contextId } = await remixModel(token, model.id);
+      await refreshContexts();
       navigate(`/chat/${contextId}`);
     } catch {
       setRemixing(false);
