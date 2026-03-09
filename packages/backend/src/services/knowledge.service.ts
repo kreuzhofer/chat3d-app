@@ -16,7 +16,7 @@ const logger = createLogger("knowledge");
 
 // ── Types ────────────────────────────────────────────────────────────
 
-export type KnowledgeSourceType = "docs" | "github_example" | "github_test" | "forum" | "blog";
+export type KnowledgeSourceType = "docs" | "github_example" | "github_test" | "forum" | "blog" | "reference" | "manual";
 export type ValidationStatus = "pending" | "valid" | "invalid" | "error";
 
 export interface KnowledgeEntry {
@@ -205,12 +205,12 @@ export async function markManyValidated(ids: string[], status: "valid" | "invali
 export async function embedKnowledgeEntry(id: string): Promise<void> {
   const entry = await prisma.build123dKnowledge.findUnique({
     where: { id },
-    select: { title: true, description: true, code: true },
+    select: { title: true, description: true, code: true, sourceType: true },
   });
   if (!entry) return;
 
   const embeddingCfg = await getModelForPurpose("embedding");
-  const text = buildEmbeddingText(entry.title, entry.description, entry.code);
+  const text = buildEmbeddingText(entry.title, entry.description, entry.code, entry.sourceType);
   const embedding = await embedPromptText(text);
   const pgVector = `[${embedding.join(",")}]`;
 
@@ -228,8 +228,8 @@ export async function backfillKnowledgeEmbeddings(): Promise<{ embedded: number;
   const embeddingCfg = await getModelForPurpose("embedding");
   const currentModel = embeddingCfg.modelName;
 
-  const rows = await prisma.$queryRaw<{ id: string; title: string; description: string | null; code: string }[]>`
-    SELECT id, title, description, code
+  const rows = await prisma.$queryRaw<{ id: string; title: string; description: string | null; code: string; source_type: string }[]>`
+    SELECT id, title, description, code, source_type
     FROM build123d_knowledge
     WHERE validation_status = 'valid'
       AND (embedding IS NULL OR embedding_model IS NULL OR embedding_model != ${currentModel})
@@ -253,7 +253,7 @@ export async function backfillKnowledgeEmbeddings(): Promise<{ embedded: number;
 
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE);
-    const texts = batch.map(r => buildEmbeddingText(r.title, r.description, r.code));
+    const texts = batch.map(r => buildEmbeddingText(r.title, r.description, r.code, r.source_type));
 
     const embedResult = await trackedEmbedMany({
       model,
@@ -335,6 +335,48 @@ export async function searchKnowledge(
   };
 }
 
+/**
+ * Search knowledge entries by tag matching (uses the `concepts` field).
+ * Returns entries that have ANY of the given tags.
+ */
+export async function searchKnowledgeByTags(
+  tags: string[],
+  limit = 5,
+): Promise<KnowledgeSearchMatch[]> {
+  if (tags.length === 0) return [];
+
+  const rows = await prisma.$queryRaw<{
+    id: string;
+    title: string;
+    description: string | null;
+    code: string;
+    concepts: string[];
+    source_type: string;
+    source_url: string;
+  }[]>`
+    SELECT id, title, description, code, concepts, source_type, source_url
+    FROM build123d_knowledge
+    WHERE validation_status = 'valid'
+      AND concepts && ${tags}::text[]
+    ORDER BY array_length(
+      ARRAY(SELECT unnest(concepts) INTERSECT SELECT unnest(${tags}::text[])),
+      1
+    ) DESC NULLS LAST
+    LIMIT ${limit}
+  `;
+
+  return rows.map(r => ({
+    id: r.id,
+    title: r.title,
+    description: r.description,
+    code: r.code,
+    concepts: r.concepts,
+    sourceType: r.source_type as KnowledgeSourceType,
+    sourceUrl: r.source_url,
+    similarity: 0, // Not a vector search, so no similarity score
+  }));
+}
+
 // ── Validation Pipeline ──────────────────────────────────────────────
 
 const BUILD123D_MARKERS = [
@@ -386,7 +428,7 @@ export async function validatePendingEntries(opts?: {
 
   const entries = await prisma.build123dKnowledge.findMany({
     where,
-    select: { id: true, title: true, code: true },
+    select: { id: true, title: true, code: true, sourceType: true },
     take: opts?.limit ?? 500,
     orderBy: { createdAt: "asc" },
   });
@@ -399,6 +441,16 @@ export async function validatePendingEntries(opts?: {
 
   for (const entry of entries) {
     try {
+      // Reference entries are auto-validated (not code, no syntax check needed)
+      if (entry.sourceType === "reference") {
+        await prisma.build123dKnowledge.update({
+          where: { id: entry.id },
+          data: { validationStatus: "valid", validatedAt: new Date() },
+        });
+        valid++;
+        continue;
+      }
+
       if (!isBuild123dCode(entry.code)) {
         await prisma.build123dKnowledge.update({
           where: { id: entry.id },
@@ -456,12 +508,44 @@ export async function createManualEntry(input: {
   return entry as unknown as KnowledgeEntry;
 }
 
+// ── Reference Entry ──────────────────────────────────────────────
+
+/**
+ * Create a reference knowledge entry (non-code: specs, docs, guides).
+ * Reference entries are auto-validated (no build123d marker or syntax check)
+ * and use a wider embedding window (2000 chars instead of 500).
+ */
+export async function createReferenceEntry(input: {
+  sourceId: string;
+  sourceUrl?: string;
+  title: string;
+  content: string;
+  description?: string;
+  concepts?: string[];
+}): Promise<KnowledgeEntry> {
+  const entry = await prisma.build123dKnowledge.create({
+    data: {
+      sourceUrl: input.sourceUrl || `reference://${Date.now()}`,
+      sourceType: "reference",
+      title: input.title,
+      description: input.description ?? null,
+      code: input.content,
+      concepts: input.concepts ?? [],
+      validationStatus: "valid",
+      validatedAt: new Date(),
+      sourceId: input.sourceId,
+    },
+  });
+  return entry as unknown as KnowledgeEntry;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function buildEmbeddingText(title: string, description: string | null, code: string): string {
+function buildEmbeddingText(title: string, description: string | null, code: string, sourceType?: string): string {
   const parts = [title];
   if (description) parts.push(description);
-  // Include start of code for context, but cap to avoid excessive embedding tokens
-  if (code.length > 0) parts.push(code.slice(0, 500));
+  // Reference entries use a wider window (2000 chars) since they are prose, not code
+  const contentLimit = sourceType === "reference" ? 2000 : 500;
+  if (code.length > 0) parts.push(code.slice(0, contentLimit));
   return parts.join("\n\n");
 }

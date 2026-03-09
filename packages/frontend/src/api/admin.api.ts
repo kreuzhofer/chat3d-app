@@ -646,6 +646,16 @@ export async function createManualKnowledgeEntry(
   });
 }
 
+export async function createReferenceKnowledgeEntry(
+  token: string,
+  input: { sourceId: string; title: string; content: string; sourceUrl?: string; description?: string; concepts?: string[] },
+): Promise<KnowledgeEntry> {
+  return requestAdminJson(token, "/knowledge/reference", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function deleteKnowledgeEntry(token: string, id: string): Promise<void> {
   await requestAdminJson(token, `/knowledge/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

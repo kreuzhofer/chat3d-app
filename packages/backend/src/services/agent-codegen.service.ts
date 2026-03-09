@@ -18,7 +18,7 @@ import { trackedGenerateText } from "./tracked-llm.service.js";
 import { z } from "zod";
 import { createLogger } from "../utils/logger.js";
 import { AgentFilesystem } from "./agent-filesystem.service.js";
-import { searchKnowledge } from "./knowledge.service.js";
+import { searchKnowledge, searchKnowledgeByTags } from "./knowledge.service.js";
 import {
   renderBuild123dProject,
   validateBuild123dProject,
@@ -321,7 +321,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
 
     search_knowledge: {
       type: "function" as const,
-      description: "Search the Build123d external knowledge base (official docs, repo examples, test patterns) for working code snippets related to a technique or concept. Use when you need to see how a specific API or pattern works beyond what's in the system prompt.",
+      description: "Search the Build123d external knowledge base (official docs, repo examples, test patterns, and reference material like specs and dimensions) for working code snippets or technical reference related to a technique or concept. Use when you need to see how a specific API or pattern works, or when you need dimensions/specifications for components.",
       inputSchema: zodSchema(z.object({
         query: z.string().describe("Natural language description of what you want to find (e.g., 'how to create a helix sweep', 'loft between two sketches')"),
       })),
@@ -331,12 +331,45 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
           if (matches.length === 0) {
             return "No matching knowledge entries found.";
           }
-          return matches.map((m, i) =>
-            `### Reference ${i + 1}: ${m.title} (${m.sourceType}, ${(m.similarity * 100).toFixed(0)}% match)\n${m.description ? m.description + "\n\n" : ""}\`\`\`python\n${m.code}\n\`\`\`\nSource: ${m.sourceUrl}`
-          ).join("\n\n");
+          return matches.map((m, i) => {
+            const header = `### Reference ${i + 1}: ${m.title} (${m.sourceType}, ${(m.similarity * 100).toFixed(0)}% match)`;
+            const desc = m.description ? m.description + "\n\n" : "";
+            // Reference entries contain Markdown prose; code entries contain Python
+            const content = m.sourceType === "reference"
+              ? `${m.code}\n`
+              : `\`\`\`python\n${m.code}\n\`\`\`\n`;
+            return `${header}\n${desc}${content}Source: ${m.sourceUrl}`;
+          }).join("\n\n");
         } catch (err) {
           logger.warn({ err: err instanceof Error ? err.message : String(err) }, "search_knowledge tool error");
           return "Knowledge search unavailable.";
+        }
+      },
+    },
+
+    search_reference: {
+      type: "function" as const,
+      description: "Search the knowledge base by tags/concepts (e.g., 'usb-c', 'fastener', 'raspberry-pi') for reference specifications, dimensions, and design guidelines. Use when you need exact measurements, tolerances, or engineering data for specific components.",
+      inputSchema: zodSchema(z.object({
+        tags: z.array(z.string()).describe("Tags to search for (e.g., ['usb-c', 'connector'] or ['m3', 'fastener'])"),
+      })),
+      execute: async ({ tags }: { tags: string[] }) => {
+        try {
+          const matches = await searchKnowledgeByTags(tags, 3);
+          if (matches.length === 0) {
+            return `No reference entries found matching tags: ${tags.join(", ")}`;
+          }
+          return matches.map((m, i) => {
+            const header = `### Reference ${i + 1}: ${m.title} (${m.sourceType})`;
+            const desc = m.description ? m.description + "\n\n" : "";
+            const content = m.sourceType === "reference"
+              ? `${m.code}\n`
+              : `\`\`\`python\n${m.code}\n\`\`\`\n`;
+            return `${header}\n${desc}${content}Tags: ${m.concepts.join(", ")}`;
+          }).join("\n\n");
+        } catch (err) {
+          logger.warn({ err: err instanceof Error ? err.message : String(err) }, "search_reference tool error");
+          return "Reference search unavailable.";
         }
       },
     },

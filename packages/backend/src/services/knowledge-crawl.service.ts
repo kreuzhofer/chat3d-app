@@ -10,7 +10,9 @@ import * as cheerio from "cheerio";
 import { config } from "../config.js";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
-import { updateCrawlStatus, type GitHubFileConfig, type GitHubTestConfig, type ReadTheDocsConfig, type SourceStrategy } from "./knowledge-source.service.js";
+import { updateCrawlStatus, type GitHubFileConfig, type GitHubTestConfig, type ReadTheDocsConfig, type ReferenceUrlConfig, type SourceStrategy } from "./knowledge-source.service.js";
+import { fetchAndConvert, type ConvertFormat } from "./knowledge-convert.service.js";
+import { chunkMarkdown, type ChunkStrategy } from "./knowledge-chunk.service.js";
 
 const logger = createLogger("knowledge-crawl");
 
@@ -31,6 +33,8 @@ const STRATEGY_SOURCE_TYPE: Record<SourceStrategy, string> = {
   github_test_functions: "github_test",
   readthedocs: "docs",
   manual: "manual",
+  reference_upload: "reference",
+  reference_url: "reference",
 };
 
 // ── Main entry point ─────────────────────────────────────────────────
@@ -42,7 +46,9 @@ const STRATEGY_SOURCE_TYPE: Record<SourceStrategy, string> = {
 export async function crawlSource(sourceId: string): Promise<{ added: number; skipped: number }> {
   const source = await prisma.knowledgeSource.findUnique({ where: { id: sourceId } });
   if (!source) throw new Error(`Source not found: ${sourceId}`);
-  if (source.strategy === "manual") throw new Error("Cannot crawl a manual source");
+  if (source.strategy === "manual" || source.strategy === "reference_upload") {
+    throw new Error(`Cannot crawl a ${source.strategy} source — add entries manually`);
+  }
 
   await updateCrawlStatus(sourceId, "running");
   logger.info({ sourceId, name: source.name, strategy: source.strategy }, "starting crawl");
@@ -60,6 +66,9 @@ export async function crawlSource(sourceId: string): Promise<{ added: number; sk
         break;
       case "readthedocs":
         entries = await crawlReadTheDocs(config as unknown as ReadTheDocsConfig);
+        break;
+      case "reference_url":
+        entries = await crawlReferenceUrl(config as unknown as ReferenceUrlConfig);
         break;
       default:
         throw new Error(`Unknown strategy: ${source.strategy}`);
@@ -273,6 +282,30 @@ async function crawlDocsPage(baseUrl: string, pagePath: string): Promise<RawEntr
 
   logger.info({ page: pagePath, entries: entries.length }, "docs page crawled");
   return entries;
+}
+
+// ── Reference URL Strategy ───────────────────────────────────────────
+
+async function crawlReferenceUrl(cfg: ReferenceUrlConfig): Promise<RawEntry[]> {
+  const { url, format, chunkStrategy, tags } = cfg;
+  logger.info({ url, format, chunkStrategy }, "fetching reference URL");
+
+  const result = await fetchAndConvert(url, (format ?? "auto") as ConvertFormat);
+  const strategy = (chunkStrategy ?? "none") as ChunkStrategy;
+  const chunks = chunkMarkdown(result.markdown, strategy, { documentTitle: result.title });
+
+  logger.info({ chunks: chunks.length, strategy }, "reference URL chunked");
+
+  return chunks.map((chunk) => ({
+    sourceUrl: chunks.length === 1 ? url : `${url}#chunk-${chunk.index}`,
+    sourceType: "reference",
+    title: chunk.title.slice(0, 200),
+    description: chunks.length === 1
+      ? `Converted from ${result.detectedFormat} format`
+      : `${result.title} — section ${chunk.index + 1} of ${chunks.length}`,
+    code: chunk.content,
+    concepts: tags ?? [],
+  }));
 }
 
 // ── Database insertion ───────────────────────────────────────────────

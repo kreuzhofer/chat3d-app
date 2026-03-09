@@ -45,6 +45,7 @@ import {
   getKnowledgeStats,
   backfillKnowledgeEmbeddings,
   createManualEntry,
+  createReferenceEntry,
   type KnowledgeSourceType,
   type ValidationStatus,
 } from "../services/knowledge.service.js";
@@ -1088,6 +1089,20 @@ adminRouter.post("/knowledge/entries", async (req, res) => {
     res.status(201).json(entry);
   } catch (error) {
     sendKnownError(res, error, "Failed to create manual entry");
+  }
+});
+
+adminRouter.post("/knowledge/reference", async (req, res) => {
+  try {
+    const { sourceId, sourceUrl, title, content, description, concepts } = req.body;
+    if (!sourceId || !title || !content) {
+      res.status(400).json({ error: "sourceId, title, and content are required" });
+      return;
+    }
+    const entry = await createReferenceEntry({ sourceId, sourceUrl, title, content, description, concepts });
+    res.status(201).json(entry);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to create reference entry");
   }
 });
 

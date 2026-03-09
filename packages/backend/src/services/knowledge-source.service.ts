@@ -13,7 +13,7 @@ const logger = createLogger("knowledge-source");
 
 // ── Types ────────────────────────────────────────────────────────────
 
-export type SourceStrategy = "github_file" | "github_test_functions" | "readthedocs" | "manual";
+export type SourceStrategy = "github_file" | "github_test_functions" | "readthedocs" | "manual" | "reference_upload" | "reference_url";
 export type CrawlStatus = "idle" | "running" | "success" | "error";
 
 export interface GitHubFileConfig {
@@ -39,7 +39,19 @@ export interface ReadTheDocsConfig {
   pages: string[];
 }
 
-export type SourceConfig = GitHubFileConfig | GitHubTestConfig | ReadTheDocsConfig | Record<string, never>;
+export interface ReferenceUploadConfig {
+  /** MIME type or format hint (e.g. "text/markdown", "application/pdf") */
+  format?: string;
+}
+
+export interface ReferenceUrlConfig {
+  url: string;
+  format: "auto" | "md" | "html" | "csv";
+  chunkStrategy?: "heading" | "fixed" | "none";
+  tags?: string[];
+}
+
+export type SourceConfig = GitHubFileConfig | GitHubTestConfig | ReadTheDocsConfig | ReferenceUploadConfig | ReferenceUrlConfig | Record<string, never>;
 
 export interface KnowledgeSourceRow {
   id: string;
@@ -66,7 +78,7 @@ export function validateSourceConfig(
   const errors: string[] = [];
   const cfg = config as Record<string, unknown>;
 
-  if (!["github_file", "github_test_functions", "readthedocs", "manual"].includes(strategy)) {
+  if (!["github_file", "github_test_functions", "readthedocs", "manual", "reference_upload", "reference_url"].includes(strategy)) {
     return { valid: false, errors: [`Invalid strategy: ${strategy}`] };
   }
 
@@ -91,7 +103,14 @@ export function validateSourceConfig(
     if (!Array.isArray(cfg.pages) || cfg.pages.length === 0) errors.push("pages must be a non-empty array");
   }
 
-  // "manual" requires no config
+  if (strategy === "reference_url") {
+    if (typeof cfg.url !== "string" || cfg.url.length === 0) errors.push("url is required");
+    if (cfg.format !== undefined && !["auto", "md", "html", "csv"].includes(cfg.format as string)) {
+      errors.push("format must be 'auto', 'md', 'html', or 'csv'");
+    }
+  }
+
+  // "manual" and "reference_upload" require no config
 
   return { valid: errors.length === 0, errors };
 }

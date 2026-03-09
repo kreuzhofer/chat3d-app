@@ -24,6 +24,7 @@ import {
   triggerEmbed,
   exportKnowledge,
   importKnowledge,
+  createReferenceKnowledgeEntry,
   type KnowledgeEntry,
   type KnowledgeStats,
   type KnowledgeSourceRow,
@@ -50,6 +51,8 @@ const STRATEGY_LABELS: Record<string, string> = {
   github_test_functions: "GitHub Test Functions",
   readthedocs: "ReadTheDocs",
   manual: "Manual",
+  reference_upload: "Reference Upload",
+  reference_url: "Reference URL",
 };
 
 const STRATEGY_OPTIONS = [
@@ -57,6 +60,8 @@ const STRATEGY_OPTIONS = [
   { value: "github_test_functions", label: "GitHub Test Functions" },
   { value: "readthedocs", label: "ReadTheDocs" },
   { value: "manual", label: "Manual" },
+  { value: "reference_upload", label: "Reference Upload" },
+  { value: "reference_url", label: "Reference URL" },
 ];
 
 const CRAWL_STATUS_TONE: Record<string, BadgeTone> = {
@@ -124,7 +129,20 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
   const [formBaseUrl, setFormBaseUrl] = useState("");
   const [formPages, setFormPages] = useState("");
   const [formGithubToken, setFormGithubToken] = useState("");
+  const [formRefUrl, setFormRefUrl] = useState("");
+  const [formRefFormat, setFormRefFormat] = useState("auto");
+  const [formRefChunkStrategy, setFormRefChunkStrategy] = useState("none");
+  const [formRefTags, setFormRefTags] = useState("");
   const [formSaving, setFormSaving] = useState(false);
+
+  // ── Reference entry dialog ──
+  const [refDialog, setRefDialog] = useState<{ sourceId: string; sourceName: string } | null>(null);
+  const [refTitle, setRefTitle] = useState("");
+  const [refSourceUrl, setRefSourceUrl] = useState("");
+  const [refDescription, setRefDescription] = useState("");
+  const [refContent, setRefContent] = useState("");
+  const [refTags, setRefTags] = useState("");
+  const [refSaving, setRefSaving] = useState(false);
 
   // ── Export / Import ──
   const [exporting, setExporting] = useState(false);
@@ -208,6 +226,10 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
     setFormBaseUrl("");
     setFormPages("");
     setFormGithubToken("");
+    setFormRefUrl("");
+    setFormRefFormat("auto");
+    setFormRefChunkStrategy("none");
+    setFormRefTags("");
     setSourceDialog({ mode: "create" });
   }
 
@@ -215,6 +237,12 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
     setFormName(source.name);
     setFormStrategy(source.strategy);
     const cfg = source.config;
+    if (source.strategy === "reference_url") {
+      setFormRefUrl((cfg.url as string) ?? "");
+      setFormRefFormat((cfg.format as string) ?? "auto");
+      setFormRefChunkStrategy((cfg.chunkStrategy as string) ?? "none");
+      setFormRefTags(((cfg.tags as string[]) ?? []).join(", "));
+    }
     if (source.strategy === "github_file" || source.strategy === "github_test_functions") {
       setFormRepo((cfg.repo as string) ?? "");
       setFormBranch((cfg.branch as string) ?? "dev");
@@ -265,6 +293,16 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
         baseUrl: formBaseUrl,
         pages: formPages.split("\n").map(s => s.trim()).filter(Boolean),
       };
+    }
+    if (formStrategy === "reference_url") {
+      const cfg: Record<string, unknown> = {
+        url: formRefUrl,
+        format: formRefFormat,
+        chunkStrategy: formRefChunkStrategy,
+      };
+      const tags = formRefTags.split(",").map(s => s.trim()).filter(Boolean);
+      if (tags.length > 0) cfg.tags = tags;
+      return cfg;
     }
     return {};
   }
@@ -392,6 +430,41 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
     }
   }
 
+  // ── Reference entry handlers ──
+
+  function openRefDialog(sourceId: string, sourceName: string) {
+    setRefTitle("");
+    setRefSourceUrl("");
+    setRefDescription("");
+    setRefContent("");
+    setRefTags("");
+    setRefDialog({ sourceId, sourceName });
+  }
+
+  async function handleSaveReference() {
+    if (!refDialog) return;
+    setRefSaving(true);
+    setError(null);
+    try {
+      const tags = refTags.split(",").map(s => s.trim()).filter(Boolean);
+      await createReferenceKnowledgeEntry(token, {
+        sourceId: refDialog.sourceId,
+        title: refTitle.trim(),
+        content: refContent,
+        sourceUrl: refSourceUrl.trim() || undefined,
+        description: refDescription.trim() || undefined,
+        concepts: tags.length > 0 ? tags : undefined,
+      });
+      pushToast({ tone: "success", title: "Reference entry created" });
+      setRefDialog(null);
+      await Promise.all([loadSources(), loadStats(), loadEntries(offset)]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRefSaving(false);
+    }
+  }
+
   // ── Derived ──
 
   const sourceFilterOptions = useMemo(() => [
@@ -475,7 +548,7 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
                     ) : null}
                   </div>
                   <div className="flex gap-1">
-                    {source.strategy !== "manual" ? (
+                    {source.strategy !== "manual" && source.strategy !== "reference_upload" ? (
                       <Button
                         variant="outline"
                         size="sm"
@@ -485,6 +558,16 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
                         onClick={() => void handleCrawl(source.id)}
                       >
                         Crawl
+                      </Button>
+                    ) : null}
+                    {source.strategy === "reference_upload" ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        iconLeft={<Plus className="h-3 w-3" />}
+                        onClick={() => openRefDialog(source.id, source.name)}
+                      >
+                        Add Reference
                       </Button>
                     ) : null}
                     <Button
@@ -722,8 +805,10 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
                         </div>
                       ) : null}
                       <div>
-                        <span className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Code</span>
-                        <pre className="mt-1 max-h-80 overflow-auto rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3 font-mono text-xs leading-relaxed">
+                        <span className="text-xs font-medium text-[hsl(var(--muted-foreground))]">
+                          {entry.sourceType === "reference" ? "Content" : "Code"}
+                        </span>
+                        <pre className="mt-1 max-h-80 overflow-auto rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap">
                           {entry.code}
                         </pre>
                       </div>
@@ -866,6 +951,58 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
             </p>
           ) : null}
 
+          {formStrategy === "reference_upload" ? (
+            <p className="text-sm text-[hsl(var(--muted-foreground))]">
+              Reference sources hold non-code knowledge (specs, docs, guides) in Markdown format.
+              After creating the source, use &ldquo;Add Reference&rdquo; to add entries.
+              Reference entries are auto-validated and use a wider embedding window.
+            </p>
+          ) : null}
+
+          {formStrategy === "reference_url" ? (
+            <>
+              <div>
+                <label className="mb-1 block text-xs font-medium">URL</label>
+                <Input value={formRefUrl} onChange={(e) => setFormRefUrl(e.target.value)} placeholder="https://example.com/spec.html" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium">Format</label>
+                  <Select
+                    options={[
+                      { value: "auto", label: "Auto-detect" },
+                      { value: "md", label: "Markdown" },
+                      { value: "html", label: "HTML" },
+                      { value: "csv", label: "CSV" },
+                    ]}
+                    value={formRefFormat}
+                    onChange={(e) => setFormRefFormat(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium">Chunking</label>
+                  <Select
+                    options={[
+                      { value: "none", label: "None (single entry)" },
+                      { value: "heading", label: "By heading (## sections)" },
+                      { value: "fixed", label: "Fixed size (~4000 chars)" },
+                    ]}
+                    value={formRefChunkStrategy}
+                    onChange={(e) => setFormRefChunkStrategy(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium">Tags (comma-separated, stored as concepts)</label>
+                <Input value={formRefTags} onChange={(e) => setFormRefTags(e.target.value)} placeholder="usb-c, connector, dimensions" />
+              </div>
+              <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                The URL will be fetched and converted to Markdown when crawled.
+                Reference entries are auto-validated and use a wider embedding window.
+              </p>
+            </>
+          ) : null}
+
           <div className="flex justify-end gap-2">
             <Button variant="outline" disabled={formSaving} onClick={() => setSourceDialog(null)}>
               Cancel
@@ -920,6 +1057,59 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
           >
             Replace All Data
           </Button>
+        </div>
+      </Dialog>
+
+      {/* ── Add Reference Dialog ── */}
+      <Dialog
+        open={refDialog !== null}
+        title="Add Reference Entry"
+        description={refDialog ? `Add a reference knowledge entry to "${refDialog.sourceName}".` : undefined}
+        onClose={() => { if (!refSaving) setRefDialog(null); }}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium">Title</label>
+            <Input value={refTitle} onChange={(e) => setRefTitle(e.target.value)} placeholder="e.g. IPC-2221 PCB Trace Width Guidelines" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Source URL (optional)</label>
+            <Input value={refSourceUrl} onChange={(e) => setRefSourceUrl(e.target.value)} placeholder="https://..." />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Description (optional)</label>
+            <Input value={refDescription} onChange={(e) => setRefDescription(e.target.value)} placeholder="Brief summary of the reference content" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Tags (comma-separated, stored as concepts)</label>
+            <Input value={refTags} onChange={(e) => setRefTags(e.target.value)} placeholder="usb-c, connector, dimensions" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Content (Markdown)</label>
+            <textarea
+              className="w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-3 py-2 text-sm font-mono text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]"
+              rows={12}
+              value={refContent}
+              onChange={(e) => setRefContent(e.target.value)}
+              placeholder={"# Reference Title\n\nPaste or write Markdown content here...\n\nThis content will be embedded for semantic search."}
+            />
+            <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+              {refContent.length} characters. Reference entries use a 2000-char embedding window.
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={refSaving} onClick={() => setRefDialog(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              loading={refSaving}
+              disabled={refSaving || !refTitle.trim() || !refContent.trim()}
+              onClick={() => void handleSaveReference()}
+            >
+              Create Entry
+            </Button>
+          </div>
         </div>
       </Dialog>
     </div>
