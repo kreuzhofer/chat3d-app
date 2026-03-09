@@ -10,7 +10,7 @@ interface TabsProps {
 
 export function Tabs({ tabs, activeTab, onChange, className }: TabsProps) {
   return (
-    <div className={cn("inline-flex rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-1", className)} role="tablist">
+    <div className={cn("inline-flex overflow-x-auto rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-1", className)} role="tablist">
       {tabs.map((tab) => (
         <button
           key={tab.id}
@@ -18,7 +18,7 @@ export function Tabs({ tabs, activeTab, onChange, className }: TabsProps) {
           role="tab"
           aria-selected={activeTab === tab.id}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition",
+            "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition",
             activeTab === tab.id
               ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
               : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]",
