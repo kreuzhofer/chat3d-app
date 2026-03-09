@@ -64,6 +64,10 @@ const SETTINGS_REGISTRY = new Map<string, SettingMeta>([
   ["chat.agent_max_steps", { default: 15, label: "Agent max tool-use steps", description: "Maximum number of tool-use steps in the agent codegen loop", pipeline: "chat", min: 3, max: 50 }],
   ["workbench.agent_mode_enabled", { default: 0, label: "Agent mode enabled", description: "When enabled and an agent_codegen model is configured, uses agentic tool-use loop instead of fixed iteration pipeline", pipeline: "workbench", min: 0, max: 1 }],
   ["workbench.agent_max_steps", { default: 15, label: "Agent max tool-use steps", description: "Maximum number of tool-use steps in the agent codegen loop", pipeline: "workbench", min: 3, max: 50 }],
+  ["workbench.code_eval_enabled", { default: 0, label: "Code eval enabled", description: "Enable LLM-based code review alongside VLM visual eval (1=on, 0=off)", pipeline: "workbench", min: 0, max: 1 }],
+  ["chat.code_eval_enabled", { default: 0, label: "Code eval enabled", description: "Enable LLM-based code review alongside VLM visual eval (1=on, 0=off)", pipeline: "chat", min: 0, max: 1 }],
+  ["workbench.code_eval_weight", { default: 0.4, label: "Code eval weight", description: "Weight of code review score in composite evaluation (0.0–1.0). Visual eval gets remaining weight.", pipeline: "workbench", min: 0, max: 1 }],
+  ["chat.code_eval_weight", { default: 0.4, label: "Code eval weight", description: "Weight of code review score in composite evaluation (0.0–1.0). Visual eval gets remaining weight.", pipeline: "chat", min: 0, max: 1 }],
 ]);
 
 // ── In-memory cache ──────────────────────────────────────────────────
@@ -152,6 +156,14 @@ export async function isAgentModeEnabled(pipeline: "chat" | "workbench"): Promis
 
 export async function getAgentMaxSteps(pipeline: "chat" | "workbench"): Promise<number> {
   return getEffective(`${pipeline}.agent_max_steps`);
+}
+
+export async function isCodeEvalEnabled(pipeline: Pipeline): Promise<boolean> {
+  return (await getEffective(`${pipeline}.code_eval_enabled`)) === 1;
+}
+
+export async function getCodeEvalWeight(pipeline: Pipeline): Promise<number> {
+  return getEffective(`${pipeline}.code_eval_weight`);
 }
 
 // ── Admin API ────────────────────────────────────────────────────────

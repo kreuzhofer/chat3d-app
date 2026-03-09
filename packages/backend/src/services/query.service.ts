@@ -62,8 +62,11 @@ import {
   isTieredPromptEnabled,
   isAgentModeEnabled,
   getAgentMaxSteps,
+  isCodeEvalEnabled,
+  getCodeEvalWeight,
 } from "./generation-settings.service.js";
 import { generateSpec, formatDisambiguationResponse } from "./spec-generation.service.js";
+import { evaluateCode, computeCompositeScore, type CodeReviewResult } from "./code-eval.service.js";
 import { updateProjectCode, updateProjectFiles, getProjectCode } from "./code-project.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
 import {
@@ -1323,6 +1326,7 @@ export async function executeQueryPipeline(input: {
 
     // ── Spec generation (disambiguation check) ──
     let epVerificationChecklist: string[] = [];
+    let epCodeAssertions: import("./spec-generation.service.js").CodeAssertion[] = [];
     let epSpecInterpretation: string | undefined;
     let epSpecComplexity: "simple" | "medium" | "complex" | undefined;
     const specEnabled = await isSpecGenerationEnabled("chat");
@@ -1386,6 +1390,7 @@ export async function executeQueryPipeline(input: {
       }
 
       epVerificationChecklist = specResult.verificationChecklist;
+      epCodeAssertions = specResult.codeAssertions;
       epSpecInterpretation = specResult.interpretation;
       epSpecComplexity = specResult.complexity;
 
@@ -1637,7 +1642,12 @@ export async function executeQueryPipeline(input: {
     const epErrorHistory: ClassifiedRenderError[] = [];
     interface EpEvalState { score: number; issues: string[]; suggestions: string[]; vlmModel: string; checklistResults?: Array<{ question: string; pass: boolean; detail: string }>; }
     let epEvalState: EpEvalState | null = null;
-    let epBest: { code: string; score: number | null; evalState: EpEvalState | null; renderedFiles: Array<{ filename: string; contentBase64: string }>; screenshots: RenderedScreenshot[]; iteration: number } | null = null;
+    let epCodeEvalResult: CodeReviewResult | null = null;
+    let epBest: { code: string; score: number | null; evalState: EpEvalState | null; codeEvalResult: CodeReviewResult | null; renderedFiles: Array<{ filename: string; contentBase64: string }>; screenshots: RenderedScreenshot[]; iteration: number } | null = null;
+
+    // Code eval settings — fetch once outside the loop
+    const epCodeEvalEnabled = await isCodeEvalEnabled("chat");
+    const epCodeEvalWeight = epCodeEvalEnabled ? await getCodeEvalWeight("chat") : 0;
 
     // Edit-mode tracking
     let epPreviousRenderSucceeded = false;
@@ -1669,8 +1679,8 @@ export async function executeQueryPipeline(input: {
             ? buildModificationPrompt(epSystemPromptContent, epFewShots, prompt, epBaselineCode!, conversationText, epConvHistoryText || undefined)
             : buildInitialPrompt(epSystemPromptContent, epFewShots, prompt))
         : epUseEditMode
-          ? buildEditFixPrompt(epSystemPromptContent, prompt, epCurrentCode, iteration - 1, epRenderError, epEvalState?.issues ?? null, epEvalState?.suggestions ?? null, epRenderErrorCtx, { errorHistory: epErrorHistory })
-          : buildFixPrompt(epSystemPromptContent, epFewShots, prompt, epCurrentCode, iteration - 1, epRenderError, epEvalState?.issues ?? null, epEvalState?.suggestions ?? null, epRenderErrorCtx, { includeFewShots: false, errorHistory: epErrorHistory, useReducedSystemPrompt: true });
+          ? buildEditFixPrompt(epSystemPromptContent, prompt, epCurrentCode, iteration - 1, epRenderError, epEvalState?.issues ?? null, epEvalState?.suggestions ?? null, epRenderErrorCtx, { errorHistory: epErrorHistory, codeEvalIssues: epCodeEvalResult?.issues ?? null })
+          : buildFixPrompt(epSystemPromptContent, epFewShots, prompt, epCurrentCode, iteration - 1, epRenderError, epEvalState?.issues ?? null, epEvalState?.suggestions ?? null, epRenderErrorCtx, { includeFewShots: false, errorHistory: epErrorHistory, useReducedSystemPrompt: true, codeEvalIssues: epCodeEvalResult?.issues ?? null });
 
       // Build cacheable system prompt for supported providers
       const cgCacheableSystem = buildCacheableSystem(epCodegenConfig.provider, cgSystem);
@@ -1861,6 +1871,7 @@ export async function executeQueryPipeline(input: {
       epRenderError = null;
       epRenderErrorCtx = null;
       epEvalState = null;
+      epCodeEvalResult = null;
 
       // ── Pre-render validation (catches syntax errors + missing root_part cheaply) ──
       checkAborted();
@@ -1975,25 +1986,63 @@ export async function executeQueryPipeline(input: {
       }
 
       checkAborted();
-      if (epScreenshots.length > 0) {
-        await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "evaluating", detail: `Evaluating quality (attempt ${iteration}/${chatMaxFix})...` });
-        await persistPhase(`Evaluating quality (attempt ${iteration}/${chatMaxFix})...`);
-        try {
-          const evr = await evaluateModel({ userPrompt: prompt, categoryName: "chat", complexity: 5, images: epScreenshots.filter((s) => s.angle !== "isometric").map((s) => ({ angle: s.angle, base64: s.base64 })), looksCorrectThreshold: chatLooksCorrect, verificationChecklist: epVerificationChecklist.length > 0 ? epVerificationChecklist : undefined });
-          const vlmCost = calculateCostUsd(await getModelForPurpose("vlm_eval"), evr.promptTokens, evr.completionTokens);
-          epTotalPromptTokens += evr.promptTokens;
-          epTotalCompletionTokens += evr.completionTokens;
-          epTotalCostUsd += vlmCost;
-          await incrementContextCost(input.contextId, vlmCost);
-          await persistItemCost();
-          epEvalState = { score: evr.score, issues: evr.issues, suggestions: evr.suggestions, vlmModel: evr.vlmModel, checklistResults: evr.checklistResults };
-          queryLogger.info({ iteration, score: evr.score, issueCount: evr.issues.length, vlmModel: evr.vlmModel }, "VLM evaluation completed");
-        } catch (err) { queryLogger.warn({ iteration, err: err instanceof Error ? err.message : String(err) }, "VLM evaluation failed, skipping"); }
+      await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "evaluating", detail: `Evaluating quality (attempt ${iteration}/${chatMaxFix})...` });
+      await persistPhase(`Evaluating quality (attempt ${iteration}/${chatMaxFix})...`);
+
+      // Launch VLM eval and code eval in parallel
+      const epVlmPromise = epScreenshots.length > 0
+        ? evaluateModel({ userPrompt: prompt, categoryName: "chat", complexity: 5, images: epScreenshots.filter((s) => s.angle !== "isometric").map((s) => ({ angle: s.angle, base64: s.base64 })), looksCorrectThreshold: chatLooksCorrect, verificationChecklist: epVerificationChecklist.length > 0 ? epVerificationChecklist : undefined })
+            .catch((err) => { queryLogger.warn({ iteration, err: err instanceof Error ? err.message : String(err) }, "VLM evaluation failed, skipping"); return null; })
+        : Promise.resolve(null);
+
+      const epCodeEvalPromise = epCodeEvalEnabled
+        ? evaluateCode({ userPrompt: prompt, code: epCurrentCode, specInterpretation: epSpecInterpretation, codeAssertions: epCodeAssertions.length > 0 ? epCodeAssertions : undefined })
+            .catch((err) => { queryLogger.warn({ iteration, err: err instanceof Error ? err.message : String(err) }, "code eval failed, skipping"); return null; })
+        : Promise.resolve(null);
+
+      const [epVlmResult, epCeResult] = await Promise.all([epVlmPromise, epCodeEvalPromise]);
+
+      if (epVlmResult) {
+        const vlmCost = calculateCostUsd(await getModelForPurpose("vlm_eval"), epVlmResult.promptTokens, epVlmResult.completionTokens);
+        epTotalPromptTokens += epVlmResult.promptTokens;
+        epTotalCompletionTokens += epVlmResult.completionTokens;
+        epTotalCostUsd += vlmCost;
+        await incrementContextCost(input.contextId, vlmCost);
+        await persistItemCost();
+        epEvalState = { score: epVlmResult.score, issues: epVlmResult.issues, suggestions: epVlmResult.suggestions, vlmModel: epVlmResult.vlmModel, checklistResults: epVlmResult.checklistResults };
+        queryLogger.info({ iteration, score: epVlmResult.score, issueCount: epVlmResult.issues.length, vlmModel: epVlmResult.vlmModel }, "VLM evaluation completed");
       }
 
-      const epScore = epEvalState?.score ?? null;
+      epCodeEvalResult = epCeResult;
+      if (epCodeEvalResult) {
+        try {
+          const ceModelCfg = await getModelForPurpose("code_review").catch(() => getModelForPurpose("spec_generation")).catch(() => getModelForPurpose("conversation"));
+          const ceCost = calculateCostUsd(ceModelCfg, epCodeEvalResult.promptTokens, epCodeEvalResult.completionTokens);
+          epTotalPromptTokens += epCodeEvalResult.promptTokens;
+          epTotalCompletionTokens += epCodeEvalResult.completionTokens;
+          epTotalCostUsd += ceCost;
+          await incrementContextCost(input.contextId, ceCost);
+          await persistItemCost();
+        } catch { /* cost tracking best-effort */ }
+        queryLogger.info({ iteration, codeScore: epCodeEvalResult.score, codeIssueCount: epCodeEvalResult.issues.length, assertionPassRate: epCodeEvalResult.assertionSummary?.passRate ?? null }, "code evaluation completed");
+      }
+
+      // Compute composite score
+      const epVisualScore = epEvalState?.score ?? null;
+      const epCodeScore = epCodeEvalResult?.score ?? null;
+      const epAssertionPassRate = epCodeEvalResult?.assertionSummary?.passRate ?? null;
+
+      let epScore: number | null;
+      if (epCodeEvalEnabled && (epVisualScore !== null || epCodeScore !== null)) {
+        const epComposite = computeCompositeScore(epVisualScore, epCodeScore, epAssertionPassRate, epCodeEvalWeight);
+        epScore = epComposite.compositeScore;
+        queryLogger.info({ visualScore: epVisualScore, codeScore: epCodeScore, assertionPassRate: epAssertionPassRate, compositeScore: epScore, source: epComposite.source }, "composite evaluation");
+      } else {
+        epScore = epVisualScore;
+      }
+
       if (!epBest || (epScore !== null && (epBest.score === null || epScore > epBest.score))) {
-        epBest = { code: epCurrentCode, score: epScore, evalState: epEvalState, renderedFiles: epRenderedFiles.map((f) => ({ filename: f.filename, contentBase64: f.contentBase64 })), screenshots: [...epScreenshots], iteration };
+        epBest = { code: epCurrentCode, score: epScore, evalState: epEvalState, codeEvalResult: epCodeEvalResult, renderedFiles: epRenderedFiles.map((f) => ({ filename: f.filename, contentBase64: f.contentBase64 })), screenshots: [...epScreenshots], iteration };
       }
 
       // If screenshot service failed (not a code issue), stop the loop immediately.
@@ -2003,8 +2052,12 @@ export async function executeQueryPipeline(input: {
         break;
       }
 
+      const epAllIssues = [
+        ...(epEvalState?.issues ?? []),
+        ...(epCodeEvalResult?.issues ?? []),
+      ];
       const epApproved = epScore !== null && epScore >= chatAutoApprove;
-      if ((epApproved && (epEvalState?.issues ?? []).length === 0) || iteration >= chatMaxFix) break;
+      if ((epApproved && epAllIssues.length === 0) || iteration >= chatMaxFix) break;
     }
 
     // Persist only the best iteration's files to disk.
@@ -2044,6 +2097,7 @@ export async function executeQueryPipeline(input: {
     }
 
     const epFinalEval = epBest?.evalState ?? epEvalState;
+    const epFinalCodeEval = epBest?.codeEvalResult ?? epCodeEvalResult;
     queryLogger.info({
       bestIteration: epBest?.iteration ?? null,
       bestScore: epBest?.score ?? null,
@@ -2090,7 +2144,7 @@ export async function executeQueryPipeline(input: {
         stateMessage: "",
         usage: epUsage,
         artifact: epArtifact,
-        llm: { conversationModel: "pipeline", codegenModel: epCodegenConfig.label, vlmModel: epFinalEval?.vlmModel ?? null, evalScore: epFinalEval?.score ?? null, iterations: epBest?.iteration ?? 1 },
+        llm: { conversationModel: "pipeline", codegenModel: epCodegenConfig.label, vlmModel: epFinalEval?.vlmModel ?? null, evalScore: epBest?.score ?? epFinalEval?.score ?? null, visualScore: epFinalEval?.score ?? null, codeScore: epFinalCodeEval?.score ?? null, codeReviewModel: epFinalCodeEval?.codeReviewModel ?? null, iterations: epBest?.iteration ?? 1 },
         files: epFinalFiles,
       },
     ];

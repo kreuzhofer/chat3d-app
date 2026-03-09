@@ -143,6 +143,7 @@ describe("formatDisambiguationResponse", () => {
     const spec: SpecResult = {
       interpretation: "A container with a lid.",
       verificationChecklist: [],
+      codeAssertions: [],
       disambiguationNeeded: true,
       disambiguationQuestions: [
         "Should the lid be hinged or removable?",
@@ -166,6 +167,7 @@ describe("formatDisambiguationResponse", () => {
     const spec: SpecResult = {
       interpretation: "A bracket.",
       verificationChecklist: [],
+      codeAssertions: [],
       disambiguationNeeded: true,
       disambiguationQuestions: ["Should the bracket be L-shaped or U-shaped?"],
       complexity: "simple",

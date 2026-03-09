@@ -27,9 +27,23 @@ const logger = createLogger("spec-gen");
 
 export type SpecComplexity = "simple" | "medium" | "complex";
 
+export interface CodeAssertion {
+  /** Expected variable name in generated code (e.g., "diameter", "height") */
+  parameter: string;
+  /** Alternate variable names the code might use */
+  aliases: string[];
+  /** Comparison operator */
+  operator: "==" | ">=" | "<=" | "approx";
+  /** Expected numeric value */
+  value: number;
+  /** Human-readable description of what this checks */
+  description: string;
+}
+
 export interface SpecResult {
   interpretation: string;
   verificationChecklist: string[];
+  codeAssertions: CodeAssertion[];
   disambiguationNeeded: boolean;
   disambiguationQuestions: string[];
   complexity: SpecComplexity;
@@ -54,12 +68,29 @@ Given a user's prompt describing a 3D model, produce:
 
 4. **disambiguationQuestions**: If disambiguationNeeded is true, list 1-3 specific questions. Each should offer concrete choices. Example: "Should the handle be a solid bar or a hollow loop? (bar/loop)"
 
+5. **codeAssertions**: Extract testable numeric constraints from the prompt. Each assertion should verify a specific dimension, count, or measurement that the generated code MUST satisfy. Only include assertions for values the prompt EXPLICITLY states. Each assertion has:
+   - "parameter": the likely variable name in snake_case (e.g., "diameter", "wall_thickness", "num_holes")
+   - "aliases": 2-4 alternate variable names the code might use (e.g., ["d", "dia", "diam"])
+   - "operator": "==" for exact values, "approx" for approximate (within 10%), ">=" or "<=" for bounds
+   - "value": the numeric value
+   - "description": human-readable explanation (e.g., "Cylinder diameter should be 15mm")
+
+   Example for "A cylinder with 15mm diameter and 30mm height with 4 holes":
+   [
+     { "parameter": "diameter", "aliases": ["d", "dia", "cyl_diameter"], "operator": "==", "value": 15, "description": "Cylinder diameter should be 15mm" },
+     { "parameter": "height", "aliases": ["h", "cyl_height"], "operator": "==", "value": 30, "description": "Cylinder height should be 30mm" },
+     { "parameter": "num_holes", "aliases": ["hole_count", "n_holes"], "operator": "==", "value": 4, "description": "Should have exactly 4 holes" }
+   ]
+
+   If the prompt has no explicit numeric values, return an empty array.
+
 Be LENIENT about disambiguation. Most prompts should NOT need disambiguation. Only flag when multiple fundamentally different interpretations exist (e.g., "container with lid" — is the lid attached with a hinge, threaded, or snap-fit?).
 
 Return JSON only:
 {
   "interpretation": "...",
   "verificationChecklist": ["..."],
+  "codeAssertions": [{"parameter": "...", "aliases": [...], "operator": "...", "value": N, "description": "..."}],
   "disambiguationNeeded": true|false,
   "disambiguationQuestions": ["..."]
 }`;
@@ -69,6 +100,7 @@ Return JSON only:
 interface ParsedSpec {
   interpretation: string;
   verificationChecklist: string[];
+  codeAssertions: CodeAssertion[];
   disambiguationNeeded: boolean;
   disambiguationQuestions: string[];
 }
@@ -76,9 +108,24 @@ interface ParsedSpec {
 const EMPTY_SPEC: ParsedSpec = {
   interpretation: "",
   verificationChecklist: [],
+  codeAssertions: [],
   disambiguationNeeded: false,
   disambiguationQuestions: [],
 };
+
+function parseCodeAssertions(raw: unknown): CodeAssertion[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((a): a is Record<string, unknown> => typeof a === "object" && a !== null)
+    .filter((a) => typeof a.parameter === "string" && typeof a.value === "number")
+    .map((a) => ({
+      parameter: a.parameter as string,
+      aliases: Array.isArray(a.aliases) ? (a.aliases as unknown[]).filter((s): s is string => typeof s === "string") : [],
+      operator: (["==", ">=", "<=", "approx"].includes(a.operator as string) ? a.operator : "==") as CodeAssertion["operator"],
+      value: a.value as number,
+      description: typeof a.description === "string" ? a.description : `${a.parameter} should be ${a.value}`,
+    }));
+}
 
 function buildSpecFromParsed(raw: Partial<ParsedSpec>): ParsedSpec {
   return {
@@ -86,6 +133,7 @@ function buildSpecFromParsed(raw: Partial<ParsedSpec>): ParsedSpec {
     verificationChecklist: Array.isArray(raw.verificationChecklist)
       ? raw.verificationChecklist.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
       : [],
+    codeAssertions: parseCodeAssertions((raw as Record<string, unknown>).codeAssertions),
     disambiguationNeeded: raw.disambiguationNeeded === true,
     disambiguationQuestions: Array.isArray(raw.disambiguationQuestions)
       ? raw.disambiguationQuestions.filter((q): q is string => typeof q === "string" && q.trim().length > 0)
@@ -121,6 +169,7 @@ export function parseSpecResponse(content: string): ParsedSpec {
     return {
       interpretation: interpretationMatch?.[1] ?? "",
       verificationChecklist: [],
+      codeAssertions: [],
       disambiguationNeeded: disambiguationMatch?.[1]?.toLowerCase() === "true",
       disambiguationQuestions: [],
     };
@@ -176,7 +225,7 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
         model,
         system: SPEC_SYSTEM_PROMPT,
         messages: [{ role: "user", content: promptText }],
-        maxOutputTokens: 512,
+        maxOutputTokens: 1024,
       }),
     );
 
@@ -189,12 +238,19 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
       {
         disambiguationNeeded: parsed.disambiguationNeeded,
         checklistCount: parsed.verificationChecklist.length,
+        assertionCount: parsed.codeAssertions.length,
         questionCount: parsed.disambiguationQuestions.length,
         interpretation: parsed.interpretation.slice(0, 100),
         complexity,
       },
       "spec generated",
     );
+    if (parsed.codeAssertions.length > 0) {
+      logger.debug(
+        { assertions: parsed.codeAssertions.map((a) => `${a.parameter}${a.operator}${a.value}`) },
+        "extracted code assertions",
+      );
+    }
 
     return {
       ...parsed,

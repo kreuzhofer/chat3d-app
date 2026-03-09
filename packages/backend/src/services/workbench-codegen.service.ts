@@ -59,8 +59,11 @@ import {
   isTieredPromptEnabled,
   isAgentModeEnabled,
   getAgentMaxSteps,
+  isCodeEvalEnabled,
+  getCodeEvalWeight,
 } from "./generation-settings.service.js";
 import { generateSpec, type SpecResult } from "./spec-generation.service.js";
+import { evaluateCode, computeCompositeScore, type CodeReviewResult } from "./code-eval.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
 import crypto from "node:crypto";
 
@@ -204,6 +207,8 @@ export function buildFixPrompt(
     errorHistory?: ClassifiedRenderError[];
     /** When true, uses buildReducedSystemPrompt() instead of the passed-in systemPromptContent. */
     useReducedSystemPrompt?: boolean;
+    /** Issues from code-level evaluation (parameter mismatches, missing features). */
+    codeEvalIssues?: string[] | null;
   },
 ): { system: string; userContent: string } {
   const includeFewShots = options?.includeFewShots ?? true;
@@ -267,7 +272,16 @@ export function buildFixPrompt(
   }
 
   if (evalIssues && evalIssues.length > 0) {
+    sections.push("", "## Visual evaluation issues (from rendered model):");
     for (const issue of evalIssues) {
+      sections.push(`- ${issue}`);
+    }
+  }
+
+  const codeEvalIssues = options?.codeEvalIssues;
+  if (codeEvalIssues && codeEvalIssues.length > 0) {
+    sections.push("", "## Code review issues (from code analysis, NOT visual):");
+    for (const issue of codeEvalIssues) {
       sections.push(`- ${issue}`);
     }
   }
@@ -314,7 +328,7 @@ export function buildEditFixPrompt(
   evalIssues: string[] | null,
   evalSuggestions: string[] | null,
   renderErrorContext?: RenderErrorContext | null,
-  options?: { errorHistory?: ClassifiedRenderError[]; useReducedSystemPrompt?: boolean },
+  options?: { errorHistory?: ClassifiedRenderError[]; useReducedSystemPrompt?: boolean; codeEvalIssues?: string[] | null },
 ): { system: string; userContent: string } {
   const errorHistory = options?.errorHistory ?? [];
 
@@ -369,7 +383,16 @@ export function buildEditFixPrompt(
   }
 
   if (evalIssues && evalIssues.length > 0) {
+    sections.push("", "## Visual evaluation issues (from rendered model):");
     for (const issue of evalIssues) {
+      sections.push(`- ${issue}`);
+    }
+  }
+
+  const codeEvalIssues = options?.codeEvalIssues;
+  if (codeEvalIssues && codeEvalIssues.length > 0) {
+    sections.push("", "## Code review issues (from code analysis, NOT visual):");
+    for (const issue of codeEvalIssues) {
       sections.push(`- ${issue}`);
     }
   }
@@ -1174,10 +1197,15 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
   let renderError: string | null = null;
   let renderErrorCtx: RenderErrorContext | null = null;
   let evalResult: EvaluationResult | null = null;
+  let codeEvalResult: CodeReviewResult | null = null;
   let renderedFiles: RenderedFile[] = [];
   let screenshots: RenderedScreenshot[] = [];
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
+
+  // Code eval settings — fetch once outside the loop
+  const wbCodeEvalEnabled = await isCodeEvalEnabled("workbench");
+  const wbCodeEvalWeight = wbCodeEvalEnabled ? await getCodeEvalWeight("workbench") : 0;
 
   // Track classified render errors across iterations for escalation logic
   const errorHistory: ClassifiedRenderError[] = [];
@@ -1227,7 +1255,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       iteration === 1
         ? buildInitialPrompt(systemPromptContent, fewShots, ctx.prompt)
         : useEditMode
-          ? buildEditFixPrompt(CODEGEN_SYSTEM_PROMPT, ctx.prompt, currentCode, iteration - 1, renderError, evalResult?.issues ?? null, evalResult?.suggestions ?? null, renderErrorCtx, { errorHistory, useReducedSystemPrompt: false })
+          ? buildEditFixPrompt(CODEGEN_SYSTEM_PROMPT, ctx.prompt, currentCode, iteration - 1, renderError, evalResult?.issues ?? null, evalResult?.suggestions ?? null, renderErrorCtx, { errorHistory, useReducedSystemPrompt: false, codeEvalIssues: codeEvalResult?.issues ?? null })
           : buildFixPrompt(
               CODEGEN_SYSTEM_PROMPT,
               fewShots,
@@ -1238,7 +1266,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
               evalResult?.issues ?? null,
               evalResult?.suggestions ?? null,
               renderErrorCtx,
-              { useReducedSystemPrompt: false, errorHistory },
+              { useReducedSystemPrompt: false, errorHistory, codeEvalIssues: codeEvalResult?.issues ?? null },
             );
 
     logger.info({ promptChars: cgUserContent.length, systemChars: cgSystem.length }, "LLM prompt built");
@@ -1283,6 +1311,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     renderError = null;
     renderErrorCtx = null;
     evalResult = null;
+    codeEvalResult = null;
     renderedFiles = [];
     screenshots = [];
 
@@ -1469,27 +1498,50 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       logger.warn("no STL file available, skipping screenshots");
     }
 
-    // 5. VLM Evaluate — send labeled images, exclude isometric (thumbnail-only)
+    // 5. Evaluate — VLM visual eval + optional code eval (run in parallel when possible)
     onProgress?.("evaluating", `Evaluating quality (attempt ${iteration}/${dynMaxFix})...`);
     const vlmImages = screenshots
       .filter((s) => s.angle !== "isometric")
       .map((s) => ({ angle: s.angle, base64: s.base64 }));
-    logger.info({ imageCount: vlmImages.length }, "starting VLM evaluation");
-    if (vlmImages.length > 0) {
-      evalResult = await evaluateModel({
-        userPrompt: ctx.prompt,
-        categoryName: ctx.categoryName,
-        complexity: ctx.complexity,
-        images: vlmImages,
-        looksCorrectThreshold: dynLooksCorrect,
-        verificationChecklist: specResult?.verificationChecklist,
-      });
-      // Accumulate VLM eval tokens into the total
+    logger.info({ imageCount: vlmImages.length, codeEvalEnabled: wbCodeEvalEnabled }, "starting evaluation");
+
+    // Launch VLM eval and code eval in parallel
+    const vlmPromise = vlmImages.length > 0
+      ? evaluateModel({
+          userPrompt: ctx.prompt,
+          categoryName: ctx.categoryName,
+          complexity: ctx.complexity,
+          images: vlmImages,
+          looksCorrectThreshold: dynLooksCorrect,
+          verificationChecklist: specResult?.verificationChecklist,
+        }).catch((err) => { logger.warn({ err: err instanceof Error ? err.message : String(err) }, "VLM evaluation failed"); return null; })
+      : Promise.resolve(null);
+
+    const codeEvalPromise = wbCodeEvalEnabled
+      ? evaluateCode({
+          userPrompt: ctx.prompt,
+          code: currentCode,
+          specInterpretation: specResult?.interpretation,
+          codeAssertions: specResult?.codeAssertions,
+        }).catch((err) => { logger.warn({ err: err instanceof Error ? err.message : String(err) }, "code eval failed"); return null; })
+      : Promise.resolve(null);
+
+    const [vlmResult, ceResult] = await Promise.all([vlmPromise, codeEvalPromise]);
+    evalResult = vlmResult;
+    codeEvalResult = ceResult;
+
+    if (evalResult) {
       totalPromptTokens += evalResult.promptTokens;
       totalCompletionTokens += evalResult.completionTokens;
       logger.info({ score: evalResult.score, looksCorrect: evalResult.looksCorrect, vlmTokens: evalResult.promptTokens + evalResult.completionTokens }, "VLM evaluation result");
-    } else {
-      logger.warn("skipping VLM evaluation, no screenshots");
+    } else if (vlmImages.length > 0) {
+      logger.warn("VLM evaluation returned no result");
+    }
+
+    if (codeEvalResult) {
+      totalPromptTokens += codeEvalResult.promptTokens;
+      totalCompletionTokens += codeEvalResult.completionTokens;
+      logger.info({ codeScore: codeEvalResult.score, codeIssueCount: codeEvalResult.issues.length, assertionPassRate: codeEvalResult.assertionSummary?.passRate ?? null }, "code evaluation result");
     }
 
     // 5b. If screenshots failed due to a service issue (not a code issue), persist
@@ -1560,9 +1612,26 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     }
 
     // 6. Track best result and decide whether to continue fixing
-    const score = evalResult?.score ?? null;
+    // Compute composite score when code eval is enabled
+    const visualScore = evalResult?.score ?? null;
+    const codeScore = codeEvalResult?.score ?? null;
+    const assertionPassRate = codeEvalResult?.assertionSummary?.passRate ?? null;
+
+    let score: number | null;
+    if (wbCodeEvalEnabled && (visualScore !== null || codeScore !== null)) {
+      const composite = computeCompositeScore(visualScore, codeScore, assertionPassRate, wbCodeEvalWeight);
+      score = composite.compositeScore;
+      logger.info({ visualScore, codeScore, assertionPassRate, compositeScore: score, source: composite.source }, "composite evaluation");
+    } else {
+      score = visualScore;
+    }
+
+    const allIssues = [
+      ...(evalResult?.issues ?? []),
+      ...(codeEvalResult?.issues ?? []),
+    ];
     const approved = shouldAutoApprove(score, dynAutoApprove, evalResult?.checklistResults);
-    const hasIssues = (evalResult?.issues ?? []).length > 0;
+    const hasIssues = allIssues.length > 0;
     logger.info({ score, threshold: dynAutoApprove, approved, hasIssues, lastIteration: iteration >= dynMaxFix }, "iteration evaluation summary");
 
     // Track the best successful result so we never regress
