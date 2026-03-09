@@ -673,3 +673,102 @@ export async function importKnowledge(
   }
   return body;
 }
+
+// ── Usage Analytics ─────────────────────────────────────────────────
+
+export interface UsageSummary {
+  totalCost: number;
+  totalRequests: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalReasoningTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheWriteTokens: number;
+  avgCostPerRequest: number;
+  avgInputTokensPerRequest: number;
+  avgOutputTokensPerRequest: number;
+}
+
+export interface TimeseriesPoint {
+  bucket: string;
+  group: string | null;
+  cost: number;
+  inputTokens: number;
+  outputTokens: number;
+  requests: number;
+}
+
+export interface TimeseriesResponse {
+  totals: { cost: number; inputTokens: number; outputTokens: number; requests: number };
+  averages: { costPerRequest: number; inputTokensPerRequest: number; outputTokensPerRequest: number };
+  series: TimeseriesPoint[];
+}
+
+export interface UsageFiltersInput {
+  from?: string;
+  to?: string;
+  userId?: string;
+  modelName?: string;
+  providerName?: string;
+  purpose?: string;
+}
+
+function buildUsageQuery(filters: UsageFiltersInput, extra?: Record<string, string>): string {
+  const params = new URLSearchParams();
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
+  if (filters.userId) params.set("userId", filters.userId);
+  if (filters.modelName) params.set("modelName", filters.modelName);
+  if (filters.providerName) params.set("providerName", filters.providerName);
+  if (filters.purpose) params.set("purpose", filters.purpose);
+  if (extra) {
+    for (const [k, v] of Object.entries(extra)) params.set(k, v);
+  }
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export async function getUsageSummary(token: string, filters: UsageFiltersInput): Promise<UsageSummary> {
+  return requestAdminJson(token, `/usage/summary${buildUsageQuery(filters)}`);
+}
+
+export async function getUsageTimeseries(
+  token: string,
+  filters: UsageFiltersInput,
+  granularity: string,
+  groupBy?: string,
+): Promise<TimeseriesResponse> {
+  const extra: Record<string, string> = { granularity };
+  if (groupBy) extra.groupBy = groupBy;
+  return requestAdminJson(token, `/usage/timeseries${buildUsageQuery(filters, extra)}`);
+}
+
+export async function exportUsageData(
+  token: string,
+  filters: UsageFiltersInput,
+  format: "csv" | "json",
+): Promise<void> {
+  const qs = buildUsageQuery(filters, { format });
+  const response = await fetch(`${ADMIN_API_BASE}/usage/export${qs}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error("Export failed");
+
+  if (format === "csv") {
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "usage-events.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  } else {
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "usage-events.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+}

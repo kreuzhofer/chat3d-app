@@ -10,7 +10,7 @@
  * failures never block the codegen pipeline.
  */
 
-import { generateText } from "ai";
+import { trackedGenerateText } from "./tracked-llm.service.js";
 import { isProviderQuotaError } from "../utils/llm-errors.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import {
@@ -221,11 +221,17 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
 
     const semaphore = getLlmSemaphore(config.provider, config.maxConcurrent);
     const result = await semaphore.run(async () =>
-      generateText({
+      trackedGenerateText({
         model,
         system: SPEC_SYSTEM_PROMPT,
         messages: [{ role: "user", content: promptText }],
         maxOutputTokens: 1024,
+      }, {
+        purpose: "spec_generation",
+        providerName: config.provider,
+        modelId: config.id,
+        modelName: config.modelName,
+        modelConfig: { costPer1mInput: config.costPer1mInput, costPer1mOutput: config.costPer1mOutput },
       }),
     );
 

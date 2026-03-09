@@ -6,7 +6,7 @@
  * for the code generation pipeline.
  */
 
-import { embed, embedMany } from "ai";
+import { trackedEmbed, trackedEmbedMany } from "./tracked-llm.service.js";
 import { asQuotaError } from "../utils/llm-errors.js";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
@@ -72,10 +72,19 @@ export async function embedPromptText(text: string): Promise<number[]> {
 export async function embedPromptTextWithUsage(text: string): Promise<{ embedding: number[]; tokens: number }> {
   const { model, config: cfg } = await resolveEmbeddingConfig();
   try {
-    const result = await embed({
+    const result = await trackedEmbed({
       model,
       value: text,
       providerOptions: { openai: { dimensions: EMBEDDING_DIMENSIONS } },
+    }, {
+      purpose: "embeddings",
+      providerName: cfg.provider,
+      modelId: cfg.id,
+      modelName: cfg.modelName,
+      modelConfig: {
+        costPer1mInput: cfg.costPer1mInput,
+        costPer1mOutput: cfg.costPer1mOutput,
+      },
     });
     return { embedding: result.embedding, tokens: result.usage?.tokens ?? 0 };
   } catch (error) {
@@ -137,10 +146,19 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
     logger.info({ batch: i / BATCH_SIZE + 1, size: batch.length }, "embedding batch");
     let embedResult;
     try {
-      embedResult = await embedMany({
+      embedResult = await trackedEmbedMany({
         model,
         values: texts,
         providerOptions: { openai: { dimensions: EMBEDDING_DIMENSIONS } },
+      }, {
+        purpose: "embeddings",
+        providerName: embeddingCfg.provider,
+        modelId: embeddingCfg.id,
+        modelName: embeddingCfg.modelName,
+        modelConfig: {
+          costPer1mInput: embeddingCfg.costPer1mInput,
+          costPer1mOutput: embeddingCfg.costPer1mOutput,
+        },
       });
     } catch (error) {
       const quotaError = asQuotaError(error, embeddingCfg.provider);

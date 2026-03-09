@@ -6,14 +6,13 @@
  * to use Vercel AI SDK with multi-provider support.
  */
 
-import { generateText } from "ai";
+import { trackedGenerateText } from "./tracked-llm.service.js";
 import { isQuotaExhaustion, asQuotaError, isRateLimitError } from "../utils/llm-errors.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import { createLogger } from "../utils/logger.js";
 import {
   getModelForPurpose,
   createProviderModel as createProviderModelFromConfig,
-  type LlmModelConfig,
 } from "./llm-config.service.js";
 
 const logger = createLogger("vlm-eval");
@@ -379,11 +378,17 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
         const providerModel = createProviderModelFromConfig(vlmConfig);
 
         logger.info({ attempt: attempt + 1, maxAttempts: EVAL_MAX_RETRIES + 1, model: vlmModelLabel }, "calling VLM");
-        const result = await generateText({
+        const result = await trackedGenerateText({
           model: providerModel,
           system: systemPrompt,
           messages: [{ role: "user", content: userContent }],
           maxOutputTokens: 1024, // Eval-specific limit — keep responses concise
+        }, {
+          purpose: "vlm_evaluation",
+          providerName: vlmConfig.provider,
+          modelId: vlmConfig.id,
+          modelName: vlmConfig.modelName,
+          modelConfig: { costPer1mInput: vlmConfig.costPer1mInput, costPer1mOutput: vlmConfig.costPer1mOutput },
         });
 
         const responseText = result.text;

@@ -1,4 +1,6 @@
-import { generateText, NoOutputGeneratedError, streamText } from "ai";
+import { NoOutputGeneratedError, streamText } from "ai";
+import { trackedGenerateText } from "./tracked-llm.service.js";
+import { recordUsageEvent, type LlmPurpose } from "./usage-tracking.service.js";
 import { asQuotaError } from "../utils/llm-errors.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import { withLlmRetry } from "../utils/llm-retry.js";
@@ -257,6 +259,7 @@ async function generateWithConfig(
   prompt: string,
   abortSignal?: AbortSignal,
   system?: string,
+  purpose?: LlmPurpose,
 ): Promise<ProviderGenerationResult> {
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
@@ -343,14 +346,40 @@ async function generateWithConfig(
         if (!hasResolvedUsage && streamStepUsage) {
           logger.debug({ provider: cfg.provider, model: cfg.modelName }, "using finish-step usage (resolved promise usage was empty)");
         }
+        // Record usage for Bedrock fallback stream
+        if (purpose) {
+          const su = extractTokenUsage(usage);
+          recordUsageEvent({
+            providerName: cfg.provider,
+            modelId: cfg.id,
+            modelName: cfg.modelName,
+            purpose,
+            inputTokens: su.inputTokens ?? 0,
+            outputTokens: su.outputTokens ?? 0,
+            reasoningTokens: su.reasoningTokens ?? 0,
+            cacheReadTokens: su.cacheReadTokens ?? 0,
+            cacheWriteTokens: su.cacheWriteTokens ?? 0,
+            totalTokens: su.totalTokens ?? 0,
+            estimatedCostUsd: calculateCostUsd(cfg, su.inputTokens ?? 0, su.outputTokens ?? 0, su.reasoningTokens ?? 0, su.cacheReadTokens ?? 0, su.cacheWriteTokens ?? 0),
+          });
+        }
       } else {
-        const result = await generateText({
-          model: providerModel,
-          prompt,
-          abortSignal,
-          ...(cacheableSystem ? { system: cacheableSystem } : {}),
-          ...extraOpts,
-        });
+        const result = await trackedGenerateText(
+          {
+            model: providerModel,
+            prompt,
+            abortSignal,
+            ...(cacheableSystem ? { system: cacheableSystem } : {}),
+            ...extraOpts,
+          },
+          {
+            purpose: purpose ?? "codegen",
+            providerName: cfg.provider,
+            modelId: cfg.id,
+            modelName: cfg.modelName,
+            modelConfig: cfg,
+          },
+        );
 
         text = result.text;
         reasoningText = result.reasoningText;
@@ -404,6 +433,7 @@ async function generateWithMessages(
   system: string,
   messages: CoreMessage[],
   abortSignal?: AbortSignal,
+  purpose?: LlmPurpose,
 ): Promise<ProviderGenerationResult> {
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
@@ -417,13 +447,22 @@ async function generateWithMessages(
   const semaphore = getLlmSemaphore(cfg.provider, cfg.maxConcurrent);
   return semaphore.run(() =>
     withLlmRetry(async () => {
-      const result = await generateText({
-        model: providerModel,
-        system: cacheableSystem,
-        messages,
-        abortSignal,
-        ...extraOpts,
-      });
+      const result = await trackedGenerateText(
+        {
+          model: providerModel,
+          system: cacheableSystem,
+          messages,
+          abortSignal,
+          ...extraOpts,
+        },
+        {
+          purpose: purpose ?? "conversation",
+          providerName: cfg.provider,
+          modelId: cfg.id,
+          modelName: cfg.modelName,
+          modelConfig: cfg,
+        },
+      );
 
       // Log cache metrics when available
       const cacheUsage = extractTokenUsage(result.usage);
@@ -456,6 +495,7 @@ async function streamWithMessages(
   messages: CoreMessage[],
   onToken: (token: string) => void,
   abortSignal?: AbortSignal,
+  purpose?: LlmPurpose,
 ): Promise<ProviderGenerationResult> {
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
@@ -516,6 +556,23 @@ async function streamWithMessages(
         );
       }
 
+      // Record usage event for streaming call
+      if (purpose) {
+        recordUsageEvent({
+          providerName: cfg.provider,
+          modelId: cfg.id,
+          modelName: cfg.modelName,
+          purpose,
+          inputTokens: cacheUsage.inputTokens ?? 0,
+          outputTokens: cacheUsage.outputTokens ?? 0,
+          reasoningTokens: cacheUsage.reasoningTokens ?? 0,
+          cacheReadTokens: cacheUsage.cacheReadTokens ?? 0,
+          cacheWriteTokens: cacheUsage.cacheWriteTokens ?? 0,
+          totalTokens: cacheUsage.totalTokens ?? 0,
+          estimatedCostUsd: calculateCostUsd(cfg, cacheUsage.inputTokens ?? 0, cacheUsage.outputTokens ?? 0, cacheUsage.reasoningTokens ?? 0, cacheUsage.cacheReadTokens ?? 0, cacheUsage.cacheWriteTokens ?? 0),
+        });
+      }
+
       if (fullText.trim() === "") {
         throw new LlmServiceError("LLM returned empty output", 502);
       }
@@ -547,6 +604,7 @@ async function streamWithConfig(
   onToken: (token: string) => void,
   abortSignal?: AbortSignal,
   system?: string,
+  purpose?: LlmPurpose,
 ): Promise<ProviderGenerationResult> {
   const providerModel = createProviderModelFromConfig(cfg);
   const extraOpts = buildGenerateOptions(cfg);
@@ -623,6 +681,23 @@ async function streamWithConfig(
           { provider: cfg.provider, model: cfg.modelName, cacheRead: cacheUsage.cacheReadTokens, cacheWrite: cacheUsage.cacheWriteTokens },
           "prompt cache metrics",
         );
+      }
+
+      // Record usage event for streaming call
+      if (purpose) {
+        recordUsageEvent({
+          providerName: cfg.provider,
+          modelId: cfg.id,
+          modelName: cfg.modelName,
+          purpose,
+          inputTokens: cacheUsage.inputTokens ?? 0,
+          outputTokens: cacheUsage.outputTokens ?? 0,
+          reasoningTokens: cacheUsage.reasoningTokens ?? 0,
+          cacheReadTokens: cacheUsage.cacheReadTokens ?? 0,
+          cacheWriteTokens: cacheUsage.cacheWriteTokens ?? 0,
+          totalTokens: cacheUsage.totalTokens ?? 0,
+          estimatedCostUsd: calculateCostUsd(cfg, cacheUsage.inputTokens ?? 0, cacheUsage.outputTokens ?? 0, cacheUsage.reasoningTokens ?? 0, cacheUsage.cacheReadTokens ?? 0, cacheUsage.cacheWriteTokens ?? 0),
+        });
       }
 
       if (fullText.trim() === "") {
@@ -801,7 +876,7 @@ export async function generateConversationText(input: {
       ...input,
       images: input.images!,
     });
-    const result = await generateWithMessages(modelCfg, system, messages, input.abortSignal);
+    const result = await generateWithMessages(modelCfg, system, messages, input.abortSignal, "conversation");
     return {
       model,
       text: result.text,
@@ -815,7 +890,7 @@ export async function generateConversationText(input: {
     };
   }
 
-  const result = await generateWithConfig(modelCfg, prompt, input.abortSignal);
+  const result = await generateWithConfig(modelCfg, prompt, input.abortSignal, undefined, "conversation");
 
   return {
     model,
@@ -867,7 +942,7 @@ export async function generateConversationTextStream(input: {
       ...input,
       images: input.images!,
     });
-    const result = await streamWithMessages(modelCfg, system, messages, input.onToken, input.abortSignal);
+    const result = await streamWithMessages(modelCfg, system, messages, input.onToken, input.abortSignal, "conversation");
     return {
       model,
       text: result.text,
@@ -881,7 +956,7 @@ export async function generateConversationTextStream(input: {
     };
   }
 
-  const result = await streamWithConfig(modelCfg, prompt, input.onToken, input.abortSignal);
+  const result = await streamWithConfig(modelCfg, prompt, input.onToken, input.abortSignal, undefined, "conversation");
 
   return {
     model,
@@ -1011,7 +1086,7 @@ export_step(model.part, "${baseFileName}.step")
     };
   }
 
-  const result = await generateWithConfig(modelCfg, userContent, undefined, system);
+  const result = await generateWithConfig(modelCfg, userContent, undefined, system, "codegen");
   const code = extractExecutableCode(result.text);
 
   return {

@@ -13,7 +13,8 @@
  * (query.service.ts) to persist to storage.
  */
 
-import { generateText, stepCountIs, hasToolCall, zodSchema } from "ai";
+import { stepCountIs, hasToolCall, zodSchema } from "ai";
+import { trackedGenerateText } from "./tracked-llm.service.js";
 import { z } from "zod";
 import { createLogger } from "../utils/logger.js";
 import { AgentFilesystem } from "./agent-filesystem.service.js";
@@ -425,7 +426,7 @@ Always view a file before editing it to see the current line numbers and content
       delete agentTools.render_project;
     }
 
-    const result = await generateText({
+    const result = await trackedGenerateText({
       model,
       system: systemPrompt,
       prompt: userMessage,
@@ -458,6 +459,12 @@ Always view a file before editing it to see the current line numbers and content
         onProgress?.("agent", `Agent step ${stepNum}/${maxSteps}: ${toolNames.join(", ") || "thinking"}`);
       },
       ...extraOpts,
+    }, {
+      purpose: "agent_orchestration",
+      providerName: modelConfig.provider,
+      modelId: modelConfig.id,
+      modelName: modelConfig.modelName,
+      modelConfig: { costPer1mInput: modelConfig.costPer1mInput, costPer1mOutput: modelConfig.costPer1mOutput },
     });
 
     const finalCode = fs.getMainCode() ?? "";
@@ -581,11 +588,17 @@ Respond with raw JSON only. No markdown, no code fences, no explanation:
     ? `User request: ${promptText}\n\nInterpretation: ${interpretation}`
     : promptText;
 
-  const result = await generateText({
+  const result = await trackedGenerateText({
     model,
     system: systemPrompt,
     prompt: fullPrompt,
     maxOutputTokens: 2048,
+  }, {
+    purpose: "agent_decomposition",
+    providerName: modelConfig.provider,
+    modelId: modelConfig.id,
+    modelName: modelConfig.modelName,
+    modelConfig: { costPer1mInput: modelConfig.costPer1mInput, costPer1mOutput: modelConfig.costPer1mOutput },
   });
 
   const promptTokens = result.usage?.inputTokens ?? 0;

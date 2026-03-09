@@ -7,7 +7,8 @@
  *   → auto-approve or fix loop (up to MAX_FIX_ITERATIONS)
  */
 
-import { generateText } from "ai";
+import { trackedGenerateText } from "./tracked-llm.service.js";
+import { runWithUsageContext } from "./usage-tracking.service.js";
 import { asQuotaError } from "../utils/llm-errors.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import { withLlmRetry } from "../utils/llm-retry.js";
@@ -83,6 +84,17 @@ const PIPELINE_TIMEOUT_MS = 15 * 60 * 1000;
  */
 const CODE_TEMPLATE = `from build123d import *
 import math
+from bd_warehouse.thread import IsoThread, AcmeThread, MetricTrapezoidalThread
+from bd_warehouse.fastener import (
+    CounterSunkScrew, HexHeadScrew, SocketHeadCapScrew, SetScrew,
+    PanHeadScrew, ButtonHeadScrew,
+    HexNut, HexNutWithFlange, SquareNut, DomedCapNut,
+    Washer, PlainWasher, ChamferedWasher,
+)
+from bd_warehouse.bearing import SingleRowDeepGrooveBallBearing
+from bd_warehouse.gear import SpurGear
+from bd_warehouse.pipe import Pipe, PipeSection
+from bd_warehouse.sprocket import Sprocket
 ###CODE###
 export_step(root_part, "###FILENAME###.step")
 exporter = Mesher()
@@ -179,9 +191,9 @@ export function buildInitialPrompt(
 
   userSections.push(
     "## Requirements",
-    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math`. You may also import `itertools`, `functools`, `copy`, or `numpy`.",
+    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math` and `bd_warehouse` classes (threads, fasteners, bearings, gears, pipes). You may also import `itertools`, `functools`, `copy`, or `numpy`.",
     "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
-    "- Use only Build123d classes and functions from the reference above.",
+    "- MANDATORY: For screws, bolts, nuts, threads, gears, bearings, and other standard mechanical components, you MUST use bd_warehouse classes (CounterSunkScrew, HexHeadScrew, IsoThread, HexNut, SpurGear, etc.). NEVER build these manually with Cone, Cylinder, Helix, or sweep. Map user dimensions to the closest standard size (e.g., 'M6 screw' → size=\"M6-1\").",
     "- PARAMETER CONVENTION: Define all dimensional values (lengths, widths, heights, radii, angles, counts) as named variables at the top of your code before any BuildPart/BuildSketch blocks. Use descriptive snake_case names. Add a brief inline comment describing each parameter. Do NOT hardcode numeric values directly in constructors like Box(), Cylinder(), extrude(), fillet(), etc. Instead, assign them to variables first and reference the variables.",
     "",
     `User request: ${userPrompt}`,
@@ -301,7 +313,7 @@ export function buildFixPrompt(
     "Return only the corrected Build123d modeling code in a fenced code block.",
     "",
     "## Requirements",
-    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math`. You may also import `itertools`, `functools`, `copy`, or `numpy`.",
+    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math` and `bd_warehouse` classes (threads, fasteners, bearings, gears, pipes). You may also import `itertools`, `functools`, `copy`, or `numpy`.",
     "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
     "- PARAMETER CONVENTION: Define all dimensional values (lengths, widths, heights, radii, angles, counts) as named variables at the top of your code before any BuildPart/BuildSketch blocks. Use descriptive snake_case names. Add a brief inline comment describing each parameter. Do NOT hardcode numeric values directly in constructors like Box(), Cylinder(), extrude(), fillet(), etc. Instead, assign them to variables first and reference the variables.",
     "",
@@ -436,7 +448,7 @@ export function buildEditFixPrompt(
     "Only use FULL_REWRITE as a last resort when targeted edits cannot fix the issue.",
     "",
     "## Requirements",
-    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math`. You may also import `itertools`, `functools`, `copy`, or `numpy`.",
+    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math` and `bd_warehouse` classes (threads, fasteners, bearings, gears, pipes). You may also import `itertools`, `functools`, `copy`, or `numpy`.",
     "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
     "- PARAMETER CONVENTION: Define all dimensional values as named variables at the top of your code. Use descriptive snake_case names with inline comments.",
     "",
@@ -505,9 +517,9 @@ export function buildModificationPrompt(
     userPrompt,
     "",
     "## Requirements",
-    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math`. You may also import `itertools`, `functools`, `copy`, or `numpy`.",
+    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math` and `bd_warehouse` classes (threads, fasteners, bearings, gears, pipes). You may also import `itertools`, `functools`, `copy`, or `numpy`.",
     "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
-    "- Use only Build123d classes and functions from the reference above.",
+    "- MANDATORY: For screws, bolts, nuts, threads, gears, bearings, and other standard mechanical components, you MUST use bd_warehouse classes (CounterSunkScrew, HexHeadScrew, IsoThread, HexNut, SpurGear, etc.). NEVER build these manually with Cone, Cylinder, Helix, or sweep. Map user dimensions to the closest standard size (e.g., 'M6 screw' → size=\"M6-1\").",
     "- IMPORTANT: Start from the baseline code above and make targeted modifications. Do NOT rewrite from scratch. Preserve all working geometry, dimensions, and features unless the user explicitly asked to change them.",
     "- PARAMETER CONVENTION: Define all dimensional values (lengths, widths, heights, radii, angles, counts) as named variables at the top of your code before any BuildPart/BuildSketch blocks. Use descriptive snake_case names. Add a brief inline comment describing each parameter. Do NOT hardcode numeric values directly in constructors like Box(), Cylinder(), extrude(), fillet(), etc. Instead, assign them to variables first and reference the variables.",
   );
@@ -735,12 +747,21 @@ root_part = part.part
       pipelineSignal?.addEventListener("abort", onPipelineAbort, { once: true });
 
       try {
-        return await generateText({
+        return await trackedGenerateText({
           model: providerModel,
           prompt,
           abortSignal: callController.signal,
           ...(cacheableSystem ? { system: cacheableSystem } : {}),
           ...extraOpts,
+        }, {
+          purpose: "codegen",
+          providerName: modelConfig?.provider ?? "unknown",
+          modelId: modelConfig?.id,
+          modelName: modelConfig?.modelName ?? "unknown",
+          modelConfig: {
+            costPer1mInput: modelConfig?.costPer1mInput ?? 0,
+            costPer1mOutput: modelConfig?.costPer1mOutput ?? 0,
+          },
         });
       } catch (error) {
         if (callController.signal.aborted) {
@@ -899,17 +920,19 @@ async function persistWorkbenchFiles(opts: {
 // ── Main pipeline ────────────────────────────────────────────────────
 
 export async function generateForPrompt(promptId: string, onProgress?: ProgressCallback): Promise<GenerateResult> {
-  logger.info({ promptId }, "starting generation for prompt");
+  return runWithUsageContext({ workbenchExampleId: promptId }, async () => {
+    logger.info({ promptId }, "starting generation for prompt");
 
-  // Pipeline-level timeout — aborts the entire pipeline if it takes too long
-  const pipelineController = new AbortController();
-  const pipelineTimeout = setTimeout(() => pipelineController.abort(), PIPELINE_TIMEOUT_MS);
+    // Pipeline-level timeout — aborts the entire pipeline if it takes too long
+    const pipelineController = new AbortController();
+    const pipelineTimeout = setTimeout(() => pipelineController.abort(), PIPELINE_TIMEOUT_MS);
 
-  try {
-    return await _generateForPromptInner(promptId, pipelineController.signal, onProgress);
-  } finally {
-    clearTimeout(pipelineTimeout);
-  }
+    try {
+      return await _generateForPromptInner(promptId, pipelineController.signal, onProgress);
+    } finally {
+      clearTimeout(pipelineTimeout);
+    }
+  });
 }
 
 async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSignal, onProgress?: ProgressCallback): Promise<GenerateResult> {

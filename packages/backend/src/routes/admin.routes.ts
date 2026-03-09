@@ -63,6 +63,11 @@ import {
   getJobStatus,
 } from "../services/job-queue.service.js";
 import { exportKnowledge, importKnowledge } from "../services/knowledge-data-transfer.service.js";
+import {
+  getUsageSummary,
+  getUsageTimeseries,
+  exportUsageEvents,
+} from "../services/usage-analytics.service.js";
 import { config } from "../config.js";
 import { prisma } from "../db/prisma.js";
 import {
@@ -851,6 +856,80 @@ adminRouter.delete("/curation/candidates/:id/tags/:tagId", async (req, res) => {
     res.status(200).json({ success: true });
   } catch (error) {
     sendKnownError(res, error, "Failed to remove tag");
+  }
+});
+
+// ── Usage Analytics ──────────────────────────────────────────────────
+
+function parseOptionalDate(value: unknown): Date | undefined {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+adminRouter.get("/usage/summary", async (req, res) => {
+  try {
+    const summary = await getUsageSummary({
+      from: parseOptionalDate(req.query.from),
+      to: parseOptionalDate(req.query.to),
+      userId: typeof req.query.userId === "string" ? req.query.userId : undefined,
+      modelName: typeof req.query.modelName === "string" ? req.query.modelName : undefined,
+      providerName: typeof req.query.providerName === "string" ? req.query.providerName : undefined,
+      purpose: typeof req.query.purpose === "string" ? req.query.purpose : undefined,
+    });
+    res.status(200).json(summary);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to get usage summary");
+  }
+});
+
+adminRouter.get("/usage/timeseries", async (req, res) => {
+  try {
+    const granularity = typeof req.query.granularity === "string" ? req.query.granularity : "day";
+    const groupBy = typeof req.query.groupBy === "string" ? req.query.groupBy : undefined;
+
+    const result = await getUsageTimeseries(
+      {
+        from: parseOptionalDate(req.query.from),
+        to: parseOptionalDate(req.query.to),
+        userId: typeof req.query.userId === "string" ? req.query.userId : undefined,
+        modelName: typeof req.query.modelName === "string" ? req.query.modelName : undefined,
+        providerName: typeof req.query.providerName === "string" ? req.query.providerName : undefined,
+        purpose: typeof req.query.purpose === "string" ? req.query.purpose : undefined,
+      },
+      granularity,
+      groupBy,
+    );
+    res.status(200).json(result);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to get usage timeseries");
+  }
+});
+
+adminRouter.get("/usage/export", async (req, res) => {
+  try {
+    const format = req.query.format === "csv" ? "csv" : "json";
+    const result = await exportUsageEvents(
+      {
+        from: parseOptionalDate(req.query.from),
+        to: parseOptionalDate(req.query.to),
+        userId: typeof req.query.userId === "string" ? req.query.userId : undefined,
+        modelName: typeof req.query.modelName === "string" ? req.query.modelName : undefined,
+        providerName: typeof req.query.providerName === "string" ? req.query.providerName : undefined,
+        purpose: typeof req.query.purpose === "string" ? req.query.purpose : undefined,
+      },
+      format,
+    );
+
+    if (format === "csv") {
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=usage-events.csv");
+      res.status(200).send(result);
+    } else {
+      res.status(200).json(result);
+    }
+  } catch (error) {
+    sendKnownError(res, error, "Failed to export usage events");
   }
 });
 

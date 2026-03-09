@@ -107,6 +107,7 @@ model User {
   securityEvents                SecurityEvent[]
   appSettingsUpdated            AppSettings[]
   waitlistEntriesApproved       WaitlistEntry[]
+  llmUsageEvents                LlmUsageEvent[]
 
   @@index([role], map: "idx_users_role")
   @@index([status], map: "idx_users_status")
@@ -129,6 +130,7 @@ model ChatContext {
   items              ChatItem[]
   curationCandidate  CurationCandidate?
   codeProject        CodeProject?
+  llmUsageEvents     LlmUsageEvent[]
 
   @@index([ownerId], map: "idx_chat_contexts_owner")
   @@map("chat_contexts")
@@ -153,6 +155,7 @@ model ChatItem {
   owner                 User                @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "chat_items_owner_fk")
   codeProjectsAsRendered CodeProject[]       @relation("LastRenderedItem")
   codeProjectVersions   CodeProjectVersion[]
+  llmUsageEvents        LlmUsageEvent[]
 
   @@index([chatContextId], map: "idx_chat_items_context")
   @@index([ownerId], map: "idx_chat_items_owner")
@@ -588,6 +591,42 @@ model CodeProjectVersion {
 
   @@index([projectId], map: "idx_code_project_versions_project")
   @@map("code_project_versions")
+}
+
+model LlmUsageEvent {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  userId             String?   @map("user_id") @db.Uuid
+  chatContextId      String?   @map("chat_context_id") @db.Uuid
+  chatItemId         String?   @map("chat_item_id") @db.Uuid
+  workbenchExampleId String?   @map("workbench_example_id") @db.Uuid
+  providerName       String    @map("provider_name") @db.VarChar(50)
+  modelId            String?   @map("model_id") @db.Uuid
+  modelName          String    @map("model_name") @db.VarChar(255)
+  purpose            String    @db.VarChar(50)
+  inputTokens        Int       @default(0) @map("input_tokens")
+  outputTokens       Int       @default(0) @map("output_tokens")
+  reasoningTokens    Int       @default(0) @map("reasoning_tokens")
+  cacheReadTokens    Int       @default(0) @map("cache_read_tokens")
+  cacheWriteTokens   Int       @default(0) @map("cache_write_tokens")
+  totalTokens        Int       @default(0) @map("total_tokens")
+  estimatedCostUsd   Decimal   @default(0) @map("estimated_cost_usd") @db.Decimal(12, 8)
+  durationMs         Int?      @map("duration_ms")
+  isEstimated        Boolean?  @default(false) @map("is_estimated")
+  generationAttempt  Int?      @default(1) @map("generation_attempt")
+
+  // Relations
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  chatContext ChatContext? @relation(fields: [chatContextId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  chatItem    ChatItem?    @relation(fields: [chatItemId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([createdAt(sort: Desc)], map: "idx_usage_events_created")
+  @@index([userId, createdAt], map: "idx_usage_events_user")
+  @@index([modelName, createdAt], map: "idx_usage_events_model")
+  @@index([providerName, createdAt], map: "idx_usage_events_provider")
+  @@index([purpose, createdAt], map: "idx_usage_events_purpose")
+  @@index([chatContextId], map: "idx_usage_events_context")
+  @@map("llm_usage_events")
 }
 
 model DataMigration {

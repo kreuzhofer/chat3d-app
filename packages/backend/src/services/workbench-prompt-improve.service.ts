@@ -6,7 +6,7 @@
  * and edits it before saving.
  */
 
-import { generateText } from "ai";
+import { trackedGenerateText } from "./tracked-llm.service.js";
 import { createLogger } from "../utils/logger.js";
 import { withLlmRetry } from "../utils/llm-retry.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
@@ -149,11 +149,17 @@ export async function improvePrompt(input: ImprovePromptInput): Promise<ImproveP
   const result = await semaphore.run(async () => {
     return withLlmRetry(
       async () =>
-        generateText({
+        trackedGenerateText({
           model,
           system: systemPrompt,
           prompt: userMessage,
           ...generateOptions,
+        }, {
+          purpose: "prompt_improvement",
+          providerName: cfg.provider,
+          modelId: cfg.id,
+          modelName: cfg.modelName,
+          modelConfig: { costPer1mInput: cfg.costPer1mInput, costPer1mOutput: cfg.costPer1mOutput },
         }),
       { provider: cfg.provider },
     );

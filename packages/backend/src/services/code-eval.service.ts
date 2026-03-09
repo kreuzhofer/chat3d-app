@@ -11,7 +11,7 @@
  * rejections (correct code that the VLM misjudges visually).
  */
 
-import { generateText } from "ai";
+import { trackedGenerateText } from "./tracked-llm.service.js";
 import { isQuotaExhaustion, asQuotaError, isRateLimitError } from "../utils/llm-errors.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import { createLogger } from "../utils/logger.js";
@@ -192,10 +192,18 @@ export async function checkAssertions(
 function buildCodeReviewSystemPrompt(userPrompt: string, specInterpretation?: string): string {
   return `You are a Build123d code reviewer for 3D CAD models.
 
+The code runs in an environment with Build123d AND bd_warehouse installed. bd_warehouse provides parametric
+ISO-standard mechanical components: CounterSunkScrew, HexHeadScrew, SocketHeadCapScrew, IsoThread, HexNut,
+SpurGear, SingleRowDeepGrooveBallBearing, Sprocket, Pipe, etc. These are VALID, available classes — do NOT
+flag them as undefined or unavailable. When bd_warehouse classes are used with correct size parameters
+(e.g., size="M6-1"), they produce accurate ISO-standard geometry with correct dimensions.
+
 Given a user's 3D model request and the generated Build123d Python code, verify:
 
 1. **Parameter accuracy**: Do numeric values (dimensions, counts, angles, radii) match the prompt?
    Check variable assignments like "diameter = 15" against what the prompt specifies.
+   When bd_warehouse classes are used, the standard size parameter (e.g., "M6-1") encapsulates
+   the correct ISO dimensions — do not require explicit dimension variables for standardized values.
 2. **Feature completeness**: Are ALL requested features present in the code?
    (holes, fillets, chamfers, slots, patterns, etc.)
 3. **Constraint satisfaction**: Are spatial relationships correct?
@@ -345,11 +353,17 @@ export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResu
         const providerModel = createProviderModelFromConfig(config);
 
         logger.info({ attempt: attempt + 1, maxAttempts: CODE_EVAL_MAX_RETRIES + 1, model: label }, "calling code review LLM");
-        const result = await generateText({
+        const result = await trackedGenerateText({
           model: providerModel,
           system: systemPrompt,
           messages: [{ role: "user", content: userContent }],
           maxOutputTokens: 512,
+        }, {
+          purpose: "code_evaluation",
+          providerName: config.provider,
+          modelId: config.id,
+          modelName: config.modelName,
+          modelConfig: { costPer1mInput: config.costPer1mInput, costPer1mOutput: config.costPer1mOutput },
         });
 
         const responseText = result.text;

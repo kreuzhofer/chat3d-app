@@ -1,4 +1,6 @@
-import { generateText, NoOutputGeneratedError, streamText } from "ai";
+import { NoOutputGeneratedError, streamText } from "ai";
+import { trackedGenerateText } from "./tracked-llm.service.js";
+import { runWithUsageContext, recordUsageEvent } from "./usage-tracking.service.js";
 import { ProviderQuotaExhaustedError } from "../utils/llm-errors.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import { withLlmRetry } from "../utils/llm-retry.js";
@@ -959,16 +961,36 @@ async function generateChatName(input: {
   contextId: string;
   prompt: string;
 }): Promise<void> {
+  return runWithUsageContext(
+    { userId: input.userId, chatContextId: input.contextId },
+    () => generateChatNameInner(input),
+  );
+}
+
+async function generateChatNameInner(input: {
+  userId: string;
+  contextId: string;
+  prompt: string;
+}): Promise<void> {
   try {
     const cfg = await getModelForPurpose("conversation");
     const providerModel = createProviderModelFromConfig(cfg);
 
     const truncatedPrompt = input.prompt.slice(0, 500);
-    const result = await generateText({
-      model: providerModel,
-      prompt: `Summarize the following user request as a short chat title (maximum 5 words, no quotes, no punctuation at the end):\n\n"${truncatedPrompt}"`,
-      maxOutputTokens: 30,
-    });
+    const result = await trackedGenerateText(
+      {
+        model: providerModel,
+        prompt: `Summarize the following user request as a short chat title (maximum 5 words, no quotes, no punctuation at the end):\n\n"${truncatedPrompt}"`,
+        maxOutputTokens: 30,
+      },
+      {
+        purpose: "chat_naming",
+        providerName: cfg.provider,
+        modelId: cfg.id,
+        modelName: cfg.modelName,
+        modelConfig: cfg,
+      },
+    );
 
     const name = result.text.trim().replace(/^["']|["']$/g, "").slice(0, 80);
     if (!name) {
@@ -1078,6 +1100,23 @@ export async function initiateQuery(input: {
  * Publishes progress via SSE. Called after initiateQuery returns.
  */
 export async function executeQueryPipeline(input: {
+  userId: string;
+  contextId: string;
+  prompt: string;
+  attachments: QueryAttachmentInput[];
+  context: ChatContextRow;
+  userItemId: string;
+  assistantItemId: string;
+  stream?: boolean;
+  isFirstPrompt?: boolean;
+}) {
+  return runWithUsageContext(
+    { userId: input.userId, chatContextId: input.contextId, chatItemId: input.assistantItemId },
+    () => executeQueryPipelineInner(input),
+  );
+}
+
+async function executeQueryPipelineInner(input: {
   userId: string;
   contextId: string;
   prompt: string;
@@ -1781,9 +1820,38 @@ export async function executeQueryPipeline(input: {
               if (!hasResolvedUsage && streamStepUsage) {
                 queryLogger.debug({ iteration }, "using finish-step usage (resolved promise usage was empty)");
               }
+              // Record usage for Bedrock streaming codegen
+              const streamUsage = effectiveUsage as Record<string, unknown> | undefined;
+              if (streamUsage) {
+                const sInput = typeof streamUsage.inputTokens === "number" ? streamUsage.inputTokens : 0;
+                const sOutput = typeof streamUsage.outputTokens === "number" ? streamUsage.outputTokens : 0;
+                const sReasoning = typeof streamUsage.reasoningTokens === "number" ? streamUsage.reasoningTokens : 0;
+                recordUsageEvent({
+                  providerName: epCodegenConfig.provider,
+                  modelId: epCodegenConfig.id,
+                  modelName: epCodegenConfig.modelName,
+                  purpose: "chat_codegen",
+                  inputTokens: sInput,
+                  outputTokens: sOutput,
+                  reasoningTokens: sReasoning,
+                  totalTokens: sInput + sOutput,
+                  estimatedCostUsd: calculateCostUsd(epCodegenConfig, sInput, sOutput, sReasoning),
+                  generationAttempt: iteration,
+                });
+              }
               return { text, reasoningText: await finalResult.reasoningText, reasoning: await finalResult.reasoning, usage: effectiveUsage as typeof resolvedUsage };
             }
-            return generateText({ model: epCodegenModel, ...cgCallOpts });
+            return trackedGenerateText(
+              { model: epCodegenModel, ...cgCallOpts },
+              {
+                purpose: "chat_codegen",
+                providerName: epCodegenConfig.provider,
+                modelId: epCodegenConfig.id,
+                modelName: epCodegenConfig.modelName,
+                modelConfig: epCodegenConfig,
+                generationAttempt: iteration,
+              },
+            );
           },
           { provider: epCodegenConfig.provider },
         ),

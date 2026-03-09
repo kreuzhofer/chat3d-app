@@ -243,8 +243,8 @@ export async function backfillKnowledgeEmbeddings(): Promise<{ embedded: number;
 
   logger.info({ count: rows.length, model: currentModel }, "backfilling knowledge embeddings");
 
-  // Import embedMany dynamically to avoid circular dependency issues
-  const { embedMany } = await import("ai");
+  // Import trackedEmbedMany dynamically to avoid circular dependency issues
+  const { trackedEmbedMany } = await import("./tracked-llm.service.js");
   const { createEmbeddingModel } = await import("./llm-config.service.js");
   const model = createEmbeddingModel(embeddingCfg);
 
@@ -255,10 +255,19 @@ export async function backfillKnowledgeEmbeddings(): Promise<{ embedded: number;
     const batch = rows.slice(i, i + BATCH_SIZE);
     const texts = batch.map(r => buildEmbeddingText(r.title, r.description, r.code));
 
-    const embedResult = await embedMany({
+    const embedResult = await trackedEmbedMany({
       model,
       values: texts,
       providerOptions: { openai: { dimensions: 1536 } },
+    }, {
+      purpose: "knowledge_embedding",
+      providerName: embeddingCfg.provider,
+      modelId: embeddingCfg.id,
+      modelName: embeddingCfg.modelName,
+      modelConfig: {
+        costPer1mInput: embeddingCfg.costPer1mInput,
+        costPer1mOutput: embeddingCfg.costPer1mOutput,
+      },
     });
 
     await prisma.$transaction(async (tx) => {

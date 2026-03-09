@@ -9,7 +9,7 @@
  * never block the pipeline.
  */
 
-import { generateText } from "ai";
+import { trackedGenerateText } from "./tracked-llm.service.js";
 import { isProviderQuotaError } from "../utils/llm-errors.js";
 import { resolveCodegenModel } from "./workbench-codegen.service.js";
 import { createLogger } from "../utils/logger.js";
@@ -86,7 +86,7 @@ function parseValidationResponse(content: string): { valid: boolean; reason: str
 // ── Main validation function ─────────────────────────────────────────
 
 export async function validatePrompt(promptText: string): Promise<ValidationResult> {
-  const { model, label } = await resolveCodegenModel();
+  const { model, label, config: modelConfig } = await resolveCodegenModel();
 
   // Mock provider — skip validation
   if (!model) {
@@ -96,11 +96,20 @@ export async function validatePrompt(promptText: string): Promise<ValidationResu
   logger.info({ prompt: promptText.slice(0, 80), model: label }, "validating prompt");
 
   try {
-    const result = await generateText({
+    const result = await trackedGenerateText({
       model,
       system: VALIDATION_SYSTEM_PROMPT,
       messages: [{ role: "user", content: promptText }],
       maxOutputTokens: 256,
+    }, {
+      purpose: "prompt_validation",
+      providerName: modelConfig.provider,
+      modelId: modelConfig.id,
+      modelName: modelConfig.modelName,
+      modelConfig: {
+        costPer1mInput: modelConfig.costPer1mInput,
+        costPer1mOutput: modelConfig.costPer1mOutput,
+      },
     });
 
     const parsed = parseValidationResponse(result.text);

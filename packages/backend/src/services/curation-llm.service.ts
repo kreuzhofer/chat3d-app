@@ -5,7 +5,7 @@
  * Uses the same generateText pattern as other LLM services (semaphore + retry).
  */
 
-import { generateText } from "ai";
+import { trackedGenerateText } from "./tracked-llm.service.js";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import { withLlmRetry } from "../utils/llm-retry.js";
@@ -121,11 +121,17 @@ export async function distillPrompt(candidateId: string): Promise<DistillResult>
   const result = await semaphore.run(async () => {
     return withLlmRetry(
       async () =>
-        generateText({
+        trackedGenerateText({
           model,
           system: DISTILL_SYSTEM_PROMPT,
           prompt: transcript,
           ...generateOptions,
+        }, {
+          purpose: "curation_distill",
+          providerName: cfg.provider,
+          modelId: cfg.id,
+          modelName: cfg.modelName,
+          modelConfig: { costPer1mInput: cfg.costPer1mInput, costPer1mOutput: cfg.costPer1mOutput },
         }),
       { provider: cfg.provider },
     );
@@ -195,11 +201,17 @@ export async function suggestTags(candidateId: string): Promise<TagSuggestion[]>
   const result = await semaphore.run(async () => {
     return withLlmRetry(
       async () =>
-        generateText({
+        trackedGenerateText({
           model,
           system: TAG_SUGGEST_SYSTEM_PROMPT,
           prompt: userMessage,
           ...generateOptions,
+        }, {
+          purpose: "curation_tags",
+          providerName: cfg.provider,
+          modelId: cfg.id,
+          modelName: cfg.modelName,
+          modelConfig: { costPer1mInput: cfg.costPer1mInput, costPer1mOutput: cfg.costPer1mOutput },
         }),
       { provider: cfg.provider },
     );
