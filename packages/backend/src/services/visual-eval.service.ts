@@ -169,26 +169,43 @@ function buildResultFromParsed(parsed: ParsedEvaluation): ParsedEvaluation {
   };
 }
 
+/**
+ * Extract bullet items from a markdown section.
+ * Handles plain bullets (- item) and markdown bold bullets (* **label**: text).
+ * Strips leading markdown bold markers so items are clean text.
+ */
+function extractBulletItems(text: string): string[] {
+  const items: string[] = [];
+  // Match lines starting with -, •, or * followed by a space
+  const bulletMatches = text.match(/^[\t ]*[-•*]\s+.+/gm);
+  if (bulletMatches) {
+    for (const m of bulletMatches) {
+      let cleaned = m.replace(/^[\t ]*[-•*]\s+/, "").trim();
+      // Strip leading ** from markdown bold (e.g., "**Taper**: ..." → "Taper: ...")
+      cleaned = cleaned.replace(/^\*\*([^*]+)\*\*/, "$1");
+      if (cleaned.length > 0) {
+        items.push(cleaned);
+      }
+    }
+  }
+  return items;
+}
+
 function extractFromText(content: string): ParsedEvaluation {
   const scoreMatch = content.match(/["']?score["']?\s*[:=]\s*(\d+)/i);
   const score = scoreMatch ? clampScore(parseInt(scoreMatch[1], 10)) : 1;
 
+  // Build section boundaries — stop issues at suggestions/checklist, stop suggestions at checklist/end
   const issues: string[] = [];
-  const issuesSection = content.match(/issues[:\s]*\n?([\s\S]*?)(?=suggestions|$)/i);
+  const issuesSection = content.match(/issues[:\s]*\n?([\s\S]*?)(?=\n\s*(?:suggestions|checklist)[:\s]*\n|$)/i);
   if (issuesSection) {
-    const issueMatches = issuesSection[1].match(/[-•*]\s*(.+)/g);
-    if (issueMatches) {
-      issues.push(...issueMatches.map((m) => m.replace(/^[-•*]\s*/, "").trim()));
-    }
+    issues.push(...extractBulletItems(issuesSection[1]));
   }
 
   const suggestions: string[] = [];
-  const suggestionsSection = content.match(/suggestions[:\s]*\n?([\s\S]*?)$/i);
+  const suggestionsSection = content.match(/suggestions[:\s]*\n?([\s\S]*?)(?=\n\s*checklist[:\s]*\n|$)/i);
   if (suggestionsSection) {
-    const suggestionMatches = suggestionsSection[1].match(/[-•*]\s*(.+)/g);
-    if (suggestionMatches) {
-      suggestions.push(...suggestionMatches.map((m) => m.replace(/^[-•*]\s*/, "").trim()));
-    }
+    suggestions.push(...extractBulletItems(suggestionsSection[1]));
   }
 
   if (!scoreMatch && issues.length === 0 && suggestions.length === 0) {
@@ -225,8 +242,8 @@ export function parseEvaluationResponse(content: string): ParsedEvaluation {
 // ── Checklist parsing ────────────────────────────────────────────────
 
 function parseChecklistResults(content: string): ChecklistResult[] {
+  // Level 1: Try JSON extraction
   try {
-    // Try to extract JSON from code fence first
     let jsonStr = content;
     const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (fenceMatch) {
@@ -244,8 +261,41 @@ function parseChecklistResults(content: string): ChecklistResult[] {
         }));
     }
   } catch {
-    // Checklist parsing is best-effort — fail silently
+    // fall through to markdown extraction
   }
+
+  // Level 2: Extract from markdown checklist section
+  // Matches patterns like: "**Question** — detail; pass." or "* **Question** — detail; fail."
+  const checklistSection = content.match(/checklist[:\s]*\n?([\s\S]*?)(?=\n\s*(?:score|issues|suggestions)[:\s]*\n|$)/i);
+  if (checklistSection) {
+    const results: ChecklistResult[] = [];
+    const lines = checklistSection[1].split("\n");
+    for (const line of lines) {
+      const trimmed = line.replace(/^[\t ]*[-•*]\s*/, "").trim();
+      if (!trimmed) continue;
+      // Detect pass/fail from line content
+      const passMatch = /;\s*(pass|fail)\.?\s*$/i.exec(trimmed);
+      const pass = passMatch ? passMatch[1].toLowerCase() === "pass" : !/(fail|incorrect|wrong|missing)/i.test(trimmed);
+      // Extract question from bold markers if present
+      const boldMatch = trimmed.match(/^\*\*([^*]+)\*\*\s*[—–-]\s*(.*)/);
+      if (boldMatch) {
+        results.push({
+          question: boldMatch[1].trim(),
+          pass,
+          detail: boldMatch[2].replace(/;\s*(pass|fail)\.?\s*$/i, "").trim(),
+        });
+      } else if (trimmed.length > 10) {
+        // Plain text checklist item
+        results.push({
+          question: trimmed.replace(/;\s*(pass|fail)\.?\s*$/i, "").trim(),
+          pass,
+          detail: "",
+        });
+      }
+    }
+    if (results.length > 0) return results;
+  }
+
   return [];
 }
 
