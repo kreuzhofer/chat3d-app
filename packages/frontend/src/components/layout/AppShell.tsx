@@ -39,7 +39,7 @@ export function AppShell({ children, className }: AppShellProps) {
         </div>
 
         {/* Page content */}
-        <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-3">
           {children}
         </main>
       </div>

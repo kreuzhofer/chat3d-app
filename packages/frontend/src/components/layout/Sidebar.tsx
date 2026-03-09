@@ -174,11 +174,11 @@ export function Sidebar() {
       className="flex h-full min-w-0 flex-col bg-[hsl(var(--surface-2))]"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-3">
+      <div className="flex items-center px-3 py-3">
         <span className="text-sm font-semibold text-[hsl(var(--foreground))]">{t("appName")}</span>
         <button
           type="button"
-          className="rounded p-1 text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
+          className="ml-auto rounded p-1 text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
           aria-label={isMobile ? t("actions.close") : t("sidebar.collapse")}
           onClick={toggle}
         >
