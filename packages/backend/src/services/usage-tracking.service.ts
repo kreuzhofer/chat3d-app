@@ -41,7 +41,6 @@ export function getUsageContext(): UsageTrackingContext {
 export type LlmPurpose =
   | "conversation"
   | "codegen"
-  | "chat_codegen"
   | "chat_naming"
   | "vlm_evaluation"
   | "code_evaluation"

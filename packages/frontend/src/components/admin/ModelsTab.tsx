@@ -45,12 +45,19 @@ function formatTokens(value: number | null): string {
 
 const PURPOSE_LABELS: Record<string, string> = {
   conversation: "Conversation",
-  chat_codegen: "Chat Codegen",
-  workbench_codegen: "Workbench Codegen",
+  agent_codegen: "Code Generation",
   vlm_eval: "VLM Evaluation",
   embedding: "Embedding",
   prompt_distill: "Prompt Distillation",
   tag_suggest: "Tag Suggestion",
+  spec_generation: "Spec Generation",
+  code_review: "Code Review",
+};
+
+/** One-liner explaining fallback when a purpose is unassigned. */
+const PURPOSE_FALLBACKS: Record<string, string> = {
+  spec_generation: "Falls back to: conversation",
+  code_review: "Falls back to: spec_generation → conversation",
 };
 
 export interface ModelsTabProps {
@@ -331,7 +338,12 @@ export function ModelsTab({ token }: ModelsTabProps) {
                 const hasChange = purposeEdits[p.purpose] !== undefined && purposeEdits[p.purpose] !== (p.modelId ?? "");
                 return (
                   <tr key={p.purpose} className="border-b border-[hsl(var(--border)_/_0.5)] last:border-0">
-                    <td className="py-2 pr-3 font-medium">{PURPOSE_LABELS[p.purpose] ?? p.purpose}</td>
+                    <td className="py-2 pr-3">
+                      <div className="font-medium">{PURPOSE_LABELS[p.purpose] ?? p.purpose}</div>
+                      {PURPOSE_FALLBACKS[p.purpose] && !p.modelId && (
+                        <div className="text-xs text-[hsl(var(--muted-foreground))]">{PURPOSE_FALLBACKS[p.purpose]}</div>
+                      )}
+                    </td>
                     <td className="py-2 pr-3">
                       <select
                         className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1 text-sm"

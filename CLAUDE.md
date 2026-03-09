@@ -199,6 +199,20 @@ Do not consider a change complete until the Docker build succeeds.
 - Frontend real-time updates via polling hooks (not WebSockets)
 - All architecture diagrams must use Mermaid notation
 
+### File Size Limits — MANDATORY
+
+**No source file (`.ts`, `.tsx`) may exceed 400 lines.** This is a hard limit. If a change would push a file over 400 lines, refactor first. Target 200–300 lines per file.
+
+**Decomposition rules by file type:**
+- **Services:** Extract distinct pipeline stages, data-access helpers, or protocol-specific logic into separate files. One cohesive responsibility per service file.
+- **Route files:** One resource domain per file (e.g., `admin/providers.routes.ts`, `admin/curation.routes.ts`). Use sub-routers mounted from an index.
+- **React components:** One component per file. Extract custom hooks into `hooks/` files. Extract sub-components when a render method has multiple distinct visual sections.
+- **API client files:** Split by resource domain, matching the backend route structure.
+- **Prompt/template files:** Split into composable sections in a subdirectory, assembled by a thin builder module.
+- **Test files:** Allowed up to 600 lines. Beyond that, split into separate test files by feature or scenario.
+
+**When adding code to an existing file:** Check the line count first. If it's above 350 lines, proactively split before adding more.
+
 ### Logging — MANDATORY
 
 **NEVER use `console.log`, `console.warn`, `console.error`, or any `console.*` method in backend or service code.** All logging MUST use the pino-based structured logger.

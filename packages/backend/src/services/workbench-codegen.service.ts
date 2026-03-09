@@ -1,50 +1,31 @@
 /**
  * Workbench Code Generation Pipeline
  *
- * Single-prompt generation pipeline:
- *   system prompt + few-shot examples + user prompt
- *   → LLM codegen → Build123d render → STL screenshots → VLM evaluate
- *   → auto-approve or fix loop (up to MAX_FIX_ITERATIONS)
+ * Agent-based generation pipeline:
+ *   spec generation → agent codegen (tool-use loop) → VLM evaluate → persist
  */
 
-import { trackedGenerateText } from "./tracked-llm.service.js";
 import { runWithUsageContext } from "./usage-tracking.service.js";
-import { asQuotaError } from "../utils/llm-errors.js";
-import { getLlmSemaphore } from "../utils/resource-limits.js";
-import { withLlmRetry } from "../utils/llm-retry.js";
 import { createLogger } from "../utils/logger.js";
 import { prisma } from "../db/prisma.js";
 import {
   getModelForPurpose,
   createProviderModel as createProviderModelFromConfig,
-  buildGenerateOptions,
-  calculateCostUsd,
-  buildCacheableSystem,
   type LlmModelConfig,
 } from "./llm-config.service.js";
 
 const logger = createLogger("workbench");
-import { extractExecutableCode } from "./llm.service.js";
-import { renderBuild123d, validateBuild123dCode, type RenderedFile, type LintWarning } from "./rendering.service.js";
+import { renderBuild123d, type RenderedFile } from "./rendering.service.js";
 import {
   renderModelScreenshots,
   type RenderedScreenshot,
 } from "./stl-rendering-client.service.js";
 import { evaluateModel, type EvaluationResult } from "./visual-eval.service.js";
 import { CODEGEN_SYSTEM_PROMPT, buildReducedSystemPrompt, buildTieredSystemPrompt, detectPromptOperations } from "../prompts/system-prompts.js";
-import {
-  shouldUseEditMode,
-  parseEditResponse,
-  applyEdits,
-} from "../utils/code-edits.js";
 import { WorkbenchSeederError } from "./workbench-seeder.service.js";
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
 import { validatePrompt } from "./workbench-prompt-validation.service.js";
 import {
-  classifyRenderError,
-  buildEscalatedGuidance,
-  renderWithInfraRetry,
-  consecutiveSameCategoryCount,
   RenderErrorCategory,
   type ClassifiedRenderError,
   type RenderErrorContext,
@@ -58,23 +39,16 @@ import {
   getSimpleMaxFixCap,
   isSpecGenerationEnabled,
   isTieredPromptEnabled,
-  isAgentModeEnabled,
   getAgentMaxSteps,
-  isCodeEvalEnabled,
-  getCodeEvalWeight,
 } from "./generation-settings.service.js";
 import { generateSpec, type SpecResult } from "./spec-generation.service.js";
-import { evaluateCode, computeCompositeScore, type CodeReviewResult } from "./code-eval.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
 import crypto from "node:crypto";
 
 export const MAX_FIX_ITERATIONS = 5;
 export const AUTO_APPROVE_THRESHOLD = 8;
 
-/** Timeout for a single LLM generateText call (5 minutes). */
-const LLM_CALL_TIMEOUT_MS = 5 * 60 * 1000;
-
-/** Timeout for the entire per-prompt pipeline including all iterations (15 minutes). */
+/** Timeout for the entire per-prompt pipeline (15 minutes). */
 const PIPELINE_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
@@ -162,7 +136,7 @@ export interface FewShotExample {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function resolveCodegenModel(): Promise<{ model: any; label: string; config: LlmModelConfig }> {
-  const cfg = await getModelForPurpose("workbench_codegen");
+  const cfg = await getModelForPurpose("agent_codegen");
   const model = createProviderModelFromConfig(cfg);
   return { model, label: cfg.label, config: cfg };
 }
@@ -705,117 +679,6 @@ export function stripTemplateBoilerplate(code: string): string {
     .trim();
 }
 
-async function generateCode(
-  prompt: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  providerModel: any,
-  modelConfig?: LlmModelConfig,
-  pipelineSignal?: AbortSignal,
-  system?: string,
-): Promise<{ code: string; rawText: string; promptTokens: number; completionTokens: number }> {
-  if (providerModel === null) {
-    // Mock mode — raw modeling code only (no imports/exports)
-    const code = `
-# Simple box
-with BuildPart() as part:
-    Box(20, 20, 20)
-
-root_part = part.part
-    `.trim();
-    return { code, rawText: code, promptTokens: 0, completionTokens: 0 };
-  }
-
-  const extraOpts = modelConfig ? buildGenerateOptions(modelConfig) : {};
-  const cacheableSystem = system && modelConfig ? buildCacheableSystem(modelConfig.provider, system) : undefined;
-
-  if (modelConfig) {
-    logger.info(
-      { provider: modelConfig.provider, model: modelConfig.modelName, thinkingEffort: modelConfig.thinkingEffort, supportsThinking: modelConfig.supportsThinking, extraOpts, hasCacheableSystem: !!cacheableSystem && typeof cacheableSystem !== "string" },
-      "workbench generateText call options",
-    );
-  }
-
-  // Wrap with per-provider semaphore + rate limit retry
-  const doGenerate = () =>
-    withLlmRetry(async () => {
-      // Combine per-call timeout with optional pipeline-level signal
-      const callController = new AbortController();
-      const callTimeout = setTimeout(() => callController.abort(), LLM_CALL_TIMEOUT_MS);
-
-      // If the pipeline-level signal fires, abort this call too
-      const onPipelineAbort = () => callController.abort();
-      pipelineSignal?.addEventListener("abort", onPipelineAbort, { once: true });
-
-      try {
-        return await trackedGenerateText({
-          model: providerModel,
-          prompt,
-          abortSignal: callController.signal,
-          ...(cacheableSystem ? { system: cacheableSystem } : {}),
-          ...extraOpts,
-        }, {
-          purpose: "codegen",
-          providerName: modelConfig?.provider ?? "unknown",
-          modelId: modelConfig?.id,
-          modelName: modelConfig?.modelName ?? "unknown",
-          modelConfig: {
-            costPer1mInput: modelConfig?.costPer1mInput ?? 0,
-            costPer1mOutput: modelConfig?.costPer1mOutput ?? 0,
-          },
-        });
-      } catch (error) {
-        if (callController.signal.aborted) {
-          const reason = pipelineSignal?.aborted
-            ? `Pipeline timeout (${PIPELINE_TIMEOUT_MS / 1000}s)`
-            : `LLM call timeout (${LLM_CALL_TIMEOUT_MS / 1000}s)`;
-          throw new Error(reason);
-        }
-        throw error;
-      } finally {
-        clearTimeout(callTimeout);
-        pipelineSignal?.removeEventListener("abort", onPipelineAbort);
-      }
-    }, { provider: modelConfig?.provider });
-
-  const semaphore = modelConfig
-    ? getLlmSemaphore(modelConfig.provider, modelConfig.maxConcurrent)
-    : null;
-  const result = semaphore
-    ? await semaphore.run(doGenerate)
-    : await doGenerate();
-
-  if (result.reasoningText) {
-    logger.info(
-      { provider: modelConfig?.provider, model: modelConfig?.modelName, reasoningLength: result.reasoningText.length },
-      "workbench thinking output received",
-    );
-    logger.trace(
-      { provider: modelConfig?.provider, model: modelConfig?.modelName, reasoning: result.reasoningText },
-      "workbench thinking output content",
-    );
-  } else {
-    logger.debug(
-      { provider: modelConfig?.provider, model: modelConfig?.modelName, reasoningBlocks: result.reasoning?.length ?? 0 },
-      "no thinking output in workbench response",
-    );
-  }
-
-  if (!result.text || result.text.trim() === "") {
-    throw new Error("LLM returned empty output");
-  }
-
-  // Extract code from fenced block, then strip any boilerplate the LLM added
-  const rawCode = extractExecutableCode(result.text);
-  const cleanCode = stripTemplateBoilerplate(rawCode);
-
-  return {
-    code: cleanCode,
-    rawText: result.text,
-    promptTokens: result.usage?.inputTokens ?? 0,
-    completionTokens: result.usage?.outputTokens ?? 0,
-  };
-}
-
 // ── Screenshot extraction helper ─────────────────────────────────────
 
 function findScreenshot(
@@ -1076,19 +939,11 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     : CODEGEN_SYSTEM_PROMPT;
   logger.info({ chars: systemPromptContent.length, fullChars: CODEGEN_SYSTEM_PROMPT.length, tiered: tieredEnabled }, "system prompt loaded");
 
-  // ── Agent mode branch ──
-  const wbAgentEnabled = await isAgentModeEnabled("workbench");
-  let wbAgentModelConfig: LlmModelConfig | null = null;
-  if (wbAgentEnabled) {
-    try {
-      wbAgentModelConfig = await getModelForPurpose("agent_codegen");
-      logger.info({ model: wbAgentModelConfig.label }, "workbench agent mode enabled");
-    } catch {
-      logger.info("workbench agent mode enabled but no agent_codegen model configured — falling back");
-    }
-  }
+  // ── Agent codegen ──
+  const wbAgentModelConfig = await getModelForPurpose("agent_codegen");
+  logger.info({ model: wbAgentModelConfig.label }, "resolved agent_codegen model");
 
-  if (wbAgentModelConfig) {
+  {
     const wbAgMaxSteps = await getAgentMaxSteps("workbench");
     const wbUseMultiAgent = specResult?.complexity === "complex";
     const wbAgDetail = wbUseMultiAgent
@@ -1213,558 +1068,6 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       vlmModel: agEvalResult?.vlmModel ?? null,
     };
   }
-
-  // ── Fixed iteration loop (fallback when agent mode is disabled) ──
-
-  let currentCode = "";
-  let renderError: string | null = null;
-  let renderErrorCtx: RenderErrorContext | null = null;
-  let evalResult: EvaluationResult | null = null;
-  let codeEvalResult: CodeReviewResult | null = null;
-  let renderedFiles: RenderedFile[] = [];
-  let screenshots: RenderedScreenshot[] = [];
-  let totalPromptTokens = 0;
-  let totalCompletionTokens = 0;
-
-  // Code eval settings — fetch once outside the loop
-  const wbCodeEvalEnabled = await isCodeEvalEnabled("workbench");
-  const wbCodeEvalWeight = wbCodeEvalEnabled ? await getCodeEvalWeight("workbench") : 0;
-
-  // Track classified render errors across iterations for escalation logic
-  const errorHistory: ClassifiedRenderError[] = [];
-
-  // Track best successful result across iterations so we can fall back
-  // if a fix attempt regresses the score.
-  let best: {
-    code: string;
-    score: number;
-    evalResult: EvaluationResult | null;
-    screenshots: RenderedScreenshot[];
-    iteration: number;
-    promptTokens: number;
-    completionTokens: number;
-  } | null = null;
-
-  // Edit-mode tracking
-  let previousRenderSucceeded = false;
-  let preEditCode: string | null = null;
-
-  for (let iteration = 1; iteration <= dynMaxFix; iteration++) {
-    logger.info({ iteration, maxIterations: dynMaxFix }, "starting iteration");
-
-    const isFirst = iteration === 1;
-    onProgress?.(
-      isFirst ? "codegen" : "fixing",
-      isFirst ? "Generating code..." : `Improving model (attempt ${iteration}/${dynMaxFix})...`,
-    );
-
-    // Determine whether to use edit mode for this fix iteration
-    const wbConsecutiveSame = renderErrorCtx
-      ? consecutiveSameCategoryCount(errorHistory, renderErrorCtx.classified.category)
-      : 0;
-    const useEditMode = !isFirst && shouldUseEditMode({
-      iteration,
-      previousRenderSucceeded,
-      errorCategory: renderErrorCtx?.classified.category ?? null,
-      consecutiveSameCategory: wbConsecutiveSame,
-    });
-    if (useEditMode) {
-      preEditCode = currentCode;
-      logger.info({ iteration, category: renderErrorCtx?.classified.category ?? "vlm_only" }, "using edit mode for fix iteration");
-    }
-
-    // 2. Generate code — use tiered prompt for iteration 1, full/reduced for fixes
-    const { system: cgSystem, userContent: cgUserContent } =
-      iteration === 1
-        ? buildInitialPrompt(systemPromptContent, fewShots, ctx.prompt)
-        : useEditMode
-          ? buildEditFixPrompt(CODEGEN_SYSTEM_PROMPT, ctx.prompt, currentCode, iteration - 1, renderError, evalResult?.issues ?? null, evalResult?.suggestions ?? null, renderErrorCtx, { errorHistory, useReducedSystemPrompt: false, codeEvalIssues: codeEvalResult?.issues ?? null })
-          : buildFixPrompt(
-              CODEGEN_SYSTEM_PROMPT,
-              fewShots,
-              ctx.prompt,
-              currentCode,
-              iteration - 1,
-              renderError,
-              evalResult?.issues ?? null,
-              evalResult?.suggestions ?? null,
-              renderErrorCtx,
-              { useReducedSystemPrompt: false, errorHistory, codeEvalIssues: codeEvalResult?.issues ?? null },
-            );
-
-    logger.info(
-      { iteration, mode: iteration === 1 ? "initial" : useEditMode ? "edit-fix" : "full-fix", promptChars: cgUserContent.length, systemChars: cgSystem.length, prompt: ctx.prompt.slice(0, 80) },
-      "starting codegen LLM call",
-    );
-    if (iteration > 1) {
-      const issues = evalResult?.issues ?? [];
-      const suggestions = evalResult?.suggestions ?? [];
-      logger.info({ issues, suggestions }, "fix feedback — issues and suggestions");
-      if (renderError) logger.info({ renderError, category: renderErrorCtx?.classified.category ?? "none" }, "fix feedback — render error");
-    }
-    const codeResult = await generateCode(cgUserContent, providerModel, codegenConfig, pipelineSignal, cgSystem);
-
-    // Extract code: edit mode parses search-and-replace blocks from raw text
-    if (useEditMode) {
-      const editParsed = parseEditResponse(codeResult.rawText);
-      if (editParsed.isFullRewrite && editParsed.fullRewriteCode) {
-        currentCode = stripTemplateBoilerplate(editParsed.fullRewriteCode);
-        logger.info({ iteration }, "edit mode: LLM chose full rewrite");
-      } else if (editParsed.edits.length > 0) {
-        const editResult = applyEdits(currentCode, editParsed.edits);
-        if (editResult.appliedCount > 0) {
-          currentCode = stripTemplateBoilerplate(editResult.resultCode);
-          logger.info({ iteration, applied: editResult.appliedCount, failed: editResult.failedSearches.length }, "edit mode: edits applied");
-          if (editResult.failedSearches.length > 0) {
-            logger.warn({ iteration, failedSearches: editResult.failedSearches }, "edit mode: some edits failed to match");
-          }
-        } else {
-          logger.warn({ iteration }, "edit mode: no edits matched, falling back to full code extraction");
-          currentCode = codeResult.code;
-        }
-      } else {
-        logger.info({ iteration }, "edit mode: no edit blocks found, falling back to full code extraction");
-        currentCode = codeResult.code;
-      }
-    } else {
-      currentCode = codeResult.code;
-    }
-    totalPromptTokens += codeResult.promptTokens;
-    totalCompletionTokens += codeResult.completionTokens;
-    logger.info({ codeChars: currentCode.length, promptTokens: codeResult.promptTokens, completionTokens: codeResult.completionTokens }, "LLM returned code");
-
-    // Reset per-iteration state
-    renderError = null;
-    renderErrorCtx = null;
-    evalResult = null;
-    codeEvalResult = null;
-    renderedFiles = [];
-    screenshots = [];
-
-    // 2b. Pre-render validation (catches syntax errors + lint cheaply)
-    onProgress?.("validating", "Validating code structure...");
-    const wbValidation = await validateBuild123dCode(currentCode);
-    if (!wbValidation.valid) {
-      const validationMsg = wbValidation.errors.join("; ");
-      logger.warn({ iteration, validationErrors: wbValidation.errors }, "pre-render validation failed");
-      const classified: ClassifiedRenderError = {
-        rawMessage: validationMsg,
-        category: RenderErrorCategory.SYNTAX,
-        isInfrastructure: false,
-        fixGuidance: `Pre-render validation failed: ${validationMsg}. Fix the syntax errors or ensure the code assigns the final solid to root_part.`,
-        capturedDetail: null,
-      };
-      errorHistory.push(classified);
-      renderError = validationMsg;
-      const escalation = buildEscalatedGuidance(classified, errorHistory.slice(0, -1));
-      renderErrorCtx = { classified, escalationGuidance: escalation };
-
-      // Revert to pre-edit code if edit mode was used
-      if (useEditMode && preEditCode) {
-        logger.info({ iteration }, "edit mode: reverting to pre-edit code after validation failure");
-        currentCode = preEditCode;
-        preEditCode = null;
-      }
-
-      if (iteration >= dynMaxFix) {
-        onProgress?.("failed", renderError ?? "Validation failed");
-        const exampleId = crypto.randomUUID();
-        await insertExample({
-          id: exampleId,
-          promptId: ctx.promptId,
-          iteration,
-          code: currentCode,
-          renderStatus: "error",
-          renderError,
-          stlPath: null, stepPath: null, threemfPath: null,
-          screenshotFront: null, screenshotBack: null,
-          screenshotLeft: null, screenshotRight: null,
-          screenshotTop: null, screenshotBottom: null,
-          screenshotOrtho45: null, screenshotOrtho45Bottom: null,
-          screenshotIso: null, screenshotIsoBack: null,
-          evalScore: null, evalIssues: null, evalSuggestions: null, evalChecklistResults: null,
-          approvalStatus: "pending",
-          llmModel: llmModelLabel, vlmModel: null,
-          promptTokens: totalPromptTokens, completionTokens: totalCompletionTokens,
-        });
-        return {
-          exampleId, promptId: ctx.promptId, iteration,
-          code: currentCode, renderStatus: "error", renderError,
-          evalScore: null, evalIssues: null, evalSuggestions: null, evalChecklistResults: null,
-          approvalStatus: "pending", llmModel: llmModelLabel, vlmModel: null,
-        };
-      }
-      continue;
-    }
-
-    // Log lint warnings for informational use
-    if (wbValidation.warnings.length > 0) {
-      logger.warn({ iteration, warnings: wbValidation.warnings.map(w => `[${w.rule}] ${w.message}`) }, "lint warnings");
-    }
-
-    // 3. Render with Build123d — wrap raw code in template for execution
-    //    Uses infrastructure retry to avoid wasting iterations on service hiccups.
-    onProgress?.("rendering", "Rendering 3D model...");
-    const baseFileName = `wb-${ctx.promptId.slice(0, 8)}-iter${iteration}`;
-    const executableCode = wrapInTemplate(currentCode, baseFileName);
-    logger.debug({ code: executableCode }, "executable code for Build123d");
-
-    const renderOutcome = await renderWithInfraRetry(
-      () => renderBuild123d({ code: executableCode, baseFileName }),
-      {
-        onRetry: (attempt, classified) => {
-          logger.info(
-            { attempt, category: classified.category, promptId: ctx.promptId, iteration },
-            "infrastructure retry for Build123d",
-          );
-        },
-      },
-    );
-
-    if (renderOutcome.ok) {
-      renderedFiles = renderOutcome.result.files;
-      previousRenderSucceeded = true;
-      preEditCode = null;
-      logger.info({ fileCount: renderedFiles.length, files: renderedFiles.map((f) => f.filename) }, "Build123d render success");
-    } else {
-      // Classify and track the render error
-      const classified = renderOutcome.error;
-      errorHistory.push(classified);
-      renderError = classified.rawMessage;
-      const escalation = buildEscalatedGuidance(classified, errorHistory.slice(0, -1));
-      renderErrorCtx = { classified, escalationGuidance: escalation };
-      logger.warn(
-        { promptId: ctx.promptId, iteration, renderError, category: classified.category },
-        "render failed",
-      );
-
-      // If edit mode was used and render failed, revert to pre-edit code
-      if (useEditMode && preEditCode) {
-        logger.info({ iteration }, "edit mode: reverting to pre-edit code after render failure");
-        currentCode = preEditCode;
-        preEditCode = null;
-      }
-
-      // If this is the last iteration, persist the failure and return
-      if (iteration >= dynMaxFix) {
-        onProgress?.("failed", renderError ?? "Render failed");
-        const exampleId = crypto.randomUUID();
-        await insertExample({
-          id: exampleId,
-          promptId: ctx.promptId,
-          iteration,
-          code: currentCode,
-          renderStatus: "error",
-          renderError,
-          stlPath: null,
-          stepPath: null,
-          threemfPath: null,
-          screenshotFront: null,
-          screenshotBack: null,
-          screenshotLeft: null,
-          screenshotRight: null,
-          screenshotTop: null,
-          screenshotBottom: null,
-          screenshotOrtho45: null,
-          screenshotOrtho45Bottom: null,
-          screenshotIso: null,
-          screenshotIsoBack: null,
-          evalScore: null,
-          evalIssues: null,
-          evalSuggestions: null,
-          evalChecklistResults: null,
-          approvalStatus: "pending",
-          llmModel: llmModelLabel,
-          vlmModel: null,
-          promptTokens: totalPromptTokens,
-          completionTokens: totalCompletionTokens,
-        });
-
-        return {
-          exampleId,
-          promptId: ctx.promptId,
-          iteration,
-          code: currentCode,
-          renderStatus: "error",
-          renderError,
-          evalScore: null,
-          evalIssues: null,
-          evalSuggestions: null,
-          evalChecklistResults: null,
-          approvalStatus: "pending",
-          llmModel: llmModelLabel,
-          vlmModel: null,
-        };
-      }
-
-      // Otherwise, loop back for fix attempt
-      continue;
-    }
-
-    // 4. Screenshot via STL rendering service (STL only — faster, no ZIP decompression)
-    onProgress?.("screenshots", "Taking screenshots...");
-    let screenshotFailed = false;
-    const stlFile = findFileByExtension(renderedFiles, ".stl");
-    if (stlFile) {
-      logger.info({ dataLength: stlFile.contentBase64.length }, "sending STL to rendering service for screenshots");
-      try {
-        const screenshotResult = await renderModelScreenshots({
-          modelData: stlFile.contentBase64,
-          format: "stl",
-          width: 512,
-          height: 512,
-        });
-        screenshots = screenshotResult.images;
-        logger.info({ angles: screenshots.map((s) => s.angle) }, "screenshots received");
-      } catch (error) {
-        logger.warn({ err: error, promptId: ctx.promptId, iteration }, "screenshot failed after retries — this is a service issue, not a code issue");
-        screenshotFailed = true;
-      }
-    } else {
-      logger.warn("no STL file available, skipping screenshots");
-    }
-
-    // 5. Evaluate — VLM visual eval + optional code eval (run in parallel when possible)
-    onProgress?.("evaluating", `Evaluating quality (attempt ${iteration}/${dynMaxFix})...`);
-    const vlmImages = screenshots
-      .filter((s) => s.angle !== "isometric")
-      .map((s) => ({ angle: s.angle, base64: s.base64 }));
-    logger.info({ imageCount: vlmImages.length, codeEvalEnabled: wbCodeEvalEnabled }, "starting evaluation");
-
-    // Launch VLM eval and code eval in parallel
-    const vlmPromise = vlmImages.length > 0
-      ? evaluateModel({
-          userPrompt: ctx.prompt,
-          categoryName: ctx.categoryName,
-          complexity: ctx.complexity,
-          images: vlmImages,
-          looksCorrectThreshold: dynLooksCorrect,
-          verificationChecklist: specResult?.verificationChecklist,
-        }).catch((err) => { logger.warn({ err: err instanceof Error ? err.message : String(err) }, "VLM evaluation failed"); return null; })
-      : Promise.resolve(null);
-
-    const codeEvalPromise = wbCodeEvalEnabled
-      ? evaluateCode({
-          userPrompt: ctx.prompt,
-          code: currentCode,
-          specInterpretation: specResult?.interpretation,
-          codeAssertions: specResult?.codeAssertions,
-        }).catch((err) => { logger.warn({ err: err instanceof Error ? err.message : String(err) }, "code eval failed"); return null; })
-      : Promise.resolve(null);
-
-    const [vlmResult, ceResult] = await Promise.all([vlmPromise, codeEvalPromise]);
-    evalResult = vlmResult;
-    codeEvalResult = ceResult;
-
-    if (evalResult) {
-      totalPromptTokens += evalResult.promptTokens;
-      totalCompletionTokens += evalResult.completionTokens;
-      logger.info({ score: evalResult.score, looksCorrect: evalResult.looksCorrect, vlmTokens: evalResult.promptTokens + evalResult.completionTokens }, "VLM evaluation result");
-    } else if (vlmImages.length > 0) {
-      logger.warn("VLM evaluation returned no result");
-    }
-
-    if (codeEvalResult) {
-      totalPromptTokens += codeEvalResult.promptTokens;
-      totalCompletionTokens += codeEvalResult.completionTokens;
-      logger.info({ codeScore: codeEvalResult.score, codeIssueCount: codeEvalResult.issues.length, assertionPassRate: codeEvalResult.assertionSummary?.passRate ?? null }, "code evaluation result");
-    }
-
-    // 5b. If screenshots failed due to a service issue (not a code issue), persist
-    // the render-successful result and stop. Retrying with AI regeneration is pointless
-    // because the code rendered fine — only the screenshot service is down.
-    if (screenshotFailed) {
-      logger.info(
-        { promptId: ctx.promptId, iteration },
-        "screenshot service failed — persisting render result without eval (no AI retry)",
-      );
-
-      const exampleId = crypto.randomUUID();
-      // Persist rendered files to disk (no screenshots since service failed)
-      const filePaths = await persistWorkbenchFiles({
-        categoryId: ctx.categoryId,
-        exampleId,
-        renderedFiles,
-        code: currentCode,
-        screenshots: [],
-      });
-
-      await insertExample({
-        id: exampleId,
-        promptId: ctx.promptId,
-        iteration,
-        code: currentCode,
-        renderStatus: "success",
-        renderError: null,
-        stlPath: filePaths.stlPath,
-        stepPath: filePaths.stepPath,
-        threemfPath: filePaths.threemfPath,
-        screenshotFront: null,
-        screenshotBack: null,
-        screenshotLeft: null,
-        screenshotRight: null,
-        screenshotTop: null,
-        screenshotBottom: null,
-        screenshotOrtho45: null,
-        screenshotOrtho45Bottom: null,
-        screenshotIso: null,
-        screenshotIsoBack: null,
-        evalScore: null,
-        evalIssues: ["Screenshot service unavailable — evaluation skipped"],
-        evalSuggestions: null,
-        evalChecklistResults: null,
-        approvalStatus: "pending",
-        llmModel: llmModelLabel,
-        vlmModel: null,
-        promptTokens: totalPromptTokens,
-        completionTokens: totalCompletionTokens,
-      });
-
-      return {
-        exampleId,
-        promptId: ctx.promptId,
-        iteration,
-        code: currentCode,
-        renderStatus: "success",
-        renderError: null,
-        evalScore: null,
-        evalIssues: ["Screenshot service unavailable — evaluation skipped"],
-        evalSuggestions: null,
-        evalChecklistResults: null,
-        approvalStatus: "pending",
-        llmModel: llmModelLabel,
-        vlmModel: null,
-      };
-    }
-
-    // 6. Track best result and decide whether to continue fixing
-    // Compute composite score when code eval is enabled
-    const visualScore = evalResult?.score ?? null;
-    const codeScore = codeEvalResult?.score ?? null;
-    const assertionPassRate = codeEvalResult?.assertionSummary?.passRate ?? null;
-
-    let score: number | null;
-    if (wbCodeEvalEnabled && (visualScore !== null || codeScore !== null)) {
-      const composite = computeCompositeScore(visualScore, codeScore, assertionPassRate, wbCodeEvalWeight);
-      score = composite.compositeScore;
-      logger.info({ visualScore, codeScore, assertionPassRate, compositeScore: score, source: composite.source }, "composite evaluation");
-    } else {
-      score = visualScore;
-    }
-
-    const allIssues = [
-      ...(evalResult?.issues ?? []),
-      ...(codeEvalResult?.issues ?? []),
-    ];
-    const approved = shouldAutoApprove(score, dynAutoApprove, evalResult?.checklistResults);
-    const hasIssues = allIssues.length > 0;
-    logger.info({ score, threshold: dynAutoApprove, approved, hasIssues, lastIteration: iteration >= dynMaxFix }, "iteration evaluation summary");
-
-    // Track the best successful result so we never regress
-    if (score !== null && (best === null || score > best.score)) {
-      best = {
-        code: currentCode,
-        score,
-        evalResult,
-        screenshots: [...screenshots],
-        iteration,
-        promptTokens: totalPromptTokens,
-        completionTokens: totalCompletionTokens,
-      };
-      logger.info({ score, iteration }, "new best result");
-    }
-
-    // Stop if: perfect score with no issues, or last iteration
-    // Continue fixing if: below threshold, OR above threshold but VLM reported issues
-    const shouldStop = (approved && !hasIssues) || iteration >= dynMaxFix;
-
-    if (shouldStop) {
-      onProgress?.("completed", "Done");
-      // Use the best result across all iterations (guards against regressions)
-      const final = best ?? {
-        code: currentCode,
-        score,
-        evalResult,
-        screenshots,
-        iteration,
-        promptTokens: totalPromptTokens,
-        completionTokens: totalCompletionTokens,
-      };
-      const finalScore = final.score;
-      const finalApproved = shouldAutoApprove(finalScore, dynAutoApprove, final.evalResult?.checklistResults);
-
-      const exampleId = crypto.randomUUID();
-      // Persist rendered files and screenshots to disk
-      const filePaths = await persistWorkbenchFiles({
-        categoryId: ctx.categoryId,
-        exampleId,
-        renderedFiles,
-        code: final.code,
-        screenshots: final.screenshots,
-      });
-
-      await insertExample({
-        id: exampleId,
-        promptId: ctx.promptId,
-        iteration: final.iteration,
-        code: final.code,
-        renderStatus: "success",
-        renderError: null,
-        stlPath: filePaths.stlPath,
-        stepPath: filePaths.stepPath,
-        threemfPath: filePaths.threemfPath,
-        screenshotFront: filePaths.screenshotFrontPath,
-        screenshotBack: filePaths.screenshotBackPath,
-        screenshotLeft: filePaths.screenshotLeftPath,
-        screenshotRight: filePaths.screenshotRightPath,
-        screenshotTop: filePaths.screenshotTopPath,
-        screenshotBottom: filePaths.screenshotBottomPath,
-        screenshotOrtho45: filePaths.screenshotOrtho45Path,
-        screenshotOrtho45Bottom: filePaths.screenshotOrtho45BottomPath,
-        screenshotIso: filePaths.screenshotIsoPath,
-        screenshotIsoBack: filePaths.screenshotIsoBackPath,
-        evalScore: finalScore,
-        evalIssues: final.evalResult?.issues ?? null,
-        evalSuggestions: final.evalResult?.suggestions ?? null,
-        evalChecklistResults: final.evalResult?.checklistResults ?? null,
-        approvalStatus: finalApproved ? "auto_approved" : "pending",
-        llmModel: llmModelLabel,
-        vlmModel: final.evalResult?.vlmModel ?? null,
-        promptTokens: final.promptTokens,
-        completionTokens: final.completionTokens,
-      });
-
-      logger.info(
-        { promptId: ctx.promptId, iteration: final.iteration, score: finalScore, status: finalApproved ? "auto_approved" : "pending", totalIterations: iteration },
-        "example persisted",
-      );
-
-      return {
-        exampleId,
-        promptId: ctx.promptId,
-        iteration: final.iteration,
-        code: final.code,
-        renderStatus: "success",
-        renderError: null,
-        evalScore: finalScore,
-        evalIssues: final.evalResult?.issues ?? null,
-        evalSuggestions: final.evalResult?.suggestions ?? null,
-        evalChecklistResults: final.evalResult?.checklistResults ?? null,
-        approvalStatus: finalApproved ? "auto_approved" : "pending",
-        llmModel: llmModelLabel,
-        vlmModel: final.evalResult?.vlmModel ?? null,
-      };
-    }
-
-    // Continue fixing — either below threshold or has issues to address
-    logger.info(
-      { promptId: ctx.promptId, iteration, score, issueCount: (evalResult?.issues ?? []).length },
-      "retrying with fix attempt",
-    );
-  }
-
-  // Should not reach here, but just in case
-  throw new Error("Unexpected end of generation pipeline");
 }
 
 // ── Re-render pipeline (no AI codegen, no fix loop) ──────────────────
