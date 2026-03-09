@@ -2,7 +2,9 @@ import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import { useNotifications } from "../../contexts/NotificationsContext";
 import { useAuth } from "../../hooks/useAuth";
+import { usePullToRefresh } from "../../hooks/usePullToRefresh";
 import { useSidebar } from "../../hooks/useSidebar";
+import { PullToRefreshIndicator } from "./PullToRefreshIndicator";
 import { Sidebar, SidebarToggle } from "./Sidebar";
 
 interface AppShellProps {
@@ -15,9 +17,17 @@ export function AppShell({ children, className }: AppShellProps) {
   const { user } = useAuth();
   const { connectionState } = useNotifications();
   const isAdmin = user?.role === "admin";
+  const { ref: pullRef, progress, thresholdReached, releasing, refreshing } = usePullToRefresh();
 
   return (
     <div className={cn("flex h-screen bg-[hsl(var(--background))] text-[hsl(var(--foreground))]", className)}>
+      <PullToRefreshIndicator
+        progress={progress}
+        thresholdReached={thresholdReached}
+        releasing={releasing}
+        refreshing={refreshing}
+      />
+
       {/* Sidebar */}
       <Sidebar />
 
@@ -39,7 +49,10 @@ export function AppShell({ children, className }: AppShellProps) {
         </div>
 
         {/* Page content */}
-        <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-3">
+        <main
+          ref={pullRef as React.RefObject<HTMLElement>}
+          className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-3"
+        >
           {children}
         </main>
       </div>

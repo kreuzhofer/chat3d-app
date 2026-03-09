@@ -12,7 +12,6 @@ import {
   Search,
   Shield,
   SquarePen,
-  TestTubeDiagonal,
   User,
   X,
 } from "lucide-react";
@@ -96,7 +95,6 @@ export function Sidebar() {
       items.push(
         { to: "/admin", label: t("nav.admin"), icon: <Shield className="h-4 w-4" />, adminOnly: true },
         { to: "/workbench", label: t("nav.workbench"), icon: <FlaskConical className="h-4 w-4" />, adminOnly: true },
-        { to: "/query", label: t("actions.queryWorkbench"), icon: <TestTubeDiagonal className="h-4 w-4" />, adminOnly: true },
         { to: "/backups", label: t("nav.backups"), icon: <ArchiveRestore className="h-4 w-4" />, adminOnly: true },
         { to: "/notifications", label: t("nav.notifications"), icon: <Bell className="h-4 w-4" />, adminOnly: true },
       );

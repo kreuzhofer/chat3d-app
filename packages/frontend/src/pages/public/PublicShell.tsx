@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import { Box, Menu, X } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { LanguageSelector } from "../../components/LanguageSelector";
+import { PullToRefreshIndicator } from "../../components/layout/PullToRefreshIndicator";
+import { usePullToRefresh } from "../../hooks/usePullToRefresh";
 
 interface PublicShellProps {
   waitlistEnabled: boolean;
@@ -13,6 +15,7 @@ interface PublicShellProps {
 export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsWithChildren<PublicShellProps>) {
   const { t } = useTranslation(["pages", "common"]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const { progress, thresholdReached, releasing, refreshing } = usePullToRefresh({ mode: "window" });
 
   const cta = useMemo(
     () =>
@@ -23,7 +26,13 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
   );
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_var(--public-gradient-1),transparent_38%),radial-gradient(circle_at_top_right,_var(--public-gradient-2),transparent_45%),linear-gradient(180deg,var(--public-bg-start)_0%,var(--public-bg-mid)_40%,var(--public-bg-end)_100%)] text-[hsl(var(--foreground))]">
+    <div className="relative min-h-screen bg-[radial-gradient(circle_at_top_left,_var(--public-gradient-1),transparent_38%),radial-gradient(circle_at_top_right,_var(--public-gradient-2),transparent_45%),linear-gradient(180deg,var(--public-bg-start)_0%,var(--public-bg-mid)_40%,var(--public-bg-end)_100%)] text-[hsl(var(--foreground))]">
+      <PullToRefreshIndicator
+        progress={progress}
+        thresholdReached={thresholdReached}
+        releasing={releasing}
+        refreshing={refreshing}
+      />
       <header className="sticky top-0 z-30 border-b border-[hsl(var(--border))] bg-[hsl(var(--surface-1)_/_0.9)] backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 md:px-6">
           <Link to="/" className="flex items-center gap-2 text-base font-semibold tracking-tight text-[hsl(var(--foreground))]">
