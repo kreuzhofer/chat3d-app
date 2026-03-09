@@ -15,6 +15,7 @@ import {
   getKnowledgeStats,
   listKnowledgeEntries,
   deleteKnowledgeEntry as apiDeleteEntry,
+  updateKnowledgeEntry as apiUpdateEntry,
   listKnowledgeSources,
   createKnowledgeSource,
   updateKnowledgeSource as apiUpdateSource,
@@ -37,6 +38,8 @@ import { Select } from "../ui/select";
 import { Dialog } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { useToast } from "../ui/toast";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface KnowledgeTabProps {
   token: string;
@@ -99,6 +102,9 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
   // ── Filters ──
   const [sourceFilter, setSourceFilter] = useState("");
   const [validationFilter, setValidationFilter] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [conceptFilter, setConceptFilter] = useState("");
 
   // ── UI state ──
   const [loading, setLoading] = useState(true);
@@ -144,6 +150,15 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
   const [refTags, setRefTags] = useState("");
   const [refSaving, setRefSaving] = useState(false);
 
+  // ── Edit entry dialog ──
+  const [editDialog, setEditDialog] = useState<KnowledgeEntry | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editSourceUrl, setEditSourceUrl] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [editTags, setEditTags] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
   // ── Export / Import ──
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -172,19 +187,21 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
 
   const loadEntries = useCallback(async (currentOffset: number) => {
     try {
-      const opts: { sourceId?: string; validationStatus?: string; limit: number; offset: number } = {
+      const opts: { sourceId?: string; validationStatus?: string; search?: string; concept?: string; limit: number; offset: number } = {
         limit: PAGE_SIZE,
         offset: currentOffset,
       };
       if (sourceFilter) opts.sourceId = sourceFilter;
       if (validationFilter) opts.validationStatus = validationFilter;
+      if (debouncedSearch) opts.search = debouncedSearch;
+      if (conceptFilter) opts.concept = conceptFilter;
       const data = await listKnowledgeEntries(token, opts);
       setEntries(data.entries);
       setTotal(data.total);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [token, sourceFilter, validationFilter]);
+  }, [token, sourceFilter, validationFilter, debouncedSearch, conceptFilter]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -195,10 +212,23 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
 
   useEffect(() => { void loadAll(); }, [loadAll]);
 
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   useEffect(() => {
     setOffset(0);
     setExpandedId(null);
-  }, [sourceFilter, validationFilter]);
+  }, [sourceFilter, validationFilter, debouncedSearch, conceptFilter]);
+
+  // Collect unique concepts from current page for filter dropdown
+  const uniqueConcepts = useMemo(() => {
+    const all = new Set<string>();
+    entries.forEach(e => e.concepts.forEach(c => all.add(c)));
+    return Array.from(all).sort();
+  }, [entries]);
 
   // Auto-refresh when sources are crawling
   const hasCrawlingSource = sources.some(s => s.lastCrawlStatus === "running");
@@ -465,6 +495,47 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
     }
   }
 
+  // ── Edit entry dialog handlers ──
+
+  function openEditEntryDialog(entry: KnowledgeEntry) {
+    setEditTitle(entry.title);
+    setEditSourceUrl(entry.sourceUrl);
+    setEditDescription(entry.description ?? "");
+    setEditContent(entry.code);
+    setEditTags(entry.concepts.join(", "));
+    setEditDialog(entry);
+  }
+
+  async function handleSaveEntry() {
+    if (!editDialog) return;
+    setEditSaving(true);
+    setError(null);
+    try {
+      const tags = editTags.split(",").map(s => s.trim()).filter(Boolean);
+      const patch: { title?: string; description?: string | null; code?: string; sourceUrl?: string; concepts?: string[] } = {};
+      if (editTitle.trim() !== editDialog.title) patch.title = editTitle.trim();
+      if (editSourceUrl.trim() !== editDialog.sourceUrl) patch.sourceUrl = editSourceUrl.trim();
+      if (editDescription.trim() !== (editDialog.description ?? "")) patch.description = editDescription.trim() || null;
+      if (editContent !== editDialog.code) patch.code = editContent;
+      patch.concepts = tags;
+
+      const contentChanged = editContent !== editDialog.code;
+      await apiUpdateEntry(token, editDialog.id, patch);
+
+      pushToast({
+        tone: "success",
+        title: "Entry updated",
+        description: contentChanged ? "Content changed — embedding cleared for re-embedding." : undefined,
+      });
+      setEditDialog(null);
+      await Promise.all([loadStats(), loadEntries(offset)]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
   // ── Derived ──
 
   const sourceFilterOptions = useMemo(() => [
@@ -711,6 +782,13 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
       <SectionCard title="Entries" description="Browse and inspect knowledge base entries.">
         {/* Filter bar */}
         <div className="mb-3 flex flex-wrap items-center gap-3">
+          <div className="w-48">
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search title or content..."
+            />
+          </div>
           <div className="w-52">
             <Select
               options={sourceFilterOptions}
@@ -725,6 +803,18 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
               onChange={(e) => setValidationFilter(e.target.value)}
             />
           </div>
+          {uniqueConcepts.length > 0 && (
+            <div className="w-40">
+              <Select
+                options={[
+                  { value: "", label: "All concepts" },
+                  ...uniqueConcepts.map(c => ({ value: c, label: c })),
+                ]}
+                value={conceptFilter}
+                onChange={(e) => setConceptFilter(e.target.value)}
+              />
+            </div>
+          )}
           <span className="text-xs text-[hsl(var(--muted-foreground))]">
             {total} {total === 1 ? "entry" : "entries"}
           </span>
@@ -772,15 +862,27 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
                       {entry.concepts.slice(0, 3).join(", ")}
                       {entry.concepts.length > 3 ? ` +${entry.concepts.length - 3}` : ""}
                     </span>
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      className="inline-flex shrink-0 items-center rounded p-1 text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive)_/_0.1)]"
-                      onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ type: "entry", id: entry.id, title: entry.title }); }}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); setDeleteConfirm({ type: "entry", id: entry.id, title: entry.title }); } }}
-                      title="Delete entry"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
+                    <span className="inline-flex shrink-0 items-center gap-0.5">
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="inline-flex items-center rounded p-1 text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]"
+                        onClick={(e) => { e.stopPropagation(); openEditEntryDialog(entry); }}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); openEditEntryDialog(entry); } }}
+                        title="Edit entry"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </span>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="inline-flex items-center rounded p-1 text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive)_/_0.1)]"
+                        onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ type: "entry", id: entry.id, title: entry.title }); }}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); setDeleteConfirm({ type: "entry", id: entry.id, title: entry.title }); } }}
+                        title="Delete entry"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </span>
                     </span>
                   </button>
 
@@ -808,9 +910,15 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
                         <span className="text-xs font-medium text-[hsl(var(--muted-foreground))]">
                           {entry.sourceType === "reference" ? "Content" : "Code"}
                         </span>
-                        <pre className="mt-1 max-h-80 overflow-auto rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap">
-                          {entry.code}
-                        </pre>
+                        {entry.sourceType === "reference" ? (
+                          <div className="mt-1 max-h-80 overflow-auto rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3 text-sm leading-relaxed whitespace-pre-wrap [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:border-[hsl(var(--border))] [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:text-xs [&_th]:font-medium [&_th]:bg-[hsl(var(--muted)_/_0.3)] [&_td]:border [&_td]:border-[hsl(var(--border))] [&_td]:px-2 [&_td]:py-1 [&_td]:text-xs [&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-1 [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:text-xs [&_p]:text-xs [&_p]:mb-1">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.code}</ReactMarkdown>
+                          </div>
+                        ) : (
+                          <pre className="mt-1 max-h-80 overflow-auto rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap">
+                            {entry.code}
+                          </pre>
+                        )}
                       </div>
                       <div>
                         <span className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Concepts</span>
@@ -1108,6 +1216,61 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
               onClick={() => void handleSaveReference()}
             >
               Create Entry
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* ── Edit Entry Dialog ── */}
+      <Dialog
+        open={editDialog !== null}
+        title="Edit Knowledge Entry"
+        onClose={() => { if (!editSaving) setEditDialog(null); }}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium">Title</label>
+            <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Source URL</label>
+            <Input value={editSourceUrl} onChange={(e) => setEditSourceUrl(e.target.value)} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Description</label>
+            <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Concepts (comma-separated)</label>
+            <Input value={editTags} onChange={(e) => setEditTags(e.target.value)} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">
+              {editDialog?.sourceType === "reference" ? "Content (Markdown)" : "Code"}
+            </label>
+            <textarea
+              className="w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3 font-mono text-xs leading-relaxed"
+              rows={14}
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+            />
+            {editDialog && editContent !== editDialog.code ? (
+              <p className="mt-1 text-xs text-[hsl(var(--warning))]">
+                Content changed — embedding will be cleared on save, requiring re-embedding.
+              </p>
+            ) : null}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={editSaving} onClick={() => setEditDialog(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              loading={editSaving}
+              disabled={editSaving || !editTitle.trim()}
+              onClick={() => void handleSaveEntry()}
+            >
+              Save Changes
             </Button>
           </div>
         </div>

@@ -112,6 +112,8 @@ export async function listKnowledgeEntries(options?: {
   sourceType?: KnowledgeSourceType;
   validationStatus?: ValidationStatus;
   sourceId?: string;
+  search?: string;
+  concept?: string;
   limit?: number;
   offset?: number;
 }): Promise<{ entries: KnowledgeEntry[]; total: number }> {
@@ -119,6 +121,15 @@ export async function listKnowledgeEntries(options?: {
   if (options?.sourceType) where.sourceType = options.sourceType;
   if (options?.validationStatus) where.validationStatus = options.validationStatus;
   if (options?.sourceId) where.sourceId = options.sourceId;
+  if (options?.search) {
+    where.OR = [
+      { title: { contains: options.search, mode: "insensitive" } },
+      { code: { contains: options.search, mode: "insensitive" } },
+    ];
+  }
+  if (options?.concept) {
+    where.concepts = { has: options.concept };
+  }
 
   const [entries, total] = await Promise.all([
     prisma.build123dKnowledge.findMany({
@@ -147,6 +158,51 @@ export async function deleteKnowledgeBySource(sourceType: KnowledgeSourceType): 
     where: { sourceType },
   });
   return result.count;
+}
+
+export async function updateKnowledgeEntry(
+  id: string,
+  patch: {
+    title?: string;
+    description?: string | null;
+    code?: string;
+    sourceUrl?: string;
+    concepts?: string[];
+  },
+): Promise<KnowledgeEntry | null> {
+  const existing = await prisma.build123dKnowledge.findUnique({ where: { id } });
+  if (!existing) return null;
+
+  const data: Record<string, unknown> = {};
+  if (patch.title !== undefined) data.title = patch.title;
+  if (patch.description !== undefined) data.description = patch.description;
+  if (patch.code !== undefined) data.code = patch.code;
+  if (patch.sourceUrl !== undefined) data.sourceUrl = patch.sourceUrl;
+  if (patch.concepts !== undefined) data.concepts = patch.concepts;
+
+  const contentChanged = patch.code !== undefined && patch.code !== existing.code;
+
+  if (contentChanged) {
+    // Clear embedding so it gets re-embedded on next embed run
+    await prisma.$executeRaw`
+      UPDATE build123d_knowledge
+      SET embedding = NULL, embedding_model = NULL
+      WHERE id = ${id}::uuid
+    `;
+
+    if (existing.sourceType === "reference") {
+      data.validationStatus = "valid";
+      data.validatedAt = new Date();
+    } else {
+      data.validationStatus = "pending";
+      data.validatedAt = null;
+    }
+
+    logger.info({ id, sourceType: existing.sourceType }, "knowledge entry content changed, embedding cleared");
+  }
+
+  const updated = await prisma.build123dKnowledge.update({ where: { id }, data });
+  return updated as unknown as KnowledgeEntry;
 }
 
 export async function getKnowledgeStats(): Promise<KnowledgeStats> {

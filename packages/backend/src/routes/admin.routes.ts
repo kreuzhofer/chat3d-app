@@ -46,6 +46,7 @@ import {
   backfillKnowledgeEmbeddings,
   createManualEntry,
   createReferenceEntry,
+  updateKnowledgeEntry,
   type KnowledgeSourceType,
   type ValidationStatus,
 } from "../services/knowledge.service.js";
@@ -1047,7 +1048,7 @@ adminRouter.get("/knowledge/jobs/:jobId", async (req, res) => {
 
 // ── Knowledge Entries ───────────────────────────────────────────────
 
-const VALID_SOURCE_TYPES = new Set(["docs", "github_example", "github_test", "forum", "blog", "manual"]);
+const VALID_SOURCE_TYPES = new Set(["docs", "github_example", "github_test", "forum", "blog", "manual", "reference"]);
 const VALID_VALIDATION_STATUSES = new Set(["pending", "valid", "invalid", "error"]);
 
 adminRouter.get("/knowledge", async (req, res) => {
@@ -1059,10 +1060,12 @@ adminRouter.get("/knowledge", async (req, res) => {
       ? (req.query.validationStatus as ValidationStatus)
       : undefined;
     const sourceId = typeof req.query.sourceId === "string" ? req.query.sourceId : undefined;
+    const search = typeof req.query.search === "string" ? req.query.search.trim() : undefined;
+    const concept = typeof req.query.concept === "string" ? req.query.concept.trim() : undefined;
     const limit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : undefined;
     const offset = typeof req.query.offset === "string" ? parseInt(req.query.offset, 10) : undefined;
 
-    const result = await listKnowledgeEntries({ sourceType, validationStatus, sourceId, limit, offset });
+    const result = await listKnowledgeEntries({ sourceType, validationStatus, sourceId, search, concept, limit, offset });
     res.status(200).json(result);
   } catch (error) {
     sendKnownError(res, error, "Failed to list knowledge entries");
@@ -1122,6 +1125,43 @@ adminRouter.get("/knowledge/:id", async (req, res) => {
     res.status(200).json(entry);
   } catch (error) {
     sendKnownError(res, error, "Failed to get knowledge entry");
+  }
+});
+
+adminRouter.patch("/knowledge/:id", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Invalid knowledge entry id" });
+    return;
+  }
+
+  const body = req.body as Record<string, unknown> | undefined;
+  if (!body) {
+    res.status(400).json({ error: "Request body is required" });
+    return;
+  }
+
+  const patch: Record<string, unknown> = {};
+  if (typeof body.title === "string") patch.title = body.title;
+  if (typeof body.description === "string" || body.description === null) patch.description = body.description;
+  if (typeof body.code === "string") patch.code = body.code;
+  if (typeof body.sourceUrl === "string") patch.sourceUrl = body.sourceUrl;
+  if (Array.isArray(body.concepts)) patch.concepts = body.concepts.filter((c: unknown) => typeof c === "string");
+
+  if (Object.keys(patch).length === 0) {
+    res.status(400).json({ error: "At least one field must be provided" });
+    return;
+  }
+
+  try {
+    const updated = await updateKnowledgeEntry(id, patch as Parameters<typeof updateKnowledgeEntry>[1]);
+    if (!updated) {
+      res.status(404).json({ error: "Knowledge entry not found" });
+      return;
+    }
+    res.status(200).json(updated);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to update knowledge entry");
   }
 });
 
