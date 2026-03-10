@@ -108,7 +108,7 @@ export function SidebarChatList({ activeContextId }: SidebarChatListProps) {
               {editingId === ctx.id ? (
                 <input
                   type="text"
-                  className="min-w-0 flex-1 rounded bg-[hsl(var(--muted))] px-1.5 py-0.5 text-sm text-[hsl(var(--foreground))] outline-none ring-1 ring-[hsl(var(--primary)_/_0.5)]"
+                  className="min-w-0 flex-1 rounded bg-[hsl(var(--muted))] px-1.5 py-0.5 text-base text-[hsl(var(--foreground))] outline-none ring-1 ring-[hsl(var(--primary)_/_0.5)]"
                   value={editingValue}
                   onChange={(e) => setEditingValue(e.target.value)}
                   onBlur={() => commitRename(ctx)}

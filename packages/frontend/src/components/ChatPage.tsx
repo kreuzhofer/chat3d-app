@@ -58,15 +58,18 @@ function routeForContext(contextId: string): string {
   return `/chat/${encodeURIComponent(contextId)}`;
 }
 
-function toBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 0x8000;
-  let binary = "";
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    const chunk = bytes.subarray(index, index + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-  return globalThis.btoa(binary);
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      // Result is "data:<mime>;base64,<data>" — strip the prefix
+      const result = reader.result as string;
+      const commaIndex = result.indexOf(",");
+      resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("FileReader failed"));
+    reader.readAsDataURL(file);
+  });
 }
 
 function inferAttachmentKind(file: File): "image" | "file" {
@@ -709,8 +712,8 @@ export function ChatPage() {
     for (const pending of newPending) {
       const extension = fileExtension(pending.file.name) || ".bin";
       const tmpPath = `tmp/${userId}/${pending.id}${extension}`;
-      pending.file.arrayBuffer()
-        .then((buf) => uploadFileBase64({ token, path: tmpPath, contentBase64: toBase64(buf) }))
+      fileToBase64(pending.file)
+        .then((contentBase64) => uploadFileBase64({ token, path: tmpPath, contentBase64 }))
         .then((saved) => {
           setPendingFiles((current) =>
             current.map((f) => f.id === pending.id ? { ...f, serverPath: saved.path, status: "ready" as const } : f),
@@ -865,15 +868,15 @@ export function ChatPage() {
 
       <div className="flex min-h-0 flex-1 gap-0">
         <section className={`${mobilePane === "thread" ? "block" : "hidden"} min-w-0 flex-1 xl:block`}>
-          <div className="flex h-full flex-col space-y-3 p-3">
-            <div className="flex items-center justify-between gap-2 border-b border-[hsl(var(--border)_/_0.5)] pb-2">
+          <div className="flex h-full flex-col p-3">
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[hsl(var(--border)_/_0.5)] pb-2">
               <h3 className="text-sm font-medium text-[hsl(var(--muted-foreground))]">
                 {activeContext ? t("common:labels.conversation") : t("pages:chat.newDraft")}
               </h3>
               <PushToggle token={token} externalSubscribed={pushSubscribed} onSubscribedChange={setPushSubscribed} />
             </div>
 
-            <div className="max-h-[58vh] space-y-4 overflow-y-auto pr-1">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 pt-3">
               {timelineItems.length > visibleTimelineItems.length ? (
                 <Button size="sm" variant="outline" onClick={() => setVisibleTimelineCount((current) => current + 80)}>
                   {t("common:actions.showOlderMessages", { count: timelineItems.length - visibleTimelineItems.length })}
@@ -972,24 +975,26 @@ export function ChatPage() {
               <div ref={timelineEndRef} />
             </div>
 
-            <PromptComposer
-              prompt={prompt}
-              onPromptChange={setPrompt}
-              pendingFiles={pendingFiles}
-              busyAction={busyAction}
-              activeContextId={activeContextId}
-              isStreaming={isStreaming}
-              onSubmit={() => void submitPromptAction()}
-              onStop={() => void stopQueryAction()}
-              onAttachFiles={addPendingFiles}
-              onRemoveFile={(id) => {
-                setPendingFiles((current) => {
-                  const removed = current.find((f) => f.id === id);
-                  if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
-                  return current.filter((f) => f.id !== id);
-                });
-              }}
-            />
+            <div className="shrink-0 pt-2">
+              <PromptComposer
+                prompt={prompt}
+                onPromptChange={setPrompt}
+                pendingFiles={pendingFiles}
+                busyAction={busyAction}
+                activeContextId={activeContextId}
+                isStreaming={isStreaming}
+                onSubmit={() => void submitPromptAction()}
+                onStop={() => void stopQueryAction()}
+                onAttachFiles={addPendingFiles}
+                onRemoveFile={(id) => {
+                  setPendingFiles((current) => {
+                    const removed = current.find((f) => f.id === id);
+                    if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+                    return current.filter((f) => f.id !== id);
+                  });
+                }}
+              />
+            </div>
           </div>
         </section>
 

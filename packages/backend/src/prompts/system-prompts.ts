@@ -409,20 +409,62 @@ export const CODEGEN_SECTION_BD_WAREHOUSE = `## bd_warehouse — Parametric Mech
 
 The template pre-imports \`bd_warehouse\` classes. Use them instead of building threads, fasteners, bearings, gears, or pipes from scratch.
 
+### CRITICAL — combining bd_warehouse objects with other geometry
+
+bd_warehouse threads, fasteners, bearings, gears, and sprockets are **pre-built shapes**. They CANNOT be used with \`add()\` inside \`BuildPart()\` — this produces empty geometry.
+
+\`\`\`python
+# WRONG — produces empty STL:
+with BuildPart() as part:
+    Cylinder(thread.root_radius, 20)
+    add(thread)   # ← NEVER do this with bd_warehouse objects
+root_part = part.part
+\`\`\`
+
+**Correct approaches:**
+\`\`\`python
+# Option 1: fuse / + operator (external threads with core cylinder)
+thread = IsoThread(major_diameter=6, pitch=1, length=20, external=True, end_finishes=("fade", "chamfer"))
+core = Cylinder(thread.root_radius, thread.length, align=(Align.CENTER, Align.CENTER, Align.MIN))
+root_part = thread.fuse(core)          # or: root_part = thread + core
+
+# Option 2: Compound(children=[...]) for assemblies with multiple bd_warehouse objects
+with BuildPart() as body:
+    Cylinder(20, 10)
+    Cylinder(5, 10, mode=Mode.SUBTRACT)
+int_thread = IsoThread(major_diameter=10, pitch=1.5, length=10, external=False)
+root_part = Compound(children=[body.part, int_thread])
+
+# Option 3: standalone fasteners / gears / bearings — assign directly:
+root_part = HexHeadScrew(size="M8-1.25", length=40, fastener_type="iso4014", simple=False)
+root_part = SpurGear(module=2, tooth_count=20, thickness=10)
+\`\`\`
+
 ### Threads
 \`\`\`python
 # ISO metric external thread (e.g., M6 bolt thread)
 thread = IsoThread(major_diameter=6, pitch=1, length=20, external=True,
                    end_finishes=("fade", "chamfer"))
-# Access thread.min_radius for the root radius
-core = Cylinder(thread.min_radius, thread.length, align=(Align.CENTER, Align.CENTER, Align.MIN))
+core = Cylinder(thread.root_radius, thread.length, align=(Align.CENTER, Align.CENTER, Align.MIN))
 threaded_rod = thread.fuse(core)
 
 # ISO metric internal thread (e.g., inside a nut)
 int_thread = IsoThread(major_diameter=6, pitch=1, length=5, external=False,
                        end_finishes=("chamfer", "fade"))
+
+# ACME thread (imperial sizes — size is a fractional inch string)
+acme = AcmeThread(size="1/4", length=25)
+acme_screw = acme + Cylinder(acme.root_radius, acme.length, align=(Align.CENTER, Align.CENTER, Align.MIN))
+
+# Metric trapezoidal thread (size format: "diameter x pitch")
+metric_tr = MetricTrapezoidalThread(size="8x1.5", length=20)
+metric_screw = metric_tr + Cylinder(metric_tr.root_radius, metric_tr.length, align=(Align.CENTER, Align.CENTER, Align.MIN))
 \`\`\`
 Available thread classes: \`IsoThread\`, \`AcmeThread\`, \`MetricTrapezoidalThread\`
+- \`IsoThread\`: params \`major_diameter\`, \`pitch\`, \`length\`, \`external\`, \`end_finishes\`, \`hand\`
+- \`AcmeThread\`: param \`size\` is a fractional inch string (e.g., \`"1/4"\`, \`"1/2"\`, \`"3/4"\`), plus \`length\`
+- \`MetricTrapezoidalThread\`: param \`size\` is \`"diameter x pitch"\` string (e.g., \`"8x1.5"\`, \`"10x2"\`), plus \`length\`
+- All threads expose \`.root_radius\` and \`.length\` for building the core cylinder
 
 ### Fasteners
 \`\`\`python

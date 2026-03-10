@@ -28,7 +28,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
       <select
         ref={ref}
         className={cn(
-          "h-9 w-full cursor-pointer appearance-none rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] pl-3 pr-8 text-sm text-[hsl(var(--foreground))] transition",
+          "h-9 w-full cursor-pointer appearance-none rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] pl-3 pr-8 text-base text-[hsl(var(--foreground))] transition",
           "hover:border-[hsl(var(--primary)_/_0.5)]",
           "focus:border-[hsl(var(--primary))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)_/_0.2)]",
           "disabled:cursor-not-allowed disabled:opacity-60",

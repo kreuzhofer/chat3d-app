@@ -87,7 +87,7 @@ export function SearchChatsModal({ open, onClose }: SearchChatsModalProps) {
           <input
             ref={inputRef}
             type="text"
-            className="min-w-0 flex-1 bg-transparent text-base md:text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] outline-none"
+            className="min-w-0 flex-1 bg-transparent text-base text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] outline-none"
             placeholder={t("sidebar.searchPlaceholder")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}

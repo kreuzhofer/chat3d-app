@@ -124,7 +124,9 @@ export function PromptComposer({
         data-testid="chat-prompt-input"
         placeholder={t("pages:chat.promptPlaceholder")}
         value={prompt}
-        rows={3}
+        rows={1}
+        autoResize
+        className="border-0 bg-transparent px-0 py-0 shadow-none focus:ring-0"
         onChange={(event) => onPromptChange(event.target.value)}
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
