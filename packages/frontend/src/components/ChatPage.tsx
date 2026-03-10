@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
-import { Bot, Box, MessageSquare, User } from "lucide-react";
+import { Bot, Box, ChevronDown, MessageSquare, User } from "lucide-react";
 import {
   createChatContext,
   listChatItems,
@@ -37,6 +37,7 @@ import { MessageBubble } from "./chat/MessageBubble";
 import { useChatContexts } from "../hooks/useChatContexts";
 import { PromptComposer } from "./chat/PromptComposer";
 import { WorkbenchPane } from "./chat/WorkbenchPane";
+import { useScrollAnchor } from "../hooks/useScrollAnchor";
 import { useStreamingQuery } from "../hooks/useStreamingQuery";
 import { TypingIndicator } from "./chat/TypingIndicator";
 import { ExamplePrompts } from "./chat/ExamplePrompts";
@@ -124,10 +125,17 @@ export function ChatPage() {
   const streamingActivatedForIdRef = useRef<string | null>(null);
   const streamingAssistantItemIdRef = useRef<string | null>(null);
   streamingAssistantItemIdRef.current = streamingAssistantItemId;
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const lastHandledNotificationIdRef = useRef(0);
   const prevAssistantItemCountRef = useRef<number | null>(null);
   /** When true, the auto-selection effect will pick the latest assistant item on next refresh. */
   const selectLatestOnRefreshRef = useRef(false);
+  /** Only enables mobile auto-switch to workbench after user submits in this session. */
+  const userHasSubmittedRef = useRef(false);
+  /** Forces scroll-to-bottom on next content change (context switch, initial load). */
+  const forceScrollOnContentRef = useRef(true);
+  /** Tracks previous streamingAssistantItemId to detect generation completion. */
+  const prevStreamingIdForScrollRef = useRef<string | null>(null);
 
   const activeContext = useMemo(
     () => (activeContextId ? contexts.find((context) => context.id === activeContextId) ?? null : null),
@@ -195,6 +203,8 @@ export function ChatPage() {
       null
     );
   }, [selectedAssistantFiles]);
+
+  const { isNearBottom, isNearBottomRef, scrollToBottom } = useScrollAnchor(scrollContainerRef);
 
   // ── Streaming integration ──────────────────────────────────────────────────
   // streamingAssistantItemId is set when a prompt is submitted and the backend
@@ -367,6 +377,8 @@ export function ChatPage() {
     setTweakedValues({});
     setError("");
     setMessage("");
+    userHasSubmittedRef.current = false;
+    forceScrollOnContentRef.current = true;
   }, [activeContext?.chat3dModelId, activeContext?.conversationModelId, activeContextId]);
 
   // Refresh sidebar when a context is renamed (independent of activeContextId)
@@ -434,12 +446,32 @@ export function ChatPage() {
     }
   }, [activeContextId, notifications, refreshItems]);
 
+  // ── Smart scroll-to-bottom ──────────────────────────────────────────────────
+  // Content-driven scroll: force on context switch / initial load, else only when near bottom
   useEffect(() => {
-    const target = timelineEndRef.current;
-    if (target && typeof target.scrollIntoView === "function") {
-      target.scrollIntoView({ behavior: "smooth", block: "end" });
+    if (forceScrollOnContentRef.current) {
+      scrollToBottom("instant");
+      forceScrollOnContentRef.current = false;
+    } else if (isNearBottomRef.current) {
+      scrollToBottom("smooth");
     }
-  }, [lastQueryState?.id, optimisticPrompt, visibleTimelineItems.length, streamingText]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleTimelineItems.length, streamingText]);
+
+  // User submission: always scroll
+  useEffect(() => {
+    if (optimisticPrompt) scrollToBottom("smooth");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [optimisticPrompt]);
+
+  // Generation complete (streaming ID goes from non-null to null): scroll to bottom
+  useEffect(() => {
+    if (prevStreamingIdForScrollRef.current && !streamingAssistantItemId) {
+      scrollToBottom("smooth");
+    }
+    prevStreamingIdForScrollRef.current = streamingAssistantItemId;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamingAssistantItemId]);
 
   // Mark scroll as settled after initial items load so lazy 3D viewers
   // don't all fire during the scroll-to-bottom animation.
@@ -505,8 +537,10 @@ export function ChatPage() {
       return;
     }
 
-    // Auto-switch only on mobile (below xl breakpoint = 1280px)
-    if (window.innerWidth < 1280) {
+    // Auto-switch only on mobile (below xl breakpoint = 1280px) and only
+    // after the user has submitted a query in this session (prevents auto-switch
+    // when loading an existing chat with models).
+    if (userHasSubmittedRef.current && window.innerWidth < 1280) {
       setMobilePane("workbench");
     }
   }, [activeAssistantItems]);
@@ -628,6 +662,7 @@ export function ChatPage() {
     setMessage("");
     setOptimisticPrompt(trimmedPrompt);
     setPrompt("");
+    userHasSubmittedRef.current = true;
 
     try {
       const targetContextId = await ensureContextForPrompt();
@@ -890,7 +925,8 @@ export function ChatPage() {
               <PushToggle token={token} externalSubscribed={pushSubscribed} onSubscribedChange={setPushSubscribed} />
             </div>
 
-            <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto pr-1 pt-3">
+            <div className="relative min-h-0 flex-1">
+            <div ref={scrollContainerRef} className="h-full space-y-4 overflow-x-hidden overflow-y-auto pr-1 pt-3">
               {timelineItems.length > visibleTimelineItems.length ? (
                 <Button size="sm" variant="outline" onClick={() => setVisibleTimelineCount((current) => current + 80)}>
                   {t("common:actions.showOlderMessages", { count: timelineItems.length - visibleTimelineItems.length })}
@@ -932,7 +968,6 @@ export function ChatPage() {
                     isPipelineActive={!!streamingAssistantItemId}
                     onSelect={(itemId) => {
                       setSelectedAssistantItemId(itemId);
-                      setMobilePane("workbench");
                     }}
                     onRate={(rateItem, rating) => void rateItemAction(rateItem, rating)}
                     onRegenerate={(assistantItemId) => void regenerateAction(assistantItemId)}
@@ -988,6 +1023,19 @@ export function ChatPage() {
               ) : null}
 
               <div ref={timelineEndRef} />
+            </div>
+
+            {/* Scroll-to-bottom button */}
+            <button
+              type="button"
+              onClick={() => scrollToBottom()}
+              className={`absolute bottom-4 left-1/2 z-10 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--background))] shadow-md transition-opacity duration-200 hover:bg-[hsl(var(--muted))] ${
+                isNearBottom ? "pointer-events-none opacity-0" : "opacity-100"
+              }`}
+              aria-label={t("common:actions.scrollToBottom", "Scroll to bottom")}
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
             </div>
 
             <div className="shrink-0 pt-2">
