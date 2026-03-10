@@ -116,6 +116,7 @@ export function ChatPage() {
   const [reRenderBusy, setReRenderBusy] = useState(false);
 
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
+  const [scrollSettled, setScrollSettled] = useState(false);
   /** Tracks which assistantItemId was "activated" (isStreaming became true for it).
    *  The clearing effect only clears streamingAssistantItemId when its value matches
    *  this ref — preventing premature clears when a new ID is set but useStreamingQuery
@@ -439,6 +440,19 @@ export function ChatPage() {
       target.scrollIntoView({ behavior: "smooth", block: "end" });
     }
   }, [lastQueryState?.id, optimisticPrompt, visibleTimelineItems.length, streamingText]);
+
+  // Mark scroll as settled after initial items load so lazy 3D viewers
+  // don't all fire during the scroll-to-bottom animation.
+  useEffect(() => {
+    if (scrollSettled || visibleTimelineItems.length === 0) return;
+    const timer = setTimeout(() => setScrollSettled(true), 600);
+    return () => clearTimeout(timer);
+  }, [scrollSettled, visibleTimelineItems.length]);
+
+  // Reset settled state when switching conversations
+  useEffect(() => {
+    setScrollSettled(false);
+  }, [activeContextId]);
 
   useEffect(() => {
     if (activeAssistantItems.length === 0) {
@@ -876,7 +890,7 @@ export function ChatPage() {
               <PushToggle token={token} externalSubscribed={pushSubscribed} onSubscribedChange={setPushSubscribed} />
             </div>
 
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 pt-3">
+            <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto pr-1 pt-3">
               {timelineItems.length > visibleTimelineItems.length ? (
                 <Button size="sm" variant="outline" onClick={() => setVisibleTimelineCount((current) => current + 80)}>
                   {t("common:actions.showOlderMessages", { count: timelineItems.length - visibleTimelineItems.length })}
@@ -925,6 +939,7 @@ export function ChatPage() {
                     onRevertTo={(assistantItemId) => void revertToItemAction(assistantItemId)}
                     onDownloadFile={(filePath) => void downloadFileAction(filePath)}
                     onSelectSuggestion={(s) => setPrompt(s)}
+                    scrollSettled={scrollSettled}
                   />
                 );
               });

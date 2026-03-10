@@ -94,6 +94,20 @@
   --tw-prose-td-borders: hsl(var(--border));
 }
 
+/* ── Code block overflow (prevent horizontal blowout on mobile) ── */
+.msg-content pre {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.msg-content code {
+  word-break: break-all;
+}
+
+.msg-content pre code {
+  word-break: normal;
+}
+
 /* ── Keyframe animations (new) ── */
 @keyframes fadeIn {
   from { opacity: 0; }

@@ -53,7 +53,7 @@
     "startModelingDescription": "Write your first prompt. A chat context is created automatically on first send.",
     "noContextsYet": "No contexts yet",
     "noContextsDescription": "Start a draft message or create a named context.",
-    "promptPlaceholder": "Describe the part, dimensions, and constraints...",
+    "promptPlaceholder": "Describe your 3D model...",
     "mobileTabs": {
       "contexts": "Contexts",
       "thread": "Thread",

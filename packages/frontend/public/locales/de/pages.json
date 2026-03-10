@@ -53,7 +53,7 @@
     "startModelingDescription": "Schreiben Sie Ihren ersten Prompt. Ein Chat-Kontext wird automatisch beim ersten Senden erstellt.",
     "noContextsYet": "Noch keine Kontexte",
     "noContextsDescription": "Starten Sie einen Entwurf oder erstellen Sie einen benannten Kontext.",
-    "promptPlaceholder": "Beschreiben Sie das Teil, Maße und Einschränkungen...",
+    "promptPlaceholder": "3D-Modell beschreiben...",
     "mobileTabs": {
       "contexts": "Kontexte",
       "thread": "Verlauf",

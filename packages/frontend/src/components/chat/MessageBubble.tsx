@@ -1,109 +1,17 @@
-import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Bell, Bot, ImageIcon, LoaderCircle, Loader2, MessageCircleWarning, RefreshCw, ThumbsDown, ThumbsUp, Undo2, User } from "lucide-react";
+import { AlertTriangle, Bot, Loader2, MessageCircleWarning, RefreshCw, ThumbsDown, ThumbsUp, Undo2, User } from "lucide-react";
 import type { ChatTimelineItem } from "../../features/chat/chat-adapters";
-import { downloadFileBinary } from "../../api/files.api";
 import { Button } from "../ui/button";
+import { Skeleton } from "../ui/skeleton";
 import { InlineModelViewer } from "./InlineModelViewer";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { DownloadPillGroup } from "./DownloadPill";
+import { InlineImagePreview, InlinePipelineProgress } from "./MessageBubbleHelpers";
 import { SuggestionPills } from "./SuggestionPills";
 import { fileExtension, formatEstimatedCostUsd, uniqueFilesByPath } from "./utils";
-
-function InlineImagePreview({ filePath, token }: { filePath: string; token: string }) {
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    let revoked = false;
-    downloadFileBinary({ token, path: filePath })
-      .then(({ blob }) => {
-        if (revoked) return;
-        setObjectUrl(URL.createObjectURL(blob));
-      })
-      .catch(() => {
-        if (!revoked) setError(true);
-      });
-    return () => {
-      revoked = true;
-      setObjectUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return null;
-      });
-    };
-  }, [filePath, token]);
-
-  if (error) {
-    return (
-      <div className="flex h-24 w-32 items-center justify-center rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted)_/_0.3)]">
-        <ImageIcon className="h-6 w-6 text-[hsl(var(--muted-foreground))]" />
-      </div>
-    );
-  }
-
-  if (!objectUrl) {
-    return (
-      <div className="flex h-24 w-32 items-center justify-center rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted)_/_0.3)]">
-        <Loader2 className="h-4 w-4 animate-spin text-[hsl(var(--muted-foreground))]" />
-      </div>
-    );
-  }
-
-  return (
-    <img
-      src={objectUrl}
-      alt="Uploaded image"
-      className="max-h-64 max-w-xs rounded-md border border-[hsl(var(--border))] object-contain"
-    />
-  );
-}
-
-function InlinePipelineProgress({ detail, isLongRunning, showEnableNotifications, busyNotifications, onEnableNotifications }: {
-  detail: string;
-  isLongRunning?: boolean;
-  showEnableNotifications?: boolean;
-  busyNotifications?: boolean;
-  onEnableNotifications?: () => void;
-}) {
-  const { t } = useTranslation(["pages", "common"]);
-  return (
-    <div className="mt-2 space-y-1.5" data-testid="inline-pending-indicator">
-      <div className="flex items-center gap-2">
-        <span className="flex items-center gap-1" aria-hidden="true">
-          <span className="typing-dot h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />
-          <span className="typing-dot typing-dot-delay-1 h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />
-          <span className="typing-dot typing-dot-delay-2 h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />
-        </span>
-        <span className="text-xs text-[hsl(var(--muted-foreground))]">{detail}</span>
-      </div>
-      {isLongRunning ? (
-        <div className="space-y-1.5">
-          <p className="text-xs leading-relaxed text-[hsl(var(--muted-foreground)_/_0.7)]">
-            {t("pages:chat.longRunning.message")}
-            {showEnableNotifications
-              ? t("pages:chat.longRunning.enableNotifications")
-              : t("pages:chat.longRunning.willNotify")}
-          </p>
-          {showEnableNotifications && onEnableNotifications ? (
-            <button
-              type="button"
-              disabled={busyNotifications}
-              onClick={onEnableNotifications}
-              className="inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--primary)_/_0.3)] bg-[hsl(var(--primary)_/_0.08)] px-3 py-1 text-xs font-medium text-[hsl(var(--primary))] transition active:scale-95 active:bg-[hsl(var(--primary)_/_0.2)] hover:bg-[hsl(var(--primary)_/_0.15)] disabled:opacity-50"
-            >
-              {busyNotifications
-                ? <LoaderCircle className="h-3 w-3 animate-spin" />
-                : <Bell className="h-3 w-3" />}
-              {busyNotifications ? t("pages:chat.longRunning.enablingButton") : t("pages:chat.longRunning.enableButton")}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
+import { useLazyVisible } from "../../hooks/useLazyVisible";
 
 export interface MessageBubbleProps {
   item: ChatTimelineItem;
@@ -139,6 +47,8 @@ export interface MessageBubbleProps {
   onRevertTo: (assistantItemId: string) => void;
   onDownloadFile: (filePath: string) => void;
   onSelectSuggestion?: (prompt: string) => void;
+  /** Whether the initial scroll-to-bottom has settled (gates lazy 3D viewer loading). */
+  scrollSettled?: boolean;
 }
 
 export function MessageBubble({
@@ -163,10 +73,14 @@ export function MessageBubble({
   onRevertTo,
   onDownloadFile,
   onSelectSuggestion,
+  scrollSettled,
 }: MessageBubbleProps) {
   const { t } = useTranslation(["pages", "common"]);
   const allFiles = uniqueFilesByPath(item.segments.flatMap((segment) => segment.files));
   const hasStreamingContent = isStreaming && typeof streamingText === "string" && streamingText.length > 0;
+
+  // Lazy-load 3D viewer only when visible and after initial scroll has settled
+  const [viewerRef, viewerVisible] = useLazyVisible<HTMLDivElement>(scrollSettled ?? true);
 
   // Find the best preview-ready file for inline 3D preview.
   // Prefer .3mf (richer format, can carry materials), fall back to .stl.
@@ -233,7 +147,7 @@ export function MessageBubble({
         <span>{new Date(item.createdAt).toLocaleString()}</span>
       </div>
 
-      <div className="space-y-1.5">
+      <div className="msg-content space-y-1.5 overflow-hidden">
         {/* When streaming is active, render streaming text with markdown (incremental append) */}
         {hasStreamingContent ? (
           <>
@@ -388,8 +302,16 @@ export function MessageBubble({
       </div>
 
       {previewFile && token ? (
-        <div className="mt-3" data-testid="inline-model-viewer">
-          <InlineModelViewer filePath={previewFile.path} token={token} />
+        <div ref={viewerRef} className="mt-3" data-testid="inline-model-viewer">
+          {viewerVisible ? (
+            <InlineModelViewer filePath={previewFile.path} token={token} />
+          ) : (
+            <div className="inline-model-viewer w-full max-w-[400px] overflow-hidden rounded-lg border border-[hsl(var(--border))]">
+              <div className="space-y-2 p-3">
+                <Skeleton className="h-[240px] w-full rounded-md" />
+              </div>
+            </div>
+          )}
         </div>
       ) : null}
 
