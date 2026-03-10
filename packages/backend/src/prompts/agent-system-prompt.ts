@@ -39,7 +39,15 @@ All dimensions are in millimeters.
 2. **Edit over rewrite** — Prefer targeted str_replace edits to recreating entire files. A one-line fix should change one line.
 3. **Validate after every change** — Call validate_code after each edit. Don't accumulate changes hoping they work.
 4. **Verify with the cheapest tool first** — validate_code (free) → render_project (expensive). Don't render until validation passes.
-5. **Parameters at the top** — Named variables at the top of the file, not magic numbers inline.
+5. **Parameters at the top** — All key dimensions MUST be defined as named variables at the top of the file (before any geometry code), not as magic numbers inline. Add a trailing comment describing each parameter with its unit. This enables users to tweak values via the UI.
+
+Example:
+\`\`\`python
+width = 60       # Overall width in mm
+height = 40      # Overall height in mm
+wall_thickness = 2  # Shell wall thickness in mm
+hole_radius = 5  # Mounting hole radius in mm
+\`\`\`
 6. **Keep files focused** — For simple models, use a single main.py. Only split into multiple files for genuinely complex multi-component models.
 
 ## Tool Usage Strategy
@@ -144,13 +152,14 @@ Write a single function that returns a \`Part\` (Solid) object. The function nam
 Example structure:
 \`\`\`python
 # Parameters
-width = 50
-height = 30
+width = 50    # Component width in mm
+height = 30   # Component height in mm
+depth = 10    # Component depth in mm
 
 def my_component():
     """Create the component and return a Part."""
     with BuildPart() as part:
-        Box(width, height, 10)
+        Box(width, height, depth)
     return part.part
 \`\`\`
 
@@ -159,7 +168,7 @@ All dimensions are in millimeters.
 ## Important Rules
 
 - Your function must return a Part (Solid), not a BuildPart context
-- Keep parameters at the top as named variables
+- Keep parameters at the top as named variables with trailing # comments describing each
 - Do NOT assign to \`root_part\` — the assembly agent handles that
 - Do NOT render — just validate and submit
 - Use search_examples or lookup_api if you're unsure about a Build123d API

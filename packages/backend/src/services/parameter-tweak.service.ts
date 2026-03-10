@@ -8,7 +8,7 @@
 
 import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
-import { readStorageFile, writeStorageFile } from "./file-storage.service.js";
+import { readStorageFile, storageFileExists, writeStorageFile } from "./file-storage.service.js";
 import { renderBuild123d } from "./rendering.service.js";
 import { wrapInTemplate } from "./workbench-codegen.service.js";
 import { createChatItem, updateChatItem } from "./chat.service.js";
@@ -97,7 +97,10 @@ export async function extractParametersFromItem(
   contextId: string,
   assistantItemId: string,
 ): Promise<ExtractedParameter[]> {
-  const codePath = `chat/${contextId}/${assistantItemId}.b123d`;
+  // Check new Phase 5 path first, then fall back to legacy path
+  const newPath = `chat/${contextId}/code/${assistantItemId}.b123d`;
+  const oldPath = `chat/${contextId}/${assistantItemId}.b123d`;
+  const codePath = (await storageFileExists(newPath)) ? newPath : oldPath;
   let codeBuffer: Buffer;
   try {
     codeBuffer = await readStorageFile({ relativePath: codePath });
@@ -182,8 +185,10 @@ export async function reRenderWithParameters(input: {
 }): Promise<{ assistantItemId: string }> {
   const { userId, contextId, sourceAssistantItemId, parameters } = input;
 
-  // 1. Read original .b123d code
-  const codePath = `chat/${contextId}/${sourceAssistantItemId}.b123d`;
+  // 1. Read original .b123d code (check new Phase 5 path first, then legacy)
+  const newCodePath = `chat/${contextId}/code/${sourceAssistantItemId}.b123d`;
+  const oldCodePath = `chat/${contextId}/${sourceAssistantItemId}.b123d`;
+  const codePath = (await storageFileExists(newCodePath)) ? newCodePath : oldCodePath;
   let codeBuffer: Buffer;
   try {
     codeBuffer = await readStorageFile({ relativePath: codePath });
@@ -243,13 +248,13 @@ export async function reRenderWithParameters(input: {
     const savedFiles: Array<{ path: string; filename: string }> = [];
     for (const file of renderResult.files) {
       const ext = mapExtension(file.filename);
-      const rp = `chat/${contextId}/${assistantItemId}.${ext}`;
+      const rp = `chat/${contextId}/artifacts/${assistantItemId}.${ext}`;
       await writeStorageFile({ relativePath: rp, contentBase64: file.contentBase64 });
       savedFiles.push({ path: rp, filename: file.filename });
     }
 
-    // Save modified code as .b123d
-    const codeRelPath = `chat/${contextId}/${assistantItemId}.b123d`;
+    // Save modified code as .b123d (use new Phase 5 path)
+    const codeRelPath = `chat/${contextId}/code/${assistantItemId}.b123d`;
     await writeStorageFile({
       relativePath: codeRelPath,
       contentBase64: Buffer.from(modifiedCode, "utf-8").toString("base64"),
