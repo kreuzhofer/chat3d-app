@@ -11,7 +11,7 @@ import { createLogger } from "../utils/logger.js";
 import { withLlmRetry } from "../utils/llm-retry.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import {
-  getModelForPurpose,
+  getModelForPurposeWithFallback,
   createProviderModel as createProviderModelFromConfig,
   buildGenerateOptions,
   type LlmModelConfig,
@@ -132,7 +132,7 @@ function parseVariations(text: string): string[] {
 // ── Main function ───────────────────────────────────────────────────
 
 export async function improvePrompt(input: ImprovePromptInput): Promise<ImprovePromptResult> {
-  const cfg: LlmModelConfig = await getModelForPurpose("agent_codegen");
+  const cfg: LlmModelConfig = await getModelForPurposeWithFallback("workbench_codegen", "agent_codegen");
   const model = createProviderModelFromConfig(cfg);
   const generateOptions = buildGenerateOptions(cfg);
 

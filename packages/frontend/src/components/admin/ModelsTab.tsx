@@ -45,7 +45,8 @@ function formatTokens(value: number | null): string {
 
 const PURPOSE_LABELS: Record<string, string> = {
   conversation: "Conversation",
-  agent_codegen: "Code Generation",
+  agent_codegen: "Code Generation (Chat)",
+  workbench_codegen: "Code Generation (Workbench)",
   vlm_eval: "VLM Evaluation",
   embedding: "Embedding",
   prompt_distill: "Prompt Distillation",
@@ -56,6 +57,7 @@ const PURPOSE_LABELS: Record<string, string> = {
 
 /** One-liner explaining fallback when a purpose is unassigned. */
 const PURPOSE_FALLBACKS: Record<string, string> = {
+  workbench_codegen: "Falls back to: agent_codegen",
   spec_generation: "Falls back to: conversation",
   code_review: "Falls back to: spec_generation → conversation",
 };

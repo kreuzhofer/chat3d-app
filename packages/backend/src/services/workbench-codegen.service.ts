@@ -10,6 +10,7 @@ import { createLogger } from "../utils/logger.js";
 import { prisma } from "../db/prisma.js";
 import {
   getModelForPurpose,
+  getModelForPurposeWithFallback,
   createProviderModel as createProviderModelFromConfig,
   type LlmModelConfig,
 } from "./llm-config.service.js";
@@ -136,7 +137,7 @@ export interface FewShotExample {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function resolveCodegenModel(): Promise<{ model: any; label: string; config: LlmModelConfig }> {
-  const cfg = await getModelForPurpose("agent_codegen");
+  const cfg = await getModelForPurposeWithFallback("workbench_codegen", "agent_codegen");
   const model = createProviderModelFromConfig(cfg);
   return { model, label: cfg.label, config: cfg };
 }
@@ -940,8 +941,8 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
   logger.info({ chars: systemPromptContent.length, fullChars: CODEGEN_SYSTEM_PROMPT.length, tiered: tieredEnabled }, "system prompt loaded");
 
   // ── Agent codegen ──
-  const wbAgentModelConfig = await getModelForPurpose("agent_codegen");
-  logger.info({ model: wbAgentModelConfig.label }, "resolved agent_codegen model");
+  const wbAgentModelConfig = await getModelForPurposeWithFallback("workbench_codegen", "agent_codegen");
+  logger.info({ model: wbAgentModelConfig.label }, "resolved workbench_codegen model");
 
   {
     const wbAgMaxSteps = await getAgentMaxSteps("workbench");

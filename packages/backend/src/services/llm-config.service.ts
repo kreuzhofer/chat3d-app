@@ -101,6 +101,7 @@ export interface PurposeAssignment {
 export const LLM_PURPOSES = [
   "conversation",
   "agent_codegen",
+  "workbench_codegen",
   "vlm_eval",
   "embedding",
   "prompt_distill",
@@ -256,6 +257,21 @@ export async function getModelForPurpose(purpose: string): Promise<LlmModelConfi
     apiKey,
     maxConcurrent: provider.maxConcurrent ?? null,
   };
+}
+
+/**
+ * Try to resolve a model for `purpose`; if not configured, fall back to `fallback`.
+ */
+export async function getModelForPurposeWithFallback(
+  purpose: string,
+  fallback: string,
+): Promise<LlmModelConfig> {
+  const row = await prisma.llmPurposeMap.findUnique({ where: { purpose } });
+  if (row) {
+    return getModelForPurpose(purpose);
+  }
+  logger.info({ purpose, fallback }, "purpose not assigned, using fallback");
+  return getModelForPurpose(fallback);
 }
 
 // ── Provider instantiation ──────────────────────────────────────────
