@@ -51,6 +51,9 @@ All dimensions are in millimeters.
 - If render fails, read the error carefully, edit the code, validate again, then re-render
 - **Submit** when you have a successful render
 - If you're unsure about a Build123d API, use lookup_api to check documentation
+- When you're confident the code is ready, use validate_and_render to validate and render in one step
+- Use validate_code alone during iterative development when you're still making changes
+- Use ONE search tool per turn: search_examples for curated patterns, search_knowledge for official docs and advanced techniques. Don't call both in the same step.
 - If you want to see how similar models are built, use search_examples
 - If you need working code patterns for advanced techniques (sweep, loft, helix, joints), use search_knowledge to find real Build123d examples from the official docs and repo
 - If you need exact dimensions, specifications, or tolerances for components (connectors, fasteners, dev boards, 3D printing), use search_knowledge with a descriptive query

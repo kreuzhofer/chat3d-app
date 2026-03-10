@@ -241,6 +241,19 @@ export class AgentFilesystem {
     return `Directory listing for ${label}:\n${sorted.join("\n")}`;
   }
 
+  overwrite(filePath: string, fileText: string): string {
+    const pathErr = validatePath(filePath);
+    if (pathErr) return pathErr;
+
+    if (!this.files.has(filePath)) {
+      return `ERROR: File not found: ${filePath}. Use create for new files.`;
+    }
+
+    this.files.set(filePath, fileText);
+    logger.debug({ path: filePath }, "file overwritten");
+    return `File overwritten successfully: ${filePath}`;
+  }
+
   getFiles(): Array<{ path: string; content: string }> {
     const result: Array<{ path: string; content: string }> = [];
     for (const [path, content] of this.files) {
