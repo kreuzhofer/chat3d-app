@@ -43,6 +43,7 @@ import { TypingIndicator } from "./chat/TypingIndicator";
 import { ExamplePrompts } from "./chat/ExamplePrompts";
 import { CapabilityHints } from "./chat/CapabilityHints";
 import { PushToggle } from "./chat/PushToggle";
+import { RevealOnView } from "./ui/RevealOnView";
 import { getNotificationPermission, isPushSubscribed, subscribeToPush } from "../services/push";
 
 type MobilePane = "thread" | "workbench";
@@ -935,12 +936,18 @@ export function ChatPage() {
 
               {timelineItems.length === 0 && !optimisticPrompt ? (
                 <>
-                  <EmptyState
-                    title={t("pages:chat.startModeling")}
-                    description={t("pages:chat.startModelingDescription")}
-                  />
-                  <CapabilityHints className="mb-2" />
-                  <ExamplePrompts onSelectPrompt={(text) => setPrompt(text)} />
+                  <RevealOnView immediate delay={0}>
+                    <EmptyState
+                      title={t("pages:chat.startModeling")}
+                      description={t("pages:chat.startModelingDescription")}
+                    />
+                  </RevealOnView>
+                  <RevealOnView immediate delay={120}>
+                    <CapabilityHints className="mb-2" />
+                  </RevealOnView>
+                  <RevealOnView immediate delay={240}>
+                    <ExamplePrompts onSelectPrompt={(text) => setPrompt(text)} />
+                  </RevealOnView>
                 </>
               ) : null}
 

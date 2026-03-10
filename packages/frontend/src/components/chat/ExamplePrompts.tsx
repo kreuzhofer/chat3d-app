@@ -4,6 +4,7 @@ import { Lightbulb } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { getStarterPrompts, type StarterPrompt } from "../../api/public.api";
 import { Skeleton } from "../ui/skeleton";
+import { RevealOnView } from "../ui/RevealOnView";
 
 /* ------------------------------------------------------------------ */
 /*  Hardcoded fallback prompts (used when gallery has no models)       */
@@ -59,7 +60,7 @@ export function ExamplePrompts({ onSelectPrompt }: ExamplePromptsProps) {
       </div>
 
       <div
-        className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+        className="grid grid-cols-1 gap-2"
         role="list"
         aria-label={t("common:a11y.examplePrompts")}
       >
@@ -71,54 +72,56 @@ export function ExamplePrompts({ onSelectPrompt }: ExamplePromptsProps) {
             </div>
           ))
         ) : useGallery ? (
-          galleryPrompts.map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              role="listitem"
-              onClick={() => onSelectPrompt(entry.promptText)}
-              className={cn(
-                "rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] text-left text-sm transition overflow-hidden",
-                "hover:border-[hsl(var(--primary)_/_0.5)] hover:bg-[hsl(var(--muted)_/_0.5)]",
-                "focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary))] focus:ring-offset-1",
-              )}
-            >
-              <img
-                src={entry.screenshotUrl}
-                alt=""
-                className="h-24 w-full object-cover bg-[hsl(var(--muted))]"
-                loading="lazy"
-              />
-              <div className="p-3">
-                <span className="mb-0.5 block text-xs font-medium text-[hsl(var(--primary))]">
-                  {entry.categoryName}
-                </span>
-                <span className="line-clamp-2 text-xs text-[hsl(var(--muted-foreground))]">
-                  {entry.promptText}
-                </span>
-              </div>
-            </button>
+          galleryPrompts.map((entry, i) => (
+            <RevealOnView key={entry.id} immediate delay={i * 80}>
+              <button
+                type="button"
+                role="listitem"
+                onClick={() => onSelectPrompt(entry.promptText)}
+                className={cn(
+                  "flex w-full rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] text-left text-sm transition overflow-hidden",
+                  "hover:border-[hsl(var(--primary)_/_0.5)] hover:bg-[hsl(var(--muted)_/_0.5)]",
+                  "focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary))] focus:ring-offset-1",
+                )}
+              >
+                <img
+                  src={entry.screenshotUrl}
+                  alt=""
+                  className="h-16 w-16 shrink-0 object-cover bg-[hsl(var(--muted))] sm:h-20 sm:w-20"
+                  loading="lazy"
+                />
+                <div className="flex min-w-0 flex-col justify-center p-2.5 sm:p-3">
+                  <span className="mb-0.5 block text-xs font-medium text-[hsl(var(--primary))] sm:text-sm">
+                    {entry.categoryName}
+                  </span>
+                  <span className="line-clamp-2 text-xs text-[hsl(var(--muted-foreground))] sm:text-sm">
+                    {entry.promptText}
+                  </span>
+                </div>
+              </button>
+            </RevealOnView>
           ))
         ) : (
-          FALLBACK_PROMPTS.map((entry) => (
-            <button
-              key={entry.labelKey}
-              type="button"
-              role="listitem"
-              onClick={() => onSelectPrompt(t(entry.promptKey))}
-              className={cn(
-                "rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3 text-left text-sm transition",
-                "hover:border-[hsl(var(--primary)_/_0.5)] hover:bg-[hsl(var(--muted)_/_0.5)]",
-                "focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary))] focus:ring-offset-1",
-              )}
-            >
-              <span className="mb-1 block font-medium text-[hsl(var(--foreground))]">
-                {t(entry.labelKey)}
-              </span>
-              <span className="line-clamp-2 text-xs text-[hsl(var(--muted-foreground))]">
-                {t(entry.promptKey)}
-              </span>
-            </button>
+          FALLBACK_PROMPTS.map((entry, i) => (
+            <RevealOnView key={entry.labelKey} immediate delay={i * 80}>
+              <button
+                type="button"
+                role="listitem"
+                onClick={() => onSelectPrompt(t(entry.promptKey))}
+                className={cn(
+                  "w-full rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] p-3 text-left text-sm transition",
+                  "hover:border-[hsl(var(--primary)_/_0.5)] hover:bg-[hsl(var(--muted)_/_0.5)]",
+                  "focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary))] focus:ring-offset-1",
+                )}
+              >
+                <span className="mb-1 block font-medium text-[hsl(var(--foreground))]">
+                  {t(entry.labelKey)}
+                </span>
+                <span className="line-clamp-2 text-xs text-[hsl(var(--muted-foreground))]">
+                  {t(entry.promptKey)}
+                </span>
+              </button>
+            </RevealOnView>
           ))
         )}
       </div>

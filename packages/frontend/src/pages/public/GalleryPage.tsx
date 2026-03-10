@@ -16,6 +16,7 @@ import { ModelCard } from "../../components/gallery/ModelCard";
 import { GalleryPagination } from "../../components/gallery/GalleryPagination";
 import { GallerySearch } from "../../components/gallery/GallerySearch";
 import { Skeleton } from "../../components/ui/skeleton";
+import { RevealOnView } from "../../components/ui/RevealOnView";
 
 const PAGE_SIZE = 20;
 
@@ -222,8 +223,10 @@ export function GalleryPage() {
           ) : searchResult && searchResult.items.length > 0 ? (
             <>
               <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-                {searchResult.items.map((model) => (
-                  <ModelCard key={model.id} model={model} />
+                {searchResult.items.map((model, i) => (
+                  <RevealOnView key={model.id} delay={(i % 4) * 50}>
+                    <ModelCard model={model} />
+                  </RevealOnView>
                 ))}
               </div>
               <GalleryPagination
@@ -254,8 +257,10 @@ export function GalleryPage() {
           ) : categoriesResult && categoriesResult.items.length > 0 ? (
             <>
               <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-                {categoriesResult.items.map((cat) => (
-                  <CategoryCard key={cat.id} category={cat} />
+                {categoriesResult.items.map((cat, i) => (
+                  <RevealOnView key={cat.id} delay={(i % 4) * 50}>
+                    <CategoryCard category={cat} />
+                  </RevealOnView>
                 ))}
               </div>
               <GalleryPagination
@@ -301,10 +306,12 @@ export function GalleryPage() {
           ) : modelsResult && modelsResult.items.length > 0 ? (
             <>
               <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-                {modelsResult.items.map((model) => (
-                  <div key={model.id} id={`model-${model.id}`} className="rounded-lg transition-all duration-300">
-                    <ModelCard model={model} />
-                  </div>
+                {modelsResult.items.map((model, i) => (
+                  <RevealOnView key={model.id} delay={(i % 4) * 50}>
+                    <div id={`model-${model.id}`} className="rounded-lg transition-all duration-300">
+                      <ModelCard model={model} />
+                    </div>
+                  </RevealOnView>
                 ))}
               </div>
               <GalleryPagination
