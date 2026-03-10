@@ -28,12 +28,6 @@ This document tracks all external sources used (or planned) for the Chat3D knowl
 | **bd_warehouse Examples** | `github_file` | 5 | Usage examples from `gumyr/bd_warehouse/examples/` |
 | **bd_warehouse Source Code** | `github_file` | 8 | Parametric part modules (`fastener.py`, `bearing.py`, `gear.py`, `thread.py`, `pipe.py`, `flange.py`, `sprocket.py`, `open_builds.py`) with real engineering dimensions |
 
-### CadQuery Ecosystem — Removed
-
-CadQuery sources were evaluated and intentionally excluded. While CadQuery shares the same OCCT kernel as Build123d, including CadQuery code in the RAG context risks the LLM reproducing CadQuery patterns (`cq.Workplane()`, `.cut()`, string selectors) instead of Build123d APIs. The crawl filter only accepts Build123d markers (`build123d`, `BuildPart`, `BuildSketch`).
-
-CadQuery code can still be valuable as a *conversion source* — see §CadQuery-to-Build123d Conversion below for a planned LLM agent that would convert CadQuery examples to Build123d before ingestion.
-
 ### Community Tutorials
 
 | Source | Strategy | Entries | Description |
@@ -109,18 +103,6 @@ Reference knowledge is **not** passively searched via RAG. Instead, a **keyword-
 | **keeb_snakeskin** | [github.com/BlueDrink9/keeb_snakeskin](https://github.com/BlueDrink9/keeb_snakeskin) | PCB-to-enclosure generation | Medium |
 | **fender-bender** | [github.com/x0pherl/fender-bender](https://github.com/x0pherl/fender-bender) | Multi-part filament buffer system | Low |
 
-### CadQuery (Conversion Candidates Only)
-
-These repos contain valuable designs but use CadQuery APIs. They should **not** be added as direct knowledge sources. Instead, use the CadQuery-to-Build123d conversion agent (see §CadQuery-to-Build123d Conversion) to translate them before ingestion.
-
-| Source | URL | Description | Priority |
-|--------|-----|-------------|----------|
-| **CadQuery Contrib** | [github.com/CadQuery/cadquery-contrib](https://github.com/CadQuery/cadquery-contrib) | 15+ community scripts: enclosures, gears, braille, threads, molds | Medium |
-| **cq-electronics** | [github.com/sethfischer/cq-electronics](https://github.com/sethfischer/cq-electronics) | Electronic component models: RPi 3B, RJ45, pin headers, BGA, DIN rail | Medium |
-| **cq_warehouse** | [github.com/gumyr/cq_warehouse](https://github.com/gumyr/cq_warehouse) | CadQuery parametric parts (predecessor to bd_warehouse) | Low |
-| **cq-gridfinity** | [github.com/michaelgale/cq-gridfinity](https://github.com/michaelgale/cq-gridfinity) | CadQuery gridfinity objects | Low |
-| **cq_gears** | [github.com/meadiode/cq_gears](https://github.com/meadiode/cq_gears) | Involute gear generator | Low |
-
 ### Machine-Readable Spec Databases
 
 | Source | URL | Format | Description | Priority |
@@ -135,7 +117,6 @@ These repos contain valuable designs but use CadQuery APIs. They should **not** 
 
 | Paper | URL | Key Insight |
 |-------|-----|-------------|
-| **Text-to-CadQuery** | [arxiv.org/abs/2505.06507](https://arxiv.org/abs/2505.06507) | 170K text-CadQuery pairs dataset; scaling laws for CAD code generation |
 | **CADFusion** | [arxiv.org/pdf/2501.19054](https://arxiv.org/pdf/2501.19054) | Visual feedback integration in LLM for text-to-CAD (relevant to VLM eval loop) |
 | **LlamaIndex RAG for Build123d** | [llamaindex.ai blog](https://www.llamaindex.ai/blog/unlocking-the-3rd-dimension-for-generative-ai-part-1) | 5x token reduction, 80% cost savings using RAG for build123d |
 
@@ -306,7 +287,7 @@ Validation runs in two stages:
 
 2. **Python syntax check** (calls Build123d service `/validate/` endpoint): Checks for Python syntax errors only (`skip_root_part: true`, `skip_lint: true`).
 
-**Design decision:** Only Build123d code is accepted. CadQuery code would fail Stage 1 (no build123d markers) and is filtered out at crawl time. This prevents the LLM from being distracted by CadQuery patterns (`cq.Workplane()`, `.cut()`, string selectors) when it should be generating Build123d code.
+**Design decision:** Only Build123d code is accepted. Code without Build123d markers fails Stage 1 and is filtered out at crawl time.
 
 ### Concept Extraction
 
@@ -367,21 +348,6 @@ async function crawlCsvSpecs(cfg: CsvSpecsConfig): Promise<RawEntry[]> { ... }
 **3. Prisma schema** — Update the `strategy` column `@db.VarChar(30)` constraint if needed (current 30 chars is sufficient for most names).
 
 No changes needed to validation, embedding, search, job queue, admin routes, or frontend — they all work on the generic `RawEntry` / `Build123dKnowledge` interface.
-
-### Post-Crawl Transformation (Future)
-
-For sources that need code transformation after crawl (e.g., CadQuery → Build123d conversion), the recommended architecture is a **config-driven transform pipeline** applied between crawl and insert:
-
-```
-crawl → [transform] → dedup → insert → validate → embed
-```
-
-This would require:
-- Adding an optional `transforms` array to source configs
-- Calling `applyTransforms(entries, config.transforms)` after the crawl function returns
-- Each transform is a named operation (e.g., `cadquery_to_build123d`, `normalize_imports`)
-
-See §CadQuery-to-Build123d Conversion below for details on the conversion transform.
 
 ---
 
@@ -633,135 +599,9 @@ Additional connectors also added: USB-A, HDMI, HDMI Micro, barrel jack, RJ45, au
 
 ---
 
-## CadQuery-to-Build123d Conversion
-
-### Background
-
-CadQuery and Build123d both wrap the same OpenCascade (OCCT) kernel via shared Python bindings. Build123d was derived from CadQuery but uses a fundamentally different API style. No automated converter exists.
-
-### API Differences
-
-| Aspect | CadQuery | Build123d |
-|--------|----------|-----------|
-| **Style** | Fluent method chaining | Context managers (builder) or operators (algebra) |
-| **Entry point** | `cq.Workplane("XY")` | `BuildPart()` / `BuildSketch()` |
-| **State** | Implicit workplane tracking through chain | Explicit plane/face specification |
-| **Booleans** | `.cut()`, `.union()`, `.intersect()` | `Mode.SUBTRACT` / `+=` / `-=` |
-| **Selectors** | String-based: `">Z"`, `"\|Z"`, `"#Z"` | Method-based: `.sort_by()`, `.filter_by()`, `.group_by()` |
-| **Assemblies** | Constraint-based | Joint-based (RigidJoint, RevoluteJoint) |
-| **Debugging** | Difficult mid-chain | Standard Python (`print()` inside `with` blocks) |
-
-### Key API Mapping
-
-#### Primitives
-
-| CadQuery | Build123d |
-|----------|-----------|
-| `.box(l, w, h)` | `Box(l, w, h)` |
-| `.cylinder(h, r)` | `Cylinder(radius=r, height=h)` |
-| `.sphere(r)` | `Sphere(radius=r)` |
-| `.hole(d, depth)` | `Hole(radius=d/2, depth=depth)` |
-| `.rect(l, w)` | `Rectangle(l, w)` |
-| `.circle(r)` | `Circle(r)` |
-| `.polygon(n, r)` | `RegularPolygon(radius=r, side_count=n)` |
-
-#### Operations
-
-| CadQuery | Build123d |
-|----------|-----------|
-| `.extrude(d)` | `extrude(amount=d)` |
-| `.revolve(angle)` | `revolve(revolution_arc=angle)` |
-| `.fillet(r)` | `fillet(edges, radius=r)` — requires explicit edge selection |
-| `.chamfer(l)` | `chamfer(edges, length=l)` — requires explicit edge selection |
-| `.shell(t)` | `offset(amount=-t, openings=face)` |
-| `.cut(other)` | `mode=Mode.SUBTRACT` or `-=` |
-| `.union(other)` | `mode=Mode.ADD` or `+=` |
-| `.mirror(...)` | `mirror(about=Plane)` |
-
-#### Selectors
-
-| CadQuery Selector | Build123d Equivalent | Meaning |
-|-------------------|---------------------|---------|
-| `">Z"` | `.sort_by(Axis.Z)[-1]` | Farthest in +Z |
-| `"<Z"` | `.sort_by(Axis.Z)[0]` | Nearest in -Z |
-| `"\|Z"` | `.filter_by(Axis.Z)` | Parallel to Z |
-| `"#Z"` | `.filter_by(Plane.XY)` | Perpendicular to Z |
-| `">Z[-2]"` | `.sort_by(Axis.Z)[-2]` | 2nd from top |
-
-#### Patterns & Locations
-
-| CadQuery | Build123d |
-|----------|-----------|
-| `.rarray(xs, ys, xn, yn)` | `GridLocations(xs, ys, xn, yn)` |
-| `.polarArray(r, start, stop, n)` | `PolarLocations(radius=r, count=n)` |
-| `.pushPoints(pts)` | `Locations(*pts)` |
-
-### Conversion Complexity Assessment
-
-| Category | Convertible | Approach |
-|----------|------------|----------|
-| Primitive creation | ~95% | Direct mapping, mostly mechanical |
-| Simple booleans | ~90% | Direct mapping |
-| Basic extrude/revolve | ~90% | Direct mapping |
-| Selector strings | ~75% | Formulaic but needs string parsing |
-| Method chain restructuring | ~60% | Requires understanding implicit workplane state |
-| Complex assemblies | ~40% | Different paradigm (constraints vs joints) |
-| `twistExtrude()`, `interpPlate()` | 0% | No direct equivalent — must be reimplemented |
-
-**Overall estimate:** 60-70% of CadQuery examples can be converted with high accuracy by an LLM.
-
-### Recommended LLM Conversion Agent
-
-An LLM-based conversion agent is the most practical approach. Design:
-
-**System prompt contents:**
-1. Complete API mapping table (above)
-2. 5-10 side-by-side examples showing the same model in CadQuery and Build123d
-3. Common pitfalls (CadQuery `hole(diameter)` vs Build123d `Hole(radius)`, implicit vs explicit selectors)
-4. Output format requirements (standalone script with `from build123d import *`)
-
-**Pipeline:**
-```
-CadQuery code
-  → LLM conversion (system prompt + API mapping + few-shot examples)
-    → Build123d code candidate
-      → Execute via Build123d service (/validate/ or /render/)
-        → Success: store as valid knowledge entry
-        → Syntax error: feed error back to LLM for correction (up to 3 retries)
-        → Geometry check: render both versions, compare volumes or Chamfer Distance
-```
-
-**Validation approaches (in order of complexity):**
-1. **Execution test:** Does the Build123d code execute without errors?
-2. **Volume comparison:** Compare solid volumes (should be identical)
-3. **Visual comparison:** Render screenshots from standard viewpoints, compare via VLM
-4. **Chamfer Distance:** Sample surface points from both meshes, compute distance metric
-
-**Integration with knowledge system:**
-- Add a `cadquery_to_build123d` transform type to the source config
-- After crawling CadQuery code, run the LLM conversion on each entry
-- Store original CadQuery source URL for provenance
-- Store both the original and converted code (original as description, converted as code)
-- Validate the converted code through the normal pipeline
-
-**Expected accuracy with self-correction loop:** 75-85% for simple/medium complexity models, based on analogous results from Text-to-CadQuery research (53% first-attempt → 85% with feedback).
-
-**Build123d Algebra mode** is the recommended conversion target — it's closer in spirit to CadQuery's sequential style than Builder mode, making the translation more direct.
-
-### Key Sources
-
-- [Build123d Introductory Examples](https://build123d.readthedocs.io/en/latest/introductory_examples.html) — 36 examples in both builder and algebra modes (usable as few-shot pairs)
-- [Build123d Transitioning from OpenSCAD](https://build123d.readthedocs.io/en/latest/OpenSCAD.html) — philosophy and approach (no CadQuery equivalent exists)
-- [Build123d Cheat Sheet](https://build123d.readthedocs.io/en/latest/cheat_sheet.html) — compact API surface reference
-- [CadQuery Selectors Reference](https://cadquery.readthedocs.io/en/latest/selectors.html) — complete selector syntax
-- [Text-to-CadQuery paper (arXiv:2505.06507)](https://arxiv.org/abs/2505.06507) — 170K training pairs, self-correction feedback loop
-- [CAD-Coder paper (arXiv:2505.19713)](https://arxiv.org/abs/2505.19713) — chain-of-thought + geometric reward validation
-
----
-
 ## Notes
 
-- **Only Build123d code** is accepted in the knowledge base. The crawl filter requires `build123d`, `BuildPart`, or `BuildSketch` markers. CadQuery code is intentionally excluded to prevent the LLM from reproducing CadQuery patterns instead of Build123d APIs. CadQuery sources should be converted to Build123d first (see §CadQuery-to-Build123d Conversion).
+- **Only Build123d code** is accepted in the knowledge base. The crawl filter requires `build123d`, `BuildPart`, or `BuildSketch` markers.
 - **Validation** checks Python syntax and presence of Build123d API markers in two stages.
 - **Embedding** uses OpenAI `text-embedding-3-large` at 1536 dimensions with pgvector HNSW indexing.
 - Sources are managed via Admin UI (Knowledge tab) or API (`/api/admin/knowledge/sources`).
