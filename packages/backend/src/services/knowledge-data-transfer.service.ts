@@ -38,7 +38,6 @@ interface ExportEntry {
   title: string;
   description: string | null;
   code: string;
-  concepts: string[];
   build123dVersion: string | null;
   validatedAt: string | null;
   validationStatus: string;
@@ -97,7 +96,6 @@ export async function exportKnowledge(): Promise<BackupRecord> {
     title: string;
     description: string | null;
     code: string;
-    concepts: string[];
     build123d_version: string | null;
     validated_at: Date | null;
     validation_status: string;
@@ -106,7 +104,7 @@ export async function exportKnowledge(): Promise<BackupRecord> {
     embedding_text: string | null;
     source_id: string | null;
   }>>`
-    SELECT id, source_url, source_type, title, description, code, concepts,
+    SELECT id, source_url, source_type, title, description, code,
            build123d_version, validated_at, validation_status, quality_score,
            embedding_model, embedding::text as embedding_text, source_id
     FROM build123d_knowledge
@@ -134,7 +132,6 @@ export async function exportKnowledge(): Promise<BackupRecord> {
       title: e.title,
       description: e.description,
       code: e.code,
-      concepts: e.concepts,
       build123dVersion: e.build123d_version,
       validatedAt: e.validated_at?.toISOString() ?? null,
       validationStatus: e.validation_status,
@@ -232,7 +229,6 @@ export async function importKnowledge(
           title: e.title,
           description: e.description,
           code: e.code,
-          concepts: e.concepts,
           build123dVersion: e.build123dVersion,
           validatedAt: e.validatedAt ? new Date(e.validatedAt) : null,
           validationStatus: e.validationStatus,

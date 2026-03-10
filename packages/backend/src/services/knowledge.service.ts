@@ -9,7 +9,7 @@
 import { prisma } from "../db/prisma.js";
 import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
-import { embedPromptText, embedPromptTextWithUsage } from "./workbench-embeddings.service.js";
+import { embedPromptText } from "./workbench-embeddings.service.js";
 import { getModelForPurpose } from "./llm-config.service.js";
 
 const logger = createLogger("knowledge");
@@ -26,7 +26,6 @@ export interface KnowledgeEntry {
   title: string;
   description: string | null;
   code: string;
-  concepts: string[];
   build123dVersion: string | null;
   validatedAt: Date | null;
   validationStatus: ValidationStatus;
@@ -41,7 +40,6 @@ export interface KnowledgeSearchMatch {
   title: string;
   description: string | null;
   code: string;
-  concepts: string[];
   sourceType: KnowledgeSourceType;
   sourceUrl: string;
   similarity: number;
@@ -63,7 +61,6 @@ export async function createKnowledgeEntry(input: {
   title: string;
   description?: string;
   code: string;
-  concepts?: string[];
   build123dVersion?: string;
   qualityScore?: number;
 }): Promise<KnowledgeEntry> {
@@ -74,7 +71,6 @@ export async function createKnowledgeEntry(input: {
       title: input.title,
       description: input.description ?? null,
       code: input.code,
-      concepts: input.concepts ?? [],
       build123dVersion: input.build123dVersion ?? null,
       qualityScore: input.qualityScore ?? null,
     },
@@ -88,7 +84,6 @@ export async function createKnowledgeEntries(entries: Array<{
   title: string;
   description?: string;
   code: string;
-  concepts?: string[];
   build123dVersion?: string;
   qualityScore?: number;
 }>): Promise<number> {
@@ -99,7 +94,6 @@ export async function createKnowledgeEntries(entries: Array<{
       title: e.title,
       description: e.description ?? null,
       code: e.code,
-      concepts: e.concepts ?? [],
       build123dVersion: e.build123dVersion ?? null,
       qualityScore: e.qualityScore ?? null,
     })),
@@ -113,7 +107,6 @@ export async function listKnowledgeEntries(options?: {
   validationStatus?: ValidationStatus;
   sourceId?: string;
   search?: string;
-  concept?: string;
   limit?: number;
   offset?: number;
 }): Promise<{ entries: KnowledgeEntry[]; total: number }> {
@@ -126,9 +119,6 @@ export async function listKnowledgeEntries(options?: {
       { title: { contains: options.search, mode: "insensitive" } },
       { code: { contains: options.search, mode: "insensitive" } },
     ];
-  }
-  if (options?.concept) {
-    where.concepts = { has: options.concept };
   }
 
   const [entries, total] = await Promise.all([
@@ -167,7 +157,6 @@ export async function updateKnowledgeEntry(
     description?: string | null;
     code?: string;
     sourceUrl?: string;
-    concepts?: string[];
   },
 ): Promise<KnowledgeEntry | null> {
   const existing = await prisma.build123dKnowledge.findUnique({ where: { id } });
@@ -178,7 +167,6 @@ export async function updateKnowledgeEntry(
   if (patch.description !== undefined) data.description = patch.description;
   if (patch.code !== undefined) data.code = patch.code;
   if (patch.sourceUrl !== undefined) data.sourceUrl = patch.sourceUrl;
-  if (patch.concepts !== undefined) data.concepts = patch.concepts;
 
   const contentChanged = patch.code !== undefined && patch.code !== existing.code;
 
@@ -344,172 +332,6 @@ export async function backfillKnowledgeEmbeddings(): Promise<{ embedded: number;
   return { embedded, skipped: 0 };
 }
 
-// ── Semantic Search ──────────────────────────────────────────────────
-
-/**
- * Search knowledge entries by semantic similarity.
- * Only returns validated + embedded entries.
- */
-export async function searchKnowledge(
-  query: string,
-  limit = 5,
-): Promise<{ matches: KnowledgeSearchMatch[]; embeddingTokens: number }> {
-  const { embedding: queryEmbedding, tokens: embeddingTokens } = await embedPromptTextWithUsage(query);
-  const pgVector = `[${queryEmbedding.join(",")}]`;
-
-  const rows = await prisma.$queryRaw<{
-    id: string;
-    title: string;
-    description: string | null;
-    code: string;
-    concepts: string[];
-    source_type: string;
-    source_url: string;
-    similarity: number;
-  }[]>`
-    SELECT id, title, description, code, concepts, source_type, source_url,
-           1 - (embedding <=> ${pgVector}::vector) AS similarity
-    FROM build123d_knowledge
-    WHERE embedding IS NOT NULL
-      AND validation_status = 'valid'
-    ORDER BY embedding <=> ${pgVector}::vector ASC
-    LIMIT ${limit}
-  `;
-
-  return {
-    matches: rows.map(r => ({
-      id: r.id,
-      title: r.title,
-      description: r.description,
-      code: r.code,
-      concepts: r.concepts,
-      sourceType: r.source_type as KnowledgeSourceType,
-      sourceUrl: r.source_url,
-      similarity: r.similarity,
-    })),
-    embeddingTokens,
-  };
-}
-
-/**
- * Search knowledge entries by tag matching (uses the `concepts` field).
- * Returns entries that have ANY of the given tags.
- */
-export async function searchKnowledgeByTags(
-  tags: string[],
-  limit = 5,
-): Promise<KnowledgeSearchMatch[]> {
-  if (tags.length === 0) return [];
-
-  const rows = await prisma.$queryRaw<{
-    id: string;
-    title: string;
-    description: string | null;
-    code: string;
-    concepts: string[];
-    source_type: string;
-    source_url: string;
-  }[]>`
-    SELECT id, title, description, code, concepts, source_type, source_url
-    FROM build123d_knowledge
-    WHERE validation_status = 'valid'
-      AND concepts && ${tags}::text[]
-    ORDER BY array_length(
-      ARRAY(SELECT unnest(concepts) INTERSECT SELECT unnest(${tags}::text[])),
-      1
-    ) DESC NULLS LAST
-    LIMIT ${limit}
-  `;
-
-  return rows.map(r => ({
-    id: r.id,
-    title: r.title,
-    description: r.description,
-    code: r.code,
-    concepts: r.concepts,
-    sourceType: r.source_type as KnowledgeSourceType,
-    sourceUrl: r.source_url,
-    similarity: 0, // Not a vector search, so no similarity score
-  }));
-}
-
-// ── Reference Pre-Retrieval ──────────────────────────────────────────
-
-/** Common CAD/engineering keywords to look for in prompts */
-const REFERENCE_KEYWORDS: Record<string, string[]> = {
-  "usb-c": ["usb-c", "usb type-c", "usb type c", "type-c", "usbc"],
-  "usb-a": ["usb-a", "usb type-a", "usb type a"],
-  "usb": ["usb port", "usb connector"],
-  "hdmi": ["hdmi"],
-  "hdmi-micro": ["micro hdmi", "hdmi micro", "hdmi type d", "hdmi-micro"],
-  "rj45": ["rj45", "ethernet port", "ethernet jack", "ethernet connector"],
-  "barrel-jack": ["barrel jack", "dc jack", "power jack", "dc connector", "barrel connector"],
-  "audio-jack": ["audio jack", "headphone jack", "3.5mm jack", "3.5 mm jack", "aux jack"],
-  "pin-header": ["pin header", "gpio header", "header pin"],
-  "fastener": ["screw", "bolt", "nut", "washer", "m2", "m3", "m4", "m5", "m6", "m8", "fastener", "iso 4762", "iso4762", "cap screw", "hex socket"],
-  "3d-printing": ["3d print", "fdm", "tolerance", "clearance", "snap-fit", "snap fit", "wall thickness", "overhang", "print"],
-  "connector": ["connector", "receptacle", "plug", "jack", "socket", "port"],
-  "dimensions": ["dimension", "specification", "standard", "iso ", "din "],
-  "mounting": ["mounting hole", "mount", "standoff", "spacer"],
-  "raspberry-pi": ["raspberry pi", "rpi", "raspi"],
-  "arduino": ["arduino", "uno", "nano", "mega"],
-  "esp32": ["esp32", "esp-32", "devkitc", "devkit"],
-  "dev-board": ["dev board", "development board", "devboard", "pcb case", "enclosure for"],
-  "pico": ["pico"],
-};
-
-/**
- * Extract tags from the prompt text by matching against known keyword patterns.
- */
-function extractReferenceTags(promptText: string, interpretation?: string): string[] {
-  const text = `${promptText} ${interpretation ?? ""}`.toLowerCase();
-  const tags = new Set<string>();
-
-  for (const [tag, keywords] of Object.entries(REFERENCE_KEYWORDS)) {
-    if (keywords.some(kw => text.includes(kw))) {
-      tags.add(tag);
-    }
-  }
-
-  return Array.from(tags);
-}
-
-export interface PreRetrievedReference {
-  title: string;
-  content: string;
-  concepts: string[];
-}
-
-/**
- * Pre-retrieve reference knowledge entries matching the prompt.
- * Uses tag-based search (no embedding cost) to find relevant reference data.
- */
-export async function preRetrieveReferenceKnowledge(
-  promptText: string,
-  interpretation?: string,
-): Promise<PreRetrievedReference[]> {
-  const tags = extractReferenceTags(promptText, interpretation);
-  if (tags.length === 0) return [];
-
-  const matches = await searchKnowledgeByTags(tags, 3);
-
-  // Only include reference-type entries (not code examples)
-  return matches
-    .filter(m => m.sourceType === "reference")
-    .map(m => ({ title: m.title, content: m.code, concepts: m.concepts }));
-}
-
-/**
- * Format pre-retrieved reference knowledge as a prompt section.
- */
-export function formatReferenceSection(matches: PreRetrievedReference[]): string {
-  const entries = matches.map(m =>
-    `### ${m.title}\n\n${m.content}`
-  ).join("\n\n---\n\n");
-
-  return `## Reference Data (Pre-Retrieved)\n\nThe following reference specifications are relevant to this request. Use these exact dimensions and guidelines — do NOT use approximate or memorized values.\n\n${entries}`;
-}
-
 // ── Validation Pipeline ──────────────────────────────────────────────
 
 const BUILD123D_MARKERS = [
@@ -625,7 +447,6 @@ export async function createManualEntry(input: {
   title: string;
   code: string;
   description?: string;
-  concepts?: string[];
 }): Promise<KnowledgeEntry> {
   const entry = await prisma.build123dKnowledge.create({
     data: {
@@ -634,7 +455,6 @@ export async function createManualEntry(input: {
       title: input.title,
       description: input.description ?? null,
       code: input.code,
-      concepts: input.concepts ?? [],
       sourceId: input.sourceId,
     },
   });
@@ -654,7 +474,6 @@ export async function createReferenceEntry(input: {
   title: string;
   content: string;
   description?: string;
-  concepts?: string[];
 }): Promise<KnowledgeEntry> {
   const entry = await prisma.build123dKnowledge.create({
     data: {
@@ -663,7 +482,6 @@ export async function createReferenceEntry(input: {
       title: input.title,
       description: input.description ?? null,
       code: input.content,
-      concepts: input.concepts ?? [],
       validationStatus: "valid",
       validatedAt: new Date(),
       sourceId: input.sourceId,

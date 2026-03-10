@@ -1083,12 +1083,12 @@ adminRouter.get("/knowledge/stats", async (_req, res) => {
 
 adminRouter.post("/knowledge/entries", async (req, res) => {
   try {
-    const { sourceId, title, code, description, concepts } = req.body;
+    const { sourceId, title, code, description } = req.body;
     if (!sourceId || !title || !code) {
       res.status(400).json({ error: "sourceId, title, and code are required" });
       return;
     }
-    const entry = await createManualEntry({ sourceId, title, code, description, concepts });
+    const entry = await createManualEntry({ sourceId, title, code, description });
     res.status(201).json(entry);
   } catch (error) {
     sendKnownError(res, error, "Failed to create manual entry");
@@ -1097,12 +1097,12 @@ adminRouter.post("/knowledge/entries", async (req, res) => {
 
 adminRouter.post("/knowledge/reference", async (req, res) => {
   try {
-    const { sourceId, sourceUrl, title, content, description, concepts } = req.body;
+    const { sourceId, sourceUrl, title, content, description } = req.body;
     if (!sourceId || !title || !content) {
       res.status(400).json({ error: "sourceId, title, and content are required" });
       return;
     }
-    const entry = await createReferenceEntry({ sourceId, sourceUrl, title, content, description, concepts });
+    const entry = await createReferenceEntry({ sourceId, sourceUrl, title, content, description });
     res.status(201).json(entry);
   } catch (error) {
     sendKnownError(res, error, "Failed to create reference entry");
@@ -1146,8 +1146,6 @@ adminRouter.patch("/knowledge/:id", async (req, res) => {
   if (typeof body.description === "string" || body.description === null) patch.description = body.description;
   if (typeof body.code === "string") patch.code = body.code;
   if (typeof body.sourceUrl === "string") patch.sourceUrl = body.sourceUrl;
-  if (Array.isArray(body.concepts)) patch.concepts = body.concepts.filter((c: unknown) => typeof c === "string");
-
   if (Object.keys(patch).length === 0) {
     res.status(400).json({ error: "At least one field must be provided" });
     return;

@@ -46,7 +46,6 @@ interface RawEntry {
   title: string;
   description: string;
   code: string;
-  concepts: string[];
 }
 
 // ── GitHub crawl ─────────────────────────────────────────────────────
@@ -65,58 +64,6 @@ async function fetchFileContent(url: string): Promise<string> {
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`Fetch failed ${resp.status}: ${url}`);
   return resp.text();
-}
-
-function extractConceptsFromCode(code: string): string[] {
-  const concepts = new Set<string>();
-  const patterns: [RegExp, string][] = [
-    [/\bBox\b/, "box"],
-    [/\bCylinder\b/, "cylinder"],
-    [/\bSphere\b/, "sphere"],
-    [/\bCone\b/, "cone"],
-    [/\bTorus\b/, "torus"],
-    [/\bWedge\b/, "wedge"],
-    [/\bextrude\b/, "extrude"],
-    [/\brevolve\b/, "revolve"],
-    [/\bsweep\b/, "sweep"],
-    [/\bloft\b/, "loft"],
-    [/\bfillet\b/, "fillet"],
-    [/\bchamfer\b/, "chamfer"],
-    [/\boffset\b/, "offset"],
-    [/\bshell\b/, "shell"],
-    [/\bBuildPart\b/, "BuildPart"],
-    [/\bBuildSketch\b/, "BuildSketch"],
-    [/\bBuildLine\b/, "BuildLine"],
-    [/\bLocations\b/, "locations"],
-    [/\bGridLocations\b/, "grid_pattern"],
-    [/\bPolarLocations\b/, "polar_pattern"],
-    [/\bHexLocations\b/, "hex_pattern"],
-    [/\bMode\.SUBTRACT\b/, "boolean_subtract"],
-    [/\bMode\.INTERSECT\b/, "boolean_intersect"],
-    [/\bMode\.ADD\b/, "boolean_add"],
-    [/\bCircle\b/, "circle"],
-    [/\bRectangle\b/, "rectangle"],
-    [/\bPolygon\b/, "polygon"],
-    [/\bLine\b/, "line"],
-    [/\bArc\b/, "arc"],
-    [/\bSpline\b/, "spline"],
-    [/\bText\b/, "text"],
-    [/\bHelix\b/, "helix"],
-    [/\bJoint\b|joint/, "joint"],
-    [/\bmake_face\b/, "make_face"],
-    [/\bthicken\b/, "thicken"],
-    [/\bsplit\b/, "split"],
-    [/\bmirror\b/, "mirror"],
-    [/\bsketch_on_face\b|Plane\(/, "sketch_on_face"],
-    [/\bColor\b/, "color"],
-    [/\bimport_step\b|import_stl\b/, "import"],
-    [/\bexport_step\b|export_stl\b|export_3mf\b/, "export"],
-  ];
-
-  for (const [re, concept] of patterns) {
-    if (re.test(code)) concepts.add(concept);
-  }
-  return Array.from(concepts);
 }
 
 function extractDescriptionFromCode(code: string, filename: string): string {
@@ -165,7 +112,7 @@ async function crawlGitHubExamples(): Promise<RawEntry[]> {
         title: file.name.replace(/\.py$/, "").replace(/_/g, " "),
         description: extractDescriptionFromCode(code, file.name),
         code,
-        concepts: extractConceptsFromCode(code),
+
       });
       logger.debug({ file: file.name }, "crawled example");
     } catch (err) {
@@ -229,7 +176,7 @@ function splitTestFunctions(code: string, filename: string): RawEntry[] {
       title: `${filename}: ${funcName}`,
       description: `Test function demonstrating ${funcName.replace(/^test_/, "").replace(/_/g, " ")}`,
       code: funcCode,
-      concepts: extractConceptsFromCode(funcCode),
+
     });
   }
 
@@ -291,7 +238,6 @@ async function crawlDocsPage(pagePath: string): Promise<RawEntry[]> {
       title: heading.slice(0, 200),
       description,
       code,
-      concepts: extractConceptsFromCode(code),
     });
   }
 
@@ -320,7 +266,7 @@ async function insertEntries(entries: RawEntry[], dryRun: boolean): Promise<{ in
   if (dryRun) {
     logger.info({ count: entries.length }, "DRY RUN — would insert entries");
     for (const e of entries.slice(0, 5)) {
-      logger.info({ title: e.title, sourceType: e.sourceType, codeLength: e.code.length, concepts: e.concepts.slice(0, 5) }, "sample entry");
+      logger.info({ title: e.title, sourceType: e.sourceType, codeLength: e.code.length }, "sample entry");
     }
     return { inserted: 0, skipped: entries.length };
   }
@@ -352,7 +298,6 @@ async function insertEntries(entries: RawEntry[], dryRun: boolean): Promise<{ in
         title: e.title,
         description: e.description || null,
         code: e.code,
-        concepts: e.concepts,
       })),
     });
     inserted += batch.length;

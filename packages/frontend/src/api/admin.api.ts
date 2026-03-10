@@ -602,7 +602,6 @@ export interface KnowledgeEntry {
   title: string;
   description: string | null;
   code: string;
-  concepts: string[];
   validatedAt: string | null;
   validationStatus: string;
   embeddingModel: string | null;
@@ -624,14 +623,13 @@ export async function getKnowledgeStats(token: string): Promise<KnowledgeStats> 
 
 export async function listKnowledgeEntries(
   token: string,
-  opts?: { sourceType?: string; validationStatus?: string; sourceId?: string; search?: string; concept?: string; limit?: number; offset?: number },
+  opts?: { sourceType?: string; validationStatus?: string; sourceId?: string; search?: string; limit?: number; offset?: number },
 ): Promise<{ entries: KnowledgeEntry[]; total: number }> {
   const params = new URLSearchParams();
   if (opts?.sourceType) params.set("sourceType", opts.sourceType);
   if (opts?.validationStatus) params.set("validationStatus", opts.validationStatus);
   if (opts?.sourceId) params.set("sourceId", opts.sourceId);
   if (opts?.search) params.set("search", opts.search);
-  if (opts?.concept) params.set("concept", opts.concept);
   if (opts?.limit) params.set("limit", String(opts.limit));
   if (opts?.offset) params.set("offset", String(opts.offset));
   const qs = params.toString();
@@ -640,7 +638,7 @@ export async function listKnowledgeEntries(
 
 export async function createManualKnowledgeEntry(
   token: string,
-  input: { sourceId: string; title: string; code: string; description?: string; concepts?: string[] },
+  input: { sourceId: string; title: string; code: string; description?: string },
 ): Promise<KnowledgeEntry> {
   return requestAdminJson(token, "/knowledge/entries", {
     method: "POST",
@@ -650,7 +648,7 @@ export async function createManualKnowledgeEntry(
 
 export async function createReferenceKnowledgeEntry(
   token: string,
-  input: { sourceId: string; title: string; content: string; sourceUrl?: string; description?: string; concepts?: string[] },
+  input: { sourceId: string; title: string; content: string; sourceUrl?: string; description?: string },
 ): Promise<KnowledgeEntry> {
   return requestAdminJson(token, "/knowledge/reference", {
     method: "POST",
@@ -661,7 +659,7 @@ export async function createReferenceKnowledgeEntry(
 export async function updateKnowledgeEntry(
   token: string,
   id: string,
-  patch: { title?: string; description?: string | null; code?: string; sourceUrl?: string; concepts?: string[] },
+  patch: { title?: string; description?: string | null; code?: string; sourceUrl?: string },
 ): Promise<KnowledgeEntry> {
   return requestAdminJson(token, `/knowledge/${encodeURIComponent(id)}`, {
     method: "PATCH",

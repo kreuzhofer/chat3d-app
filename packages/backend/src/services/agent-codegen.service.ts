@@ -18,7 +18,7 @@ import { trackedGenerateText } from "./tracked-llm.service.js";
 import { z } from "zod";
 import { createLogger } from "../utils/logger.js";
 import { AgentFilesystem } from "./agent-filesystem.service.js";
-import { searchKnowledge, searchKnowledgeByTags, preRetrieveReferenceKnowledge, formatReferenceSection } from "./knowledge.service.js";
+import { hybridSearchKnowledge, preRetrieveReferenceKnowledge, formatReferenceSection } from "./knowledge-search.service.js";
 import {
   renderBuild123dProject,
   validateBuild123dProject,
@@ -175,7 +175,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
   // relying on the agent to proactively invoke search tools.
   if (!systemPromptOverride) {
     try {
-      const refMatches = await preRetrieveReferenceKnowledge(promptText, interpretation);
+      const { references: refMatches } = await preRetrieveReferenceKnowledge(promptText, interpretation);
       if (refMatches.length > 0) {
         const refSection = formatReferenceSection(refMatches);
         systemPrompt += "\n\n" + refSection;
@@ -343,7 +343,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       })),
       execute: async ({ query }: { query: string }) => {
         try {
-          const { matches } = await searchKnowledge(query, 3);
+          const { matches } = await hybridSearchKnowledge(query, 3);
           if (matches.length === 0) {
             return "No matching knowledge entries found.";
           }
@@ -359,33 +359,6 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
         } catch (err) {
           logger.warn({ err: err instanceof Error ? err.message : String(err) }, "search_knowledge tool error");
           return "Knowledge search unavailable.";
-        }
-      },
-    },
-
-    search_reference: {
-      type: "function" as const,
-      description: "Search the knowledge base by tags/concepts (e.g., 'usb-c', 'fastener', 'raspberry-pi') for reference specifications, dimensions, and design guidelines. Use when you need exact measurements, tolerances, or engineering data for specific components.",
-      inputSchema: zodSchema(z.object({
-        tags: z.array(z.string()).describe("Tags to search for (e.g., ['usb-c', 'connector'] or ['m3', 'fastener'])"),
-      })),
-      execute: async ({ tags }: { tags: string[] }) => {
-        try {
-          const matches = await searchKnowledgeByTags(tags, 3);
-          if (matches.length === 0) {
-            return `No reference entries found matching tags: ${tags.join(", ")}`;
-          }
-          return matches.map((m, i) => {
-            const header = `### Reference ${i + 1}: ${m.title} (${m.sourceType})`;
-            const desc = m.description ? m.description + "\n\n" : "";
-            const content = m.sourceType === "reference"
-              ? `${m.code}\n`
-              : `\`\`\`python\n${m.code}\n\`\`\`\n`;
-            return `${header}\n${desc}${content}Tags: ${m.concepts.join(", ")}`;
-          }).join("\n\n");
-        } catch (err) {
-          logger.warn({ err: err instanceof Error ? err.message : String(err) }, "search_reference tool error");
-          return "Reference search unavailable.";
         }
       },
     },

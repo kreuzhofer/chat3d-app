@@ -104,7 +104,6 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
   const [validationFilter, setValidationFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [conceptFilter, setConceptFilter] = useState("");
 
   // ── UI state ──
   const [loading, setLoading] = useState(true);
@@ -187,21 +186,20 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
 
   const loadEntries = useCallback(async (currentOffset: number) => {
     try {
-      const opts: { sourceId?: string; validationStatus?: string; search?: string; concept?: string; limit: number; offset: number } = {
+      const opts: { sourceId?: string; validationStatus?: string; search?: string; limit: number; offset: number } = {
         limit: PAGE_SIZE,
         offset: currentOffset,
       };
       if (sourceFilter) opts.sourceId = sourceFilter;
       if (validationFilter) opts.validationStatus = validationFilter;
       if (debouncedSearch) opts.search = debouncedSearch;
-      if (conceptFilter) opts.concept = conceptFilter;
       const data = await listKnowledgeEntries(token, opts);
       setEntries(data.entries);
       setTotal(data.total);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [token, sourceFilter, validationFilter, debouncedSearch, conceptFilter]);
+  }, [token, sourceFilter, validationFilter, debouncedSearch]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -221,14 +219,7 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
   useEffect(() => {
     setOffset(0);
     setExpandedId(null);
-  }, [sourceFilter, validationFilter, debouncedSearch, conceptFilter]);
-
-  // Collect unique concepts from current page for filter dropdown
-  const uniqueConcepts = useMemo(() => {
-    const all = new Set<string>();
-    entries.forEach(e => e.concepts.forEach(c => all.add(c)));
-    return Array.from(all).sort();
-  }, [entries]);
+  }, [sourceFilter, validationFilter, debouncedSearch]);
 
   // Auto-refresh when sources are crawling
   const hasCrawlingSource = sources.some(s => s.lastCrawlStatus === "running");
@@ -330,8 +321,6 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
         format: formRefFormat,
         chunkStrategy: formRefChunkStrategy,
       };
-      const tags = formRefTags.split(",").map(s => s.trim()).filter(Boolean);
-      if (tags.length > 0) cfg.tags = tags;
       return cfg;
     }
     return {};
@@ -476,14 +465,12 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
     setRefSaving(true);
     setError(null);
     try {
-      const tags = refTags.split(",").map(s => s.trim()).filter(Boolean);
       await createReferenceKnowledgeEntry(token, {
         sourceId: refDialog.sourceId,
         title: refTitle.trim(),
         content: refContent,
         sourceUrl: refSourceUrl.trim() || undefined,
         description: refDescription.trim() || undefined,
-        concepts: tags.length > 0 ? tags : undefined,
       });
       pushToast({ tone: "success", title: "Reference entry created" });
       setRefDialog(null);
@@ -502,7 +489,7 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
     setEditSourceUrl(entry.sourceUrl);
     setEditDescription(entry.description ?? "");
     setEditContent(entry.code);
-    setEditTags(entry.concepts.join(", "));
+    setEditTags("");
     setEditDialog(entry);
   }
 
@@ -511,13 +498,11 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
     setEditSaving(true);
     setError(null);
     try {
-      const tags = editTags.split(",").map(s => s.trim()).filter(Boolean);
-      const patch: { title?: string; description?: string | null; code?: string; sourceUrl?: string; concepts?: string[] } = {};
+      const patch: { title?: string; description?: string | null; code?: string; sourceUrl?: string } = {};
       if (editTitle.trim() !== editDialog.title) patch.title = editTitle.trim();
       if (editSourceUrl.trim() !== editDialog.sourceUrl) patch.sourceUrl = editSourceUrl.trim();
       if (editDescription.trim() !== (editDialog.description ?? "")) patch.description = editDescription.trim() || null;
       if (editContent !== editDialog.code) patch.code = editContent;
-      patch.concepts = tags;
 
       const contentChanged = editContent !== editDialog.code;
       await apiUpdateEntry(token, editDialog.id, patch);
@@ -803,18 +788,6 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
               onChange={(e) => setValidationFilter(e.target.value)}
             />
           </div>
-          {uniqueConcepts.length > 0 && (
-            <div className="w-40">
-              <Select
-                options={[
-                  { value: "", label: "All concepts" },
-                  ...uniqueConcepts.map(c => ({ value: c, label: c })),
-                ]}
-                value={conceptFilter}
-                onChange={(e) => setConceptFilter(e.target.value)}
-              />
-            </div>
-          )}
           <span className="text-xs text-[hsl(var(--muted-foreground))]">
             {total} {total === 1 ? "entry" : "entries"}
           </span>
@@ -822,11 +795,10 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
 
         {/* Entry table */}
         <div className="rounded-md border border-[hsl(var(--border))]">
-          <div className="grid grid-cols-[1fr_auto_auto_1fr_auto] items-center gap-2 border-b border-[hsl(var(--border))] bg-[hsl(var(--muted)_/_0.3)] px-3 py-2 text-xs font-medium uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
+          <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 border-b border-[hsl(var(--border))] bg-[hsl(var(--muted)_/_0.3)] px-3 py-2 text-xs font-medium uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
             <span>Title</span>
             <span>Source</span>
             <span>Status</span>
-            <span>Concepts</span>
             <span />
           </div>
 
@@ -842,7 +814,7 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
                 <div key={entry.id} className="border-b border-[hsl(var(--border))] last:border-b-0">
                   <button
                     type="button"
-                    className="grid w-full grid-cols-[1fr_auto_auto_1fr_auto] items-center gap-2 px-3 py-2 text-left text-sm transition hover:bg-[hsl(var(--muted)_/_0.2)]"
+                    className="grid w-full grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-3 py-2 text-left text-sm transition hover:bg-[hsl(var(--muted)_/_0.2)]"
                     onClick={() => setExpandedId(isExpanded ? null : entry.id)}
                   >
                     <span className="flex items-center gap-1.5 truncate">
@@ -858,10 +830,6 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
                     <Badge tone={VALIDATION_TONE[entry.validationStatus] ?? "neutral"}>
                       {entry.validationStatus}
                     </Badge>
-                    <span className="truncate text-xs text-[hsl(var(--muted-foreground))]">
-                      {entry.concepts.slice(0, 3).join(", ")}
-                      {entry.concepts.length > 3 ? ` +${entry.concepts.length - 3}` : ""}
-                    </span>
                     <span className="inline-flex shrink-0 items-center gap-0.5">
                       <span
                         role="button"
@@ -919,17 +887,6 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
                             {entry.code}
                           </pre>
                         )}
-                      </div>
-                      <div>
-                        <span className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Concepts</span>
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {entry.concepts.map((c) => (
-                            <Badge key={c} tone="neutral">{c}</Badge>
-                          ))}
-                          {entry.concepts.length === 0 ? (
-                            <span className="text-xs text-[hsl(var(--muted-foreground))]">None</span>
-                          ) : null}
-                        </div>
                       </div>
                       <div className="flex flex-wrap gap-4 text-xs text-[hsl(var(--muted-foreground))]">
                         <span>Validated: {entry.validatedAt ? new Date(entry.validatedAt).toLocaleString() : "never"}</span>
@@ -1100,10 +1057,6 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
                   />
                 </div>
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium">Tags (comma-separated, stored as concepts)</label>
-                <Input value={formRefTags} onChange={(e) => setFormRefTags(e.target.value)} placeholder="usb-c, connector, dimensions" />
-              </div>
               <p className="text-sm text-[hsl(var(--muted-foreground))]">
                 The URL will be fetched and converted to Markdown when crawled.
                 Reference entries are auto-validated and use a wider embedding window.
@@ -1189,10 +1142,6 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
             <Input value={refDescription} onChange={(e) => setRefDescription(e.target.value)} placeholder="Brief summary of the reference content" />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium">Tags (comma-separated, stored as concepts)</label>
-            <Input value={refTags} onChange={(e) => setRefTags(e.target.value)} placeholder="usb-c, connector, dimensions" />
-          </div>
-          <div>
             <label className="mb-1 block text-xs font-medium">Content (Markdown)</label>
             <textarea
               className="w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-3 py-2 text-sm font-mono text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]"
@@ -1239,10 +1188,6 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
           <div>
             <label className="mb-1 block text-xs font-medium">Description</label>
             <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium">Concepts (comma-separated)</label>
-            <Input value={editTags} onChange={(e) => setEditTags(e.target.value)} />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium">
