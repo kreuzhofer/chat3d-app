@@ -12,6 +12,7 @@ import {
   getGalleryModel,
   searchGalleryModels,
   getModelPosition,
+  listStarterPrompts,
   GalleryServiceError,
 } from "../services/gallery.service.js";
 
@@ -80,6 +81,20 @@ publicRouter.get("/recent-models/:id/screenshot", async (req, res) => {
     }
     logger.error({ err: error }, "failed to serve public screenshot");
     res.status(500).json({ error: "Failed to load screenshot" });
+  }
+});
+
+// ── Starter prompts (onboarding) ────────────────────────────────────
+
+publicRouter.get("/gallery/starter-prompts", async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(1, Number(req.query.limit) || 4), 8);
+    const prompts = await listStarterPrompts(limit);
+    res.setHeader("Cache-Control", "public, max-age=300");
+    res.status(200).json(prompts);
+  } catch (error) {
+    logger.error({ err: error }, "failed to fetch starter prompts");
+    res.status(500).json({ error: "Failed to load starter prompts" });
   }
 });
 

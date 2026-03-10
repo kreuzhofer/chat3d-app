@@ -1540,6 +1540,14 @@ async function executeQueryPipelineInner(input: {
 
       await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "completed" });
 
+      // Track generation count and mark onboarding complete on first generation
+      void prisma.$executeRaw`
+        UPDATE users
+        SET generation_count = generation_count + 1,
+            onboarding_completed_at = COALESCE(onboarding_completed_at, NOW())
+        WHERE id = ${input.userId}::uuid
+      `.catch(() => {/* non-critical */});
+
       void pushNotificationService.sendToUser(input.userId, {
         title: "Your 3D model is ready!",
         body: "Come back to Chat3D to see your generated model.",

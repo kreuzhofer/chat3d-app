@@ -1,10 +1,13 @@
 import { prisma } from "../db/prisma.js";
 import { config } from "../config.js";
+import { createLogger } from "../utils/logger.js";
 import { emailService } from "./email.service.js";
 import { notificationService } from "./notification.service.js";
 import { generateOpaqueToken, hashToken } from "../utils/token.js";
 import { recordAdminAuditLog } from "./audit.service.js";
 import { assertValidPassword, hashPassword } from "./auth.service.js";
+
+const logger = createLogger("admin");
 
 export class AdminError extends Error {
   constructor(
@@ -36,6 +39,8 @@ export async function listUsers(search?: string) {
       role: true,
       status: true,
       deactivatedUntil: true,
+      onboardingCompletedAt: true,
+      generationCount: true,
       createdAt: true,
     },
   });
@@ -47,6 +52,8 @@ export async function listUsers(search?: string) {
     role: row.role,
     status: row.status,
     deactivatedUntil: row.deactivatedUntil?.toISOString() ?? null,
+    onboardingCompletedAt: row.onboardingCompletedAt?.toISOString() ?? null,
+    generationCount: row.generationCount,
     createdAt: row.createdAt.toISOString(),
   }));
 }
@@ -366,4 +373,22 @@ export async function setUserPassword(input: {
     email: targetUser.email,
     status: "completed",
   };
+}
+
+export async function resetUserOnboarding(input: { adminUserId: string; targetUserId: string }) {
+  const targetUser = await prisma.user.findUnique({
+    where: { id: input.targetUserId },
+    select: { id: true, email: true },
+  });
+  if (!targetUser) throw new AdminError("User not found", 404);
+
+  await prisma.user.update({
+    where: { id: input.targetUserId },
+    data: { onboardingCompletedAt: null, generationCount: 0, updatedAt: new Date() },
+  });
+  await recordAdminAuditLog({
+    adminUserId: input.adminUserId, action: "user.onboarding_reset", targetUserId: input.targetUserId,
+  });
+  logger.info({ adminUserId: input.adminUserId, targetUserId: input.targetUserId }, "reset user onboarding");
+  return { userId: targetUser.id, email: targetUser.email, status: "reset" };
 }

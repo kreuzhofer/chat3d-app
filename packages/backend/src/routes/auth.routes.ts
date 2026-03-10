@@ -185,13 +185,18 @@ authRouter.get("/me", requireAuth, async (req, res) => {
     return;
   }
 
-  // Include language from DB
+  // Include language and onboarding fields from DB
   const dbUser = await prisma.user.findUnique({
     where: { id: authUser.id },
-    select: { language: true },
+    select: { language: true, onboardingCompletedAt: true, generationCount: true },
   });
 
-  res.status(200).json({ ...authUser, language: dbUser?.language ?? "en" });
+  res.status(200).json({
+    ...authUser,
+    language: dbUser?.language ?? "en",
+    onboardingCompletedAt: dbUser?.onboardingCompletedAt?.toISOString() ?? null,
+    generationCount: dbUser?.generationCount ?? 0,
+  });
 });
 
 authRouter.post("/logout", requireAuth, async (req, res) => {

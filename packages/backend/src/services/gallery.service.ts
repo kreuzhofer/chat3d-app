@@ -536,3 +536,55 @@ export async function remixGalleryModel(input: {
 
   return { contextId: context.id };
 }
+
+// ── Starter prompts (onboarding) ────────────────────────────────────
+
+interface StarterPromptRow {
+  id: string;
+  prompt_text: string;
+  category_name: string;
+  category_id: string;
+  eval_score: number | null;
+  featured: boolean;
+}
+
+export interface StarterPrompt {
+  id: string;
+  promptText: string;
+  categoryName: string;
+  categoryId: string;
+  screenshotUrl: string;
+}
+
+/**
+ * Returns up to `limit` gallery models suitable for onboarding starter prompts.
+ * Featured (hand-picked) items come first, then top-rated from across categories.
+ * Deduplicates by prompt text so users see variety.
+ */
+export async function listStarterPrompts(limit = 4): Promise<StarterPrompt[]> {
+  // Use DISTINCT ON to pick one example per unique prompt, then re-sort by featured/score
+  const rows = await prisma.$queryRaw<StarterPromptRow[]>`
+    SELECT * FROM (
+      SELECT DISTINCT ON (p.prompt)
+             e.id, p.prompt AS prompt_text, c.name AS category_name,
+             c.id AS category_id, e.eval_score, e.featured
+      FROM workbench_examples e
+      JOIN workbench_example_prompts p ON p.id = e.prompt_id
+      JOIN workbench_categories c ON c.id = p.category_id
+      WHERE e.approval_status IN ('auto_approved', 'human_approved')
+        AND e.render_status = 'success'
+        AND e.screenshot_iso IS NOT NULL
+      ORDER BY p.prompt, e.featured DESC, e.eval_score DESC NULLS LAST
+    ) deduped
+    ORDER BY deduped.featured DESC, deduped.eval_score DESC NULLS LAST
+    LIMIT ${limit}
+  `;
+
+  return rows.map((r) => ({
+    id: r.id,
+    promptText: r.prompt_text,
+    categoryName: r.category_name,
+    categoryId: r.category_id,
+    screenshotUrl: `/api/public/gallery/models/${r.id}/screenshot`,
+  }));
+}

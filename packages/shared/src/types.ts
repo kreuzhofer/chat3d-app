@@ -22,6 +22,8 @@ export interface AuthenticatedUser {
   role: UserRole;
   status: UserStatus;
   language?: string;
+  onboardingCompletedAt?: string | null;
+  generationCount?: number;
 }
 
 // ── Gallery types ──────────────────────────────────────────────────

@@ -13,6 +13,8 @@ export interface AdminUser {
   role: UserRole;
   status: UserStatus;
   deactivatedUntil: string | null;
+  onboardingCompletedAt: string | null;
+  generationCount: number;
   createdAt: string;
 }
 
@@ -119,6 +121,15 @@ export async function setAdminUserPassword(
   return requestAdminJson(token, `/users/${encodeURIComponent(userId)}/set-password`, {
     method: "POST",
     body: JSON.stringify({ newPassword }),
+  });
+}
+
+export async function resetAdminUserOnboarding(
+  token: string,
+  userId: string,
+): Promise<{ userId: string; email: string; status: string }> {
+  return requestAdminJson(token, `/users/${encodeURIComponent(userId)}/reset-onboarding`, {
+    method: "POST",
   });
 }
 

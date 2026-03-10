@@ -57,6 +57,26 @@ export function getRecentModelScreenshotUrl(modelId: string): string {
   return `${PUBLIC_API_BASE}/recent-models/${encodeURIComponent(modelId)}/screenshot`;
 }
 
+// ── Starter prompts (onboarding) ────────────────────────────────────
+
+export interface StarterPrompt {
+  id: string;
+  promptText: string;
+  categoryName: string;
+  categoryId: string;
+  screenshotUrl: string;
+}
+
+export async function getStarterPrompts(limit = 4): Promise<StarterPrompt[]> {
+  const response = await fetch(`${PUBLIC_API_BASE}/gallery/starter-prompts?limit=${limit}`, {
+    method: "GET",
+  });
+
+  if (!response.ok) return [];
+  const body = await response.json().catch(() => []);
+  return body as StarterPrompt[];
+}
+
 // ── Config ──────────────────────────────────────────────────────────
 
 export async function getPublicConfig(): Promise<PublicConfig> {

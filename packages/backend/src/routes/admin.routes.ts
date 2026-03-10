@@ -9,6 +9,7 @@ import {
   deactivateUser,
   getAdminSettings,
   listUsers,
+  resetUserOnboarding,
   setUserPassword,
   triggerAdminPasswordReset,
   updateAdminSettings,
@@ -335,6 +336,29 @@ adminRouter.post("/users/:userId/activate", handleActivateUser);
 adminRouter.post("/users/:userId/reset-password", handleResetPassword);
 adminRouter.post("/users/:userId/password-reset", handleResetPassword);
 adminRouter.post("/users/:userId/set-password", handleSetPassword);
+
+adminRouter.post("/users/:userId/reset-onboarding", async (req, res) => {
+  const adminUser = req.authUser;
+  if (!adminUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  const targetUserId = readPathParam(req.params.userId);
+  if (!targetUserId) {
+    res.status(400).json({ error: "Invalid user id" });
+    return;
+  }
+
+  try {
+    const result = await resetUserOnboarding({
+      adminUserId: adminUser.id,
+      targetUserId,
+    });
+    res.status(200).json(result);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to reset user onboarding");
+  }
+});
 
 adminRouter.get("/settings", async (_req, res) => {
   try {

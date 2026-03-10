@@ -8,6 +8,8 @@ export interface AuthUser {
   status: UserStatus;
   displayName: string | null;
   language?: string;
+  onboardingCompletedAt: string | null;
+  generationCount: number;
 }
 
 export interface AuthResponse {

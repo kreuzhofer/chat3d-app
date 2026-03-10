@@ -2,10 +2,12 @@ import { Outlet } from "react-router-dom";
 import {
   KeyRound,
   Lock,
+  RotateCcw,
   ShieldOff,
   UserCheck,
 } from "lucide-react";
 import { AdminProvider, useAdmin, activateAdminUser, deactivateAdminUser, triggerAdminPasswordReset, setAdminUserPassword } from "../../contexts/AdminContext";
+import { resetAdminUserOnboarding } from "../../api/admin.api";
 import { useAuth } from "../../hooks/useAuth";
 import { InlineAlert } from "../../components/layout/InlineAlert";
 import { SectionCard } from "../../components/layout/SectionCard";
@@ -63,6 +65,17 @@ function AdminLayoutInner() {
               <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
                 Created {new Date(admin.selectedUser.createdAt).toLocaleString()}
               </p>
+              <div className="mt-2 flex items-center gap-3 text-xs text-[hsl(var(--muted-foreground))]">
+                <span>
+                  Generations: <strong className="text-[hsl(var(--foreground))]">{admin.selectedUser.generationCount}</strong>
+                </span>
+                <span>
+                  Onboarding:{" "}
+                  <strong className={admin.selectedUser.onboardingCompletedAt ? "text-[hsl(var(--success))]" : "text-[hsl(var(--warning))]"}>
+                    {admin.selectedUser.onboardingCompletedAt ? "completed" : "pending"}
+                  </strong>
+                </span>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -150,6 +163,31 @@ function AdminLayoutInner() {
                 }}
               >
                 Set Password
+              </Button>
+
+              <Button
+                variant="outline"
+                iconLeft={<RotateCcw className="h-3.5 w-3.5" />}
+                disabled={admin.busyUserIds.has(admin.selectedUser.id)}
+                onClick={() => {
+                  if (!admin.token || !admin.selectedUser) return;
+                  const su = admin.selectedUser;
+                  admin.openConfirm({
+                    title: "Reset onboarding",
+                    description: `Reset onboarding state and generation counter for ${su.email}? This restores their first-time experience.`,
+                    confirmLabel: "Reset",
+                    danger: false,
+                    onConfirm: async () => {
+                      await admin.runUserAction(su.id, async () => {
+                        if (!admin.token) return;
+                        await resetAdminUserOnboarding(admin.token, su.id);
+                      });
+                      pushToast({ tone: "success", title: "Onboarding reset", description: `${su.email} will see the first-time experience.` });
+                    },
+                  });
+                }}
+              >
+                Reset Onboarding
               </Button>
             </div>
           </div>
