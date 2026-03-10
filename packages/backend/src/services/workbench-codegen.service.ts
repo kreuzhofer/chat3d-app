@@ -986,8 +986,9 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       }
     }
 
-    // VLM evaluation
+    // VLM evaluation (pass STL data for zoom capability)
     let agEvalResult: EvaluationResult | null = null;
+    const agStlFile = agResult.renderedFiles.find(f => f.filename.toLowerCase().endsWith(".stl"));
     if (agScreenshots.length > 0) {
       onProgress?.("evaluating", "Evaluating quality...");
       const vlmImages = agScreenshots.filter(s => s.angle !== "isometric").map(s => ({ angle: s.angle, base64: s.base64 }));
@@ -999,6 +1000,8 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
           images: vlmImages,
           looksCorrectThreshold: dynLooksCorrect,
           verificationChecklist: specResult?.verificationChecklist,
+          stlBase64: agStlFile?.contentBase64,
+          modelFormat: "stl",
         });
       }
     }
@@ -1208,6 +1211,8 @@ export async function reRenderForExample(exampleId: string, onProgress?: Progres
       complexity: ctx.complexity,
       images: vlmImages,
       looksCorrectThreshold: rrLooksCorrect,
+      stlBase64: stlFile?.contentBase64,
+      modelFormat: "stl",
     });
     totalPromptTokens = evalResult.promptTokens;
     totalCompletionTokens = evalResult.completionTokens;

@@ -129,6 +129,7 @@ def render_screenshots(
     angles: Optional[List[str]] = None,
     width: int = 512,
     height: int = 512,
+    zoom_factor: float = 1.0,
 ) -> List[dict]:
     """
     Render model from multiple angles, returning PNG screenshots as base64.
@@ -139,6 +140,8 @@ def render_screenshots(
         angles: List of viewing angles (default: ["front", "top", "isometric"]).
         width: Image width in pixels.
         height: Image height in pixels.
+        zoom_factor: Zoom magnification (1.0 = normal, 2.0 = 2x zoom, etc.).
+                     Reduces the orthographic frustum to show finer detail.
 
     Returns:
         List of {"angle": str, "base64": str} dicts (PNG, no data URL prefix).
@@ -202,7 +205,9 @@ def render_screenshots(
     # The model's bounding box diagonal for angled views (ortho_45, isometric) is
     # larger than the axis-aligned extent, so we need extra padding.
     # 0.85 = half of 1.7× the max extent — fills ~60% of frame, safe for all angles.
-    ortho_half = extent * 0.85
+    # Zoom: dividing by zoom_factor tightens the frustum, magnifying the center.
+    effective_zoom = max(zoom_factor, 1.0)
+    ortho_half = extent * 0.85 / effective_zoom
     ortho_ymag = ortho_half
     ortho_xmag = ortho_half * (width / height)
 

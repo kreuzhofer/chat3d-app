@@ -54,6 +54,7 @@ export async function renderModelScreenshots(
     width?: number;
     height?: number;
     angles?: ViewingAngle[];
+    zoomFactor?: number;
   },
   opts?: { onQueuePositionChange?: (position: number, total: number) => void },
 ): Promise<StlRenderResult> {
@@ -79,6 +80,7 @@ async function _renderModelScreenshotsInner(
     width?: number;
     height?: number;
     angles?: ViewingAngle[];
+    zoomFactor?: number;
   },
   angles: ViewingAngle[],
 ): Promise<StlRenderResult> {
@@ -105,6 +107,7 @@ async function _renderModelScreenshotsInner(
           width: input.width ?? 512,
           height: input.height ?? 512,
           angles,
+          ...(input.zoomFactor && input.zoomFactor > 1 ? { zoomFactor: input.zoomFactor } : {}),
         }),
         signal: controller.signal,
       });

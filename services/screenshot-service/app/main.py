@@ -79,6 +79,7 @@ class ScreenshotRequest(BaseModel):
     width: int = 512
     height: int = 512
     angles: Optional[List[str]] = None  # default: ["front", "top", "isometric"]
+    zoomFactor: float = 1.0  # 1.0 = normal, 2.0+ = zoomed in
 
 
 class ScreenshotImage(BaseModel):
@@ -131,6 +132,7 @@ def render_screenshots_endpoint(request: ScreenshotRequest):
             angles=angles,
             width=request.width,
             height=request.height,
+            zoom_factor=request.zoomFactor,
         )
 
         elapsed = time.time() - t0
