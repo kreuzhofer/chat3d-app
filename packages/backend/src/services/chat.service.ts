@@ -31,6 +31,7 @@ export async function listChatContexts(userId: string) {
     name: r.name,
     conversationModelId: r.conversationModelId,
     chat3dModelId: r.chat3dModelId,
+    remixedFromPromptId: r.remixedFromPromptId,
     ownerId: r.ownerId,
     totalCostUsd: Number(r.totalCostUsd),
     createdAt: toIso(r.createdAt),
@@ -43,6 +44,7 @@ export async function createChatContext(input: {
   name: string;
   conversationModelId?: string;
   chat3dModelId?: string;
+  remixedFromPromptId?: string;
 }) {
   const name = input.name.trim();
   if (name === "") {
@@ -55,6 +57,7 @@ export async function createChatContext(input: {
       conversationModelId: input.conversationModelId ?? null,
       chat3dModelId: input.chat3dModelId ?? null,
       ownerId: input.userId,
+      remixedFromPromptId: input.remixedFromPromptId ?? null,
     },
   });
 
@@ -63,6 +66,7 @@ export async function createChatContext(input: {
     name: r.name,
     conversationModelId: r.conversationModelId,
     chat3dModelId: r.chat3dModelId,
+    remixedFromPromptId: r.remixedFromPromptId,
     ownerId: r.ownerId,
     totalCostUsd: Number(r.totalCostUsd),
     createdAt: toIso(r.createdAt),
@@ -106,6 +110,7 @@ export async function updateChatContext(input: {
     name: r.name,
     conversationModelId: r.conversationModelId,
     chat3dModelId: r.chat3dModelId,
+    remixedFromPromptId: r.remixedFromPromptId,
     ownerId: r.ownerId,
     totalCostUsd: Number(r.totalCostUsd),
     createdAt: toIso(r.createdAt),

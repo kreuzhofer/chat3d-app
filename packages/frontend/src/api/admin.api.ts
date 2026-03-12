@@ -343,6 +343,7 @@ export interface CurationCandidateRow {
   updatedAt: string;
   totalLikes: number;
   totalDownloads: number;
+  remixedFromPromptId: string | null;
   lastAssistantItem: {
     id: string;
     messages: unknown[];
@@ -368,6 +369,13 @@ export interface CurationCandidateDetail {
   distilledPrompt: string | null;
   originalPrompt: string | null;
   workbenchExampleId: string | null;
+  remixedFromPromptId: string | null;
+  remixedFromPrompt: {
+    promptId: string;
+    promptText: string;
+    categoryId: string;
+    categoryName: string;
+  } | null;
   reviewedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -496,6 +504,15 @@ export async function approveCurationCandidate(
   candidateId: string,
 ): Promise<{ candidateId: string; workbenchExampleId: string; workbenchPromptId: string; categoryId: string }> {
   return requestAdminJson(token, `/curation/candidates/${encodeURIComponent(candidateId)}/approve`, {
+    method: "POST",
+  });
+}
+
+export async function approveCurationCandidateAsImprovement(
+  token: string,
+  candidateId: string,
+): Promise<{ candidateId: string; workbenchExampleId: string; workbenchPromptId: string; categoryId: string }> {
+  return requestAdminJson(token, `/curation/candidates/${encodeURIComponent(candidateId)}/approve-as-improvement`, {
     method: "POST",
   });
 }

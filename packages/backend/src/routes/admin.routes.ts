@@ -36,7 +36,7 @@ import {
   distillPrompt,
   suggestTags,
 } from "../services/curation-llm.service.js";
-import { promoteCandidate } from "../services/curation-promote.service.js";
+import { promoteCandidate, promoteCandidateAsImprovement } from "../services/curation-promote.service.js";
 import { checkSimilarity } from "../services/workbench-embeddings.service.js";
 import {
   listKnowledgeEntries,
@@ -783,6 +783,21 @@ adminRouter.post("/curation/candidates/:id/approve", async (req, res) => {
     res.status(200).json(result);
   } catch (error) {
     sendKnownError(res, error, "Failed to approve curation candidate");
+  }
+});
+
+adminRouter.post("/curation/candidates/:id/approve-as-improvement", async (req, res) => {
+  const id = readPathParam(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Invalid candidate id" });
+    return;
+  }
+
+  try {
+    const result = await promoteCandidateAsImprovement(id);
+    res.status(200).json(result);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to approve remix as improvement");
   }
 });
 

@@ -426,13 +426,14 @@ export async function remixGalleryModel(input: {
     throw new GalleryServiceError("Model not found", 404);
   }
 
-  // 2. Create chat context
+  // 2. Create chat context with lineage tracking
   const promptTruncated = example.promptRef.prompt.length > 60
     ? `${example.promptRef.prompt.slice(0, 57)}...`
     : example.promptRef.prompt;
   const context = await createChatContext({
     userId: input.userId,
     name: `Remix: ${promptTruncated}`,
+    remixedFromPromptId: example.promptRef.id,
   });
 
   // 3. Copy workbench files to chat storage

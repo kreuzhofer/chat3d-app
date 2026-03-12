@@ -57,13 +57,16 @@ export async function syncCandidates(): Promise<number> {
         },
       },
     },
-    select: { id: true },
+    select: { id: true, remixedFromPromptId: true },
   });
 
   if (contexts.length === 0) return 0;
 
   const created = await prisma.curationCandidate.createMany({
-    data: contexts.map((ctx) => ({ chatContextId: ctx.id })),
+    data: contexts.map((ctx) => ({
+      chatContextId: ctx.id,
+      remixedFromPromptId: ctx.remixedFromPromptId,
+    })),
     skipDuplicates: true,
   });
 
@@ -108,6 +111,7 @@ export async function listCurationCandidates(opts: {
           id: true,
           name: true,
           deletedAt: true,
+          remixedFromPromptId: true,
           items: {
             select: {
               id: true,
@@ -153,6 +157,7 @@ export async function listCurationCandidates(opts: {
               createdAt: lastAssistantItem.createdAt.toISOString(),
             }
           : null,
+        remixedFromPromptId: c.remixedFromPromptId,
         chatContext: {
           id: c.chatContext.id,
           name: c.chatContext.name,
@@ -173,6 +178,7 @@ export async function getCandidateDetail(candidateId: string) {
           id: true,
           name: true,
           deletedAt: true,
+          remixedFromPromptId: true,
           items: {
             select: {
               id: true,
@@ -200,6 +206,30 @@ export async function getCandidateDetail(candidateId: string) {
 
   const { totalLikes, totalDownloads } = aggregateSignals(candidate.chatContext.items);
 
+  // Resolve remix origin if present
+  let remixedFromPrompt: {
+    promptId: string;
+    promptText: string;
+    categoryId: string;
+    categoryName: string;
+  } | null = null;
+
+  const remixPromptId = candidate.remixedFromPromptId ?? candidate.chatContext.remixedFromPromptId;
+  if (remixPromptId) {
+    const originPrompt = await prisma.workbenchExamplePrompt.findUnique({
+      where: { id: remixPromptId },
+      select: { id: true, prompt: true, categoryId: true, category: { select: { name: true } } },
+    });
+    if (originPrompt) {
+      remixedFromPrompt = {
+        promptId: originPrompt.id,
+        promptText: originPrompt.prompt,
+        categoryId: originPrompt.categoryId,
+        categoryName: originPrompt.category.name,
+      };
+    }
+  }
+
   return {
     id: candidate.id,
     status: candidate.status,
@@ -207,6 +237,8 @@ export async function getCandidateDetail(candidateId: string) {
     distilledPrompt: candidate.distilledPrompt,
     originalPrompt: candidate.originalPrompt,
     workbenchExampleId: candidate.workbenchExampleId,
+    remixedFromPromptId: remixPromptId ?? null,
+    remixedFromPrompt,
     reviewedAt: candidate.reviewedAt?.toISOString() ?? null,
     createdAt: candidate.createdAt.toISOString(),
     updatedAt: candidate.updatedAt.toISOString(),

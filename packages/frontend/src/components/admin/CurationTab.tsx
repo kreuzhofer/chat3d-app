@@ -9,6 +9,7 @@ import {
   updateCandidatePrompt,
   suggestCandidateTags,
   approveCurationCandidate,
+  approveCurationCandidateAsImprovement,
   checkCandidateSimilarity,
   listTags,
   addCandidateTag,
@@ -376,6 +377,23 @@ export function CurationTab({ token }: CurationTabProps) {
     }
   }
 
+  async function handleApproveAsImprovement() {
+    if (!selectedDetail) return;
+    setApproving(true);
+    setError(null);
+    try {
+      await approveCurationCandidateAsImprovement(token, selectedDetail.id);
+      setShowApproveConfirm(false);
+      setDrawerOpen(false);
+      setSelectedDetail(null);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setApproving(false);
+    }
+  }
+
   async function handleCheckSimilarity() {
     if (!selectedDetail) return;
     setCheckingSimilarity(true);
@@ -453,6 +471,9 @@ export function CurationTab({ token }: CurationTabProps) {
                     </p>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       <Badge tone={statusBadgeTone(c.status)}>{c.status}</Badge>
+                      {c.remixedFromPromptId ? (
+                        <Badge tone="info">remix</Badge>
+                      ) : null}
                       <span className="flex items-center gap-0.5 text-xs text-[hsl(var(--muted-foreground))]">
                         <Star className="h-3 w-3" /> {c.totalLikes}
                       </span>
@@ -562,6 +583,21 @@ export function CurationTab({ token }: CurationTabProps) {
                 >
                   View <ExternalLink className="h-3 w-3" />
                 </a>
+              </div>
+            ) : null}
+
+            {/* Remix origin banner */}
+            {selectedDetail.remixedFromPrompt ? (
+              <div className="rounded-md border border-[hsl(var(--info)_/_0.4)] bg-[hsl(var(--info)_/_0.05)] p-3">
+                <p className="mb-1 text-xs font-semibold text-[hsl(var(--info))]">
+                  Remixed from Workbench
+                </p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  {selectedDetail.remixedFromPrompt.categoryName} &mdash;{" "}
+                  {selectedDetail.remixedFromPrompt.promptText.length > 120
+                    ? selectedDetail.remixedFromPrompt.promptText.slice(0, 117) + "..."
+                    : selectedDetail.remixedFromPrompt.promptText}
+                </p>
               </div>
             ) : null}
 
@@ -879,21 +915,49 @@ export function CurationTab({ token }: CurationTabProps) {
                 {showApproveConfirm ? (
                   <div className="rounded-md border border-[hsl(var(--warning)_/_0.5)] bg-[hsl(var(--warning)_/_0.05)] p-3">
                     <p className="mb-2 text-sm font-medium">
-                      Promote this model to the workbench library?
+                      {selectedDetail.remixedFromPrompt
+                        ? "How should this remix be promoted?"
+                        : "Promote this model to the workbench library?"}
                     </p>
-                    <p className="mb-3 text-xs text-[hsl(var(--muted-foreground))]">
-                      This will copy files, create a workbench entry, generate an embedding, and attach tags.
-                    </p>
-                    <div className="flex gap-2">
+                    {selectedDetail.remixedFromPrompt ? (
+                      <p className="mb-3 text-xs text-[hsl(var(--muted-foreground))]">
+                        This is a remix of &ldquo;{selectedDetail.remixedFromPrompt.promptText.length > 80
+                          ? selectedDetail.remixedFromPrompt.promptText.slice(0, 77) + "..."
+                          : selectedDetail.remixedFromPrompt.promptText}&rdquo;
+                        in {selectedDetail.remixedFromPrompt.categoryName}.
+                        {selectedDetail.distilledPrompt !== selectedDetail.remixedFromPrompt.promptText
+                          ? " The distilled prompt differs — approving as improvement will update the original prompt text."
+                          : ""}
+                      </p>
+                    ) : (
+                      <p className="mb-3 text-xs text-[hsl(var(--muted-foreground))]">
+                        This will copy files, create a workbench entry, generate an embedding, and attach tags.
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {selectedDetail.remixedFromPrompt ? (
+                        <Button
+                          size="sm"
+                          disabled={approving}
+                          onClick={() => void handleApproveAsImprovement()}
+                        >
+                          {approving ? (
+                            <><Spinner size="sm" /> Promoting...</>
+                          ) : (
+                            <><Check className="h-3.5 w-3.5" /> Approve as Improvement</>
+                          )}
+                        </Button>
+                      ) : null}
                       <Button
                         size="sm"
+                        variant={selectedDetail.remixedFromPrompt ? "outline" : "default"}
                         disabled={approving}
                         onClick={() => void handleApprove()}
                       >
                         {approving ? (
                           <><Spinner size="sm" /> Promoting...</>
                         ) : (
-                          <><Check className="h-3.5 w-3.5" /> Confirm Approve</>
+                          <><Check className="h-3.5 w-3.5" /> {selectedDetail.remixedFromPrompt ? "Approve as New" : "Confirm Approve"}</>
                         )}
                       </Button>
                       <Button

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Check, Lightbulb, Pencil, Play, RefreshCw, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
+import { ArrowLeft, Check, GitBranch, Lightbulb, Pencil, Play, RefreshCw, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 import {
   approveExample,
   deleteExample as apiDeleteExample,
@@ -22,6 +22,7 @@ import {
   type WorkbenchExample,
   type WorkbenchPrompt,
 } from "../api/workbench.api";
+import { remixModel } from "../api/gallery.api";
 import { useAuth } from "../hooks/useAuth";
 import { useWorkbenchJobProgress } from "../hooks/useWorkbenchJobProgress";
 import { TypingIndicator } from "./chat/TypingIndicator";
@@ -203,6 +204,24 @@ export function WorkbenchPromptPage() {
     }
   }, [promptId, token]);
 
+  const handleRemix = useCallback(async () => {
+    // Find first approved example for this prompt
+    const approvedExample = examples.find(
+      (e) => e.approvalStatus === "auto_approved" || e.approvalStatus === "human_approved",
+    ) ?? examples[0];
+    if (!token || !approvedExample) return;
+    setActionBusy(true);
+    setError(null);
+    try {
+      const { contextId } = await remixModel(token, approvedExample.id);
+      navigate(`/chat/${contextId}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActionBusy(false);
+    }
+  }, [examples, token, navigate]);
+
   const handleRetry = useCallback(async () => {
     if (!token || !selectedExample) return;
     setError(null);
@@ -375,6 +394,11 @@ export function WorkbenchPromptPage() {
             <Button size="sm" iconLeft={<Play className="h-3.5 w-3.5" />} loading={activeJob?.status === "running"} disabled={busy} onClick={() => void handleGenerate()}>
               Generate
             </Button>
+            {examples.length > 0 ? (
+              <Button size="sm" variant="outline" iconLeft={<GitBranch className="h-3.5 w-3.5" />} disabled={busy} onClick={() => void handleRemix()}>
+                Remix
+              </Button>
+            ) : null}
             {examples.length > 0 ? (
               <Button
                 size="sm"
