@@ -241,6 +241,7 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     initialFiles: componentFiles,
     systemPromptOverride: assemblyPrompt,
     userMessageOverride: assemblyUserMessage,
+    evalThreshold: input.evalThreshold,
     onProgress: (state, detail) => {
       onProgress?.(state, `[assembly] ${detail}`);
     },
@@ -279,5 +280,6 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     },
     stepCount: totalSteps,
     submitted: assemblyResult.submitted,
+    evalResult: assemblyResult.evalResult,
   };
 }

@@ -6,6 +6,7 @@
  */
 
 import * as cheerio from "cheerio";
+import type { AnyNode, Element } from "domhandler";
 import { createLogger } from "../utils/logger.js";
 
 const logger = createLogger("knowledge-convert");
@@ -122,7 +123,7 @@ function convertHtmlToMarkdown(html: string): ConvertResult {
   return { markdown, title, detectedFormat: "html" };
 }
 
-function convertElement($: cheerio.CheerioAPI, el: cheerio.Cheerio<cheerio.AnyNode>, parts: string[]): void {
+function convertElement($: cheerio.CheerioAPI, el: cheerio.Cheerio<AnyNode>, parts: string[]): void {
   el.contents().each((_, node) => {
     if (node.type === "text") {
       const text = $(node).text().trim();
@@ -131,7 +132,7 @@ function convertElement($: cheerio.CheerioAPI, el: cheerio.Cheerio<cheerio.AnyNo
     }
 
     if (node.type !== "tag") return;
-    const tag = (node as cheerio.Element).tagName?.toLowerCase();
+    const tag = (node as Element).tagName?.toLowerCase();
     const child = $(node);
 
     switch (tag) {
@@ -197,7 +198,7 @@ function convertElement($: cheerio.CheerioAPI, el: cheerio.Cheerio<cheerio.AnyNo
   });
 }
 
-function convertTable($: cheerio.CheerioAPI, table: cheerio.Cheerio<cheerio.AnyNode>, parts: string[]): void {
+function convertTable($: cheerio.CheerioAPI, table: cheerio.Cheerio<AnyNode>, parts: string[]): void {
   const rows: string[][] = [];
 
   table.find("tr").each((_, tr) => {

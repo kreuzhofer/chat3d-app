@@ -1,21 +1,16 @@
 /**
  * Agent tool definitions for the codegen loop.
  * Factory function builds all tools: text_editor, validate_code,
- * render_project, validate_and_render, search_examples, search_knowledge,
- * lookup_api, list_files, and submit_result.
+ * render_project, validate_and_render, evaluate_model, search_examples,
+ * search_knowledge, lookup_api, list_files, and submit_result.
  */
 import { zodSchema } from "ai";
 import { z } from "zod";
 import { createLogger } from "../utils/logger.js";
 import { AgentFilesystem } from "./agent-filesystem.service.js";
 import { hybridSearchKnowledge } from "./knowledge-search.service.js";
-import {
-  renderBuild123dProject,
-  validateBuild123dProject,
-  type ProjectFile,
-  type RenderedFile,
-  RenderingServiceError,
-} from "./rendering.service.js";
+import type { ProjectFile, RenderedFile } from "./rendering.service.js";
+import { doValidate, doRender, runVlmEval, type AgentEvalResult } from "./agent-render-helpers.service.js";
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
 import {
   CODEGEN_SECTION_3D_PRIMITIVES,
@@ -59,73 +54,9 @@ const API_SECTIONS: Record<string, string> = {
   parametric_math: CODEGEN_SECTION_PARAMETRIC,
 };
 
-export interface ValidationResult {
-  valid: boolean;
-  text: string;
-}
-
-export async function doValidate(projectFiles: ProjectFile[]): Promise<ValidationResult> {
-  const result = await validateBuild123dProject(projectFiles);
-  if (result.valid) {
-    const warningText = result.warnings.length > 0
-      ? `\n\nWarnings (non-blocking):\n${result.warnings.map(w => `- [${w.rule}] ${w.message} (line ${w.line})`).join("\n")}`
-      : "";
-    return { valid: true, text: `Validation PASSED. No errors found.${warningText}` };
-  }
-  const errorText = result.errors.join("\n");
-  const warningText = result.warnings.length > 0
-    ? `\n\nWarnings:\n${result.warnings.map(w => `- [${w.rule}] ${w.message} (line ${w.line})`).join("\n")}`
-    : "";
-  return { valid: false, text: `Validation FAILED.\n\nErrors:\n${errorText}${warningText}` };
-}
-
-export interface RenderResult {
-  success: boolean;
-  text: string;
-  files: RenderedFile[];
-}
-
-export async function doRender(
-  projectFiles: ProjectFile[],
-  baseFileName: string,
-  signal?: AbortSignal,
-): Promise<RenderResult> {
-  try {
-    const result = await renderBuild123dProject(
-      { files: projectFiles, baseFileName },
-      { signal },
-    );
-    const fileList = result.files.map(f => f.filename).join(", ");
-    return {
-      success: true,
-      text: `Render SUCCEEDED. Generated ${result.files.length} file(s): ${fileList}`,
-      files: result.files,
-    };
-  } catch (err) {
-    if (err instanceof RenderingServiceError) {
-      logger.info({ err: err.message, isInfra: err.isInfrastructure }, "render failed");
-      if (err.isInfrastructure) {
-        return {
-          success: false,
-          text: `Render FAILED (infrastructure error — not a code issue): ${err.message}\n\nThis is a service issue, not a problem with your code. You may try again.`,
-          files: [],
-        };
-      }
-      return {
-        success: false,
-        text: `Render FAILED.\n\nError: ${err.message}\n\nPlease fix the code and validate again before re-rendering.`,
-        files: [],
-      };
-    }
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.warn({ err: msg }, "render: unexpected error");
-    return {
-      success: false,
-      text: `Render FAILED with unexpected error: ${msg}`,
-      files: [],
-    };
-  }
-}
+// Re-export for backward compatibility
+export type { ValidationResult, RenderResult, AgentEvalResult } from "./agent-render-helpers.service.js";
+export { doValidate, doRender } from "./agent-render-helpers.service.js";
 
 const MAX_EXAMPLE_LINES = 20;
 const MAX_KNOWLEDGE_CODE_LINES = 30;
@@ -144,6 +75,16 @@ export interface AgentToolDeps {
   onProgress?: (state: string, detail: string) => void;
   onRenderSuccess: (files: RenderedFile[]) => void;
   onSubmit: () => void;
+  /** Getter for the most recently rendered files (for evaluate_model / submit_result) */
+  getLastRenderedFiles: () => RenderedFile[];
+  /** The user's prompt text (for VLM evaluation context) */
+  userPrompt: string;
+  /** Minimum VLM score to accept submission (from chat.auto_approve_threshold) */
+  evalThreshold: number;
+  /** Callback when VLM evaluation completes */
+  onEvalComplete?: (result: AgentEvalResult) => void;
+  /** Getter for the most recent eval result (set by onEvalComplete) */
+  getLastEvalResult?: () => AgentEvalResult | null;
 }
 
 export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: boolean }): Record<string, any> {
@@ -260,14 +201,53 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
 
     submit_result: {
       type: "function" as const,
-      description: "Submit your result when you're satisfied with the rendered output. Call this after a successful render to complete the task.",
+      description: "Submit your result after a successful render. Automatically runs a visual evaluation (VLM) to check quality. If the score is below the acceptance threshold, the submission is REJECTED and you must address the issues before re-submitting.",
       inputSchema: zodSchema(z.object({
         summary: z.string().describe("Brief summary of what was built or changed"),
       })),
       execute: async ({ summary }: { summary: string }) => {
+        const renderedFiles = deps.getLastRenderedFiles();
+        if (renderedFiles.length === 0) {
+          return "ERROR: No rendered model available. Render the project first before submitting.";
+        }
+
+        // Run mandatory VLM evaluation
+        const evalText = await runVlmEval({
+          getLastRenderedFiles: deps.getLastRenderedFiles,
+          userPrompt: deps.userPrompt,
+          onEvalComplete: deps.onEvalComplete,
+          onProgress,
+        });
+        if (evalText.startsWith("ERROR:")) {
+          // VLM eval failed — accept submission anyway (best-effort)
+          logger.warn({ summary }, "VLM eval failed during submit — accepting without score");
+          onSubmit();
+          return `Result submitted (VLM eval unavailable): ${summary}`;
+        }
+
+        const lastEval = deps.getLastEvalResult?.();
+        if (lastEval && lastEval.score < deps.evalThreshold) {
+          logger.info({ score: lastEval.score, threshold: deps.evalThreshold, summary }, "submission rejected — score below threshold");
+          return `SUBMISSION REJECTED — visual evaluation score ${lastEval.score}/10 is below the acceptance threshold of ${deps.evalThreshold}/10. You must improve the model before submitting again.\n\n${evalText}\n\nPlease address the issues above, then validate, render, and submit again.`;
+        }
+
         onSubmit();
-        logger.info({ summary }, "agent submitted result");
-        return `Result submitted: ${summary}`;
+        logger.info({ summary, score: lastEval?.score }, "agent submitted result");
+        return `Result submitted (score: ${lastEval?.score ?? "?"}/${10}): ${summary}`;
+      },
+    },
+
+    evaluate_model: {
+      type: "function" as const,
+      description: "Evaluate the rendered 3D model against the user's prompt using a vision model (VLM). Takes screenshots and scores the model 1-10. Only call after a successful render. Use this to check quality before submitting — submit_result also runs evaluation automatically.",
+      inputSchema: zodSchema(z.object({})),
+      execute: async () => {
+        return runVlmEval({
+          getLastRenderedFiles: deps.getLastRenderedFiles,
+          userPrompt: deps.userPrompt,
+          onEvalComplete: deps.onEvalComplete,
+          onProgress,
+        });
       },
     },
 

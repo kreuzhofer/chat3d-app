@@ -6,6 +6,7 @@
  * with deterministic project state.
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -38,13 +39,13 @@ export async function getOrCreateProject(contextId: string): Promise<CodeProject
   const existing = await prisma.codeProject.findUnique({
     where: { chatContextId: contextId },
   });
-  if (existing) return existing;
+  if (existing) return existing as unknown as CodeProject;
 
   const created = await prisma.codeProject.create({
     data: { chatContextId: contextId },
   });
   logger.info({ contextId, projectId: created.id }, "created new code project");
-  return created;
+  return created as unknown as CodeProject;
 }
 
 /**
@@ -133,7 +134,7 @@ export async function updateProjectFiles(
       where: { id: project.id },
       data: {
         currentCode: mainCode,
-        currentFiles: files.length > 1 ? fileMap : null,
+        currentFiles: files.length > 1 ? fileMap : Prisma.JsonNull,
         fileCount: files.length,
         lastRenderedItemId: chatItemId,
         updatedAt: new Date(),

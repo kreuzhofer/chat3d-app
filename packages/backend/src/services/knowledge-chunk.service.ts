@@ -148,7 +148,7 @@ function chunkByFixedSize(
     start = end - overlapChars;
     if (start >= markdown.length) break;
     // Avoid infinite loop if overlap pushes us backward
-    if (start <= chunks.length > 1 ? end - maxChars : 0) {
+    if (start <= (chunks.length > 1 ? end - maxChars : 0)) {
       start = end;
     }
   }

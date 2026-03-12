@@ -9,7 +9,6 @@ import { runWithUsageContext } from "./usage-tracking.service.js";
 import { createLogger } from "../utils/logger.js";
 import { prisma } from "../db/prisma.js";
 import {
-  getModelForPurpose,
   getModelForPurposeWithFallback,
   createProviderModel as createProviderModelFromConfig,
   type LlmModelConfig,
@@ -22,32 +21,17 @@ import {
   type RenderedScreenshot,
 } from "./stl-rendering-client.service.js";
 import { evaluateModel, type EvaluationResult } from "./visual-eval.service.js";
-import { CODEGEN_SYSTEM_PROMPT, buildReducedSystemPrompt, buildTieredSystemPrompt, detectPromptOperations } from "../prompts/system-prompts.js";
 import { WorkbenchSeederError } from "./workbench-seeder.service.js";
-import { findSimilarExamples } from "./workbench-embeddings.service.js";
 import { validatePrompt } from "./workbench-prompt-validation.service.js";
-import {
-  RenderErrorCategory,
-  type ClassifiedRenderError,
-  type RenderErrorContext,
-} from "../utils/render-errors.js";
 import { writeStorageFile } from "./file-storage.service.js";
 import {
-  getMaxFixIterations,
   getAutoApproveThreshold,
-  getLooksCorrectThreshold,
-  getFewShotExampleLimit,
-  getSimpleMaxFixCap,
   isSpecGenerationEnabled,
-  isTieredPromptEnabled,
   getAgentMaxSteps,
 } from "./generation-settings.service.js";
 import { generateSpec, type SpecResult } from "./spec-generation.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
 import crypto from "node:crypto";
-
-export const MAX_FIX_ITERATIONS = 5;
-export const AUTO_APPROVE_THRESHOLD = 8;
 
 /** Timeout for the entire per-prompt pipeline (15 minutes). */
 const PIPELINE_TIMEOUT_MS = 15 * 60 * 1000;
@@ -124,11 +108,6 @@ interface PromptContext {
   complexity: number;
 }
 
-export interface FewShotExample {
-  prompt: string;
-  code: string;
-}
-
 // ── Provider resolution ──────────────────────────────────────────────
 
 /**
@@ -140,412 +119,6 @@ export async function resolveCodegenModel(): Promise<{ model: any; label: string
   const cfg = await getModelForPurposeWithFallback("workbench_codegen", "agent_codegen");
   const model = createProviderModelFromConfig(cfg);
   return { model, label: cfg.label, config: cfg };
-}
-
-// ── Prompt building ──────────────────────────────────────────────────
-
-export function buildInitialPrompt(
-  systemPromptContent: string,
-  fewShots: FewShotExample[],
-  userPrompt: string,
-): { system: string; userContent: string } {
-  const userSections: string[] = [];
-
-  if (fewShots.length > 0) {
-    userSections.push("## Approved Examples for Reference", "");
-    for (const example of fewShots) {
-      userSections.push(
-        `### User request: "${example.prompt}"`,
-        "```python",
-        example.code,
-        "```",
-        "",
-      );
-    }
-  }
-
-  userSections.push(
-    "## Requirements",
-    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math` and `bd_warehouse` classes (threads, fasteners, bearings, gears, pipes). You may also import `itertools`, `functools`, `copy`, or `numpy`.",
-    "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
-    "- MANDATORY: For screws, bolts, nuts, threads, gears, bearings, and other standard mechanical components, you MUST use bd_warehouse classes (CounterSunkScrew, HexHeadScrew, IsoThread, HexNut, SpurGear, etc.). NEVER build these manually with Cone, Cylinder, Helix, or sweep. Map user dimensions to the closest standard size (e.g., 'M6 screw' → size=\"M6-1\").",
-    "- PARAMETER CONVENTION: Define all dimensional values (lengths, widths, heights, radii, angles, counts) as named variables at the top of your code before any BuildPart/BuildSketch blocks. Use descriptive snake_case names. Add a brief inline comment describing each parameter. Do NOT hardcode numeric values directly in constructors like Box(), Cylinder(), extrude(), fillet(), etc. Instead, assign them to variables first and reference the variables.",
-    "",
-    `User request: ${userPrompt}`,
-  );
-
-  return { system: systemPromptContent, userContent: userSections.join("\n") };
-}
-
-export function buildFixPrompt(
-  systemPromptContent: string,
-  fewShots: FewShotExample[],
-  userPrompt: string,
-  failedCode: string,
-  iteration: number,
-  renderError: string | null,
-  evalIssues: string[] | null,
-  evalSuggestions: string[] | null,
-  renderErrorContext?: RenderErrorContext | null,
-  options?: {
-    /** When true, few-shot examples are omitted (already seen on iteration 1). Default: true (include). */
-    includeFewShots?: boolean;
-    /** Cumulative error history from all prior iterations for context. */
-    errorHistory?: ClassifiedRenderError[];
-    /** When true, uses buildReducedSystemPrompt() instead of the passed-in systemPromptContent. */
-    useReducedSystemPrompt?: boolean;
-    /** Issues from code-level evaluation (parameter mismatches, missing features). */
-    codeEvalIssues?: string[] | null;
-  },
-): { system: string; userContent: string } {
-  const includeFewShots = options?.includeFewShots ?? true;
-  const errorHistory = options?.errorHistory ?? [];
-
-  // Optionally use a reduced system prompt for fix iterations
-  const effectiveSystem = options?.useReducedSystemPrompt
-    ? buildReducedSystemPrompt({
-        currentCode: failedCode,
-        errorCategory: renderErrorContext?.classified.category as RenderErrorCategory | undefined,
-        errorMessage: renderError ?? undefined,
-      })
-    : systemPromptContent;
-  const sections: string[] = [];
-
-  if (includeFewShots && fewShots.length > 0) {
-    sections.push("## Approved Examples for Reference", "");
-    for (const example of fewShots) {
-      sections.push(
-        `### User request: "${example.prompt}"`,
-        "```python",
-        example.code,
-        "```",
-        "",
-      );
-    }
-  }
-
-  // Cumulative error history: show the LLM what approaches already failed
-  if (errorHistory.length > 0) {
-    sections.push("## Previous attempts summary:");
-    for (let i = 0; i < errorHistory.length; i++) {
-      const e = errorHistory[i];
-      const snippet = e.rawMessage.length > 120 ? e.rawMessage.slice(0, 120) + "..." : e.rawMessage;
-      sections.push(`- Attempt ${i + 1}: [${e.category}] — ${snippet}`);
-    }
-    sections.push("");
-  }
-
-  sections.push(
-    `## Previous code (attempt ${iteration}):`,
-    "```python",
-    failedCode,
-    "```",
-    "",
-    `## ${errorHistory.length > 0 ? `Current attempt (attempt ${iteration}) problems` : "Problems"} to fix:`,
-  );
-
-  // When classified error context is available, inject category + raw error + guidance
-  if (renderErrorContext) {
-    const { classified, escalationGuidance } = renderErrorContext;
-    sections.push(`- Render error (${classified.category}): ${classified.rawMessage}`);
-    // Inject domain-specific fix guidance
-    const guidance = escalationGuidance ?? classified.fixGuidance;
-    if (guidance) {
-      sections.push("", "## Fix guidance:", guidance);
-    }
-  } else if (renderError) {
-    // Fallback: raw error string (backward compatibility)
-    sections.push(`- Render error: ${renderError}`);
-  }
-
-  if (evalIssues && evalIssues.length > 0) {
-    sections.push("", "## Visual evaluation issues (from rendered model):");
-    for (const issue of evalIssues) {
-      sections.push(`- ${issue}`);
-    }
-  }
-
-  const codeEvalIssues = options?.codeEvalIssues;
-  if (codeEvalIssues && codeEvalIssues.length > 0) {
-    sections.push("", "## Code review issues (from code analysis, NOT visual):");
-    for (const issue of codeEvalIssues) {
-      sections.push(`- ${issue}`);
-    }
-  }
-
-  sections.push("");
-
-  if (evalSuggestions && evalSuggestions.length > 0) {
-    sections.push("## Suggested corrections:");
-    for (const suggestion of evalSuggestions) {
-      sections.push(`- ${suggestion}`);
-    }
-    sections.push("");
-  }
-
-  sections.push(
-    "Fix the code. Preserve the intended geometry described in the original request.",
-    "Return only the corrected Build123d modeling code in a fenced code block.",
-    "",
-    "## Requirements",
-    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math` and `bd_warehouse` classes (threads, fasteners, bearings, gears, pipes). You may also import `itertools`, `functools`, `copy`, or `numpy`.",
-    "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
-    "- PARAMETER CONVENTION: Define all dimensional values (lengths, widths, heights, radii, angles, counts) as named variables at the top of your code before any BuildPart/BuildSketch blocks. Use descriptive snake_case names. Add a brief inline comment describing each parameter. Do NOT hardcode numeric values directly in constructors like Box(), Cylinder(), extrude(), fillet(), etc. Instead, assign them to variables first and reference the variables.",
-    "",
-    `## Original request:`,
-    userPrompt,
-  );
-
-  return { system: effectiveSystem, userContent: sections.join("\n") };
-}
-
-/**
- * Build a fix prompt that requests edit-format responses (search-and-replace blocks)
- * instead of full code regeneration. Uses a reduced system prompt.
- *
- * The LLM is instructed to return `<<<SEARCH ... === ... >>>SEARCH` blocks for
- * targeted fixes, or `<<<FULL_REWRITE` if a complete rewrite is needed.
- */
-export function buildEditFixPrompt(
-  systemPromptContent: string,
-  userPrompt: string,
-  currentCode: string,
-  iteration: number,
-  renderError: string | null,
-  evalIssues: string[] | null,
-  evalSuggestions: string[] | null,
-  renderErrorContext?: RenderErrorContext | null,
-  options?: { errorHistory?: ClassifiedRenderError[]; useReducedSystemPrompt?: boolean; codeEvalIssues?: string[] | null },
-): { system: string; userContent: string } {
-  const errorHistory = options?.errorHistory ?? [];
-
-  // Use reduced system prompt for edit-based fixes (opt-in, default true).
-  // Callers may pass false when the provider needs a large prompt for caching
-  // (e.g. Opus 4.6 requires ≥ 4096 tokens).
-  const useReduced = options?.useReducedSystemPrompt ?? true;
-  const system = useReduced
-    ? buildReducedSystemPrompt({
-        currentCode,
-        errorCategory: renderErrorContext?.classified.category as RenderErrorCategory | undefined,
-        errorMessage: renderError ?? undefined,
-      })
-    : systemPromptContent;
-
-  const sections: string[] = [];
-
-  // 1. Current code (fenced block)
-  sections.push(
-    "## Current code:",
-    "```python",
-    currentCode,
-    "```",
-    "",
-  );
-
-  // 2. Error history summary (cumulative)
-  if (errorHistory.length > 0) {
-    sections.push("## Previous attempts summary:");
-    for (let i = 0; i < errorHistory.length; i++) {
-      const e = errorHistory[i];
-      const snippet = e.rawMessage.length > 120 ? e.rawMessage.slice(0, 120) + "..." : e.rawMessage;
-      sections.push(`- Attempt ${i + 1}: [${e.category}] — ${snippet}`);
-    }
-    sections.push("");
-  }
-
-  // 3. Current problems + fix guidance
-  sections.push(
-    `## Problems to fix (attempt ${iteration}):`,
-  );
-
-  if (renderErrorContext) {
-    const { classified, escalationGuidance } = renderErrorContext;
-    sections.push(`- Render error (${classified.category}): ${classified.rawMessage}`);
-    const guidance = escalationGuidance ?? classified.fixGuidance;
-    if (guidance) {
-      sections.push("", "## Fix guidance:", guidance);
-    }
-  } else if (renderError) {
-    sections.push(`- Render error: ${renderError}`);
-  }
-
-  if (evalIssues && evalIssues.length > 0) {
-    sections.push("", "## Visual evaluation issues (from rendered model):");
-    for (const issue of evalIssues) {
-      sections.push(`- ${issue}`);
-    }
-  }
-
-  const codeEvalIssues = options?.codeEvalIssues;
-  if (codeEvalIssues && codeEvalIssues.length > 0) {
-    sections.push("", "## Code review issues (from code analysis, NOT visual):");
-    for (const issue of codeEvalIssues) {
-      sections.push(`- ${issue}`);
-    }
-  }
-  sections.push("");
-
-  if (evalSuggestions && evalSuggestions.length > 0) {
-    sections.push("## Suggested corrections:");
-    for (const suggestion of evalSuggestions) {
-      sections.push(`- ${suggestion}`);
-    }
-    sections.push("");
-  }
-
-  // 4. Edit format instructions
-  sections.push(
-    "## Response Format — EDIT MODE",
-    "",
-    "Make TARGETED fixes using search-and-replace blocks. Do NOT rewrite the entire code.",
-    "Return one or more edit blocks in this exact format:",
-    "",
-    "<<<SEARCH",
-    "exact lines to find in the current code",
-    "===",
-    "replacement lines",
-    ">>>SEARCH",
-    "",
-    "Rules:",
-    "- Each SEARCH block must match EXACTLY one location in the current code",
-    "- Include enough context lines to make the match unique",
-    "- You can return multiple <<<SEARCH...>>>SEARCH blocks for multiple fixes",
-    "- Preserve indentation exactly",
-    "",
-    "If the code needs a COMPLETE rewrite (fundamental structural issue), use:",
-    "",
-    "<<<FULL_REWRITE",
-    "```python",
-    "{complete corrected code}",
-    "```",
-    ">>>FULL_REWRITE",
-    "",
-    "Only use FULL_REWRITE as a last resort when targeted edits cannot fix the issue.",
-    "",
-    "## Requirements",
-    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math` and `bd_warehouse` classes (threads, fasteners, bearings, gears, pipes). You may also import `itertools`, `functools`, `copy`, or `numpy`.",
-    "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
-    "- PARAMETER CONVENTION: Define all dimensional values as named variables at the top of your code. Use descriptive snake_case names with inline comments.",
-    "",
-    `## Original request:`,
-    userPrompt,
-  );
-
-  return { system, userContent: sections.join("\n") };
-}
-
-/**
- * Build a prompt for modifying existing working code based on a user's
- * follow-up request in chat. Unlike `buildFixPrompt` (which addresses
- * render errors or VLM-identified issues), this prompt frames the
- * previous code as a *working baseline* and instructs the LLM to make
- * targeted modifications while preserving all unrelated geometry.
- */
-export function buildModificationPrompt(
-  systemPromptContent: string,
-  fewShots: FewShotExample[],
-  userPrompt: string,
-  baselineCode: string,
-  conversationSummary: string,
-  conversationHistory?: string,
-): { system: string; userContent: string } {
-  const sections: string[] = [];
-
-  if (fewShots.length > 0) {
-    sections.push("## Approved Examples for Reference", "");
-    for (const example of fewShots) {
-      sections.push(
-        `### User request: "${example.prompt}"`,
-        "```python",
-        example.code,
-        "```",
-        "",
-      );
-    }
-  }
-
-  sections.push(
-    "## Working Baseline Code",
-    "The following Build123d code produces a working 3D model. Your task is to MODIFY",
-    "this code to incorporate the user's requested changes while PRESERVING all existing",
-    "geometry, features, and structure that the user has not asked to change.",
-    "```python",
-    baselineCode,
-    "```",
-    "",
-  );
-
-  if (conversationSummary) {
-    sections.push(
-      "## Conversation Context",
-      conversationSummary,
-      "",
-    );
-  }
-
-  if (conversationHistory) {
-    sections.push(conversationHistory, "");
-  }
-
-  sections.push(
-    "## Modification Request",
-    userPrompt,
-    "",
-    "## Requirements",
-    "- Generate ONLY the Build123d modeling code. Do NOT include `from build123d import *` or export calls. The template pre-imports `math` and `bd_warehouse` classes (threads, fasteners, bearings, gears, pipes). You may also import `itertools`, `functools`, `copy`, or `numpy`.",
-    "- Assign the final solid to `root_part` (e.g. `root_part = part.part`).",
-    "- MANDATORY: For screws, bolts, nuts, threads, gears, bearings, and other standard mechanical components, you MUST use bd_warehouse classes (CounterSunkScrew, HexHeadScrew, IsoThread, HexNut, SpurGear, etc.). NEVER build these manually with Cone, Cylinder, Helix, or sweep. Map user dimensions to the closest standard size (e.g., 'M6 screw' → size=\"M6-1\").",
-    "- IMPORTANT: Start from the baseline code above and make targeted modifications. Do NOT rewrite from scratch. Preserve all working geometry, dimensions, and features unless the user explicitly asked to change them.",
-    "- PARAMETER CONVENTION: Define all dimensional values (lengths, widths, heights, radii, angles, counts) as named variables at the top of your code before any BuildPart/BuildSketch blocks. Use descriptive snake_case names. Add a brief inline comment describing each parameter. Do NOT hardcode numeric values directly in constructors like Box(), Cylinder(), extrude(), fillet(), etc. Instead, assign them to variables first and reference the variables.",
-  );
-
-  return { system: systemPromptContent, userContent: sections.join("\n") };
-}
-
-// ── Few-shot example retrieval ───────────────────────────────────────
-
-/**
- * Fallback: category-scoped selection by eval score.
- * Used when vector search is unavailable (no embeddings or API error).
- */
-async function fetchFewShotExamplesByCategory(categoryId: string, limit = 6): Promise<FewShotExample[]> {
-  // ORDER BY NULLS LAST → stays as raw SQL
-  return prisma.$queryRaw<FewShotExample[]>`
-    SELECT p.prompt, e.code
-     FROM workbench_examples e
-     JOIN workbench_example_prompts p ON p.id = e.prompt_id
-     WHERE p.category_id = ${categoryId}::uuid
-       AND e.approval_status IN ('auto_approved', 'human_approved')
-     ORDER BY e.eval_score DESC NULLS LAST, e.created_at DESC
-     LIMIT ${limit}
-  `;
-}
-
-/**
- * Primary: vector similarity search across all categories.
- * Falls back to category-scoped selection if vector search fails or returns empty.
- */
-async function fetchFewShotExamples(
-  promptText: string,
-  categoryId: string,
-  limit = 6,
-  detectedOperations?: Set<string>,
-): Promise<FewShotExample[]> {
-  try {
-    const { matches: results } = await findSimilarExamples(promptText, limit, detectedOperations);
-    if (results.length > 0) {
-      logger.info(
-        { count: results.length, similarityMin: results[results.length - 1].similarity.toFixed(3), similarityMax: results[0].similarity.toFixed(3), opsBoost: detectedOperations?.size ?? 0 },
-        "vector search returned examples",
-      );
-      return results.map(({ prompt, code }) => ({ prompt, code }));
-    }
-    logger.info("vector search returned 0 results, falling back to category query");
-  } catch (error) {
-    logger.warn({ err: error }, "vector search failed, falling back to category query");
-  }
-
-  return fetchFewShotExamplesByCategory(categoryId, limit);
 }
 
 // ── Prompt context loading ───────────────────────────────────────────
@@ -906,39 +479,8 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     logger.info({ interpretation: specResult.interpretation.slice(0, 100), checklistCount: specResult.verificationChecklist.length }, "spec generated");
   }
 
-  // 3. Load dynamic settings + few-shot examples
-  let [dynMaxFix, dynAutoApprove, dynLooksCorrect, dynFewShotLimit, tieredEnabled] = await Promise.all([
-    getMaxFixIterations("workbench"),
-    getAutoApproveThreshold("workbench"),
-    getLooksCorrectThreshold("workbench"),
-    getFewShotExampleLimit("workbench"),
-    isTieredPromptEnabled("workbench"),
-  ]);
-
-  // Cap fix iterations for simple prompts
-  if (specResult?.complexity === "simple") {
-    const simpleCap = await getSimpleMaxFixCap("workbench");
-    if (dynMaxFix > simpleCap) {
-      logger.info({ original: dynMaxFix, capped: simpleCap, complexity: specResult.complexity }, "capping fix iterations for simple prompt");
-      dynMaxFix = simpleCap;
-    }
-  }
-
-  // Detect operations for both few-shot retrieval boost and tiered prompt
-  const detectedOps = detectPromptOperations(ctx.prompt, specResult?.interpretation);
-
-  const fewShots = await fetchFewShotExamples(ctx.prompt, ctx.categoryId, dynFewShotLimit, detectedOps);
-  logger.info({ count: fewShots.length, ops: [...detectedOps] }, "few-shot examples loaded");
-
-  // Resolve system prompt: tiered (operation-aware) or full
-  const systemPromptContent = tieredEnabled
-    ? buildTieredSystemPrompt({
-        promptText: ctx.prompt,
-        interpretation: specResult?.interpretation,
-        fewShotCount: fewShots.length,
-      })
-    : CODEGEN_SYSTEM_PROMPT;
-  logger.info({ chars: systemPromptContent.length, fullChars: CODEGEN_SYSTEM_PROMPT.length, tiered: tieredEnabled }, "system prompt loaded");
+  // 3. Load dynamic settings
+  const dynAutoApprove = await getAutoApproveThreshold("workbench");
 
   // ── Agent codegen ──
   const wbAgentModelConfig = await getModelForPurposeWithFallback("workbench_codegen", "agent_codegen");
@@ -963,6 +505,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       complexity: specResult?.complexity,
       signal: pipelineSignal,
       onProgress: (state: string, detail: string) => onProgress?.(state, detail),
+      evalThreshold: dynAutoApprove,
     };
 
     const agResult = wbUseMultiAgent
@@ -998,7 +541,6 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
           categoryName: ctx.categoryName,
           complexity: ctx.complexity,
           images: vlmImages,
-          looksCorrectThreshold: dynLooksCorrect,
           verificationChecklist: specResult?.verificationChecklist,
           stlBase64: agStlFile?.contentBase64,
           modelFormat: "stl",
@@ -1097,10 +639,7 @@ export async function reRenderForExample(exampleId: string, onProgress?: Progres
   const ctx = await loadPromptContext(existingExample.promptId);
   logger.info({ prompt: ctx.prompt.slice(0, 80), category: ctx.categoryName }, "loaded prompt context for re-render");
 
-  const [rrAutoApprove, rrLooksCorrect] = await Promise.all([
-    getAutoApproveThreshold("workbench"),
-    getLooksCorrectThreshold("workbench"),
-  ]);
+  const rrAutoApprove = await getAutoApproveThreshold("workbench");
 
   // 2. Render with Build123d — wrap raw code in template for execution
   onProgress?.("rendering", "Rendering 3D model...");
@@ -1210,13 +749,12 @@ export async function reRenderForExample(exampleId: string, onProgress?: Progres
       categoryName: ctx.categoryName,
       complexity: ctx.complexity,
       images: vlmImages,
-      looksCorrectThreshold: rrLooksCorrect,
       stlBase64: stlFile?.contentBase64,
       modelFormat: "stl",
     });
     totalPromptTokens = evalResult.promptTokens;
     totalCompletionTokens = evalResult.completionTokens;
-    logger.info({ score: evalResult.score, looksCorrect: evalResult.looksCorrect }, "VLM evaluation result (re-render)");
+    logger.info({ score: evalResult.score }, "VLM evaluation result (re-render)");
   } else {
     logger.warn("skipping VLM evaluation, no screenshots (re-render)");
   }

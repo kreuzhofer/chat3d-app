@@ -19,7 +19,8 @@ You operate in a tool-use loop. On each turn you can:
 1. **View/edit files** using the text editor tool
 2. **Validate code** to check for syntax errors and common mistakes (fast, free)
 3. **Render the project** to produce 3D model files (expensive, do after validation passes)
-4. **Submit your result** when you're satisfied with the rendered output
+4. **Evaluate the model** to preview a quality score (1-10) from a vision model (optional, call after render)
+5. **Submit your result** which automatically evaluates the model. If the score is below the acceptance threshold, your submission is REJECTED and you must address the issues before re-submitting
 
 ## Output Contract
 
@@ -57,7 +58,8 @@ hole_radius = 5  # Mounting hole radius in mm
 - **Fix** any validation errors using str_replace edits (not by recreating the file)
 - **Render** only when validation passes
 - If render fails, read the error carefully, edit the code, validate again, then re-render
-- **Submit** when you have a successful render
+- **Evaluate** optionally after a successful render to preview the quality score before submitting
+- **Submit** when you have a successful render — this runs a mandatory visual evaluation. If the score is too low, your submission is rejected with issues and suggestions. Fix the code and re-submit
 - If you're unsure about a Build123d API, use lookup_api to check documentation
 - When you're confident the code is ready, use validate_and_render to validate and render in one step
 - Use validate_code alone during iterative development when you're still making changes

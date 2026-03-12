@@ -22,6 +22,7 @@ import {
   getConversationHistoryMaxPairs,
   isSpecGenerationEnabled,
   getAgentMaxSteps,
+  getAutoApproveThreshold,
 } from "./generation-settings.service.js";
 import { generateSpec, formatDisambiguationResponse } from "./spec-generation.service.js";
 import { updateProjectCode, updateProjectFiles, getProjectCode } from "./code-project.service.js";
@@ -1392,7 +1393,10 @@ async function executeQueryPipelineInner(input: {
         queryLogger.info({ baselineCodeLength: agBaselineCode!.length }, "agent: modification scenario detected");
       }
 
-      const agMaxSteps = await getAgentMaxSteps("chat");
+      const [agMaxSteps, agEvalThreshold] = await Promise.all([
+        getAgentMaxSteps("chat"),
+        getAutoApproveThreshold("chat"),
+      ]);
       const useMultiAgent = epSpecComplexity === "complex" && !agIsModification;
       const agMode = useMultiAgent ? "multi-agent" : "single-agent";
       const agDetail = useMultiAgent
@@ -1415,6 +1419,7 @@ async function executeQueryPipelineInner(input: {
         onProgress: (state, detail) => {
           void publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: state as QueryState, detail });
         },
+        evalThreshold: agEvalThreshold,
       };
 
       const agResult = useMultiAgent
@@ -1523,7 +1528,7 @@ async function executeQueryPipelineInner(input: {
           stateMessage: "",
           usage: agUsage,
           artifact: agArtifact,
-          llm: { conversationModel: "pipeline", codegenModel: agentModelConfig.label, vlmModel: null, evalScore: null, iterations: agResult.stepCount },
+          llm: { conversationModel: "pipeline", codegenModel: agentModelConfig.label, vlmModel: agResult.evalResult?.vlmModel ?? null, evalScore: agResult.evalResult?.score ?? null, iterations: agResult.stepCount },
           files: agFinalFiles,
         },
       ];

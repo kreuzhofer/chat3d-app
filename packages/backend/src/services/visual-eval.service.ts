@@ -37,7 +37,6 @@ export interface EvaluationResult {
   score: number;
   issues: string[];
   suggestions: string[];
-  looksCorrect: boolean;
   vlmModel: string;
   promptTokens: number;
   completionTokens: number;
@@ -62,8 +61,6 @@ export interface EvaluateModelInput {
   complexity: number;
   /** Labeled base64-encoded PNG images from different angles */
   images: LabeledImage[];
-  /** Optional override for the looks-correct score threshold (default 7) */
-  looksCorrectThreshold?: number;
   /** Optional verification checklist from spec generation step */
   verificationChecklist?: string[];
   /** Raw STL/3MF base64 data — enables VLM zoom capability when provided */
@@ -118,7 +115,7 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
     logger.warn("no labeled images provided, returning score 1");
     return {
       score: 1, issues: ["No images provided for evaluation"], suggestions: [],
-      looksCorrect: false, vlmModel: "", promptTokens: 0, completionTokens: 0,
+      vlmModel: "", promptTokens: 0, completionTokens: 0,
     };
   }
 
@@ -162,7 +159,7 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
     logger.error({ err: lastError, attempts: EVAL_MAX_RETRIES + 1 }, "evaluation failed after all attempts");
     return {
       score: 1, issues: [`Evaluation failed: ${lastError?.message ?? "Unknown error"}`],
-      suggestions: [], looksCorrect: false, vlmModel: vlmConfig.label,
+      suggestions: [], vlmModel: vlmConfig.label,
       promptTokens: 0, completionTokens: 0,
     };
   });
@@ -298,7 +295,7 @@ function buildFinalResult(
   if (!responseText) {
     return {
       score: 1, issues: ["Empty response from VLM"], suggestions: [],
-      looksCorrect: false, vlmModel: vlmModelLabel,
+      vlmModel: vlmModelLabel,
       promptTokens, completionTokens, zoomRequestCount,
     };
   }
@@ -320,7 +317,6 @@ function buildFinalResult(
 
   return {
     ...parsed,
-    looksCorrect: parsed.score >= (input.looksCorrectThreshold ?? 7),
     vlmModel: vlmModelLabel,
     promptTokens,
     completionTokens,

@@ -565,12 +565,9 @@ export async function getExportStats(): Promise<ExportStats> {
 // ── JSONL Export ─────────────────────────────────────────────────────
 
 export async function exportApprovedJsonl(): Promise<string> {
-  // Get the active system prompt content
-  const sp = await prisma.workbenchSystemPrompt.findFirst({
-    where: { isActive: true },
-    select: { content: true },
-  });
-  const systemPromptContent = sp?.content ?? "";
+  // Use the code-based system prompt (DB-stored prompts were removed)
+  const { CODEGEN_SYSTEM_PROMPT } = await import("../prompts/system-prompts.js");
+  const systemPromptContent = CODEGEN_SYSTEM_PROMPT;
 
   // Fetch all approved examples with their prompt text
   const rows = await prisma.workbenchExample.findMany({

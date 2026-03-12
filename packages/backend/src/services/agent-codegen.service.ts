@@ -26,7 +26,8 @@ import {
   buildAgentSystemPrompt,
   buildFullAgentSystemPrompt,
 } from "../prompts/agent-system-prompt.js";
-import { buildAgentTools } from "./agent-tools.service.js";
+import { buildAgentTools, type AgentEvalResult } from "./agent-tools.service.js";
+import { getAutoApproveThreshold } from "./generation-settings.service.js";
 
 const logger = createLogger("agent-codegen");
 
@@ -53,6 +54,8 @@ export interface AgentCodegenInput {
   systemPromptOverride?: string;
   /** Override user message (used by multi-agent orchestration) */
   userMessageOverride?: string;
+  /** VLM eval threshold for the submit_result quality gate */
+  evalThreshold?: number;
 }
 
 export interface AgentCodegenResult {
@@ -75,6 +78,8 @@ export interface AgentCodegenResult {
   stepCount: number;
   /** Whether the agent explicitly submitted (vs hitting step limit) */
   submitted: boolean;
+  /** VLM evaluation result (if the agent ran evaluate_model) */
+  evalResult: AgentEvalResult | null;
 }
 
 // Re-export multi-agent orchestration so consumers don't need to change imports
@@ -98,6 +103,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
     disableRender,
     systemPromptOverride,
     userMessageOverride,
+    evalThreshold: inputEvalThreshold,
   } = input;
 
   logger.info(
@@ -140,9 +146,13 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
   let submitted = false;
   let lastRenderedFiles: RenderedFile[] = [];
   let renderSuccess = false;
+  let evalResult: AgentEvalResult | null = null;
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
   let totalReasoningTokens = 0;
+
+  // Load eval threshold for submit_result quality gate (caller provides pipeline-scoped value)
+  const evalThreshold = inputEvalThreshold ?? await getAutoApproveThreshold("chat");
 
   const userMessage = userMessageOverride ?? buildAgentUserMessage(promptText, isModification, baselineCode);
 
@@ -169,6 +179,11 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
         renderSuccess = true;
       },
       onSubmit: () => { submitted = true; },
+      getLastRenderedFiles: () => lastRenderedFiles,
+      userPrompt: promptText,
+      evalThreshold,
+      onEvalComplete: (result) => { evalResult = result; },
+      getLastEvalResult: () => evalResult,
     },
     { disableRender },
   );
@@ -232,7 +247,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
         reasoningTokens: totalReasoningTokens,
         totalCostUsd: calculateCostUsd(modelConfig, totalPromptTokens, totalCompletionTokens),
       },
-      stepCount, submitted,
+      stepCount, submitted, evalResult,
     };
   } catch (err) {
     if (signal?.aborted) {
@@ -245,7 +260,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
           reasoningTokens: totalReasoningTokens,
           totalCostUsd: calculateCostUsd(modelConfig, totalPromptTokens, totalCompletionTokens),
         },
-        stepCount: 0, submitted: false,
+        stepCount: 0, submitted: false, evalResult,
       };
     }
     throw err;

@@ -1100,11 +1100,10 @@ adminRouter.get("/knowledge", async (req, res) => {
       : undefined;
     const sourceId = typeof req.query.sourceId === "string" ? req.query.sourceId : undefined;
     const search = typeof req.query.search === "string" ? req.query.search.trim() : undefined;
-    const concept = typeof req.query.concept === "string" ? req.query.concept.trim() : undefined;
     const limit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : undefined;
     const offset = typeof req.query.offset === "string" ? parseInt(req.query.offset, 10) : undefined;
 
-    const result = await listKnowledgeEntries({ sourceType, validationStatus, sourceId, search, concept, limit, offset });
+    const result = await listKnowledgeEntries({ sourceType, validationStatus, sourceId, search, limit, offset });
     res.status(200).json(result);
   } catch (error) {
     sendKnownError(res, error, "Failed to list knowledge entries");

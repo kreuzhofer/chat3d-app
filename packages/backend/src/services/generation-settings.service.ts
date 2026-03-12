@@ -43,29 +43,13 @@ export interface GenerationSettingDescriptor {
 // ── Registry ─────────────────────────────────────────────────────────
 
 const SETTINGS_REGISTRY = new Map<string, SettingMeta>([
-  ["workbench.max_fix_iterations", { default: 5, label: "Max fix iterations", description: "Maximum code-fix-render loop iterations", pipeline: "workbench", min: 1, max: 20 }],
-  ["chat.max_fix_iterations", { default: 5, label: "Max fix iterations", description: "Maximum code-fix-render loop iterations", pipeline: "chat", min: 1, max: 20 }],
   ["workbench.auto_approve_threshold", { default: 8, label: "Auto-approve threshold", description: "Minimum VLM eval score to auto-approve", pipeline: "workbench", min: 1, max: 10 }],
   ["chat.auto_approve_threshold", { default: 8, label: "Auto-approve threshold", description: "Minimum VLM eval score to auto-approve", pipeline: "chat", min: 1, max: 10 }],
-  ["workbench.looks_correct_threshold", { default: 7, label: "Looks-correct threshold", description: "Minimum VLM score to mark as 'looks correct'", pipeline: "workbench", min: 1, max: 10 }],
-  ["chat.looks_correct_threshold", { default: 7, label: "Looks-correct threshold", description: "Minimum VLM score to mark as 'looks correct'", pipeline: "chat", min: 1, max: 10 }],
   ["chat.conversation_history_max_pairs", { default: 5, label: "Conversation history max pairs", description: "Max user/assistant exchange pairs for context", pipeline: "chat-only", min: 1, max: 50 }],
-  ["workbench.few_shot_example_limit", { default: 6, label: "Few-shot example limit", description: "Number of few-shot examples to include in prompt", pipeline: "workbench", min: 0, max: 20 }],
-  ["chat.few_shot_example_limit", { default: 6, label: "Few-shot example limit", description: "Number of few-shot examples to include in prompt", pipeline: "chat", min: 0, max: 20 }],
-  ["workbench.simple_max_fix_cap", { default: 3, label: "Simple prompt fix cap", description: "Maximum fix iterations for prompts assessed as 'simple' complexity", pipeline: "workbench", min: 1, max: 20 }],
-  ["chat.simple_max_fix_cap", { default: 3, label: "Simple prompt fix cap", description: "Maximum fix iterations for prompts assessed as 'simple' complexity", pipeline: "chat", min: 1, max: 20 }],
-  ["chat.codegen_base_temperature", { default: 0.3, label: "Codegen base temperature", description: "Base temperature for code generation (increases per fix iteration)", pipeline: "chat", min: 0, max: 1 }],
-  ["chat.codegen_temperature_step", { default: 0.1, label: "Codegen temperature step", description: "Temperature increase per fix iteration", pipeline: "chat", min: 0, max: 0.3 }],
   ["workbench.spec_generation_enabled", { default: 1, label: "Spec generation enabled", description: "Enable specification step before codegen (1=on, 0=off)", pipeline: "workbench", min: 0, max: 1 }],
   ["chat.spec_generation_enabled", { default: 1, label: "Spec generation enabled", description: "Enable specification step before codegen (1=on, 0=off)", pipeline: "chat", min: 0, max: 1 }],
-  ["workbench.tiered_prompt_enabled", { default: 1, label: "Tiered prompt enabled", description: "Use operation-aware tiered system prompt instead of full prompt (1=on, 0=off)", pipeline: "workbench", min: 0, max: 1 }],
-  ["chat.tiered_prompt_enabled", { default: 1, label: "Tiered prompt enabled", description: "Use operation-aware tiered system prompt instead of full prompt (1=on, 0=off)", pipeline: "chat", min: 0, max: 1 }],
   ["chat.agent_max_steps", { default: 15, label: "Agent max tool-use steps", description: "Maximum number of tool-use steps in the agent codegen loop", pipeline: "chat", min: 3, max: 50 }],
   ["workbench.agent_max_steps", { default: 15, label: "Agent max tool-use steps", description: "Maximum number of tool-use steps in the agent codegen loop", pipeline: "workbench", min: 3, max: 50 }],
-  ["workbench.code_eval_enabled", { default: 0, label: "Code eval enabled", description: "Enable LLM-based code review alongside VLM visual eval (1=on, 0=off)", pipeline: "workbench", min: 0, max: 1 }],
-  ["chat.code_eval_enabled", { default: 0, label: "Code eval enabled", description: "Enable LLM-based code review alongside VLM visual eval (1=on, 0=off)", pipeline: "chat", min: 0, max: 1 }],
-  ["workbench.code_eval_weight", { default: 0.4, label: "Code eval weight", description: "Weight of code review score in composite evaluation (0.0–1.0). Visual eval gets remaining weight.", pipeline: "workbench", min: 0, max: 1 }],
-  ["chat.code_eval_weight", { default: 0.4, label: "Code eval weight", description: "Weight of code review score in composite evaluation (0.0–1.0). Visual eval gets remaining weight.", pipeline: "chat", min: 0, max: 1 }],
 ]);
 
 // ── In-memory cache ──────────────────────────────────────────────────
@@ -107,56 +91,20 @@ async function getEffective(key: string): Promise<number> {
 
 // ── Consumer API (pipeline-scoped) ───────────────────────────────────
 
-export async function getMaxFixIterations(pipeline: Pipeline): Promise<number> {
-  return getEffective(`${pipeline}.max_fix_iterations`);
-}
-
 export async function getAutoApproveThreshold(pipeline: Pipeline): Promise<number> {
   return getEffective(`${pipeline}.auto_approve_threshold`);
-}
-
-export async function getLooksCorrectThreshold(pipeline: Pipeline): Promise<number> {
-  return getEffective(`${pipeline}.looks_correct_threshold`);
 }
 
 export async function getConversationHistoryMaxPairs(): Promise<number> {
   return getEffective("chat.conversation_history_max_pairs");
 }
 
-export async function getFewShotExampleLimit(pipeline: Pipeline): Promise<number> {
-  return getEffective(`${pipeline}.few_shot_example_limit`);
-}
-
-export async function getSimpleMaxFixCap(pipeline: Pipeline): Promise<number> {
-  return getEffective(`${pipeline}.simple_max_fix_cap`);
-}
-
-export async function getCodegenBaseTemperature(): Promise<number> {
-  return getEffective("chat.codegen_base_temperature");
-}
-
-export async function getCodegenTemperatureStep(): Promise<number> {
-  return getEffective("chat.codegen_temperature_step");
-}
-
 export async function isSpecGenerationEnabled(pipeline: Pipeline): Promise<boolean> {
   return (await getEffective(`${pipeline}.spec_generation_enabled`)) === 1;
 }
 
-export async function isTieredPromptEnabled(pipeline: Pipeline): Promise<boolean> {
-  return (await getEffective(`${pipeline}.tiered_prompt_enabled`)) === 1;
-}
-
 export async function getAgentMaxSteps(pipeline: "chat" | "workbench"): Promise<number> {
   return getEffective(`${pipeline}.agent_max_steps`);
-}
-
-export async function isCodeEvalEnabled(pipeline: Pipeline): Promise<boolean> {
-  return (await getEffective(`${pipeline}.code_eval_enabled`)) === 1;
-}
-
-export async function getCodeEvalWeight(pipeline: Pipeline): Promise<number> {
-  return getEffective(`${pipeline}.code_eval_weight`);
 }
 
 // ── Admin API ────────────────────────────────────────────────────────

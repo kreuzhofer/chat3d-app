@@ -12,7 +12,11 @@ import {
   findBestAssistantItem,
   readB123dCode,
   copyFilesToWorkbench,
+  SCREENSHOT_ANGLES,
+  type CopiedFilePaths,
 } from "./curation-file-helpers.js";
+import { readStorageFile, storageFileExists } from "./file-storage.service.js";
+import { evaluateModel, type EvaluationResult } from "./visual-eval.service.js";
 
 const logger = createLogger("curation-promote");
 
@@ -78,6 +82,19 @@ export async function promoteCandidate(candidateId: string): Promise<PromotionRe
   const example = await createWorkbenchExample(prompt.id, code, 1, filePaths);
   logger.info({ exampleId: example.id }, "created workbench example");
 
+  // Try to transfer eval score from chat item metadata, fall back to running VLM eval
+  const bestConvItem = detail.conversationItems.find(i => i.id === bestItem.id);
+  const storedEval = bestConvItem ? extractEvalFromItem(bestConvItem.messages) : null;
+  if (storedEval) {
+    await applyStoredEval(example.id, storedEval);
+  } else {
+    try {
+      await runPromotionEval(example.id, detail.distilledPrompt, category.name, filePaths);
+    } catch (err) {
+      logger.warn({ err, exampleId: example.id }, "VLM eval failed during promotion — can be run manually later");
+    }
+  }
+
   if (detail.tags.length > 0) {
     await prisma.workbenchPromptTag.createMany({
       data: detail.tags.map((t) => ({ promptId: prompt.id, tagId: t.id })),
@@ -125,7 +142,7 @@ export async function promoteCandidateAsImprovement(candidateId: string): Promis
 
   const originalPrompt = await prisma.workbenchExamplePrompt.findUnique({
     where: { id: detail.remixedFromPromptId },
-    include: { category: { select: { id: true } } },
+    include: { category: { select: { id: true, name: true } } },
   });
   if (!originalPrompt) {
     throw new CurationError("Original workbench prompt no longer exists.", 404);
@@ -150,6 +167,19 @@ export async function promoteCandidateAsImprovement(candidateId: string): Promis
   const code = await readB123dCode(contextId, bestItem.id);
 
   const example = await createWorkbenchExample(originalPrompt.id, code, nextIteration, filePaths);
+
+  // Try to transfer eval score from chat item metadata, fall back to running VLM eval
+  const bestConvItem = detail.conversationItems.find(i => i.id === bestItem.id);
+  const storedEval = bestConvItem ? extractEvalFromItem(bestConvItem.messages) : null;
+  if (storedEval) {
+    await applyStoredEval(example.id, storedEval);
+  } else {
+    try {
+      await runPromotionEval(example.id, detail.distilledPrompt!, originalPrompt.category.name, filePaths);
+    } catch (err) {
+      logger.warn({ err, exampleId: example.id }, "VLM eval failed during improvement promotion — can be run manually later");
+    }
+  }
 
   // Update prompt text if the distilled version differs
   if (detail.distilledPrompt !== originalPrompt.prompt) {
@@ -229,4 +259,95 @@ async function markCandidateApproved(candidateId: string, exampleId: string) {
       updatedAt: new Date(),
     },
   });
+}
+
+interface StoredEvalData {
+  evalScore: number;
+  vlmModel: string;
+}
+
+/**
+ * Extract VLM evaluation data from the best assistant item's meta message.
+ * Returns null if no eval data found in the item's messages.
+ */
+function extractEvalFromItem(messages: unknown): StoredEvalData | null {
+  if (!Array.isArray(messages)) return null;
+  for (const msg of messages) {
+    if (typeof msg !== "object" || msg === null) continue;
+    const m = msg as Record<string, unknown>;
+    if (m.itemType !== "meta") continue;
+    const llm = m.llm as Record<string, unknown> | undefined;
+    if (!llm) continue;
+    const evalScore = llm.evalScore;
+    const vlmModel = llm.vlmModel;
+    if (typeof evalScore === "number" && evalScore > 0 && typeof vlmModel === "string") {
+      return { evalScore, vlmModel };
+    }
+  }
+  return null;
+}
+
+/**
+ * Apply stored eval data from chat item metadata to a workbench example.
+ */
+async function applyStoredEval(exampleId: string, data: StoredEvalData): Promise<void> {
+  await prisma.workbenchExample.update({
+    where: { id: exampleId },
+    data: {
+      evalScore: data.evalScore,
+      vlmModel: data.vlmModel,
+    },
+  });
+  logger.info({ exampleId, score: data.evalScore, vlmModel: data.vlmModel }, "transferred eval score from chat item metadata");
+}
+
+/**
+ * Run VLM evaluation on a promoted example's screenshots and update its score.
+ * Best-effort — failures are logged but don't block the promotion.
+ */
+async function runPromotionEval(
+  exampleId: string,
+  promptText: string,
+  categoryName: string,
+  filePaths: CopiedFilePaths,
+): Promise<void> {
+  // Collect available screenshots as base64
+  const images: Array<{ angle: string; base64: string }> = [];
+  for (const { suffix, column } of SCREENSHOT_ANGLES) {
+    const path = filePaths[column];
+    if (!path || !(await storageFileExists(path))) continue;
+    const buf = await readStorageFile({ relativePath: path });
+    images.push({ angle: suffix, base64: buf.toString("base64") });
+  }
+
+  if (images.length === 0) {
+    logger.warn({ exampleId }, "no screenshots available for VLM eval — skipping");
+    return;
+  }
+
+  // Load STL for zoom support if available
+  let stlBase64: string | undefined;
+  if (filePaths.stlPath && await storageFileExists(filePaths.stlPath)) {
+    stlBase64 = (await readStorageFile({ relativePath: filePaths.stlPath })).toString("base64");
+  }
+
+  const evalResult: EvaluationResult = await evaluateModel({
+    userPrompt: promptText,
+    categoryName,
+    complexity: 5,
+    images,
+    stlBase64,
+  });
+
+  await prisma.workbenchExample.update({
+    where: { id: exampleId },
+    data: {
+      evalScore: evalResult.score,
+      evalIssues: evalResult.issues,
+      evalSuggestions: evalResult.suggestions,
+      vlmModel: evalResult.vlmModel,
+    },
+  });
+
+  logger.info({ exampleId, score: evalResult.score }, "VLM evaluation completed for promoted example");
 }
