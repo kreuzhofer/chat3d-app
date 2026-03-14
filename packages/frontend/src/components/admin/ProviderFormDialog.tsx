@@ -26,6 +26,7 @@ const SUPPORTED_PROVIDERS: ProviderMeta[] = [
   { value: "minimax", label: "MiniMax", endpointHint: "Leave empty for default.", endpointPlaceholder: "", apiKeyHint: "Enter the MiniMax API key." },
   { value: "ollama", label: "Ollama", endpointHint: "Ollama server URL. Leave empty for default (http://host.docker.internal:11434).", endpointPlaceholder: "http://host.docker.internal:11434", apiKeyHint: "Auth token (optional). Leave empty if not required." },
   { value: "bedrock", label: "Amazon Bedrock", endpointHint: "AWS region (e.g. us-east-1). Defaults to us-east-1 if left empty.", endpointPlaceholder: "us-east-1", apiKeyHint: "Enter the Amazon Bedrock API key." },
+  { value: "openai-compatible", label: "OpenAI Compatible", endpointHint: "Base URL of the OpenAI-compatible API (required).", endpointPlaceholder: "https://api.example.com/v1", apiKeyHint: "API key for this endpoint (optional for local endpoints)." },
 ];
 
 const PROVIDER_SELECT_OPTIONS = SUPPORTED_PROVIDERS.map((p) => ({ value: p.value, label: p.label }));
@@ -38,15 +39,20 @@ function getProviderMeta(name: string): ProviderMeta | undefined {
 
 export interface ProviderFormData {
   name: string;
+  providerType: string | null;
   displayName: string;
   endpointUrl: string;
   apiKey: string;
   apiKeyChanged: boolean;
 }
 
+/** Built-in provider names that cannot be used as custom provider names. */
+const BUILTIN_NAMES = new Set(SUPPORTED_PROVIDERS.filter((p) => p.value !== "openai-compatible").map((p) => p.value));
+
 function emptyForm(): ProviderFormData {
   return {
     name: "",
+    providerType: null,
     displayName: "",
     endpointUrl: "",
     apiKey: "",
@@ -57,6 +63,7 @@ function emptyForm(): ProviderFormData {
 function providerToForm(provider: LlmProviderRow): ProviderFormData {
   return {
     name: provider.name,
+    providerType: provider.provider_type,
     displayName: provider.display_name ?? "",
     endpointUrl: provider.endpoint_url ?? "",
     apiKey: provider.api_key ?? "",
@@ -84,7 +91,10 @@ export function ProviderFormDialog({ provider, token, saving, onSave, onClose }:
   }, [provider]);
 
   const isEdit = provider !== null;
-  const canSubmit = form.name.trim() !== "";
+  const isCustom = form.providerType === "openai-compatible";
+  const nameValid = form.name.trim() !== "" && (!isCustom || !BUILTIN_NAMES.has(form.name.trim()));
+  const endpointValid = !isCustom || form.endpointUrl.trim() !== "";
+  const canSubmit = nameValid && endpointValid;
 
   const [showApiKey, setShowApiKey] = useState(false);
   const [fullKeyFetched, setFullKeyFetched] = useState(false);
@@ -110,14 +120,22 @@ export function ProviderFormDialog({ provider, token, saving, onSave, onClose }:
     setForm((prev) => ({ ...prev, ...partial }));
   }
 
+  /** The dropdown value — for openai-compatible providers in edit mode, map back to "openai-compatible". */
+  const dropdownValue = isEdit
+    ? (form.providerType === "openai-compatible" ? "openai-compatible" : form.name)
+    : (isCustom ? "openai-compatible" : form.name);
+
   function handleProviderChange(value: string) {
-    const selected = getProviderMeta(value);
-    const updates: Partial<ProviderFormData> = { name: value };
-    // Auto-fill display name from provider label when creating
-    if (!isEdit && selected && form.displayName === "") {
-      updates.displayName = selected.label;
+    if (value === "openai-compatible") {
+      patch({ name: "", providerType: "openai-compatible", displayName: "" });
+    } else {
+      const selected = getProviderMeta(value);
+      const updates: Partial<ProviderFormData> = { name: value, providerType: null };
+      if (!isEdit && selected && form.displayName === "") {
+        updates.displayName = selected.label;
+      }
+      patch(updates);
     }
-    patch(updates);
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -134,22 +152,40 @@ export function ProviderFormDialog({ provider, token, saving, onSave, onClose }:
       onClose={onClose}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Provider Name */}
+        {/* Provider Type */}
         <FormField
-          label="Provider"
-          htmlFor="provider-name"
+          label="Provider Type"
+          htmlFor="provider-type"
           required
-          helperText={isEdit ? "Cannot be changed after creation." : "Select the LLM provider."}
+          helperText={isEdit ? "Cannot be changed after creation." : "Select the LLM provider type."}
         >
           <Select
-            id="provider-name"
-            value={form.name}
+            id="provider-type"
+            value={dropdownValue}
             options={PROVIDER_SELECT_OPTIONS}
             placeholder="Select a provider…"
             disabled={isEdit}
             onChange={(e) => handleProviderChange(e.target.value)}
           />
         </FormField>
+
+        {/* Custom Provider Name (only for openai-compatible) */}
+        {isCustom && (
+          <FormField
+            label="Provider Name"
+            htmlFor="provider-custom-name"
+            required
+            helperText={isEdit ? "Cannot be changed after creation." : "Unique identifier (lowercase, no spaces). E.g. 'groq', 'fireworks'."}
+          >
+            <Input
+              id="provider-custom-name"
+              value={form.name}
+              placeholder="e.g. groq"
+              disabled={isEdit}
+              onChange={(e) => patch({ name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
+            />
+          </FormField>
+        )}
 
         {/* Display Name */}
         <FormField label="Display Name" htmlFor="provider-display-name" helperText="Friendly label for the UI (optional).">

@@ -65,6 +65,77 @@ export class LlmServiceError extends Error {
   }
 }
 
+// ── Thinking-block stripping ────────────────────────────────────────
+// Some models (e.g. Qwen) emit <think>...</think> as plain text rather than
+// using the SDK's structured reasoning. These helpers strip thinking blocks
+// from both full text and streaming token flows.
+
+/** Strip all `<think>...</think>` blocks from a complete text string. */
+export function stripThinkingBlocks(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>\s*/g, "").trim();
+}
+
+/**
+ * Stateful streaming filter that suppresses `<think>...</think>` blocks.
+ * Tokens inside a thinking block are silently consumed; tokens outside are forwarded.
+ * Call `flush()` after the stream ends to emit any remaining buffered content.
+ */
+export class ThinkingBlockFilter {
+  private insideThink = false;
+  private buffer = "";
+  private readonly downstream: (token: string) => void;
+
+  constructor(downstream: (token: string) => void) {
+    this.downstream = downstream;
+  }
+
+  push(token: string): void {
+    this.buffer += token;
+    this.drain();
+  }
+
+  flush(): void {
+    if (!this.insideThink && this.buffer.length > 0) {
+      this.downstream(this.buffer);
+      this.buffer = "";
+    }
+  }
+
+  private drain(): void {
+    while (this.buffer.length > 0) {
+      if (this.insideThink) {
+        const endIdx = this.buffer.indexOf("</think>");
+        if (endIdx !== -1) {
+          this.buffer = this.buffer.slice(endIdx + "</think>".length).replace(/^\s+/, "");
+          this.insideThink = false;
+        } else {
+          // Still inside — keep last 7 chars in case "</think>" is split across tokens
+          if (this.buffer.length > 7) {
+            this.buffer = this.buffer.slice(-7);
+          }
+          return;
+        }
+      } else {
+        const startIdx = this.buffer.indexOf("<think>");
+        if (startIdx !== -1) {
+          if (startIdx > 0) {
+            this.downstream(this.buffer.slice(0, startIdx));
+          }
+          this.buffer = this.buffer.slice(startIdx + "<think>".length);
+          this.insideThink = true;
+        } else {
+          // No tag — emit everything except last 6 chars (in case "<think>" is split)
+          if (this.buffer.length > 6) {
+            this.downstream(this.buffer.slice(0, -6));
+            this.buffer = this.buffer.slice(-6);
+          }
+          return;
+        }
+      }
+    }
+  }
+}
+
 function sanitizeBaseFileName(value: string): string {
   return value
     .toLowerCase()
@@ -74,16 +145,17 @@ function sanitizeBaseFileName(value: string): string {
 }
 
 export function extractExecutableCode(raw: string): string {
+  const cleaned = stripThinkingBlocks(raw);
   const fencedCodeBlock =
-    raw.match(/```python\s*([\s\S]*?)```/i) ??
-    raw.match(/```py\s*([\s\S]*?)```/i) ??
-    raw.match(/```\s*([\s\S]*?)```/i);
+    cleaned.match(/```python\s*([\s\S]*?)```/i) ??
+    cleaned.match(/```py\s*([\s\S]*?)```/i) ??
+    cleaned.match(/```\s*([\s\S]*?)```/i);
 
   if (fencedCodeBlock?.[1]) {
     return fencedCodeBlock[1].trim();
   }
 
-  return raw.trim();
+  return cleaned.trim();
 }
 
 /**
@@ -412,12 +484,13 @@ async function generateWithConfig(
         );
       }
 
-      if (!text || text.trim() === "") {
+      const cleanedText = stripThinkingBlocks(text);
+      if (!cleanedText) {
         throw new LlmServiceError("LLM returned empty output", 502);
       }
 
       return {
-        text: text.trim(),
+        text: cleanedText,
         usageRaw: usage,
       };
     }, { provider: cfg.provider }),
@@ -473,12 +546,13 @@ async function generateWithMessages(
         );
       }
 
-      if (!result.text || result.text.trim() === "") {
+      const cleanedText = stripThinkingBlocks(result.text);
+      if (!cleanedText) {
         throw new LlmServiceError("LLM returned empty output", 502);
       }
 
       return {
-        text: result.text.trim(),
+        text: cleanedText,
         usageRaw: result.usage,
       };
     }, { provider: cfg.provider }),
@@ -518,16 +592,18 @@ async function streamWithMessages(
       });
 
       let fullText = "";
+      const thinkFilter = new ThinkingBlockFilter(onToken);
       // Capture usage from finish-step event (Bedrock streaming doesn't propagate usage to resolved promise — SDK v6.0.111 bug)
       let streamStepUsage: unknown;
       for await (const part of result.fullStream) {
         if (part.type === "text-delta") {
           fullText += part.text;
-          onToken(part.text);
+          thinkFilter.push(part.text);
         } else if (part.type === "finish-step" && "usage" in part) {
           streamStepUsage = (part as Record<string, unknown>).usage;
         }
       }
+      thinkFilter.flush();
 
       let finalResult;
       try {
@@ -573,12 +649,13 @@ async function streamWithMessages(
         });
       }
 
-      if (fullText.trim() === "") {
+      const cleanedText = stripThinkingBlocks(fullText);
+      if (cleanedText === "") {
         throw new LlmServiceError("LLM returned empty output", 502);
       }
 
       return {
-        text: fullText.trim(),
+        text: cleanedText,
         usageRaw: effectiveUsage,
       };
     } catch (error) {
@@ -627,16 +704,18 @@ async function streamWithConfig(
       });
 
       let fullText = "";
+      const thinkFilter = new ThinkingBlockFilter(onToken);
       // Capture usage from finish-step event (Bedrock streaming doesn't propagate usage to resolved promise — SDK v6.0.111 bug)
       let streamStepUsage: unknown;
       for await (const part of result.fullStream) {
         if (part.type === "text-delta") {
           fullText += part.text;
-          onToken(part.text);
+          thinkFilter.push(part.text);
         } else if (part.type === "finish-step" && "usage" in part) {
           streamStepUsage = (part as Record<string, unknown>).usage;
         }
       }
+      thinkFilter.flush();
 
       let finalResult;
       try {
@@ -700,12 +779,13 @@ async function streamWithConfig(
         });
       }
 
-      if (fullText.trim() === "") {
+      const cleanedText = stripThinkingBlocks(fullText);
+      if (cleanedText === "") {
         throw new LlmServiceError("LLM returned empty output", 502);
       }
 
       return {
-        text: fullText.trim(),
+        text: cleanedText,
         usageRaw: effectiveUsage,
       };
     } catch (error) {
@@ -832,7 +912,7 @@ function buildConversationMultimodal(input: {
  * Returns { needsCodegen: boolean, text: string } where text has the tag stripped.
  */
 export function parseConversationResponse(raw: string): { needsCodegen: boolean; text: string } {
-  const trimmed = raw.trim();
+  const trimmed = stripThinkingBlocks(raw);
   if (trimmed.startsWith("[CODEGEN_NEEDED]")) {
     return { needsCodegen: true, text: trimmed.slice("[CODEGEN_NEEDED]".length).trim() };
   }

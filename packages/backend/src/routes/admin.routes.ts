@@ -86,6 +86,7 @@ import {
   updateProvider,
   deleteProvider,
 } from "../services/llm-config.service.js";
+import { fetchProviderModels } from "../services/llm-provider-models.service.js";
 
 export const adminRouter = Router();
 
@@ -557,6 +558,21 @@ adminRouter.get("/llm-providers/:name/api-key", async (req, res) => {
   }
 });
 
+adminRouter.get("/llm-providers/:name/models", async (req, res) => {
+  const name = readPathParam(req.params.name);
+  if (!name) {
+    res.status(400).json({ error: "Invalid provider name" });
+    return;
+  }
+
+  try {
+    const models = await fetchProviderModels(name);
+    res.status(200).json({ models });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to fetch provider models");
+  }
+});
+
 adminRouter.post("/llm-providers", async (req, res) => {
   const body = req.body as Record<string, unknown> | undefined;
   if (!body || typeof body.name !== "string" || body.name.trim() === "") {
@@ -570,6 +586,7 @@ adminRouter.post("/llm-providers", async (req, res) => {
       displayName: typeof body.displayName === "string" ? body.displayName : undefined,
       apiKey: typeof body.apiKey === "string" && body.apiKey !== "" ? body.apiKey : null,
       endpointUrl: typeof body.endpointUrl === "string" && body.endpointUrl !== "" ? body.endpointUrl : null,
+      providerType: typeof body.providerType === "string" ? body.providerType : null,
     });
     res.status(201).json(provider);
   } catch (error) {

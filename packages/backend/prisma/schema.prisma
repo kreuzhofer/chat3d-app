@@ -505,6 +505,7 @@ model Backup {
 
 model LlmProvider {
   name          String   @id @db.VarChar(50)
+  providerType  String?  @map("provider_type") @db.VarChar(50)
   displayName   String?  @map("display_name") @db.VarChar(100)
   apiKey        String?  @map("api_key") @db.Text
   endpointUrl   String?  @map("endpoint_url") @db.Text

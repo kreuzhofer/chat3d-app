@@ -173,6 +173,7 @@ export function updateAdminSettings(token: string, patch: AdminSettingsPatch): P
 
 export interface LlmProviderRow {
   name: string;
+  provider_type: string | null;
   display_name: string | null;
   api_key: string | null; // masked (e.g., "sk-ab****") — never contains full key
   endpoint_url: string | null;
@@ -186,6 +187,7 @@ export interface CreateLlmProviderInput {
   displayName?: string;
   apiKey?: string | null;
   endpointUrl?: string | null;
+  providerType?: string | null;
 }
 
 export async function listLlmProviders(token: string): Promise<LlmProviderRow[]> {
@@ -198,6 +200,14 @@ export async function getProviderApiKey(token: string, name: string): Promise<st
     method: "GET",
   });
   return result.apiKey;
+}
+
+export async function fetchProviderModels(token: string, providerName: string): Promise<string[]> {
+  const result = await requestAdminJson<{ models: string[] }>(
+    token,
+    `/llm-providers/${encodeURIComponent(providerName)}/models`,
+  );
+  return Array.isArray(result.models) ? result.models : [];
 }
 
 export async function createLlmProvider(token: string, input: CreateLlmProviderInput): Promise<LlmProviderRow> {

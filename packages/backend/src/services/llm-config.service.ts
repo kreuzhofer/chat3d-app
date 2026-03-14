@@ -24,6 +24,7 @@ const logger = createLogger("llm-config");
 /** API-facing row shape from llm_providers table (snake_case for backward compat) */
 export interface LlmProviderRow {
   name: string;
+  provider_type: string | null;
   display_name: string | null;
   api_key: string | null;
   endpoint_url: string | null;
@@ -67,6 +68,8 @@ export interface LlmPurposeRow {
 export interface LlmModelConfig {
   id: string;
   provider: string;
+  /** SDK type override — null means use provider name for dispatch. */
+  providerType: string | null;
   modelName: string;
   displayName: string;
   label: string; // "provider/modelName" for logging
@@ -146,6 +149,7 @@ function isAdaptiveThinkingModel(modelName: string): boolean {
 
 interface PrismaProviderShape {
   name: string;
+  providerType: string | null;
   displayName: string | null;
   apiKey: string | null;
   endpointUrl: string | null;
@@ -158,6 +162,7 @@ interface PrismaProviderShape {
 function toProviderRow(p: PrismaProviderShape): LlmProviderRow {
   return {
     name: p.name,
+    provider_type: p.providerType,
     display_name: p.displayName,
     api_key: p.apiKey,
     endpoint_url: p.endpointUrl,
@@ -242,6 +247,7 @@ export async function getModelForPurpose(purpose: string): Promise<LlmModelConfi
   return {
     id: model.id,
     provider: model.provider,
+    providerType: provider.providerType,
     modelName: model.modelName,
     displayName: model.displayName ?? `${model.provider}/${model.modelName}`,
     label: `${model.provider}/${model.modelName}`,
@@ -276,49 +282,55 @@ export async function getModelForPurposeWithFallback(
 
 // ── Provider instantiation ──────────────────────────────────────────
 
+/** Resolves the effective SDK type for provider dispatch. */
+export function sdkType(cfg: LlmModelConfig): string {
+  return cfg.providerType ?? cfg.provider;
+}
+
 /**
  * Create a Vercel AI SDK LanguageModel from a resolved config.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createProviderModel(cfg: LlmModelConfig): any {
-  const { provider, modelName, endpointUrl, apiKey } = cfg;
+  const { modelName, endpointUrl, apiKey } = cfg;
+  const type = sdkType(cfg);
 
-  if (provider === "openai") {
+  if (type === "openai") {
     if (!apiKey) {
       throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
     }
     return createOpenAI({ apiKey, ...(endpointUrl ? { baseURL: endpointUrl } : {}) })(modelName);
   }
 
-  if (provider === "anthropic") {
+  if (type === "anthropic") {
     if (!apiKey) {
       throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
     }
     return createAnthropic({ apiKey })(modelName);
   }
 
-  if (provider === "xai") {
+  if (type === "xai") {
     if (!apiKey) {
       throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
     }
     return createXai({ apiKey })(modelName);
   }
 
-  if (provider === "deepseek") {
+  if (type === "deepseek") {
     if (!apiKey) {
       throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
     }
     return createDeepSeek({ apiKey })(modelName);
   }
 
-  if (provider === "minimax") {
+  if (type === "minimax") {
     if (!apiKey) {
       throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
     }
     return createMinimax({ apiKey })(modelName);
   }
 
-  if (provider === "ollama") {
+  if (type === "ollama") {
     if (!endpointUrl) {
       throw new Error(`Endpoint URL missing for ${cfg.label} — configure it in Admin → Providers`);
     }
@@ -334,7 +346,7 @@ export function createProviderModel(cfg: LlmModelConfig): any {
     return ollama.chatModel(modelName);
   }
 
-  if (provider === "bedrock") {
+  if (type === "bedrock") {
     if (!apiKey) {
       throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
     }
@@ -344,7 +356,23 @@ export function createProviderModel(cfg: LlmModelConfig): any {
     })(modelName);
   }
 
-  throw new Error(`Unsupported provider: ${provider}`);
+  if (type === "openai-compatible") {
+    if (!endpointUrl) {
+      throw new Error(`Endpoint URL is required for OpenAI-compatible provider ${cfg.label}`);
+    }
+    const normalizedBaseUrl = endpointUrl.replace(/\/+$/, "");
+    const baseUrlWithVersion = normalizedBaseUrl.endsWith("/v1")
+      ? normalizedBaseUrl
+      : `${normalizedBaseUrl}/v1`;
+    const compat = createOpenAICompatible({
+      name: cfg.provider,
+      baseURL: baseUrlWithVersion,
+      apiKey: apiKey?.trim() || undefined,
+    });
+    return compat.chatModel(modelName);
+  }
+
+  throw new Error(`Unsupported provider: ${cfg.provider} (type: ${type})`);
 }
 
 /**
@@ -352,23 +380,24 @@ export function createProviderModel(cfg: LlmModelConfig): any {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createEmbeddingModel(cfg: LlmModelConfig): any {
-  const { provider, modelName, endpointUrl, apiKey } = cfg;
+  const { modelName, endpointUrl, apiKey } = cfg;
+  const type = sdkType(cfg);
 
-  if (provider === "openai") {
+  if (type === "openai") {
     if (!apiKey) {
       throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
     }
     return createOpenAI({ apiKey, ...(endpointUrl ? { baseURL: endpointUrl } : {}) }).embedding(modelName);
   }
 
-  if (provider === "deepseek") {
+  if (type === "deepseek") {
     if (!apiKey) {
       throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
     }
     return createOpenAI({ apiKey, baseURL: endpointUrl ?? "https://api.deepseek.com/v1" }).embedding(modelName);
   }
 
-  if (provider === "ollama") {
+  if (type === "ollama") {
     if (!endpointUrl) {
       throw new Error(`Endpoint URL missing for ${cfg.label} — configure it in Admin → Providers`);
     }
@@ -384,7 +413,7 @@ export function createEmbeddingModel(cfg: LlmModelConfig): any {
     return ollama.embeddingModel(modelName);
   }
 
-  if (provider === "bedrock") {
+  if (type === "bedrock") {
     if (!apiKey) {
       throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
     }
@@ -394,7 +423,23 @@ export function createEmbeddingModel(cfg: LlmModelConfig): any {
     }).embedding(modelName);
   }
 
-  throw new Error(`Unsupported embedding provider: ${provider}`);
+  if (type === "openai-compatible") {
+    if (!endpointUrl) {
+      throw new Error(`Endpoint URL is required for OpenAI-compatible provider ${cfg.label}`);
+    }
+    const normalizedBaseUrl = endpointUrl.replace(/\/+$/, "");
+    const baseUrlWithVersion = normalizedBaseUrl.endsWith("/v1")
+      ? normalizedBaseUrl
+      : `${normalizedBaseUrl}/v1`;
+    const compat = createOpenAICompatible({
+      name: cfg.provider,
+      baseURL: baseUrlWithVersion,
+      apiKey: apiKey?.trim() || undefined,
+    });
+    return compat.embeddingModel(modelName);
+  }
+
+  throw new Error(`Unsupported embedding provider: ${cfg.provider} (type: ${type})`);
 }
 
 // ── generateText() options builder ──────────────────────────────────
@@ -412,13 +457,14 @@ export function buildGenerateOptions(cfg: LlmModelConfig): Record<string, unknow
   const providerOptions: Record<string, unknown> = {};
 
   // Anthropic thinking/reasoning (direct API and Bedrock)
+  const type = sdkType(cfg);
   if (cfg.supportsThinking && cfg.thinkingEffort) {
     if (isAdaptiveThinkingModel(cfg.modelName)) {
       // Claude 4.6+: adaptive thinking with effort parameter
       const effort = ADAPTIVE_EFFORTS.has(cfg.thinkingEffort)
         ? cfg.thinkingEffort
         : "high"; // default to high if unrecognised value
-      if (cfg.provider === "bedrock") {
+      if (type === "bedrock") {
         providerOptions.bedrock = {
           reasoningConfig: { type: "adaptive", maxReasoningEffort: effort },
         };
@@ -432,7 +478,7 @@ export function buildGenerateOptions(cfg: LlmModelConfig): Record<string, unknow
       // Older models: enabled thinking with budget_tokens
       const budget = thinkingBudget(cfg.thinkingEffort);
       if (budget > 0) {
-        if (cfg.provider === "bedrock") {
+        if (type === "bedrock") {
           providerOptions.bedrock = {
             reasoningConfig: { type: "enabled", budgetTokens: budget },
           };
@@ -446,7 +492,7 @@ export function buildGenerateOptions(cfg: LlmModelConfig): Record<string, unknow
   }
 
   // Ollama context window
-  if (cfg.provider === "ollama" && cfg.maxContextTokens) {
+  if (type === "ollama" && cfg.maxContextTokens) {
     providerOptions.ollama = {
       ...(providerOptions.ollama as Record<string, unknown> | undefined),
       num_ctx: cfg.maxContextTokens,
@@ -561,6 +607,7 @@ export async function createProvider(input: {
   displayName?: string;
   apiKey?: string | null;
   endpointUrl?: string | null;
+  providerType?: string | null;
 }): Promise<LlmProviderRow> {
   // Default Bedrock region to us-east-1 if not specified
   const endpointUrl =
@@ -571,6 +618,7 @@ export async function createProvider(input: {
   const row = await prisma.llmProvider.create({
     data: {
       name: input.name,
+      providerType: input.providerType ?? null,
       displayName: input.displayName ?? null,
       apiKey: input.apiKey ?? null,
       endpointUrl,
@@ -589,6 +637,7 @@ export async function updateProvider(
     endpointUrl: "endpointUrl",
     maxConcurrent: "maxConcurrent",
     isActive: "isActive",
+    providerType: "providerType",
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

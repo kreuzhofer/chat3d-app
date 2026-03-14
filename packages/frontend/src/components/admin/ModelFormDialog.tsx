@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { LlmModelRow, LlmProviderRow } from "../../api/admin.api";
+import { Loader2 } from "lucide-react";
+import { fetchProviderModels, type LlmModelRow, type LlmProviderRow } from "../../api/admin.api";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { FormField } from "../ui/form";
@@ -63,19 +64,45 @@ function modelToForm(model: LlmModelRow): ModelFormData {
 export interface ModelFormDialogProps {
   model: LlmModelRow | null;
   providers: LlmProviderRow[];
+  token: string;
   saving: boolean;
   onSave: (data: ModelFormData) => void;
   onClose: () => void;
 }
 
-export function ModelFormDialog({ model, providers, saving, onSave, onClose }: ModelFormDialogProps) {
+export function ModelFormDialog({ model, providers, token, saving, onSave, onClose }: ModelFormDialogProps) {
   const defaultProvider = providers.length > 0 ? providers[0].name : "openai";
   const [form, setForm] = useState<ModelFormData>(() => (model ? modelToForm(model) : emptyForm(defaultProvider)));
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
 
   // Reset form when model prop changes
   useEffect(() => {
     setForm(model ? modelToForm(model) : emptyForm(defaultProvider));
   }, [model, defaultProvider]);
+
+  // Auto-fetch available models when provider changes
+  useEffect(() => {
+    if (!form.provider) {
+      setAvailableModels([]);
+      return;
+    }
+
+    let cancelled = false;
+    setFetchingModels(true);
+    fetchProviderModels(token, form.provider)
+      .then((models) => {
+        if (!cancelled) setAvailableModels(models);
+      })
+      .catch(() => {
+        if (!cancelled) setAvailableModels([]);
+      })
+      .finally(() => {
+        if (!cancelled) setFetchingModels(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [form.provider, token]);
 
   const isEdit = model !== null;
   const canSubmit = form.provider.trim() !== "" && form.modelName.trim() !== "";
@@ -115,12 +142,23 @@ export function ModelFormDialog({ model, providers, saving, onSave, onClose }: M
           </FormField>
 
           <FormField label="Model Name" htmlFor="model-name" required helperText="API model identifier">
-            <Input
-              id="model-name"
-              value={form.modelName}
-              placeholder="e.g. gpt-4o-mini"
-              onChange={(e) => patch({ modelName: e.target.value })}
-            />
+            <div className="relative">
+              <Input
+                id="model-name"
+                list="model-name-suggestions"
+                value={form.modelName}
+                placeholder="e.g. gpt-4o-mini"
+                onChange={(e) => patch({ modelName: e.target.value })}
+              />
+              {fetchingModels && (
+                <Loader2 className="absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[hsl(var(--muted-foreground))]" />
+              )}
+              <datalist id="model-name-suggestions">
+                {availableModels.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            </div>
           </FormField>
         </div>
 

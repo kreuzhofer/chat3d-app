@@ -386,6 +386,7 @@ export function ModelsTab({ token }: ModelsTabProps) {
         <ModelFormDialog
           model={editingModel}
           providers={providers}
+          token={token}
           saving={saving}
           onSave={handleSaveModel}
           onClose={() => setDialogOpen(false)}

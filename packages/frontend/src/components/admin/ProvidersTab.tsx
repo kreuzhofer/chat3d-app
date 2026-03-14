@@ -96,6 +96,7 @@ export function ProvidersTab({ token }: ProvidersTabProps) {
           displayName: data.displayName || undefined,
           apiKey: data.apiKey.trim() !== "" ? data.apiKey : null,
           endpointUrl: data.endpointUrl || null,
+          providerType: data.providerType,
         };
         await createLlmProvider(token, input);
       }
@@ -151,7 +152,12 @@ export function ProvidersTab({ token }: ProvidersTabProps) {
             <tbody>
               {providers.map((provider) => (
                 <tr key={provider.name} className="border-b border-[hsl(var(--border)_/_0.5)] last:border-0">
-                  <td className="py-2 pr-3">{providerBadge(provider.name)}</td>
+                  <td className="py-2 pr-3">
+                    {providerBadge(provider.name)}
+                    {provider.provider_type === "openai-compatible" && (
+                      <span className="ml-1 text-xs text-[hsl(var(--muted-foreground))]">(OAI-compat)</span>
+                    )}
+                  </td>
                   <td className="py-2 pr-3">
                     {provider.display_name ?? <span className="text-[hsl(var(--muted-foreground))]">—</span>}
                   </td>
