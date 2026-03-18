@@ -69,6 +69,18 @@ const COLORS = [
   "hsl(180, 50%, 45%)",
   "hsl(60, 80%, 45%)",
   "hsl(330, 60%, 55%)",
+  "hsl(240, 60%, 65%)",
+  "hsl(120, 50%, 40%)",
+  "hsl(15, 80%, 50%)",
+  "hsl(300, 50%, 50%)",
+  "hsl(195, 70%, 45%)",
+  "hsl(45, 90%, 48%)",
+  "hsl(265, 50%, 45%)",
+  "hsl(345, 70%, 50%)",
+  "hsl(170, 60%, 38%)",
+  "hsl(75, 60%, 42%)",
+  "hsl(220, 50%, 45%)",
+  "hsl(10, 60%, 45%)",
 ];
 
 function presetToDateRange(preset: string): { from: string; to: string } {
@@ -166,9 +178,6 @@ export function CostAnalysisTab({ token }: CostAnalysisTabProps) {
       return timeseries.series.map((p) => ({
         name: formatBucket(p.bucket, granularity),
         cost: p.cost,
-        requests: p.requests,
-        inputTokens: p.inputTokens,
-        outputTokens: p.outputTokens,
       }));
     }
 
@@ -179,7 +188,7 @@ export function CostAnalysisTab({ token }: CostAnalysisTabProps) {
       const key = formatBucket(p.bucket, granularity);
       const group = p.group ?? "unknown";
       groups.add(group);
-      if (!bucketMap.has(key)) bucketMap.set(key, { name: 0 } as unknown as Record<string, number>);
+      if (!bucketMap.has(key)) bucketMap.set(key, {});
       const entry = bucketMap.get(key)!;
       entry[group] = (entry[group] ?? 0) + p.cost;
     }
