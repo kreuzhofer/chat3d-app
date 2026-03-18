@@ -117,7 +117,7 @@ def render_screenshots_endpoint(request: ScreenshotRequest):
             )
 
         angles = request.angles or ["front", "top", "isometric"]
-        valid_angles = {"front", "back", "left", "right", "top", "bottom", "ortho_45", "ortho_45_bottom", "isometric", "isometric_back"}
+        valid_angles = {"front", "back", "left", "right", "top", "bottom", "ortho_45", "ortho_45_bottom", "interior", "isometric", "isometric_back"}
         angles = [a for a in angles if a in valid_angles]
         if not angles:
             return JSONResponse(

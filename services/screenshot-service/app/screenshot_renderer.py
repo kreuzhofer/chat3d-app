@@ -14,11 +14,16 @@ from typing import List, Optional
 
 import numpy as np
 
+# Pyrender 0.1.45 uses np.infty, removed in NumPy 2.0
+if not hasattr(np, "infty"):
+    np.infty = np.inf  # type: ignore[attr-defined]
+
 # Must be set BEFORE importing pyrender / OpenGL
 os.environ["PYOPENGL_PLATFORM"] = "egl"
 
 import trimesh  # noqa: E402
 import pyrender  # noqa: E402
+from pyrender.constants import RenderFlags  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +103,17 @@ def _camera_pose_for_angle(
         y = distance * math.sin(elevation)
         z = distance * math.cos(elevation) * math.cos(azimuth)
         eye = centroid + np.array([x, y, z])
+    elif angle == "interior":
+        # 30° azimuth, 70° elevation — steep downward look into the model.
+        # At 70° the camera sees over 50 mm walls (occlusion depth ~18 mm),
+        # making all interior features visible (standoffs, bosses, ribs).
+        # Azimuth 30° avoids exact alignment with box edges for clarity.
+        azimuth = math.radians(30)
+        elevation = math.radians(70)
+        x = distance * math.cos(elevation) * math.sin(azimuth)
+        y = distance * math.sin(elevation)
+        z = distance * math.cos(elevation) * math.cos(azimuth)
+        eye = centroid + np.array([x, y, z])
     elif angle == "isometric":
         # 45° azimuth, 35° elevation — classic isometric for thumbnails
         azimuth = math.radians(45)
@@ -119,6 +135,59 @@ def _camera_pose_for_angle(
         eye = centroid + np.array([0.0, 0.0, distance])
 
     return _look_at(eye, centroid, up)
+
+
+# ── Angle-aware key lighting ──────────────────────────────────────────
+
+# Views where the camera looks along a principal axis (top→down, bottom→up).
+# These need near-horizontal lighting because vertical features (standoffs,
+# bosses, ribs) share surface normals with the floor and are invisible
+# under co-located or shallow-offset lighting.
+_PLANAR_VIEWS = frozenset(("top", "bottom"))
+
+
+def _make_light_pose(eye: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """Build a look-at pose for a directional light, auto-selecting up."""
+    fwd = target - eye
+    fwd = fwd / np.linalg.norm(fwd)
+    up = np.array([0.0, 1.0, 0.0])
+    if abs(np.dot(fwd, up)) > 0.9:
+        up = np.array([0.0, 0.0, -1.0])
+    return _look_at(eye, target, up)
+
+
+def _build_key_lights(
+    angle: str,
+    cam_pose: np.ndarray,
+    center: np.ndarray,
+    distance: float,
+) -> list[tuple[np.ndarray, float]]:
+    """Return [(pose, intensity), ...] for the key lights for this view.
+
+    Top/bottom views use aggressive cross-lighting (~65° from camera axis)
+    so vertical features are brightly lit while horizontal surfaces are dim.
+    Other views use a moderate offset (~40°) for depth without over-darkening.
+    """
+    eye_cam = cam_pose[:3, 3]
+    right = cam_pose[:3, 0]
+    up_cam = cam_pose[:3, 1]
+
+    if angle in _PLANAR_VIEWS:
+        # Near-horizontal cross-lighting from two sides (~65° from camera
+        # axis).  Combined with SHADOWS_DIRECTIONAL this produces the best
+        # results for interior feature detection: the VLM can confirm all
+        # four standoff positions despite a checkerboard-like shadow pattern
+        # from opposing wall shadows (scored 7/10 vs 4-5 without shadows).
+        primary = eye_cam + right * distance * 2.0 + up_cam * distance * 1.0
+        secondary = eye_cam - right * distance * 1.5 - up_cam * distance * 0.8
+        return [
+            (_make_light_pose(primary, center), 3.5),
+            (_make_light_pose(secondary, center), 2.0),
+        ]
+    else:
+        # Moderate offset: factors (0.8, 0.6) → ~40° from camera axis.
+        offset = right * distance * 0.8 + up_cam * distance * 0.6
+        return [(_make_light_pose(eye_cam + offset, center), 5.0)]
 
 
 # ── Main render function ─────────────────────────────────────────────
@@ -231,16 +300,13 @@ def render_screenshots(
 
     for angle in angles:
         # Build a fresh scene per angle.
-        # Low ambient + smooth shading + camera-relative key light = contrast
-        # from surface normal gradients (no harsh fixed-position shadow artifacts).
         scene = pyrender.Scene(
             bg_color=[255, 255, 255, 255],
-            ambient_light=[0.2, 0.2, 0.2],
+            ambient_light=[0.15, 0.15, 0.15],
         )
         scene.add(pr_mesh)
 
         # Orthographic camera — no perspective distortion, parallel lines stay parallel.
-        # This prevents straight geometry (cylinders, pipes) from appearing tapered.
         camera = pyrender.OrthographicCamera(
             xmag=ortho_xmag, ymag=ortho_ymag,
             znear=znear, zfar=zfar,
@@ -248,25 +314,24 @@ def render_screenshots(
         cam_pose = _camera_pose_for_angle(angle, center, distance)
         scene.add(camera, pose=cam_pose)
 
-        # Key light — co-located with the camera so every visible face gets
-        # illumination proportional to how directly it faces the viewer.
-        # With smooth shading, curved surfaces show clear bright-to-dark
-        # gradients that reveal shape without creating shadow artifacts.
-        key_light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0], intensity=5.0)
-        scene.add(key_light, pose=cam_pose)
+        # Angle-aware key lights: top/bottom get near-horizontal cross-lighting
+        # to reveal vertical features; other views get a moderate offset.
+        for light_pose, intensity in _build_key_lights(angle, cam_pose, center, distance):
+            light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0], intensity=intensity)
+            scene.add(light, pose=light_pose)
 
-        # Fill light — fixed soft top-down to add slight vertical contrast
-        # (top-facing surfaces a bit brighter than bottom-facing).
-        fill_light = pyrender.DirectionalLight(color=[0.9, 0.9, 0.95], intensity=1.0)
-        fill_pose = _look_at(
-            center + np.array([0.0, distance, 0.0]),
-            center,
-            np.array([0.0, 0.0, -1.0]),
-        )
-        scene.add(fill_light, pose=fill_pose)
+        # Camera-co-located fill — ensures no visible face goes completely dark.
+        fill_light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0], intensity=1.5)
+        scene.add(fill_light, pose=cam_pose)
 
-        # Render
-        color, _ = renderer.render(scene)
+        # Render — enable shadow maps only for planar views (top/bottom)
+        # where shadows from vertical features reveal depth.  Other views
+        # rely on shading from the offset key light alone; shadow mapping
+        # on angled/cardinal views added more confusion than clarity.
+        flags = RenderFlags.OFFSCREEN
+        if angle in _PLANAR_VIEWS:
+            flags |= RenderFlags.SHADOWS_DIRECTIONAL
+        color, _ = renderer.render(scene, flags=flags)
 
         # Convert to PNG bytes
         from PIL import Image
