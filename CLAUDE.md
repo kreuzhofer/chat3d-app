@@ -74,6 +74,7 @@ Copy `example.env` to `.env` and configure:
 | `FRONTEND_PORT` | Host port for the frontend (default: `80`) |
 | `LOG_LEVEL` | Logging level: `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` (default: `info`) |
 | `LOG_FORMAT` | Log output format: `json` (structured, default in Docker) or `pretty` (human-readable) |
+| `APP_BASE_URL` | Public base URL for email links (default: `http://localhost`) |
 
 > **LLM Provider Configuration:** API keys, endpoint URLs, model assignments, and purpose mappings (conversation, codegen, VLM evaluation, embeddings, etc.) are all managed via the **Admin UI → Providers tab**. The `llm_providers`, `llm_models`, and `llm_purpose_map` database tables store the full configuration. No LLM-related environment variables are needed.
 
