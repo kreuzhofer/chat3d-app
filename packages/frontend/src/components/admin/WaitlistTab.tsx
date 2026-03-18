@@ -2,6 +2,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import type { AdminWaitlistEntry } from "../../api/admin.api";
@@ -30,6 +31,7 @@ export interface WaitlistTabProps {
   onOpenConfirm: (state: ConfirmState) => void;
   onApproveEntry: (entry: AdminWaitlistEntry) => Promise<void>;
   onRejectEntry: (entry: AdminWaitlistEntry) => Promise<void>;
+  onDeleteEntry: (entry: AdminWaitlistEntry) => Promise<void>;
 }
 
 export function WaitlistTab({
@@ -48,6 +50,7 @@ export function WaitlistTab({
   onOpenConfirm,
   onApproveEntry,
   onRejectEntry,
+  onDeleteEntry,
 }: WaitlistTabProps) {
   return (
     <div className="space-y-4">
@@ -187,7 +190,25 @@ export function WaitlistTab({
               <li key={entry.id} className="rounded-md border border-[hsl(var(--border))] p-2 text-sm">
                 <div className="flex items-center justify-between gap-2">
                   <span>{entry.email}</span>
-                  <Badge tone={toWaitlistTone(entry.status)}>{entry.status}</Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge tone={toWaitlistTone(entry.status)}>{entry.status}</Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={busyWaitlistEntryIds.has(entry.id)}
+                      onClick={() => {
+                        onOpenConfirm({
+                          title: "Delete waitlist entry",
+                          description: `Permanently delete ${entry.email} from the waitlist?`,
+                          confirmLabel: "Delete",
+                          danger: true,
+                          onConfirm: () => onDeleteEntry(entry),
+                        });
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
                 <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
                   {new Date(entry.createdAt).toLocaleString()}

@@ -331,6 +331,22 @@ export async function rejectWaitlistEntry(input: {
   };
 }
 
+export async function deleteWaitlistEntry(waitlistEntryId: string): Promise<{ entryId: string; email: string }> {
+  const existing = await prisma.waitlistEntry.findUnique({
+    where: { id: waitlistEntryId },
+    select: { id: true, email: true },
+  });
+
+  if (!existing) {
+    throw new WaitlistError("Waitlist entry not found", 404);
+  }
+
+  // Delete cascades to email confirmations via FK constraint
+  await prisma.waitlistEntry.delete({ where: { id: waitlistEntryId } });
+
+  return { entryId: existing.id, email: existing.email };
+}
+
 export async function listWaitlistEntries(limit = 100): Promise<
   Array<{
     id: string;

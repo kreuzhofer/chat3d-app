@@ -21,6 +21,7 @@ export function AdminWaitlistPage() {
       onOpenConfirm={admin.openConfirm}
       onApproveEntry={admin.handleApproveEntry}
       onRejectEntry={admin.handleRejectEntry}
+      onDeleteEntry={admin.handleDeleteEntry}
     />
   );
 }

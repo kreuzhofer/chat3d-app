@@ -158,6 +158,15 @@ export async function rejectAdminWaitlistEntry(
   });
 }
 
+export async function deleteAdminWaitlistEntry(
+  token: string,
+  entryId: string,
+): Promise<{ entryId: string; email: string }> {
+  return requestAdminJson(token, `/waitlist/${encodeURIComponent(entryId)}`, {
+    method: "DELETE",
+  });
+}
+
 export function getAdminSettings(token: string): Promise<AdminSettings> {
   return requestAdminJson<AdminSettings>(token, "/settings", { method: "GET" });
 }

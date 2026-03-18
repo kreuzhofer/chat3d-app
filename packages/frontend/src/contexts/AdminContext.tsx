@@ -3,6 +3,7 @@ import {
   activateAdminUser,
   approveAdminWaitlistEntry,
   deactivateAdminUser,
+  deleteAdminWaitlistEntry,
   getAdminSettings,
   listAdminUsers,
   listAdminWaitlist,
@@ -70,6 +71,7 @@ export interface AdminContextValue {
   busyWaitlistEntryIds: Set<string>;
   handleApproveEntry: (entry: AdminWaitlistEntry) => Promise<void>;
   handleRejectEntry: (entry: AdminWaitlistEntry) => Promise<void>;
+  handleDeleteEntry: (entry: AdminWaitlistEntry) => Promise<void>;
 
   // Settings state
   settingsDraft: SettingsDraft;
@@ -410,6 +412,17 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     [pushToast, runWaitlistAction, token],
   );
 
+  const handleDeleteEntry = useCallback(
+    async (entry: AdminWaitlistEntry) => {
+      await runWaitlistAction(entry.id, async () => {
+        if (!token) return;
+        await deleteAdminWaitlistEntry(token, entry.id);
+      });
+      pushToast({ tone: "info", title: "Entry deleted", description: `${entry.email} removed from waitlist.` });
+    },
+    [pushToast, runWaitlistAction, token],
+  );
+
   const handleDirectToggleWaitlist = useCallback(
     async (enabled: boolean) => {
       setIsTogglingWaitlist(true);
@@ -452,6 +465,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       busyWaitlistEntryIds,
       handleApproveEntry,
       handleRejectEntry,
+      handleDeleteEntry,
       settingsDraft,
       setSettingsDraft,
       hasSettingsChanges,
@@ -478,7 +492,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       token, canRender, users, visibleUsers, waitlistEntries, pendingWaitlistEntries,
       settings, dashboardKpis, search, statusFilter, selectedUserId, selectedUser,
       busyUserIds, runUserAction, queueIndex, queueEntry, moderationReason,
-      busyWaitlistEntryIds, handleApproveEntry, handleRejectEntry, settingsDraft,
+      busyWaitlistEntryIds, handleApproveEntry, handleRejectEntry, handleDeleteEntry, settingsDraft,
       hasSettingsChanges, isSavingSettings, saveSettings, handleResetDraft,
       isTogglingWaitlist, handleDirectToggleWaitlist, isLoading, error,
       confirmState, openConfirm, confirmBusy, executeConfirm, closeConfirm,

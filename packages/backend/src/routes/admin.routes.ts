@@ -16,6 +16,7 @@ import {
 } from "../services/admin.service.js";
 import {
   approveWaitlistEntry,
+  deleteWaitlistEntry,
   listWaitlistEntries,
   rejectWaitlistEntry,
   WaitlistError,
@@ -407,6 +408,15 @@ adminRouter.patch("/waitlist/:entryId/approve", handleApproveWaitlist);
 adminRouter.post("/waitlist/:entryId/approve", handleApproveWaitlist);
 adminRouter.patch("/waitlist/:entryId/reject", handleRejectWaitlist);
 adminRouter.post("/waitlist/:entryId/reject", handleRejectWaitlist);
+
+adminRouter.delete("/waitlist/:entryId", async (req, res) => {
+  try {
+    const result = await deleteWaitlistEntry(req.params.entryId);
+    res.status(200).json(result);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to delete waitlist entry");
+  }
+});
 
 // ── LLM Model Configuration ────────────────────────────────────────
 
