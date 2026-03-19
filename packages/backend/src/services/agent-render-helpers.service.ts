@@ -75,9 +75,13 @@ export async function doRender(
           files: [],
         };
       }
+      const isMeshError = err.message.includes("mesh is invalid") || err.message.includes("mesh is not valid");
+      const meshHint = isMeshError
+        ? "\n\nThis means your geometry has self-intersections or degenerate faces. Common fixes:\n- Reduce fillet/chamfer radii\n- Increase wall thickness in offset/shell operations\n- Add clearance between boolean cuts\n- Simplify complex boolean chains\nIf this error persists after 2 attempts, REWRITE the geometry with a simpler construction approach."
+        : "";
       return {
         success: false,
-        text: `Render FAILED.\n\nError: ${err.message}\n\nPlease fix the code and validate again before re-rendering.`,
+        text: `Render FAILED.\n\nError: ${err.message}${meshHint}\n\nPlease fix the code and validate again before re-rendering.`,
         files: [],
       };
     }

@@ -11,6 +11,9 @@ import { AgentFilesystem } from "./agent-filesystem.service.js";
 import { hybridSearchKnowledge } from "./knowledge-search.service.js";
 import type { ProjectFile, RenderedFile } from "./rendering.service.js";
 import { doValidate, doRender, runVlmEval, type AgentEvalResult } from "./agent-render-helpers.service.js";
+import { checkAssertions } from "./code-eval-assertions.service.js";
+import { evaluateCode } from "./code-eval.service.js";
+import type { CodeAssertion } from "./spec-generation.service.js";
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
 import {
   CODEGEN_SECTION_3D_PRIMITIVES,
@@ -85,6 +88,10 @@ export interface AgentToolDeps {
   onEvalComplete?: (result: AgentEvalResult) => void;
   /** Getter for the most recent eval result (set by onEvalComplete) */
   getLastEvalResult?: () => AgentEvalResult | null;
+  /** Code assertions from spec generation (for evaluate_code tool) */
+  codeAssertions?: CodeAssertion[];
+  /** Spec interpretation (for code review context) */
+  specInterpretation?: string;
 }
 
 export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: boolean }): Record<string, any> {
@@ -211,6 +218,27 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
           return "ERROR: No rendered model available. Render the project first before submitting.";
         }
 
+        // Hard gate: run assertion check before expensive VLM eval
+        if (deps.codeAssertions && deps.codeAssertions.length > 0) {
+          const submitFiles = fs.getFiles();
+          const submitCode = submitFiles.map(f => `# --- ${f.path} ---\n${f.content}`).join("\n\n");
+          if (submitCode.trim()) {
+            try {
+              const assertResult = await checkAssertions(submitCode, deps.codeAssertions);
+              if (assertResult.failed > 0) {
+                const failDetails = assertResult.results
+                  .filter(r => r.matched && !r.pass)
+                  .map(r => `  ✗ ${r.detail}`)
+                  .join("\n");
+                logger.info({ failed: assertResult.failed, total: assertResult.checked }, "submission rejected — assertion failures");
+                return `SUBMISSION REJECTED — ${assertResult.failed} assertion(s) failed. Fix these parameter errors before submitting:\n${failDetails}\n\nUse evaluate_code to see full details, then fix the code and try again.`;
+              }
+            } catch (err) {
+              logger.warn({ err: err instanceof Error ? err.message : String(err) }, "assertion check failed during submit (continuing)");
+            }
+          }
+        }
+
         // Run mandatory VLM evaluation
         const evalText = await runVlmEval({
           getLastRenderedFiles: deps.getLastRenderedFiles,
@@ -248,6 +276,73 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
           onEvalComplete: deps.onEvalComplete,
           onProgress,
         });
+      },
+    },
+
+    evaluate_code: {
+      type: "function" as const,
+      description: "Review your code for correctness against the user's prompt. Runs two checks: (1) Assertion check — verifies numeric parameters (dimensions, counts) match the spec (free, instant). (2) Code review — an LLM reviews the code for parameter accuracy, feature completeness, and logical correctness (cheap, ~5s). Call this BEFORE rendering to catch dimensional errors early. You do NOT need a rendered model for this.",
+      inputSchema: zodSchema(z.object({})),
+      execute: async () => {
+        const allFiles = fs.getFiles();
+        if (allFiles.length === 0) {
+          return "ERROR: No files in the project. Create main.py first.";
+        }
+        const allCode = allFiles.map(f => `# --- ${f.path} ---\n${f.content}`).join("\n\n");
+
+        onProgress?.("evaluating", "Reviewing code...");
+        const parts: string[] = [];
+
+        // Phase 1: Assertions (free, deterministic) — check all code
+        if (deps.codeAssertions && deps.codeAssertions.length > 0) {
+          try {
+            const summary = await checkAssertions(allCode, deps.codeAssertions);
+            if (summary.failed > 0) {
+              parts.push(`ASSERTION CHECK: ${summary.failed}/${summary.checked} FAILED`);
+              for (const r of summary.results.filter(r => r.matched && !r.pass)) {
+                parts.push(`  ✗ ${r.detail}`);
+              }
+              for (const r of summary.results.filter(r => r.matched && r.pass)) {
+                parts.push(`  ✓ ${r.detail}`);
+              }
+            } else if (summary.checked > 0) {
+              parts.push(`ASSERTION CHECK: All ${summary.checked} passed ✓`);
+              for (const r of summary.results.filter(r => r.matched)) {
+                parts.push(`  ✓ ${r.detail}`);
+              }
+            } else {
+              parts.push("ASSERTION CHECK: No parameters matched (inconclusive)");
+            }
+            if (summary.unmatched > 0) {
+              parts.push(`  (${summary.unmatched} assertions could not be matched to code variables)`);
+            }
+          } catch (err) {
+            parts.push(`ASSERTION CHECK: Error — ${err instanceof Error ? err.message : String(err)}`);
+          }
+        } else {
+          parts.push("ASSERTION CHECK: No assertions defined for this prompt");
+        }
+
+        // Phase 2: Code review LLM
+        try {
+          const review = await evaluateCode({
+            userPrompt: deps.userPrompt,
+            code: allCode,
+            specInterpretation: deps.specInterpretation,
+          });
+          parts.push(`\nCODE REVIEW: Score ${review.score}/10`);
+          if (review.issues.length > 0) {
+            for (const issue of review.issues) {
+              parts.push(`  • ${issue}`);
+            }
+          } else {
+            parts.push("  No issues found.");
+          }
+        } catch (err) {
+          parts.push(`\nCODE REVIEW: Error — ${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        return parts.join("\n");
       },
     },
 

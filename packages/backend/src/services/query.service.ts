@@ -23,7 +23,9 @@ import {
   isSpecGenerationEnabled,
   getAgentMaxSteps,
   getAutoApproveThreshold,
+  getCodeEvalWeight,
 } from "./generation-settings.service.js";
+import { runFullEvaluation } from "./eval-orchestrator.service.js";
 import { generateSpec, formatDisambiguationResponse } from "./spec-generation.service.js";
 import { updateProjectCode, updateProjectFiles, getProjectCode } from "./code-project.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
@@ -1420,6 +1422,8 @@ async function executeQueryPipelineInner(input: {
           void publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: state as QueryState, detail });
         },
         evalThreshold: agEvalThreshold,
+        codeAssertions: epCodeAssertions,
+        specInterpretation: epSpecInterpretation,
       };
 
       const agResult = useMultiAgent
@@ -1491,6 +1495,57 @@ async function executeQueryPipelineInner(input: {
         }
       }
 
+      // Post-loop code evaluation (runs VLM + code eval + assertions in parallel)
+      // The agent uses VLM-only during its iteration loop; this adds code-level verification
+      let postLoopEval: { compositeScore: number; visualScore: number | null; codeScore: number | null; assertionPassRate: number | null; source: string; vlmModel: string | null; codeReviewModel: string | null } | null = null;
+      // Combine all project files for code eval (not just main.py)
+      const agAllCode = agResult.files.length > 1
+        ? agResult.files.map(f => `# --- ${f.path} ---\n${f.content}`).join("\n\n")
+        : (agFinalCode ?? "");
+      if (agAllCode.trim() && (agScreenshots.length > 0 || epCodeAssertions.length > 0)) {
+        try {
+          const chatCodeEvalWeight = await getCodeEvalWeight("chat");
+          const postVlmImages = agScreenshots
+            .filter(s => s.angle !== "isometric")
+            .map(s => ({ angle: s.angle, base64: s.base64 }));
+          const stlFile = agResult.renderedFiles.find(f => f.filename.toLowerCase().endsWith(".stl"));
+
+          const fullEval = await runFullEvaluation({
+            code: agAllCode,
+            userPrompt: prompt,
+            specInterpretation: epSpecInterpretation,
+            codeAssertions: epCodeAssertions,
+            images: postVlmImages,
+            categoryName: "chat",
+            complexity: 5,
+            verificationChecklist: epVerificationChecklist,
+            stlBase64: stlFile?.contentBase64,
+            modelFormat: "stl",
+            codeEvalWeight: chatCodeEvalWeight,
+          });
+
+          postLoopEval = {
+            compositeScore: fullEval.compositeScore,
+            visualScore: fullEval.visualScore,
+            codeScore: fullEval.codeScore,
+            assertionPassRate: fullEval.assertionPassRate,
+            source: fullEval.source,
+            vlmModel: fullEval.vlmModel,
+            codeReviewModel: fullEval.codeReviewModel,
+          };
+
+          epTotalPromptTokens += fullEval.totalPromptTokens;
+          epTotalCompletionTokens += fullEval.totalCompletionTokens;
+
+          queryLogger.info(
+            { compositeScore: fullEval.compositeScore, visualScore: fullEval.visualScore, codeScore: fullEval.codeScore, source: fullEval.source },
+            "post-loop full evaluation completed",
+          );
+        } catch (err) {
+          queryLogger.warn({ err: err instanceof Error ? err.message : String(err) }, "post-loop evaluation failed (non-fatal)");
+        }
+      }
+
       // Build assistant messages
       const agArtifact = summarizeArtifacts(agFinalFiles);
       const agUsage: QueryUsageSummary = {
@@ -1528,7 +1583,20 @@ async function executeQueryPipelineInner(input: {
           stateMessage: "",
           usage: agUsage,
           artifact: agArtifact,
-          llm: { conversationModel: "pipeline", codegenModel: agentModelConfig.label, vlmModel: agResult.evalResult?.vlmModel ?? null, evalScore: agResult.evalResult?.score ?? null, iterations: agResult.stepCount },
+          llm: {
+            conversationModel: "pipeline",
+            codegenModel: agentModelConfig.label,
+            vlmModel: postLoopEval?.vlmModel ?? agResult.evalResult?.vlmModel ?? null,
+            evalScore: postLoopEval?.compositeScore ?? agResult.evalResult?.score ?? null,
+            iterations: agResult.stepCount,
+            ...(postLoopEval ? {
+              codeReviewModel: postLoopEval.codeReviewModel,
+              visualScore: postLoopEval.visualScore,
+              codeScore: postLoopEval.codeScore,
+              assertionPassRate: postLoopEval.assertionPassRate,
+              evalSource: postLoopEval.source,
+            } : {}),
+          },
           files: agFinalFiles,
         },
       ];

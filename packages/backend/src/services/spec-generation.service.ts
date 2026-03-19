@@ -198,11 +198,19 @@ async function resolveSpecModel(): Promise<{ model: ReturnType<typeof createProv
 
 // ── Complexity derivation ────────────────────────────────────────────
 
+/** Patterns that indicate the model has multiple distinct parts requiring assembly. */
+const MULTI_PART_PATTERN = /\b(two[- ]parts?|multi[- ]parts?|separate\s+parts?|top\s+and\s+bottom|base\s+and\s+(cover|lid|top)|lid\s+and\s+base|snap[- ]fit|hinge[ds]?\s+(lid|cover)|mating\s+parts?|interlocking|dovetail\s+joint|assembly|two[- ]piece|two[- ]halves?|upper\s+and\s+lower|clamshell)\b/i;
+
 export function deriveComplexity(promptText: string, interpretation?: string): SpecComplexity {
+  const combined = interpretation ? `${promptText} ${interpretation}` : promptText;
   const ops = detectPromptOperations(promptText, interpretation);
   // 3d_ops and 2d_sketch are always added by detectPromptOperations,
   // so subtract those to count only detected specific operations
   const specificOps = ops.size - 2; // subtract always-included 3d_ops and 2d_sketch
+
+  // Multi-part models are always complex — they need decomposition + assembly
+  if (MULTI_PART_PATTERN.test(combined)) return "complex";
+
   if (specificOps <= 2) return "simple";
   if (specificOps <= 5) return "medium";
   return "complex";
@@ -217,7 +225,7 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
     const { model, label, config } = await resolveSpecModel();
     modelConfig = config;
 
-    logger.info({ prompt: promptText.slice(0, 80), model: label }, "generating spec");
+    logger.debug({ prompt: promptText, model: label }, "generating spec");
 
     const semaphore = getLlmSemaphore(config.provider, config.maxConcurrent);
     const result = await semaphore.run(async () =>
@@ -246,7 +254,7 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
         checklistCount: parsed.verificationChecklist.length,
         assertionCount: parsed.codeAssertions.length,
         questionCount: parsed.disambiguationQuestions.length,
-        interpretation: parsed.interpretation.slice(0, 100),
+        interpretation: parsed.interpretation,
         complexity,
       },
       "spec generated",
