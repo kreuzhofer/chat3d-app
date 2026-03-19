@@ -314,7 +314,7 @@ export async function approveWaitlistEntry(input: {
     return { approvedEntry, registrationToken };
   });
 
-  const registrationUrl = appUrl(`/register?token=${encodeURIComponent(result.registrationToken)}`);
+  const registrationUrl = appUrl(`/register?token=${encodeURIComponent(result.registrationToken)}&email=${encodeURIComponent(result.approvedEntry.email)}`);
   const rendered = renderEmail("waitlist-approved", "en", { registrationUrl });
   await emailService.sendTransactionalEmail({ to: result.approvedEntry.email, ...rendered });
 

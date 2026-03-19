@@ -34,9 +34,14 @@ export function RegisterPage({ waitlistEnabled }: RegisterPageProps) {
   const passwordStrength = useMemo(() => getPasswordStrength(password, t), [password, t]);
 
   useEffect(() => {
-    const token = new URLSearchParams(location.search).get("token");
+    const params = new URLSearchParams(location.search);
+    const token = params.get("token");
+    const emailParam = params.get("email");
     if (token) {
       setRegistrationToken(token);
+    }
+    if (emailParam) {
+      setEmail(emailParam);
     }
   }, [location.search]);
 

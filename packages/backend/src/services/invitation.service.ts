@@ -188,7 +188,7 @@ export async function createInvitationsForUser(input: {
 
         registrationTokenId = tokenRow.id;
 
-        const registerUrl = appUrl(`/register?token=${encodeURIComponent(registrationToken)}`);
+        const registerUrl = appUrl(`/register?token=${encodeURIComponent(registrationToken)}&email=${encodeURIComponent(inviteeEmail)}`);
         const directRendered = renderEmail("invitation-direct", "en", { registerUrl });
         outgoingEmails.push({ to: inviteeEmail, ...directRendered });
       }
