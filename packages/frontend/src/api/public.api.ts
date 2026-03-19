@@ -4,6 +4,7 @@ export interface PublicConfig {
   setupRequired: boolean;
   waitlistEnabled: boolean;
   emailConfirmationEnabled: boolean;
+  invitationsEnabled: boolean;
 }
 
 const PUBLIC_API_BASE = "/api/public";
@@ -93,5 +94,7 @@ export async function getPublicConfig(): Promise<PublicConfig> {
   return {
     setupRequired: Boolean((body as { setupRequired?: unknown }).setupRequired),
     waitlistEnabled: Boolean((body as { waitlistEnabled?: unknown }).waitlistEnabled),
+    emailConfirmationEnabled: (body as { emailConfirmationEnabled?: unknown }).emailConfirmationEnabled !== false,
+    invitationsEnabled: Boolean((body as { invitationsEnabled?: unknown }).invitationsEnabled),
   };
 }

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
-import { isEmailConfirmationEnabled, isWaitlistEnabled } from "../services/app-settings.service.js";
+import { getInvitationPolicy, isEmailConfirmationEnabled, isWaitlistEnabled } from "../services/app-settings.service.js";
 import { isSetupRequired } from "../services/setup.service.js";
 import { listTopRatedByCategory } from "../services/workbench-examples.service.js";
 import { FileStorageError, readStorageFile } from "../services/file-storage.service.js";
@@ -25,7 +25,8 @@ publicRouter.get("/config", async (_req, res) => {
     const setupRequired = await isSetupRequired();
     const waitlistEnabled = setupRequired ? false : await isWaitlistEnabled();
     const emailConfirmationEnabled = setupRequired ? false : await isEmailConfirmationEnabled();
-    res.status(200).json({ setupRequired, waitlistEnabled, emailConfirmationEnabled });
+    const invitationPolicy = setupRequired ? { invitationsEnabled: false } : await getInvitationPolicy();
+    res.status(200).json({ setupRequired, waitlistEnabled, emailConfirmationEnabled, invitationsEnabled: invitationPolicy.invitationsEnabled });
   } catch (error) {
     res.status(500).json({ error: "Failed to load public configuration", detail: String(error) });
   }

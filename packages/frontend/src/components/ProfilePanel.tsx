@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   confirmProfileAction,
   requestAccountDelete,
-  requestAccountReactivation,
   requestDataExport,
   requestEmailChange,
   requestPasswordReset,
@@ -30,7 +29,6 @@ export function ProfilePanel() {
   const [editDisplayName, setEditDisplayName] = useState(user?.displayName ?? "");
   const [newPassword, setNewPassword] = useState("");
   const [newEmail, setNewEmail] = useState("");
-  const [reactivationEmail, setReactivationEmail] = useState(user?.email ?? "");
   const [manualConfirmToken, setManualConfirmToken] = useState("");
   const [message, setMessage] = useState<{ kind: MessageKind; text: string } | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -63,12 +61,6 @@ export function ProfilePanel() {
         setBusyAction(null);
       });
   }, []);
-
-  useEffect(() => {
-    if (user?.email) {
-      setReactivationEmail(user.email);
-    }
-  }, [user?.email]);
 
   const isAuthenticated = useMemo(() => Boolean(token), [token]);
 
@@ -259,33 +251,6 @@ export function ProfilePanel() {
           )}
         </div>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-          <FormField
-            label="Reactivation email"
-            htmlFor="reactivate-email"
-            helperText="If eligible, a reactivation confirmation link will be sent."
-          >
-            <Input
-              id="reactivate-email"
-              type="email"
-              value={reactivationEmail}
-              onChange={(event) => setReactivationEmail(event.target.value)}
-              placeholder="name@example.com"
-            />
-          </FormField>
-          <Button
-            variant="outline"
-            disabled={busyAction !== null}
-            onClick={() =>
-              runAction("reactivate", async () => {
-                await requestAccountReactivation(reactivationEmail);
-                setMessage({ kind: "success", text: "Reactivation confirmation email sent if the account is eligible." });
-              })
-            }
-          >
-            Request Reactivation
-          </Button>
-        </div>
       </SectionCard>
 
       <InvitationManager />

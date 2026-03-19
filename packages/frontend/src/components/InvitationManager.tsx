@@ -5,6 +5,7 @@ import {
   revokeInvitation,
   type InvitationRecord,
 } from "../api/invitations.api";
+import { getPublicConfig } from "../api/public.api";
 import { useNotifications } from "../contexts/NotificationsContext";
 import { useAuth } from "../hooks/useAuth";
 import { EmptyState } from "./layout/EmptyState";
@@ -51,6 +52,13 @@ export function InvitationManager() {
   const [busyAction, setBusyAction] = useState<"load" | "create" | "revoke" | null>(null);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const lastHandledNotificationIdRef = useRef<number>(0);
+  const [invitationsEnabled, setInvitationsEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    void getPublicConfig()
+      .then((config) => setInvitationsEnabled(config.invitationsEnabled))
+      .catch(() => setInvitationsEnabled(false));
+  }, []);
 
   const loadInvitations = useCallback(async () => {
     if (!token) {
@@ -104,6 +112,10 @@ export function InvitationManager() {
       waitlisted: invitations.filter((invitation) => invitation.status === "waitlisted").length,
     };
   }, [invitations]);
+
+  if (invitationsEnabled === null || !invitationsEnabled) {
+    return null;
+  }
 
   return (
     <SectionCard title="Invitations" description="Invite teammates and track each invitation through acceptance or waitlist states.">
