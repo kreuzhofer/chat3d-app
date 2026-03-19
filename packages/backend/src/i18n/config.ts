@@ -18,7 +18,7 @@ export async function initializeI18n(): Promise<void> {
     supportedLngs: supportedLanguages,
     fallbackLng: "en",
     preload: [...supportedLanguages],
-    ns: ["errors", "validation"],
+    ns: ["errors", "validation", "emails"],
     defaultNS: "errors",
     backend: {
       loadPath: path.join(localesPath, "{{lng}}", "{{ns}}.json"),

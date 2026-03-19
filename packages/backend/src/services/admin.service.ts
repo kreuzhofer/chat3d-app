@@ -2,6 +2,7 @@ import { prisma } from "../db/prisma.js";
 import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
 import { emailService } from "./email.service.js";
+import { renderEmail } from "./email-template.service.js";
 import { notificationService } from "./notification.service.js";
 import { generateOpaqueToken, hashToken } from "../utils/token.js";
 import { recordAdminAuditLog } from "./audit.service.js";
@@ -313,11 +314,8 @@ export async function triggerAdminPasswordReset(input: {
   });
 
   const resetUrl = `${config.app.baseUrl.replace(/\/$/, "")}/profile/password-reset?token=${encodeURIComponent(resetToken)}`;
-  await emailService.sendTransactionalEmail({
-    to: targetUser.email,
-    subject: "Password reset requested by admin",
-    text: `An administrator requested a password reset for your account. Use this link to continue: ${resetUrl}`,
-  });
+  const rendered = renderEmail("admin-password-reset", "en", { resetUrl });
+  await emailService.sendTransactionalEmail({ to: targetUser.email, ...rendered });
 
   await notificationService.publishToUser(input.targetUserId, "notification.created", {
     domain: "account",

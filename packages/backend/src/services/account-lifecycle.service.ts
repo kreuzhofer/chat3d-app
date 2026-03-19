@@ -5,6 +5,7 @@ import { createLogger } from "../utils/logger.js";
 import { generateOpaqueToken, hashToken } from "../utils/token.js";
 import { assertValidPassword, hashPassword, normalizeEmail } from "./auth.service.js";
 import { emailService } from "./email.service.js";
+import { renderEmail } from "./email-template.service.js";
 import { notificationService } from "./notification.service.js";
 
 const logger = createLogger("account-lifecycle");
@@ -176,11 +177,8 @@ export async function requestPasswordReset(input: {
   });
 
   const confirmationUrl = appUrl(`/profile/actions/confirm?token=${encodeURIComponent(action.token)}`);
-  await emailService.sendTransactionalEmail({
-    to: input.email,
-    subject: "Confirm your password reset",
-    text: `Confirm your password reset request: ${confirmationUrl}`,
-  });
+  const rendered = renderEmail("password-reset-confirm", "en", { confirmationUrl });
+  await emailService.sendTransactionalEmail({ to: input.email, ...rendered });
 }
 
 export async function requestEmailChange(input: {
@@ -219,11 +217,8 @@ export async function requestEmailChange(input: {
   });
 
   const confirmationUrl = appUrl(`/profile/actions/confirm?token=${encodeURIComponent(action.token)}`);
-  await emailService.sendTransactionalEmail({
-    to: normalizedNewEmail,
-    subject: "Confirm your email change",
-    text: `Confirm your new email address by opening: ${confirmationUrl}`,
-  });
+  const rendered = renderEmail("email-change-confirm", "en", { confirmationUrl });
+  await emailService.sendTransactionalEmail({ to: normalizedNewEmail, ...rendered });
 }
 
 export async function requestDataExport(input: { userId: string; email: string }) {
@@ -237,11 +232,8 @@ export async function requestDataExport(input: { userId: string; email: string }
   });
 
   const confirmationUrl = appUrl(`/profile/actions/confirm?token=${encodeURIComponent(action.token)}`);
-  await emailService.sendTransactionalEmail({
-    to: input.email,
-    subject: "Confirm your data export",
-    text: `Confirm your data export request: ${confirmationUrl}`,
-  });
+  const rendered = renderEmail("data-export-confirm", "en", { confirmationUrl });
+  await emailService.sendTransactionalEmail({ to: input.email, ...rendered });
 }
 
 export async function requestAccountDelete(input: { userId: string; email: string }) {
@@ -260,11 +252,8 @@ export async function requestAccountDelete(input: { userId: string; email: strin
   });
 
   const confirmationUrl = appUrl(`/profile/actions/confirm?token=${encodeURIComponent(action.token)}`);
-  await emailService.sendTransactionalEmail({
-    to: input.email,
-    subject: "Confirm your account deletion",
-    text: `Confirm account deletion. Your account will be deactivated for 30 days: ${confirmationUrl}`,
-  });
+  const rendered = renderEmail("account-delete-confirm", "en", { confirmationUrl });
+  await emailService.sendTransactionalEmail({ to: input.email, ...rendered });
 }
 
 export async function requestAccountReactivation(input: { email: string }) {
@@ -294,11 +283,8 @@ export async function requestAccountReactivation(input: { email: string }) {
   if (!action) return;
 
   const confirmationUrl = appUrl(`/profile/actions/confirm?token=${encodeURIComponent(action.token)}`);
-  await emailService.sendTransactionalEmail({
-    to: normalizedEmail,
-    subject: "Confirm your account reactivation",
-    text: `Confirm account reactivation: ${confirmationUrl}`,
-  });
+  const rendered = renderEmail("account-reactivate-confirm", "en", { confirmationUrl });
+  await emailService.sendTransactionalEmail({ to: normalizedEmail, ...rendered });
 }
 
 export async function requestForgotPasswordReset(input: { email: string }) {
@@ -339,11 +325,8 @@ export async function requestForgotPasswordReset(input: { email: string }) {
   }
 
   const resetUrl = appUrl(`/forgot-password/reset?token=${encodeURIComponent(action.token)}`);
-  await emailService.sendTransactionalEmail({
-    to: normalizedEmail,
-    subject: "Reset your password",
-    text: `Reset your password by opening: ${resetUrl}\n\nThis link expires in 1 hour. If you did not request this, you can safely ignore this email.`,
-  });
+  const rendered = renderEmail("forgot-password", "en", { resetUrl });
+  await emailService.sendTransactionalEmail({ to: normalizedEmail, ...rendered });
 }
 
 export async function completeForgotPasswordReset(input: { token: string; newPassword: string }) {
@@ -414,11 +397,8 @@ export async function requestEmailConfirmation(input: { userId: string; email: s
   });
 
   const confirmUrl = appUrl(`/confirm-email?token=${encodeURIComponent(action.token)}`);
-  await emailService.sendTransactionalEmail({
-    to: input.email,
-    subject: "Confirm your email address",
-    text: `Confirm your email address by opening: ${confirmUrl}\n\nThis link expires in 24 hours.`,
-  });
+  const rendered = renderEmail("email-confirmation", "en", { confirmUrl });
+  await emailService.sendTransactionalEmail({ to: input.email, ...rendered });
 }
 
 export async function resendEmailConfirmation(input: { email: string }) {
@@ -447,11 +427,8 @@ export async function resendEmailConfirmation(input: { email: string }) {
   }
 
   const confirmUrl = appUrl(`/confirm-email?token=${encodeURIComponent(result.token)}`);
-  await emailService.sendTransactionalEmail({
-    to: normalizedEmail,
-    subject: "Confirm your email address",
-    text: `Confirm your email address by opening: ${confirmUrl}\n\nThis link expires in 24 hours.`,
-  });
+  const rendered = renderEmail("email-confirmation", "en", { confirmUrl });
+  await emailService.sendTransactionalEmail({ to: normalizedEmail, ...rendered });
 }
 
 function parsePayloadString(payload: Record<string, unknown>, key: string): string | null {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Send } from "lucide-react";
+import { ArrowRight, Send } from "lucide-react";
 import {
   confirmWaitlistEmail,
   joinWaitlist,
@@ -47,6 +47,7 @@ export function WaitlistPanel({ compact = false }: WaitlistPanelProps) {
 
     void confirmWaitlistEmail(queryToken)
       .then(() => {
+        setJoined(true);
         setMessage({
           kind: "success",
           text: "Email confirmed! You're on the waitlist. We'll notify you when your account is approved.",
@@ -92,7 +93,13 @@ export function WaitlistPanel({ compact = false }: WaitlistPanelProps) {
         </InlineAlert>
       ) : null}
 
-      {!joined ? (
+      {joined ? (
+        <Link to="/">
+          <Button iconRight={<ArrowRight className="h-3.5 w-3.5" />}>
+            Continue
+          </Button>
+        </Link>
+      ) : (
         <>
           <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
             <FormField label="Email" htmlFor="waitlist-email" required>
@@ -141,7 +148,7 @@ export function WaitlistPanel({ compact = false }: WaitlistPanelProps) {
             ) : null}
           </div>
         </>
-      ) : null}
+      )}
     </div>
   );
 

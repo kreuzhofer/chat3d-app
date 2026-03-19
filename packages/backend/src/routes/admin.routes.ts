@@ -19,6 +19,7 @@ import {
   deleteWaitlistEntry,
   listWaitlistEntries,
   rejectWaitlistEntry,
+  resendWaitlistConfirmation,
   WaitlistError,
 } from "../services/waitlist.service.js";
 import {
@@ -408,6 +409,15 @@ adminRouter.patch("/waitlist/:entryId/approve", handleApproveWaitlist);
 adminRouter.post("/waitlist/:entryId/approve", handleApproveWaitlist);
 adminRouter.patch("/waitlist/:entryId/reject", handleRejectWaitlist);
 adminRouter.post("/waitlist/:entryId/reject", handleRejectWaitlist);
+
+adminRouter.post("/waitlist/:entryId/resend-confirmation", async (req, res) => {
+  try {
+    const result = await resendWaitlistConfirmation(req.params.entryId);
+    res.status(200).json(result);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to resend waitlist confirmation");
+  }
+});
 
 adminRouter.delete("/waitlist/:entryId", async (req, res) => {
   try {

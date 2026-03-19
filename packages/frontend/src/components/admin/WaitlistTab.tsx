@@ -2,6 +2,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  MailIcon,
   Trash2,
   XCircle,
 } from "lucide-react";
@@ -32,6 +33,7 @@ export interface WaitlistTabProps {
   onApproveEntry: (entry: AdminWaitlistEntry) => Promise<void>;
   onRejectEntry: (entry: AdminWaitlistEntry) => Promise<void>;
   onDeleteEntry: (entry: AdminWaitlistEntry) => Promise<void>;
+  onResendConfirmation: (entry: AdminWaitlistEntry) => Promise<void>;
 }
 
 export function WaitlistTab({
@@ -51,6 +53,7 @@ export function WaitlistTab({
   onApproveEntry,
   onRejectEntry,
   onDeleteEntry,
+  onResendConfirmation,
 }: WaitlistTabProps) {
   return (
     <div className="space-y-4">
@@ -192,6 +195,24 @@ export function WaitlistTab({
                   <span>{entry.email}</span>
                   <div className="flex items-center gap-2">
                     <Badge tone={toWaitlistTone(entry.status)}>{entry.status}</Badge>
+                    {entry.status === "pending_email_confirmation" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        title="Resend confirmation email"
+                        disabled={busyWaitlistEntryIds.has(entry.id)}
+                        onClick={() => {
+                          onOpenConfirm({
+                            title: "Resend confirmation email",
+                            description: `Resend waitlist confirmation email to ${entry.email}?`,
+                            confirmLabel: "Resend",
+                            onConfirm: () => onResendConfirmation(entry),
+                          });
+                        }}
+                      >
+                        <MailIcon className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"

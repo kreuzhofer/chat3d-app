@@ -2,6 +2,7 @@ import { config } from "../config.js";
 import { prisma } from "../db/prisma.js";
 import { normalizeEmail } from "./auth.service.js";
 import { emailService, type EmailMessage } from "./email.service.js";
+import { renderEmail } from "./email-template.service.js";
 import { getInvitationPolicy } from "./app-settings.service.js";
 import { generateOpaqueToken, hashToken } from "../utils/token.js";
 import { notificationService } from "./notification.service.js";
@@ -165,11 +166,8 @@ export async function createInvitationsForUser(input: {
           },
         });
 
-        outgoingEmails.push({
-          to: inviteeEmail,
-          subject: "You were invited to Chat3D (waitlist)",
-          text: "You were invited to Chat3D and added to the waitlist. We will email you once approved.",
-        });
+        const waitlistRendered = renderEmail("invitation-waitlisted", "en", {});
+        outgoingEmails.push({ to: inviteeEmail, ...waitlistRendered });
       } else {
         status = "registration_sent";
         registrationToken = generateOpaqueToken();
@@ -191,11 +189,8 @@ export async function createInvitationsForUser(input: {
         registrationTokenId = tokenRow.id;
 
         const registerUrl = appUrl(`/register?token=${encodeURIComponent(registrationToken)}`);
-        outgoingEmails.push({
-          to: inviteeEmail,
-          subject: "You are invited to Chat3D",
-          text: `You were invited to Chat3D. Complete registration here: ${registerUrl}`,
-        });
+        const directRendered = renderEmail("invitation-direct", "en", { registerUrl });
+        outgoingEmails.push({ to: inviteeEmail, ...directRendered });
       }
 
       let invitationRow;

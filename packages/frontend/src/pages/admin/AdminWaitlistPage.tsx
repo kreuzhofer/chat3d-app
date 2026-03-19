@@ -22,6 +22,7 @@ export function AdminWaitlistPage() {
       onApproveEntry={admin.handleApproveEntry}
       onRejectEntry={admin.handleRejectEntry}
       onDeleteEntry={admin.handleDeleteEntry}
+      onResendConfirmation={admin.handleResendConfirmation}
     />
   );
 }

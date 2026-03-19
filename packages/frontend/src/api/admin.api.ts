@@ -158,6 +158,15 @@ export async function rejectAdminWaitlistEntry(
   });
 }
 
+export async function resendWaitlistConfirmation(
+  token: string,
+  entryId: string,
+): Promise<{ entryId: string; email: string }> {
+  return requestAdminJson(token, `/waitlist/${encodeURIComponent(entryId)}/resend-confirmation`, {
+    method: "POST",
+  });
+}
+
 export async function deleteAdminWaitlistEntry(
   token: string,
   entryId: string,

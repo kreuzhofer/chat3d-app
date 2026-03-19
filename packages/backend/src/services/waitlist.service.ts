@@ -4,6 +4,7 @@ import { prisma } from "../db/prisma.js";
 import { generateOpaqueToken, hashToken } from "../utils/token.js";
 import { normalizeEmail } from "./auth.service.js";
 import { emailService } from "./email.service.js";
+import { renderEmail } from "./email-template.service.js";
 
 type WaitlistStatus =
   | "pending_email_confirmation"
@@ -72,16 +73,47 @@ export async function joinWaitlist(input: {
 
   const confirmationUrl = appUrl(`/waitlist/confirm?token=${encodeURIComponent(confirmationToken)}`);
 
-  await emailService.sendTransactionalEmail({
-    to: entry.email,
-    subject: "Confirm your waitlist request",
-    text: `Please confirm your waitlist request by opening: ${confirmationUrl}`,
-  });
+  const rendered = renderEmail("waitlist-confirmation", "en", { confirmationUrl });
+  await emailService.sendTransactionalEmail({ to: entry.email, ...rendered });
 
   return {
     entryId: entry.id,
     status: entry.status as WaitlistStatus,
   };
+}
+
+export async function resendWaitlistConfirmation(
+  waitlistEntryId: string,
+): Promise<{ entryId: string; email: string }> {
+  const entry = await prisma.waitlistEntry.findUnique({
+    where: { id: waitlistEntryId },
+    select: { id: true, email: true, status: true },
+  });
+
+  if (!entry) {
+    throw new WaitlistError("Waitlist entry not found", 404);
+  }
+
+  if (entry.status !== "pending_email_confirmation") {
+    throw new WaitlistError("Entry is not pending email confirmation", 409);
+  }
+
+  const confirmationToken = generateOpaqueToken();
+  const tokenHash = hashToken(confirmationToken);
+
+  await prisma.waitlistEmailConfirmation.create({
+    data: {
+      waitlistEntryId: entry.id,
+      tokenHash,
+      expiresAt: new Date(Date.now() + config.waitlist.confirmationTokenTtlHours * 3600 * 1000),
+    },
+  });
+
+  const confirmationUrl = appUrl(`/waitlist/confirm?token=${encodeURIComponent(confirmationToken)}`);
+  const email = renderEmail("waitlist-confirmation", "en", { confirmationUrl });
+  await emailService.sendTransactionalEmail({ to: entry.email, ...email });
+
+  return { entryId: entry.id, email: entry.email };
 }
 
 export async function confirmWaitlistEmail(rawToken: string): Promise<{
@@ -283,11 +315,8 @@ export async function approveWaitlistEntry(input: {
   });
 
   const registrationUrl = appUrl(`/register?token=${encodeURIComponent(result.registrationToken)}`);
-  await emailService.sendTransactionalEmail({
-    to: result.approvedEntry.email,
-    subject: "Registration link for Chat3D",
-    text: `Your waitlist entry was approved. Register here: ${registrationUrl}`,
-  });
+  const rendered = renderEmail("waitlist-approved", "en", { registrationUrl });
+  await emailService.sendTransactionalEmail({ to: result.approvedEntry.email, ...rendered });
 
   return {
     entryId: result.approvedEntry.id,

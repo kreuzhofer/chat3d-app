@@ -5,11 +5,13 @@ import { prisma } from "./db/prisma.js";
 import { resumeStalePipelines } from "./services/query.service.js";
 import { initializeI18n } from "./i18n/config.js";
 import { emailService } from "./services/email.service.js";
+import { initializeEmailTemplates } from "./services/email-template.service.js";
 import { startJobQueue, stopJobQueue } from "./services/job-queue.service.js";
 const logger = createLogger("backend");
 
 await initializeI18n();
-logger.info("i18n initialized");
+initializeEmailTemplates();
+logger.info("i18n and email templates initialized");
 
 const emailStatus = await emailService.verifyConnection();
 if (!emailStatus.configured) {

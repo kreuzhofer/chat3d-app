@@ -1,0 +1,90 @@
+{
+  "footer": {
+    "text": "Diese E-Mail wurde von Chat3D gesendet. Falls du diese E-Mail nicht erwartet hast, kannst du sie ignorieren."
+  },
+  "waitlistConfirmation": {
+    "subject": "Bestätige deine Wartelisten-Anmeldung",
+    "textBody": "Bitte bestätige deine Wartelisten-Anmeldung unter: {{confirmationUrl}}",
+    "heading": "Wartelisten-Anmeldung bestätigen",
+    "body": "Bitte bestätige deine E-Mail-Adresse, um deine Wartelisten-Registrierung bei Chat3D abzuschließen.",
+    "buttonText": "Anmeldung bestätigen"
+  },
+  "waitlistApproved": {
+    "subject": "Registrierungslink für Chat3D",
+    "textBody": "Deine Wartelisten-Anmeldung wurde genehmigt. Registriere dich hier: {{registrationUrl}}",
+    "heading": "Du bist genehmigt!",
+    "body": "Deine Wartelisten-Anmeldung wurde genehmigt. Klicke auf den Button, um deine Registrierung abzuschließen.",
+    "buttonText": "Registrierung abschließen"
+  },
+  "emailConfirmation": {
+    "subject": "Bestätige deine E-Mail-Adresse",
+    "textBody": "Bestätige deine E-Mail-Adresse unter: {{confirmUrl}}\n\nDieser Link ist 24 Stunden gültig.",
+    "heading": "E-Mail bestätigen",
+    "body": "Bitte bestätige deine E-Mail-Adresse, um dein Chat3D-Konto zu aktivieren.",
+    "buttonText": "E-Mail bestätigen",
+    "expiry": "Dieser Link ist 24 Stunden gültig."
+  },
+  "forgotPassword": {
+    "subject": "Passwort zurücksetzen",
+    "textBody": "Setze dein Passwort zurück unter: {{resetUrl}}\n\nDieser Link ist 1 Stunde gültig. Falls du dies nicht angefordert hast, kannst du diese E-Mail ignorieren.",
+    "heading": "Passwort zurücksetzen",
+    "body": "Du hast eine Passwort-Zurücksetzung für dein Chat3D-Konto angefordert. Klicke unten, um ein neues Passwort festzulegen.",
+    "buttonText": "Passwort zurücksetzen",
+    "expiry": "Dieser Link ist 1 Stunde gültig. Falls du dies nicht angefordert hast, kannst du diese E-Mail ignorieren."
+  },
+  "passwordResetConfirm": {
+    "subject": "Bestätige deine Passwortänderung",
+    "textBody": "Bestätige deine Passwortänderung: {{confirmationUrl}}",
+    "heading": "Passwortänderung bestätigen",
+    "body": "Du hast eine Passwortänderung für dein Chat3D-Konto angefordert. Klicke unten, um sie zu bestätigen.",
+    "buttonText": "Passwortänderung bestätigen"
+  },
+  "emailChangeConfirm": {
+    "subject": "Bestätige deine E-Mail-Änderung",
+    "textBody": "Bestätige deine neue E-Mail-Adresse unter: {{confirmationUrl}}",
+    "heading": "E-Mail-Änderung bestätigen",
+    "body": "Du hast eine Änderung deiner E-Mail-Adresse für dein Chat3D-Konto angefordert. Klicke unten, um deine neue E-Mail zu bestätigen.",
+    "buttonText": "E-Mail-Änderung bestätigen"
+  },
+  "dataExportConfirm": {
+    "subject": "Bestätige deinen Datenexport",
+    "textBody": "Bestätige deinen Datenexport: {{confirmationUrl}}",
+    "heading": "Datenexport bestätigen",
+    "body": "Du hast einen Datenexport aus deinem Chat3D-Konto angefordert. Klicke unten, um ihn zu bestätigen.",
+    "buttonText": "Datenexport bestätigen"
+  },
+  "accountDeleteConfirm": {
+    "subject": "Bestätige deine Kontolöschung",
+    "textBody": "Bestätige die Kontolöschung. Dein Konto wird für 30 Tage deaktiviert: {{confirmationUrl}}",
+    "heading": "Kontolöschung bestätigen",
+    "body": "Du hast die Löschung deines Chat3D-Kontos angefordert. Dein Konto wird für 30 Tage deaktiviert, bevor es endgültig gelöscht wird. Klicke unten, um zu bestätigen.",
+    "buttonText": "Löschung bestätigen"
+  },
+  "accountReactivateConfirm": {
+    "subject": "Bestätige deine Kontoaktivierung",
+    "textBody": "Bestätige die Kontoaktivierung: {{confirmationUrl}}",
+    "heading": "Kontoaktivierung bestätigen",
+    "body": "Du hast die Reaktivierung deines Chat3D-Kontos angefordert. Klicke unten, um zu bestätigen.",
+    "buttonText": "Konto reaktivieren"
+  },
+  "invitationDirect": {
+    "subject": "Du bist zu Chat3D eingeladen",
+    "textBody": "Du wurdest zu Chat3D eingeladen. Schließe die Registrierung hier ab: {{registerUrl}}",
+    "heading": "Du bist eingeladen!",
+    "body": "Du wurdest zu Chat3D eingeladen, einer KI-gestützten 3D-CAD-Modellierungsanwendung. Klicke unten, um dein Konto zu erstellen.",
+    "buttonText": "Konto erstellen"
+  },
+  "invitationWaitlisted": {
+    "subject": "Du wurdest zu Chat3D eingeladen (Warteliste)",
+    "textBody": "Du wurdest zu Chat3D eingeladen und auf die Warteliste gesetzt. Wir senden dir eine E-Mail, sobald du genehmigt wirst.",
+    "heading": "Du bist auf der Warteliste",
+    "body": "Du wurdest zu Chat3D eingeladen und auf unsere Warteliste gesetzt. Wir senden dir einen Registrierungslink, sobald dein Platz genehmigt wird."
+  },
+  "adminPasswordReset": {
+    "subject": "Passwort-Zurücksetzung durch Administrator angefordert",
+    "textBody": "Ein Administrator hat eine Passwort-Zurücksetzung für dein Konto angefordert. Nutze diesen Link, um fortzufahren: {{resetUrl}}",
+    "heading": "Admin-Passwort-Zurücksetzung",
+    "body": "Ein Administrator hat eine Passwort-Zurücksetzung für dein Chat3D-Konto angefordert. Klicke unten, um ein neues Passwort festzulegen.",
+    "buttonText": "Passwort zurücksetzen"
+  }
+}

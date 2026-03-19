@@ -8,6 +8,7 @@ export interface EmailMessage {
   to: string;
   subject: string;
   text: string;
+  html?: string;
 }
 
 interface SmtpSendInput {
@@ -15,6 +16,7 @@ interface SmtpSendInput {
   to: string;
   subject: string;
   text: string;
+  html?: string;
 }
 
 interface SmtpTransportLike {
@@ -91,6 +93,7 @@ export class EmailService {
           to: message.to,
           subject: message.subject,
           text: message.text,
+          html: message.html,
         });
         logger.info({ to: message.to, subject: message.subject, transport: "smtp" }, "email sent");
         return;

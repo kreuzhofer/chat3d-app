@@ -1,0 +1,90 @@
+{
+  "footer": {
+    "text": "This email was sent by Chat3D. If you did not expect this email, you can safely ignore it."
+  },
+  "waitlistConfirmation": {
+    "subject": "Confirm your waitlist request",
+    "textBody": "Please confirm your waitlist request by opening: {{confirmationUrl}}",
+    "heading": "Confirm Your Waitlist Request",
+    "body": "Please confirm your email address to complete your waitlist registration for Chat3D.",
+    "buttonText": "Confirm Waitlist Request"
+  },
+  "waitlistApproved": {
+    "subject": "Registration link for Chat3D",
+    "textBody": "Your waitlist entry was approved. Register here: {{registrationUrl}}",
+    "heading": "You're Approved!",
+    "body": "Your waitlist entry has been approved. Click the button below to complete your registration.",
+    "buttonText": "Complete Registration"
+  },
+  "emailConfirmation": {
+    "subject": "Confirm your email address",
+    "textBody": "Confirm your email address by opening: {{confirmUrl}}\n\nThis link expires in 24 hours.",
+    "heading": "Confirm Your Email",
+    "body": "Please confirm your email address to activate your Chat3D account.",
+    "buttonText": "Confirm Email",
+    "expiry": "This link expires in 24 hours."
+  },
+  "forgotPassword": {
+    "subject": "Reset your password",
+    "textBody": "Reset your password by opening: {{resetUrl}}\n\nThis link expires in 1 hour. If you did not request this, you can safely ignore this email.",
+    "heading": "Reset Your Password",
+    "body": "You requested a password reset for your Chat3D account. Click below to set a new password.",
+    "buttonText": "Reset Password",
+    "expiry": "This link expires in 1 hour. If you did not request this, you can safely ignore this email."
+  },
+  "passwordResetConfirm": {
+    "subject": "Confirm your password reset",
+    "textBody": "Confirm your password reset request: {{confirmationUrl}}",
+    "heading": "Confirm Password Reset",
+    "body": "You requested a password change for your Chat3D account. Click below to confirm.",
+    "buttonText": "Confirm Password Reset"
+  },
+  "emailChangeConfirm": {
+    "subject": "Confirm your email change",
+    "textBody": "Confirm your new email address by opening: {{confirmationUrl}}",
+    "heading": "Confirm Email Change",
+    "body": "You requested to change your email address for your Chat3D account. Click below to confirm your new email.",
+    "buttonText": "Confirm Email Change"
+  },
+  "dataExportConfirm": {
+    "subject": "Confirm your data export",
+    "textBody": "Confirm your data export request: {{confirmationUrl}}",
+    "heading": "Confirm Data Export",
+    "body": "You requested a data export from your Chat3D account. Click below to confirm.",
+    "buttonText": "Confirm Data Export"
+  },
+  "accountDeleteConfirm": {
+    "subject": "Confirm your account deletion",
+    "textBody": "Confirm account deletion. Your account will be deactivated for 30 days: {{confirmationUrl}}",
+    "heading": "Confirm Account Deletion",
+    "body": "You requested to delete your Chat3D account. Your account will be deactivated for 30 days before permanent deletion. Click below to confirm.",
+    "buttonText": "Confirm Deletion"
+  },
+  "accountReactivateConfirm": {
+    "subject": "Confirm your account reactivation",
+    "textBody": "Confirm account reactivation: {{confirmationUrl}}",
+    "heading": "Confirm Account Reactivation",
+    "body": "You requested to reactivate your Chat3D account. Click below to confirm.",
+    "buttonText": "Reactivate Account"
+  },
+  "invitationDirect": {
+    "subject": "You are invited to Chat3D",
+    "textBody": "You were invited to Chat3D. Complete registration here: {{registerUrl}}",
+    "heading": "You're Invited!",
+    "body": "You've been invited to join Chat3D, an AI-powered 3D CAD modeling application. Click below to create your account.",
+    "buttonText": "Create Account"
+  },
+  "invitationWaitlisted": {
+    "subject": "You were invited to Chat3D (waitlist)",
+    "textBody": "You were invited to Chat3D and added to the waitlist. We will email you once approved.",
+    "heading": "You're on the Waitlist",
+    "body": "You've been invited to Chat3D and added to our waitlist. We'll send you a registration link once your spot is approved."
+  },
+  "adminPasswordReset": {
+    "subject": "Password reset requested by admin",
+    "textBody": "An administrator requested a password reset for your account. Use this link to continue: {{resetUrl}}",
+    "heading": "Admin Password Reset",
+    "body": "An administrator has requested a password reset for your Chat3D account. Click below to set a new password.",
+    "buttonText": "Reset Password"
+  }
+}
