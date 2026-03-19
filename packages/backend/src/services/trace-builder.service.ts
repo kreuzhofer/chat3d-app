@@ -226,7 +226,7 @@ export class TraceBuilder {
         sum.reasoningTokens += child.usage.reasoningTokens ?? 0;
         sum.costUsd += child.usage.costUsd;
       }
-      if (sum.costUsd > 0) {
+      if (sum.inputTokens > 0 || sum.costUsd > 0) {
         node.usage = sum;
       }
     }

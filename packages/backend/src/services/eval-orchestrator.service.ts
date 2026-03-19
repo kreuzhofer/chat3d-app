@@ -17,6 +17,7 @@ import type { CodeAssertion } from "./spec-generation.service.js";
 import type { ModelFormat } from "./stl-rendering-client.service.js";
 import { createLogger } from "../utils/logger.js";
 import { getTraceBuilder } from "./trace-builder.service.js";
+import { getModelForPurposeWithFallback, calculateCostUsd } from "./llm-config.service.js";
 
 const logger = createLogger("eval-orchestrator");
 
@@ -186,10 +187,17 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
     codePromptTokens = codeResult.promptTokens;
     codeCompletionTokens = codeResult.completionTokens;
 
-    tb?.addUsage({
-      inputTokens: codePromptTokens, outputTokens: codeCompletionTokens,
-      costUsd: 0, // cost tracked by usage-tracking
-    });
+    {
+      let codeReviewCost = 0;
+      try {
+        const cfg = await getModelForPurposeWithFallback("code_evaluation", "conversation");
+        codeReviewCost = calculateCostUsd(cfg, codePromptTokens, codeCompletionTokens);
+      } catch { /* cost stays 0 */ }
+      tb?.addUsage({
+        inputTokens: codePromptTokens, outputTokens: codeCompletionTokens,
+        costUsd: codeReviewCost,
+      });
+    }
     if (codeReviewModel) tb?.setModel(codeReviewModel);
     tb?.endPhase("completed");
 
@@ -259,10 +267,17 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
       vlmCompletionTokens = vlmResult.completionTokens;
       checklistResults = vlmResult.checklistResults;
 
-      tb?.addUsage({
-        inputTokens: vlmPromptTokens, outputTokens: vlmCompletionTokens,
-        costUsd: 0,
-      });
+      {
+        let vlmCost = 0;
+        try {
+          const cfg = await getModelForPurposeWithFallback("vlm_evaluation", "conversation");
+          vlmCost = calculateCostUsd(cfg, vlmPromptTokens, vlmCompletionTokens);
+        } catch { /* cost stays 0 */ }
+        tb?.addUsage({
+          inputTokens: vlmPromptTokens, outputTokens: vlmCompletionTokens,
+          costUsd: vlmCost,
+        });
+      }
       if (vlmModel) tb?.setModel(vlmModel);
       tb?.endPhase("completed");
 
