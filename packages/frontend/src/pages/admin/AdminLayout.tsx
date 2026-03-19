@@ -4,9 +4,10 @@ import {
   Lock,
   RotateCcw,
   ShieldOff,
+  Trash2,
   UserCheck,
 } from "lucide-react";
-import { AdminProvider, useAdmin, activateAdminUser, deactivateAdminUser, triggerAdminPasswordReset, setAdminUserPassword } from "../../contexts/AdminContext";
+import { AdminProvider, useAdmin, activateAdminUser, deactivateAdminUser, deleteAdminUserPermanently, triggerAdminPasswordReset, setAdminUserPassword } from "../../contexts/AdminContext";
 import { resetAdminUserOnboarding } from "../../api/admin.api";
 import { useAuth } from "../../hooks/useAuth";
 import { InlineAlert } from "../../components/layout/InlineAlert";
@@ -97,42 +98,74 @@ function AdminLayoutInner() {
                 Activate
               </Button>
 
-              <Button
-                variant="destructive"
-                iconLeft={<ShieldOff className="h-3.5 w-3.5" />}
-                disabled={admin.busyUserIds.has(admin.selectedUser.id) || admin.selectedUser.status === "deactivated" || admin.selectedUser.id === user?.id}
-                onClick={() => {
-                  if (!admin.token || !admin.selectedUser) return;
-                  const su = admin.selectedUser;
-                  admin.openConfirm({
-                    title: "Deactivate user",
-                    description: `Deactivate ${su.email} for 30 days?`,
-                    confirmLabel: "Deactivate",
-                    danger: true,
-                    onConfirm: async () => {
-                      await admin.runUserAction(su.id, async () => {
-                        if (!admin.token) return;
-                        await deactivateAdminUser(admin.token, su.id);
-                      });
-                      pushToast({
-                        tone: "warning",
-                        title: "User deactivated",
-                        description: `${su.email} is now deactivated.`,
-                        actionLabel: "Undo",
-                        onAction: async () => {
+              {admin.selectedUser.status === "deactivated" ? (
+                <Button
+                  variant="destructive"
+                  iconLeft={<Trash2 className="h-3.5 w-3.5" />}
+                  disabled={admin.busyUserIds.has(admin.selectedUser.id)}
+                  onClick={() => {
+                    if (!admin.token || !admin.selectedUser) return;
+                    const su = admin.selectedUser;
+                    admin.openConfirm({
+                      title: "Delete user permanently",
+                      description: `Permanently delete ${su.email}? This cannot be undone. All data including chats, files, and history will be removed.`,
+                      confirmLabel: "Delete permanently",
+                      danger: true,
+                      onConfirm: async () => {
+                        await admin.runUserAction(su.id, async () => {
                           if (!admin.token) return;
-                          await admin.runUserAction(su.id, async () => {
+                          await deleteAdminUserPermanently(admin.token, su.id);
+                        });
+                        admin.setSelectedUserId(null);
+                        pushToast({
+                          tone: "warning",
+                          title: "User deleted",
+                          description: `${su.email} has been permanently deleted.`,
+                        });
+                      },
+                    });
+                  }}
+                >
+                  Delete permanently
+                </Button>
+              ) : (
+                <Button
+                  variant="destructive"
+                  iconLeft={<ShieldOff className="h-3.5 w-3.5" />}
+                  disabled={admin.busyUserIds.has(admin.selectedUser.id) || admin.selectedUser.id === user?.id}
+                  onClick={() => {
+                    if (!admin.token || !admin.selectedUser) return;
+                    const su = admin.selectedUser;
+                    admin.openConfirm({
+                      title: "Deactivate user",
+                      description: `Deactivate ${su.email} for 30 days?`,
+                      confirmLabel: "Deactivate",
+                      danger: true,
+                      onConfirm: async () => {
+                        await admin.runUserAction(su.id, async () => {
+                          if (!admin.token) return;
+                          await deactivateAdminUser(admin.token, su.id);
+                        });
+                        pushToast({
+                          tone: "warning",
+                          title: "User deactivated",
+                          description: `${su.email} is now deactivated.`,
+                          actionLabel: "Undo",
+                          onAction: async () => {
                             if (!admin.token) return;
-                            await activateAdminUser(admin.token, su.id);
-                          });
-                        },
-                      });
-                    },
-                  });
-                }}
-              >
-                Deactivate
-              </Button>
+                            await admin.runUserAction(su.id, async () => {
+                              if (!admin.token) return;
+                              await activateAdminUser(admin.token, su.id);
+                            });
+                          },
+                        });
+                      },
+                    });
+                  }}
+                >
+                  Deactivate
+                </Button>
+              )}
 
               <Button
                 variant="secondary"

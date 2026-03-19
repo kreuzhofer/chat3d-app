@@ -124,6 +124,15 @@ export async function setAdminUserPassword(
   });
 }
 
+export async function deleteAdminUserPermanently(
+  token: string,
+  userId: string,
+): Promise<{ userId: string; email: string }> {
+  return requestAdminJson(token, `/users/${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+  });
+}
+
 export async function resetAdminUserOnboarding(
   token: string,
   userId: string,

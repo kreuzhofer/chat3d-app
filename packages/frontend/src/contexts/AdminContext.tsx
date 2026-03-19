@@ -520,4 +520,4 @@ export function AdminProvider({ children }: { children: ReactNode }) {
 // Re-export types needed by page components
 export type { AdminUser, AdminWaitlistEntry, AdminSettings } from "../api/admin.api";
 export type { ConfirmState } from "../components/admin/utils";
-export { activateAdminUser, deactivateAdminUser, triggerAdminPasswordReset, setAdminUserPassword } from "../api/admin.api";
+export { activateAdminUser, deactivateAdminUser, deleteAdminUserPermanently, triggerAdminPasswordReset, setAdminUserPassword } from "../api/admin.api";
