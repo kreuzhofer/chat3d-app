@@ -29,7 +29,6 @@ export function ProfilePanel() {
   const [editDisplayName, setEditDisplayName] = useState(user?.displayName ?? "");
   const [newPassword, setNewPassword] = useState("");
   const [newEmail, setNewEmail] = useState("");
-  const [manualConfirmToken, setManualConfirmToken] = useState("");
   const [message, setMessage] = useState<{ kind: MessageKind; text: string } | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const confirmedFromQueryRef = useRef(false);
@@ -97,115 +96,86 @@ export function ProfilePanel() {
       ) : null}
 
       <SectionCard title="Display Name" description="Update your public display name.">
-        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-          <FormField label="Display name" htmlFor="edit-display-name" helperText="Visible to other users in shared contexts.">
+        <FormField label="Display name" htmlFor="edit-display-name" helperText="Visible to other users in shared contexts.">
+          <div className="flex gap-3">
             <Input
               id="edit-display-name"
               value={editDisplayName}
               onChange={(event) => setEditDisplayName(event.target.value)}
               placeholder="Your display name"
+              className="flex-1"
             />
-          </FormField>
-          <Button
-            disabled={!isAuthenticated || busyAction !== null || editDisplayName.trim() === ""}
-            onClick={() =>
-              runAction("display-name", async () => {
-                if (!token) return;
-                await updateDisplayName(token, editDisplayName.trim());
-                setMessage({ kind: "success", text: "Display name updated." });
-                await refreshProfile();
-              })
-            }
-          >
-            Save
-          </Button>
-        </div>
+            <Button
+              disabled={!isAuthenticated || busyAction !== null || editDisplayName.trim() === ""}
+              onClick={() =>
+                runAction("display-name", async () => {
+                  if (!token) return;
+                  await updateDisplayName(token, editDisplayName.trim());
+                  setMessage({ kind: "success", text: "Display name updated." });
+                  await refreshProfile();
+                })
+              }
+            >
+              Save
+            </Button>
+          </div>
+        </FormField>
       </SectionCard>
 
       <SectionCard title="Security" description="Password and credential controls.">
-        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-          <FormField label="New password" htmlFor="new-password" helperText="A confirmation email is required to apply changes.">
+        <FormField label="New password" htmlFor="new-password" helperText="A confirmation email is required to apply changes.">
+          <div className="flex gap-3">
             <Input
               id="new-password"
               type="password"
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
               placeholder="Enter a new password"
+              className="flex-1"
             />
-          </FormField>
-          <Button
-            disabled={!isAuthenticated || busyAction !== null}
-            onClick={() =>
-              runAction("password-reset", async () => {
-                if (!token) {
-                  return;
-                }
-                await requestPasswordReset(token, newPassword);
-                setMessage({ kind: "success", text: "Password reset confirmation email sent." });
-                setNewPassword("");
-              })
-            }
-          >
-            Request Password Reset
-          </Button>
-        </div>
+            <Button
+              disabled={!isAuthenticated || busyAction !== null}
+              onClick={() =>
+                runAction("password-reset", async () => {
+                  if (!token) return;
+                  await requestPasswordReset(token, newPassword);
+                  setMessage({ kind: "success", text: "Password reset confirmation email sent." });
+                  setNewPassword("");
+                })
+              }
+            >
+              Request Password Reset
+            </Button>
+          </div>
+        </FormField>
       </SectionCard>
 
       <SectionCard title="Identity" description="Email ownership and confirmation flows.">
-        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-          <FormField label="New email" htmlFor="new-email" helperText="A confirmation email will be sent to the new address.">
+        <FormField label="New email" htmlFor="new-email" helperText="A confirmation email will be sent to the new address.">
+          <div className="flex gap-3">
             <Input
               id="new-email"
               type="email"
               value={newEmail}
               onChange={(event) => setNewEmail(event.target.value)}
               placeholder="name@example.com"
+              className="flex-1"
             />
-          </FormField>
-          <Button
-            disabled={!isAuthenticated || busyAction !== null}
-            onClick={() =>
-              runAction("email-change", async () => {
-                if (!token) {
-                  return;
-                }
-                await requestEmailChange(token, newEmail);
-                setMessage({ kind: "success", text: "Email change confirmation sent to the new address." });
-                setNewEmail("");
-              })
-            }
-          >
-            Request Email Change
-          </Button>
-        </div>
-
-        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-          <FormField
-            label="Manual confirmation token"
-            htmlFor="confirm-token"
-            helperText="Use only when opening email links is not possible."
-          >
-            <Input
-              id="confirm-token"
-              value={manualConfirmToken}
-              onChange={(event) => setManualConfirmToken(event.target.value)}
-              placeholder="Paste token from email link"
-            />
-          </FormField>
-          <Button
-            variant="secondary"
-            disabled={busyAction !== null || manualConfirmToken.trim() === ""}
-            onClick={() =>
-              runAction("confirm", async () => {
-                const result = await confirmProfileAction(manualConfirmToken.trim());
-                setMessage({ kind: "success", text: `Confirmed action: ${result.actionType ?? "unknown"}.` });
-                setManualConfirmToken("");
-              })
-            }
-          >
-            Confirm Token
-          </Button>
-        </div>
+            <Button
+              disabled={!isAuthenticated || busyAction !== null}
+              onClick={() =>
+                runAction("email-change", async () => {
+                  if (!token) return;
+                  await requestEmailChange(token, newEmail);
+                  setMessage({ kind: "success", text: "Email change confirmation sent to the new address." });
+                  setNewEmail("");
+                })
+              }
+            >
+              Request Email Change
+            </Button>
+          </div>
+        </FormField>
       </SectionCard>
 
       <SectionCard title="Data" description="Export your account and activity data.">
