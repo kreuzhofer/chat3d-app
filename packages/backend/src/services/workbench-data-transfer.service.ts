@@ -49,6 +49,20 @@ export interface TransferCounts {
   categories: number;
   prompts: number;
   examples: number;
+  traces?: number;
+}
+
+interface ExportTrace {
+  id: string;
+  workbench_example_id: string;
+  total_duration_ms: number | null;
+  total_cost_usd: number | null;
+  total_steps: number | null;
+  total_llm_calls: number | null;
+  final_status: string;
+  pipeline_type: string;
+  trace: unknown;
+  created_at: string;
 }
 
 export interface WorkbenchExportData {
@@ -57,6 +71,7 @@ export interface WorkbenchExportData {
   categories: ExportCategory[];
   prompts: ExportPrompt[];
   examples: ExportExample[];
+  traces?: ExportTrace[];
 }
 
 interface ExportCategory {
@@ -452,6 +467,24 @@ async function runExport(job: TransferJob): Promise<void> {
       examples.push(ex);
     }
 
+    // 3b. Query generation traces (linked to examples)
+    job.progress = { phase: "querying traces" };
+    const traceRows = await prisma.generationTrace.findMany({
+      where: { workbenchExampleId: { not: null } },
+    });
+    const traces: ExportTrace[] = traceRows.map((r) => ({
+      id: r.id,
+      workbench_example_id: r.workbenchExampleId!,
+      total_duration_ms: r.totalDurationMs,
+      total_cost_usd: r.totalCostUsd ? Number(r.totalCostUsd) : null,
+      total_steps: r.totalSteps,
+      total_llm_calls: r.totalLlmCalls,
+      final_status: r.finalStatus,
+      pipeline_type: r.pipelineType,
+      trace: r.trace,
+      created_at: r.createdAt.toISOString(),
+    }));
+
     // 4. Build manifest and write ZIP
     job.progress = { phase: "writing ZIP", detail: `${filesToArchive.length} files to archive` };
     const manifest: WorkbenchExportData = {
@@ -460,6 +493,7 @@ async function runExport(job: TransferJob): Promise<void> {
       categories,
       prompts,
       examples,
+      traces,
     };
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -474,6 +508,7 @@ async function runExport(job: TransferJob): Promise<void> {
       categories: categories.length,
       prompts: prompts.length,
       examples: examples.length,
+      traces: traces.length,
     };
     job.status = "completed";
     job.finishedAt = new Date().toISOString();
@@ -653,6 +688,7 @@ async function runZipImport(job: TransferJob, filePath: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
     // Delete in FK order (children first)
     job.progress = { phase: "clearing existing data" };
+    await tx.generationTrace.deleteMany({ where: { workbenchExampleId: { not: null } } });
     await tx.workbenchExample.deleteMany();
     await tx.workbenchExamplePrompt.deleteMany();
     await tx.workbenchCategory.deleteMany();
@@ -737,20 +773,44 @@ async function runZipImport(job: TransferJob, filePath: string): Promise<void> {
         },
       });
     }
+
+    // Insert traces (optional — older exports may not have them)
+    if (data.traces && data.traces.length > 0) {
+      job.progress = { phase: "inserting traces", detail: `${data.traces.length} rows` };
+      for (const t of data.traces) {
+        await tx.generationTrace.create({
+          data: {
+            id: t.id,
+            workbenchExampleId: t.workbench_example_id,
+            totalDurationMs: t.total_duration_ms,
+            totalCostUsd: t.total_cost_usd,
+            totalSteps: t.total_steps,
+            totalLlmCalls: t.total_llm_calls,
+            finalStatus: t.final_status,
+            pipelineType: t.pipeline_type,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            trace: t.trace as any,
+            createdAt: new Date(t.created_at),
+          },
+        });
+      }
+    }
   }, { timeout: 120000 });
 
   // 5. Done
+  const traceCount = data.traces?.length ?? 0;
   job.counts = {
     categories: data.categories.length,
     prompts: data.prompts.length,
     examples: data.examples.length,
+    traces: traceCount,
   };
   job.status = "completed";
   job.finishedAt = new Date().toISOString();
   job.progress = { phase: "done" };
 
   logger.info(
-    { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length, files: extractedCount },
+    { jobId: job.jobId, categories: data.categories.length, prompts: data.prompts.length, examples: data.examples.length, traces: traceCount, files: extractedCount },
     "ZIP import completed",
   );
 }
@@ -872,6 +932,7 @@ async function runJsonImport(job: TransferJob, filePath: string): Promise<void> 
   await prisma.$transaction(async (tx) => {
     // Delete in FK order (children first)
     job.progress = { phase: "clearing existing data" };
+    await tx.generationTrace.deleteMany({ where: { workbenchExampleId: { not: null } } });
     await tx.workbenchExample.deleteMany();
     await tx.workbenchExamplePrompt.deleteMany();
     await tx.workbenchCategory.deleteMany();

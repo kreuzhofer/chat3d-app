@@ -11,8 +11,11 @@ import { prisma } from "../db/prisma.js";
 import {
   getModelForPurposeWithFallback,
   createProviderModel as createProviderModelFromConfig,
+  calculateCostUsd,
   type LlmModelConfig,
 } from "./llm-config.service.js";
+import { TraceBuilder, runWithTrace } from "./trace-builder.service.js";
+import { persistTrace } from "./trace-persistence.service.js";
 
 const logger = createLogger("workbench");
 import { renderBuild123d, type RenderedFile } from "./rendering.service.js";
@@ -20,7 +23,7 @@ import {
   renderModelScreenshots,
   type RenderedScreenshot,
 } from "./stl-rendering-client.service.js";
-import { evaluateModel, type EvaluationResult } from "./visual-eval.service.js";
+import { runFullEvaluation, type FullEvalResult } from "./eval-orchestrator.service.js";
 import { WorkbenchSeederError } from "./workbench-seeder.service.js";
 import { validatePrompt } from "./workbench-prompt-validation.service.js";
 import { writeStorageFile } from "./file-storage.service.js";
@@ -28,6 +31,7 @@ import {
   getAutoApproveThreshold,
   isSpecGenerationEnabled,
   getAgentMaxSteps,
+  getCodeEvalWeight,
 } from "./generation-settings.service.js";
 import { generateSpec, type SpecResult } from "./spec-generation.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
@@ -81,6 +85,9 @@ export function wrapInTemplate(rawCode: string, baseFileName: string): string {
  * The caller (batch service) wires it to SSE publishing.
  */
 export type ProgressCallback = (state: string, detail: string) => void;
+
+/** Callback for publishing live trace snapshots via SSE. */
+export type TracePublisher = (trace: import("@chat3d/shared").GenerationTrace) => void;
 
 export interface GenerateResult {
   exampleId: string | null;
@@ -192,6 +199,10 @@ async function insertExample(data: {
   vlmModel: string | null;
   promptTokens: number;
   completionTokens: number;
+  visualScore?: number | null;
+  codeEvalScore?: number | null;
+  assertionPassRate?: number | null;
+  evalSource?: string | null;
 }): Promise<string> {
   const created = await prisma.workbenchExample.create({
     data: {
@@ -224,6 +235,10 @@ async function insertExample(data: {
       vlmModel: data.vlmModel,
       promptTokens: data.promptTokens,
       completionTokens: data.completionTokens,
+      visualScore: data.visualScore ?? null,
+      codeEvalScore: data.codeEvalScore ?? null,
+      assertionPassRate: data.assertionPassRate ?? null,
+      evalSource: data.evalSource ?? null,
     },
     select: { id: true },
   });
@@ -251,15 +266,6 @@ export function stripTemplateBoilerplate(code: string): string {
     })
     .join("\n")
     .trim();
-}
-
-// ── Screenshot extraction helper ─────────────────────────────────────
-
-function findScreenshot(
-  images: RenderedScreenshot[],
-  angle: string,
-): string | null {
-  return images.find((img) => img.angle === angle)?.base64 ?? null;
 }
 
 // ── Find STL file from Build123d render output ───────────────────────
@@ -356,7 +362,12 @@ async function persistWorkbenchFiles(opts: {
 
 // ── Main pipeline ────────────────────────────────────────────────────
 
-export async function generateForPrompt(promptId: string, onProgress?: ProgressCallback): Promise<GenerateResult> {
+export async function generateForPrompt(
+  promptId: string,
+  onProgress?: ProgressCallback,
+  tracePublisher?: TracePublisher,
+  externalSignal?: AbortSignal,
+): Promise<GenerateResult> {
   return runWithUsageContext({ workbenchExampleId: promptId }, async () => {
     logger.info({ promptId }, "starting generation for prompt");
 
@@ -364,26 +375,54 @@ export async function generateForPrompt(promptId: string, onProgress?: ProgressC
     const pipelineController = new AbortController();
     const pipelineTimeout = setTimeout(() => pipelineController.abort(), PIPELINE_TIMEOUT_MS);
 
+    // If an external signal is provided (e.g. from job cancellation), wire it to abort the pipeline
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        pipelineController.abort();
+      } else {
+        externalSignal.addEventListener("abort", () => pipelineController.abort(), { once: true });
+      }
+    }
+
     try {
-      return await _generateForPromptInner(promptId, pipelineController.signal, onProgress);
+      return await _generateForPromptInner(promptId, pipelineController.signal, onProgress, tracePublisher);
     } finally {
       clearTimeout(pipelineTimeout);
     }
   });
 }
 
-async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSignal, onProgress?: ProgressCallback): Promise<GenerateResult> {
+async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSignal, onProgress?: ProgressCallback, tracePublisher?: TracePublisher): Promise<GenerateResult> {
 
   // 1. Load context and resolve model
   const ctx = await loadPromptContext(promptId);
-  logger.info({ prompt: ctx.prompt.slice(0, 80), category: ctx.categoryName, complexity: ctx.complexity }, "loaded prompt context");
+  logger.debug({ prompt: ctx.prompt, category: ctx.categoryName, complexity: ctx.complexity }, "loaded prompt context");
 
-  const { model: providerModel, label: llmModelLabel, config: codegenConfig } = await resolveCodegenModel();
+  const { label: llmModelLabel, config: codegenModelConfig } = await resolveCodegenModel();
   logger.info({ model: llmModelLabel }, "codegen model resolved");
 
+  // Initialize trace builder for this pipeline run
+  const traceBuilder = new TraceBuilder("single_agent");
+  if (tracePublisher) {
+    traceBuilder.setOnChange(tracePublisher);
+  }
+  traceBuilder.startPhase("root", "root", "Workbench Generation Pipeline");
+
+  // Run the entire pipeline within trace context so inner services can access getTraceBuilder()
+  return runWithTrace(traceBuilder, async () => {
+
   // 2. Validate prompt before expensive codegen pipeline
+  traceBuilder.startPhase("validation", "prompt_validation", "Prompt Validation");
   onProgress?.("validating", "Validating prompt...");
   const validation = await validatePrompt(ctx.prompt);
+  traceBuilder.addUsage({
+    inputTokens: validation.promptTokens,
+    outputTokens: validation.completionTokens,
+    costUsd: calculateCostUsd(codegenModelConfig, validation.promptTokens, validation.completionTokens),
+  });
+  traceBuilder.setModel(codegenModelConfig.label, codegenModelConfig.provider);
+  traceBuilder.endPhase(validation.valid ? "completed" : "failed");
+
   if (!validation.valid) {
     logger.info({ reason: validation.reason }, "prompt rejected by validation");
     onProgress?.("failed", `Prompt validation failed: ${validation.reason}`);
@@ -440,10 +479,14 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
   let specResult: SpecResult | null = null;
   const specEnabled = await isSpecGenerationEnabled("workbench");
   if (specEnabled) {
+    traceBuilder.startPhase("spec", "spec_generation", "Spec Generation");
     onProgress?.("analyzing", "Analyzing prompt specification...");
+    const specModelCfg = await getModelForPurposeWithFallback("spec_generation", "conversation");
+    traceBuilder.setModel(specModelCfg.label, specModelCfg.provider);
     specResult = await generateSpec(ctx.prompt);
 
     if (specResult.disambiguationNeeded) {
+      traceBuilder.endPhase("skipped");
       logger.info({ questions: specResult.disambiguationQuestions }, "prompt needs disambiguation — skipping codegen");
       onProgress?.("skipped", "Prompt needs clarification");
 
@@ -476,7 +519,13 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       };
     }
 
-    logger.info({ interpretation: specResult.interpretation.slice(0, 100), checklistCount: specResult.verificationChecklist.length }, "spec generated");
+    logger.info({ interpretation: specResult.interpretation, checklistCount: specResult.verificationChecklist.length }, "spec generated");
+    traceBuilder.addUsage({
+      inputTokens: specResult.promptTokens,
+      outputTokens: specResult.completionTokens,
+      costUsd: calculateCostUsd(specModelCfg, specResult.promptTokens, specResult.completionTokens),
+    });
+    traceBuilder.endPhase("completed");
   }
 
   // 3. Load dynamic settings
@@ -489,6 +538,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
   {
     const wbAgMaxSteps = await getAgentMaxSteps("workbench");
     const wbUseMultiAgent = specResult?.complexity === "complex";
+    if (wbUseMultiAgent) traceBuilder.setPipelineType("multi_agent");
     const wbAgDetail = wbUseMultiAgent
       ? "Orchestrating multi-agent build for complex model..."
       : "Agent is working on your model...";
@@ -506,8 +556,11 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       signal: pipelineSignal,
       onProgress: (state: string, detail: string) => onProgress?.(state, detail),
       evalThreshold: dynAutoApprove,
+      codeAssertions: specResult?.codeAssertions,
+      specInterpretation: specResult?.interpretation,
     };
 
+    // Agent codegen phase (traced internally via getTraceBuilder())
     const agResult = wbUseMultiAgent
       ? await runMultiAgentCodegen(wbAgInput)
       : await runAgentCodegen(wbAgInput);
@@ -515,6 +568,7 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
     // Take screenshots if render succeeded
     let agScreenshots: RenderedScreenshot[] = [];
     if (agResult.renderSuccess && agResult.renderedFiles.length > 0) {
+      traceBuilder.startPhase("screenshots", "screenshots", "Screenshots");
       onProgress?.("evaluating", "Taking screenshots...");
       try {
         const stlFile = agResult.renderedFiles.find(f => f.filename.toLowerCase().endsWith(".stl"));
@@ -524,34 +578,46 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
           );
           agScreenshots = ssResult.images;
         }
+        traceBuilder.endPhase("completed");
       } catch (err) {
         logger.warn({ err: err instanceof Error ? err.message : String(err) }, "agent: screenshot failed (non-fatal)");
+        traceBuilder.endPhase("failed", { error: err instanceof Error ? err.message : String(err) });
       }
     }
 
-    // VLM evaluation (pass STL data for zoom capability)
-    let agEvalResult: EvaluationResult | null = null;
+    // Full evaluation (VLM + code eval + assertions in parallel)
+    let agFullEval: FullEvalResult | null = null;
     const agStlFile = agResult.renderedFiles.find(f => f.filename.toLowerCase().endsWith(".stl"));
-    if (agScreenshots.length > 0) {
+    const agCodeEvalWeight = await getCodeEvalWeight("workbench");
+    // Combine all project files for code eval (not just main.py)
+    const agAllCode = agResult.files.length > 1
+      ? agResult.files.map(f => `# --- ${f.path} ---\n${f.content}`).join("\n\n")
+      : agResult.code;
+    if (agScreenshots.length > 0 || agAllCode.trim()) {
+      // eval_orchestration phase (traced internally via getTraceBuilder())
       onProgress?.("evaluating", "Evaluating quality...");
       const vlmImages = agScreenshots.filter(s => s.angle !== "isometric").map(s => ({ angle: s.angle, base64: s.base64 }));
-      if (vlmImages.length > 0) {
-        agEvalResult = await evaluateModel({
-          userPrompt: ctx.prompt,
-          categoryName: ctx.categoryName,
-          complexity: ctx.complexity,
-          images: vlmImages,
-          verificationChecklist: specResult?.verificationChecklist,
-          stlBase64: agStlFile?.contentBase64,
-          modelFormat: "stl",
-        });
-      }
+      agFullEval = await runFullEvaluation({
+        code: agAllCode,
+        userPrompt: ctx.prompt,
+        specInterpretation: specResult?.interpretation,
+        codeAssertions: specResult?.codeAssertions,
+        images: vlmImages,
+        categoryName: ctx.categoryName,
+        complexity: ctx.complexity,
+        verificationChecklist: specResult?.verificationChecklist,
+        stlBase64: agStlFile?.contentBase64,
+        modelFormat: "stl",
+        codeEvalWeight: agCodeEvalWeight,
+      });
     }
 
-    const agTotalPromptTokens = agResult.usage.promptTokens + (agEvalResult?.promptTokens ?? 0) + (specResult?.promptTokens ?? 0);
-    const agTotalCompletionTokens = agResult.usage.completionTokens + (agEvalResult?.completionTokens ?? 0) + (specResult?.completionTokens ?? 0);
-    const agScore = agEvalResult?.score ?? null;
-    const agApproved = shouldAutoApprove(agScore, dynAutoApprove, agEvalResult?.checklistResults);
+    const agTotalPromptTokens = agResult.usage.promptTokens + (agFullEval?.totalPromptTokens ?? 0) + (specResult?.promptTokens ?? 0);
+    const agTotalCompletionTokens = agResult.usage.completionTokens + (agFullEval?.totalCompletionTokens ?? 0) + (specResult?.completionTokens ?? 0);
+    const agScore = agFullEval?.compositeScore ?? null;
+    const agApproved = agFullEval?.assertionsFailed
+      ? false // assertion failures → never auto-approve
+      : shouldAutoApprove(agScore, dynAutoApprove, agFullEval?.checklistResults);
 
     const exampleId = crypto.randomUUID();
     const filePaths = await persistWorkbenchFiles({
@@ -561,6 +627,11 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       code: agResult.code,
       screenshots: agScreenshots,
     });
+
+    const agMergedIssues = [
+      ...(agFullEval?.vlmIssues ?? []),
+      ...(agFullEval?.codeIssues ?? []),
+    ];
 
     await insertExample({
       id: exampleId,
@@ -583,20 +654,35 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       screenshotIso: filePaths.screenshotIsoPath,
       screenshotIsoBack: filePaths.screenshotIsoBackPath,
       evalScore: agScore,
-      evalIssues: agEvalResult?.issues ?? null,
-      evalSuggestions: agEvalResult?.suggestions ?? null,
-      evalChecklistResults: agEvalResult?.checklistResults ?? null,
+      evalIssues: agMergedIssues.length > 0 ? agMergedIssues : null,
+      evalSuggestions: agFullEval?.vlmSuggestions ?? null,
+      evalChecklistResults: agFullEval?.checklistResults ?? null,
       approvalStatus: agApproved ? "auto_approved" : "pending",
       llmModel: wbAgentModelConfig.label,
-      vlmModel: agEvalResult?.vlmModel ?? null,
+      vlmModel: agFullEval?.vlmModel ?? null,
       promptTokens: agTotalPromptTokens,
       completionTokens: agTotalCompletionTokens,
+      visualScore: agFullEval?.visualScore ?? null,
+      codeEvalScore: agFullEval?.codeScore ?? null,
+      assertionPassRate: agFullEval?.assertionPassRate ?? null,
+      evalSource: agFullEval?.source ?? null,
     });
 
     logger.info(
-      { promptId: ctx.promptId, steps: agResult.stepCount, score: agScore, status: agApproved ? "auto_approved" : "pending" },
+      { promptId: ctx.promptId, steps: agResult.stepCount, score: agScore, source: agFullEval?.source, status: agApproved ? "auto_approved" : "pending" },
       "agent example persisted",
     );
+
+    // Persist execution trace (fire-and-forget)
+    traceBuilder.endPhase("completed"); // close root
+    const trace = traceBuilder.build();
+    const summary = traceBuilder.computeSummary();
+    persistTrace({
+      workbenchExampleId: exampleId,
+      pipelineType: trace.pipelineType,
+      trace,
+      summary,
+    }).catch(err => logger.warn({ err }, "trace persistence failed (non-fatal)"));
 
     return {
       exampleId,
@@ -606,14 +692,16 @@ async function _generateForPromptInner(promptId: string, pipelineSignal: AbortSi
       renderStatus: agResult.renderSuccess ? "success" : "error",
       renderError: agResult.renderSuccess ? null : "Agent codegen failed to render",
       evalScore: agScore,
-      evalIssues: agEvalResult?.issues ?? null,
-      evalSuggestions: agEvalResult?.suggestions ?? null,
-      evalChecklistResults: agEvalResult?.checklistResults ?? null,
+      evalIssues: agMergedIssues.length > 0 ? agMergedIssues : null,
+      evalSuggestions: agFullEval?.vlmSuggestions ?? null,
+      evalChecklistResults: agFullEval?.checklistResults ?? null,
       approvalStatus: agApproved ? "auto_approved" : "pending",
       llmModel: wbAgentModelConfig.label,
-      vlmModel: agEvalResult?.vlmModel ?? null,
+      vlmModel: agFullEval?.vlmModel ?? null,
     };
   }
+
+  }); // end runWithTrace
 }
 
 // ── Re-render pipeline (no AI codegen, no fix loop) ──────────────────
@@ -637,7 +725,7 @@ export async function reRenderForExample(exampleId: string, onProgress?: Progres
   }
 
   const ctx = await loadPromptContext(existingExample.promptId);
-  logger.info({ prompt: ctx.prompt.slice(0, 80), category: ctx.categoryName }, "loaded prompt context for re-render");
+  logger.debug({ prompt: ctx.prompt, category: ctx.categoryName }, "loaded prompt context for re-render");
 
   const rrAutoApprove = await getAutoApproveThreshold("workbench");
 
@@ -734,34 +822,44 @@ export async function reRenderForExample(exampleId: string, onProgress?: Progres
     logger.warn("no STL file available, skipping screenshots (re-render)");
   }
 
-  // 4. VLM Evaluate — single pass, no loop — send labeled images, exclude isometric (thumbnail-only)
+  // 4. Full evaluation — VLM + code eval in parallel (no assertions for re-renders)
   onProgress?.("evaluating", "Evaluating quality...");
-  let evalResult: EvaluationResult | null = null;
+  let rrFullEval: FullEvalResult | null = null;
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
   const vlmImages = screenshots
     .filter((s) => s.angle !== "isometric")
     .map((s) => ({ angle: s.angle, base64: s.base64 }));
-  if (vlmImages.length > 0) {
-    logger.info({ imageCount: vlmImages.length }, "starting VLM evaluation (re-render)");
-    evalResult = await evaluateModel({
+  const rrCodeEvalWeight = await getCodeEvalWeight("workbench");
+  if (vlmImages.length > 0 || code.trim()) {
+    logger.info({ imageCount: vlmImages.length }, "starting full evaluation (re-render)");
+    rrFullEval = await runFullEvaluation({
+      code,
       userPrompt: ctx.prompt,
+      images: vlmImages,
       categoryName: ctx.categoryName,
       complexity: ctx.complexity,
-      images: vlmImages,
       stlBase64: stlFile?.contentBase64,
       modelFormat: "stl",
+      codeEvalWeight: rrCodeEvalWeight,
     });
-    totalPromptTokens = evalResult.promptTokens;
-    totalCompletionTokens = evalResult.completionTokens;
-    logger.info({ score: evalResult.score }, "VLM evaluation result (re-render)");
+    totalPromptTokens = rrFullEval.totalPromptTokens;
+    totalCompletionTokens = rrFullEval.totalCompletionTokens;
+    logger.info({ compositeScore: rrFullEval.compositeScore, source: rrFullEval.source }, "full evaluation result (re-render)");
   } else {
-    logger.warn("skipping VLM evaluation, no screenshots (re-render)");
+    logger.warn("skipping evaluation, no screenshots and no code (re-render)");
   }
 
   // 5. Persist files to disk and create new example
-  const score = evalResult?.score ?? null;
-  const approved = shouldAutoApprove(score, rrAutoApprove, evalResult?.checklistResults);
+  const score = rrFullEval?.compositeScore ?? null;
+  const approved = rrFullEval?.assertionsFailed
+    ? false
+    : shouldAutoApprove(score, rrAutoApprove, rrFullEval?.checklistResults);
+
+  const rrMergedIssues = [
+    ...(rrFullEval?.vlmIssues ?? []),
+    ...(rrFullEval?.codeIssues ?? []),
+  ];
 
   const newExampleId = crypto.randomUUID();
   const filePaths = await persistWorkbenchFiles({
@@ -793,19 +891,23 @@ export async function reRenderForExample(exampleId: string, onProgress?: Progres
     screenshotIso: filePaths.screenshotIsoPath,
     screenshotIsoBack: filePaths.screenshotIsoBackPath,
     evalScore: score,
-    evalIssues: evalResult?.issues ?? null,
-    evalSuggestions: evalResult?.suggestions ?? null,
-    evalChecklistResults: evalResult?.checklistResults ?? null,
+    evalIssues: rrMergedIssues.length > 0 ? rrMergedIssues : null,
+    evalSuggestions: rrFullEval?.vlmSuggestions ?? null,
+    evalChecklistResults: rrFullEval?.checklistResults ?? null,
     approvalStatus: approved ? "auto_approved" : "pending",
     llmModel: "manual",
-    vlmModel: evalResult?.vlmModel ?? null,
+    vlmModel: rrFullEval?.vlmModel ?? null,
     promptTokens: totalPromptTokens,
     completionTokens: totalCompletionTokens,
+    visualScore: rrFullEval?.visualScore ?? null,
+    codeEvalScore: rrFullEval?.codeScore ?? null,
+    assertionPassRate: rrFullEval?.assertionPassRate ?? null,
+    evalSource: rrFullEval?.source ?? null,
   });
 
   onProgress?.("completed", "Done");
   logger.info(
-    { exampleId: newExampleId, promptId: ctx.promptId, score, status: approved ? "auto_approved" : "pending" },
+    { exampleId: newExampleId, promptId: ctx.promptId, score, source: rrFullEval?.source, status: approved ? "auto_approved" : "pending" },
     "re-render example persisted",
   );
 
@@ -817,11 +919,11 @@ export async function reRenderForExample(exampleId: string, onProgress?: Progres
     renderStatus: "success",
     renderError: null,
     evalScore: score,
-    evalIssues: evalResult?.issues ?? null,
-    evalSuggestions: evalResult?.suggestions ?? null,
-    evalChecklistResults: evalResult?.checklistResults ?? null,
+    evalIssues: rrMergedIssues.length > 0 ? rrMergedIssues : null,
+    evalSuggestions: rrFullEval?.vlmSuggestions ?? null,
+    evalChecklistResults: rrFullEval?.checklistResults ?? null,
     approvalStatus: approved ? "auto_approved" : "pending",
     llmModel: "manual",
-    vlmModel: evalResult?.vlmModel ?? null,
+    vlmModel: rrFullEval?.vlmModel ?? null,
   };
 }

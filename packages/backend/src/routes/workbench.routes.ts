@@ -67,6 +67,7 @@ import {
 } from "../services/chunked-upload.service.js";
 import { prisma } from "../db/prisma.js";
 import express from "express";
+import { getTraceRecordForWorkbenchExample } from "../services/trace-persistence.service.js";
 
 const logger = createLogger("workbench-routes");
 
@@ -295,6 +296,21 @@ workbenchRouter.get("/examples/:id/screenshot/:angle", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "Failed to get screenshot", detail: String(error) });
+  }
+});
+
+// ── Trace ──────────────────────────────────────────────────────────
+
+workbenchRouter.get("/examples/:id/trace", async (req, res) => {
+  try {
+    const trace = await getTraceRecordForWorkbenchExample(req.params.id);
+    if (!trace) {
+      res.status(404).json({ error: "No trace found for this example" });
+      return;
+    }
+    res.status(200).json(trace);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to get trace", detail: String(error) });
   }
 });
 

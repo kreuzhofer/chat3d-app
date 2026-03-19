@@ -11,7 +11,7 @@
 
 import { prisma } from "../db/prisma.js";
 import { ProviderQuotaExhaustedError } from "../utils/llm-errors.js";
-import { generateForPrompt, reRenderForExample, type GenerateResult, type ProgressCallback } from "./workbench-codegen.service.js";
+import { generateForPrompt, reRenderForExample, type GenerateResult, type ProgressCallback, type TracePublisher } from "./workbench-codegen.service.js";
 import { embedAndStorePrompt } from "./workbench-embeddings.service.js";
 import { cleanupExamplesForPrompt } from "./workbench-examples.service.js";
 import { createLogger } from "../utils/logger.js";
@@ -45,6 +45,8 @@ export interface BatchJob {
   pendingPromptIds: Set<string>;
   /** Admin user ID for SSE progress events. */
   userId: string | null;
+  /** Abort controller for cancelling in-flight pipeline work. */
+  abortController: AbortController;
 }
 
 export interface BatchPromptResult {
@@ -242,6 +244,7 @@ export async function startBatchJob(
     finishedAt: null,
     pendingPromptIds: new Set(promptsToProcess.map((p) => p.id)),
     userId: userId ?? null,
+    abortController: new AbortController(),
   };
 
   jobs.set(jobId, job);
@@ -325,6 +328,7 @@ export async function startBatchReRender(categoryId: string): Promise<BatchJobSu
     finishedAt: null,
     pendingPromptIds: new Set(),
     userId: null,
+    abortController: new AbortController(),
   };
 
   jobs.set(jobId, job);
@@ -392,6 +396,7 @@ export async function startSingleJob(
     finishedAt: null,
     pendingPromptIds: new Set(),
     userId: userId ?? null,
+    abortController: new AbortController(),
   };
 
   jobs.set(jobId, job);
@@ -428,13 +433,16 @@ export function getJobDetails(jobId: string): Omit<BatchJob, "pendingPromptIds">
 }
 
 /**
- * Cancel a running batch job. Current prompt will finish but no more will start.
+ * Cancel a running job. Aborts in-flight LLM calls and rendering immediately.
+ * For batch jobs, also prevents further prompts from starting.
  */
 export function cancelJob(jobId: string): boolean {
   const job = jobs.get(jobId);
   if (!job || job.status !== "running") return false;
   job.status = "cancelled";
   job.finishedAt = new Date().toISOString();
+  job.abortController.abort();
+  logger.info({ jobId, type: job.type }, "job cancelled — abort signal sent");
   return true;
 }
 
@@ -459,6 +467,19 @@ function buildProgressCallback(job: BatchJob, promptId: string): ProgressCallbac
       promptId,
       state,
       detail,
+    });
+  };
+}
+
+/** Build a trace publisher that streams trace snapshots via SSE. */
+function buildTracePublisher(job: BatchJob, promptId: string): TracePublisher | undefined {
+  if (!job.userId) return undefined;
+  const userId = job.userId;
+  return (trace) => {
+    sseService.publishEphemeral(userId, "workbench.trace.update", {
+      jobId: job.jobId,
+      promptId,
+      trace,
     });
   };
 }
@@ -499,7 +520,7 @@ async function runBatchJob(
 
     let result: GenerateResult | null = null;
     try {
-      result = await generateForPrompt(prompt.id, buildProgressCallback(job, prompt.id));
+      result = await generateForPrompt(prompt.id, buildProgressCallback(job, prompt.id), buildTracePublisher(job, prompt.id), job.abortController.signal);
 
       if (result.disambiguationNeeded) {
         // Prompt needs disambiguation — count as skipped
@@ -625,7 +646,7 @@ async function runSingleJob(
     if (type === "re-render" && exampleId) {
       result = await reRenderForExample(exampleId, onProgress);
     } else {
-      result = await generateForPrompt(promptId, onProgress);
+      result = await generateForPrompt(promptId, onProgress, buildTracePublisher(job, promptId), job.abortController.signal);
     }
 
     if (result.approvalStatus === "rejected") {
@@ -666,23 +687,28 @@ async function runSingleJob(
 
     job.status = "completed";
   } catch (error) {
-    job.failed = 1;
-    job.results.push({
-      promptId,
-      promptText,
-      status: "error",
-      exampleId: null,
-      evalScore: null,
-      approvalStatus: null,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    job.error = error instanceof Error ? error.message : String(error);
-    job.status = "failed";
+    // If aborted by cancel, keep the "cancelled" status set by cancelJob()
+    if (job.status === "cancelled") {
+      logger.info({ jobId: job.jobId, type }, "single-prompt job aborted by cancellation");
+    } else {
+      job.failed = 1;
+      job.results.push({
+        promptId,
+        promptText,
+        status: "error",
+        exampleId: null,
+        evalScore: null,
+        approvalStatus: null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      job.error = error instanceof Error ? error.message : String(error);
+      job.status = "failed";
 
-    logger.error(
-      { err: error, jobId: job.jobId, type },
-      "single-prompt job failed",
-    );
+      logger.error(
+        { err: error, jobId: job.jobId, type },
+        "single-prompt job failed",
+      );
+    }
   } finally {
     job.currentPromptId = null;
     job.currentPromptText = null;
@@ -839,6 +865,7 @@ export async function startBatchCleanup(categoryId: string): Promise<BatchJobSum
     finishedAt: null,
     pendingPromptIds: new Set(prompts.map((p) => p.id)),
     userId: null,
+    abortController: new AbortController(),
   };
 
   jobs.set(jobId, job);

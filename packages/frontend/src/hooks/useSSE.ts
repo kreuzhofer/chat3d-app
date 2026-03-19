@@ -25,6 +25,7 @@ const SUPPORTED_EVENTS = [
   "account.status.changed",
   "stream-token",
   "workbench.job.progress",
+  "workbench.trace.update",
 ] as const;
 
 /** Reconnect delays: 1s, 2s, 4s, 8s, 15s, 30s (capped). */

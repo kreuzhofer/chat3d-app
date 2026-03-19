@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Check, GitBranch, Lightbulb, Pencil, Play, RefreshCw, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
+import { ArrowLeft, Check, GitBranch, Lightbulb, Pencil, Play, RefreshCw, Square, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 import {
   approveExample,
+  cancelJob as apiCancelJob,
   deleteExample as apiDeleteExample,
   deleteExamplesForPrompt as apiDeleteExamplesForPrompt,
   getActiveJobForPrompt,
   getExample,
+  getExampleTrace,
   getJobDetails,
   getJobStatus,
   improvePrompt as apiImprovePrompt,
@@ -19,6 +21,7 @@ import {
   updateExampleCode,
   updatePromptText,
   type BatchJobSummary,
+  type TraceRecord,
   type WorkbenchExample,
   type WorkbenchPrompt,
 } from "../api/workbench.api";
@@ -35,6 +38,11 @@ import { CodeBlock } from "./ui/code-block";
 import { Dialog } from "./ui/dialog";
 import { useToast } from "./ui/toast";
 import { InlineModelViewer } from "./chat/InlineModelViewer";
+import { useTraceProgress } from "../hooks/useTraceProgress";
+
+const LazyTraceViewer = lazy(() =>
+  import("./trace/TraceViewer").then(m => ({ default: m.TraceViewer })),
+);
 
 function AuthImage({ src, token, className }: { src: string; token: string; className?: string }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -96,6 +104,19 @@ export function WorkbenchPromptPage() {
   const [improveVariations, setImproveVariations] = useState<string[]>([]);
   const [improveBusy, setImproveBusy] = useState(false);
   const promptSectionRef = useRef<HTMLDivElement>(null);
+  const [traceExpanded, setTraceExpanded] = useState(false);
+  const [traceData, setTraceData] = useState<TraceRecord | null>(null);
+  const [traceLoading, setTraceLoading] = useState(false);
+
+  // Real-time trace from SSE events during generation
+  const liveTrace = useTraceProgress(activeJob?.status === "running" ? activeJob.jobId : null);
+
+  // Auto-expand trace section when live trace starts arriving
+  useEffect(() => {
+    if (liveTrace && liveTrace.nodes.length > 0) {
+      setTraceExpanded(true);
+    }
+  }, [liveTrace]);
 
   // Real-time progress from SSE events during generation
   const { queryState: jobProgressState, detail: jobProgressDetail } = useWorkbenchJobProgress(
@@ -203,6 +224,17 @@ export function WorkbenchPromptPage() {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [promptId, token]);
+
+  const handleCancel = useCallback(async () => {
+    if (!token || !activeJob) return;
+    try {
+      await apiCancelJob(token, activeJob.jobId);
+      setActiveJob(null);
+      pushToast({ tone: "warning", title: "Generation cancelled" });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [activeJob, pushToast, token]);
 
   const handleRemix = useCallback(async () => {
     // Find first approved example for this prompt
@@ -381,6 +413,22 @@ export function WorkbenchPromptPage() {
     }
   }, [loadData, promptId, pushToast, token]);
 
+  // Reset trace when selected example changes
+  useEffect(() => {
+    setTraceData(null);
+    setTraceExpanded(false);
+  }, [selectedExample?.id]);
+
+  // Lazy-load trace when section is expanded
+  useEffect(() => {
+    if (!traceExpanded || !token || !selectedExample?.id || traceData) return;
+    setTraceLoading(true);
+    getExampleTrace(token, selectedExample.id)
+      .then(setTraceData)
+      .catch(() => setTraceData(null))
+      .finally(() => setTraceLoading(false));
+  }, [traceExpanded, token, selectedExample?.id, traceData]);
+
   return (
     <section className="space-y-4">
       <PageHeader
@@ -391,9 +439,15 @@ export function WorkbenchPromptPage() {
             <Button variant="outline" size="sm" iconLeft={<ArrowLeft className="h-3.5 w-3.5" />} onClick={() => navigate(-1)}>
               Back
             </Button>
-            <Button size="sm" iconLeft={<Play className="h-3.5 w-3.5" />} loading={activeJob?.status === "running"} disabled={busy} onClick={() => void handleGenerate()}>
-              Generate
-            </Button>
+            {activeJob?.status === "running" ? (
+              <Button size="sm" variant="destructive" iconLeft={<Square className="h-3.5 w-3.5" />} onClick={() => void handleCancel()}>
+                Cancel
+              </Button>
+            ) : (
+              <Button size="sm" iconLeft={<Play className="h-3.5 w-3.5" />} disabled={busy} onClick={() => void handleGenerate()}>
+                Generate
+              </Button>
+            )}
             {examples.length > 0 ? (
               <Button size="sm" variant="outline" iconLeft={<GitBranch className="h-3.5 w-3.5" />} disabled={busy} onClick={() => void handleRemix()}>
                 Remix
@@ -492,6 +546,21 @@ export function WorkbenchPromptPage() {
             </div>
           ))}
         </div>
+      ) : null}
+
+      {/* Live Execution Trace (shown during generation, independent of selected example) */}
+      {liveTrace && liveTrace.nodes.length > 0 ? (
+        <SectionCard
+          title="Execution Trace (live)"
+          description="Real-time pipeline execution"
+        >
+          <Suspense fallback={<p className="text-sm text-[hsl(var(--muted-foreground))]">Loading viewer...</p>}>
+            <LazyTraceViewer
+              trace={liveTrace}
+              pipelineType={liveTrace.pipelineType}
+            />
+          </Suspense>
+        </SectionCard>
       ) : null}
 
       {/* Selected example detail */}
@@ -766,6 +835,50 @@ export function WorkbenchPromptPage() {
               />
             ) : (
               <CodeBlock language="python">{selectedExample.code}</CodeBlock>
+            )}
+          </SectionCard>
+
+          {/* Execution Trace (live during generation, persisted after) */}
+          <SectionCard
+            title={liveTrace ? "Execution Trace (live)" : "Execution Trace"}
+            description={liveTrace ? "Real-time pipeline execution" : "Pipeline execution DAG with cost heat-mapping"}
+            actions={
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setTraceExpanded(!traceExpanded)}
+              >
+                {traceExpanded ? "Collapse" : "Expand"}
+              </Button>
+            }
+          >
+            {traceExpanded ? (
+              liveTrace ? (
+                <Suspense fallback={<p className="text-sm text-[hsl(var(--muted-foreground))]">Loading viewer...</p>}>
+                  <LazyTraceViewer
+                    trace={liveTrace}
+                    pipelineType={liveTrace.pipelineType}
+                  />
+                </Suspense>
+              ) : traceLoading ? (
+                <p className="text-sm text-[hsl(var(--muted-foreground))]">Loading trace...</p>
+              ) : traceData ? (
+                <Suspense fallback={<p className="text-sm text-[hsl(var(--muted-foreground))]">Loading viewer...</p>}>
+                  <LazyTraceViewer
+                    trace={traceData.trace}
+                    totalDurationMs={traceData.totalDurationMs}
+                    totalCostUsd={traceData.totalCostUsd}
+                    totalSteps={traceData.totalSteps}
+                    totalLlmCalls={traceData.totalLlmCalls}
+                    finalStatus={traceData.finalStatus}
+                    pipelineType={traceData.pipelineType}
+                  />
+                </Suspense>
+              ) : (
+                <p className="text-sm text-[hsl(var(--muted-foreground))]">No trace available for this example.</p>
+              )
+            ) : (
+              <p className="text-sm text-[hsl(var(--muted-foreground))]">Click "Expand" to view the execution trace DAG.</p>
             )}
           </SectionCard>
         </div>

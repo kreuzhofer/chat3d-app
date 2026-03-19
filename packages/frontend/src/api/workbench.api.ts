@@ -422,3 +422,21 @@ export function deleteTransferJob(token: string, jobId: string): Promise<{ ok: t
     method: "DELETE",
   });
 }
+
+// ── Trace ─────────────────────────────────────────────────────────────
+
+export interface TraceRecord {
+  id: string;
+  totalDurationMs: number | null;
+  totalCostUsd: number | null;
+  totalSteps: number | null;
+  totalLlmCalls: number | null;
+  finalStatus: string;
+  pipelineType: string;
+  trace: import("@chat3d/shared").GenerationTrace;
+  createdAt: string;
+}
+
+export function getExampleTrace(token: string, exampleId: string): Promise<TraceRecord> {
+  return requestJson<TraceRecord>(token, `/examples/${encodeURIComponent(exampleId)}/trace`);
+}

@@ -6,6 +6,7 @@
  */
 
 import { createLogger } from "../utils/logger.js";
+import { getSubAgentMaxSteps } from "./generation-settings.service.js";
 import { trackedGenerateText } from "./tracked-llm.service.js";
 import {
   createProviderModel,
@@ -21,6 +22,7 @@ import {
   type AgentCodegenInput,
   type AgentCodegenResult,
 } from "./agent-codegen.service.js";
+import { getTraceBuilder } from "./trace-builder.service.js";
 
 const logger = createLogger("agent-multi");
 
@@ -126,9 +128,10 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   } = input;
 
   logger.info(
-    { prompt: promptText.slice(0, 80), model: modelConfig.label },
+    { model: modelConfig.label },
     "starting multi-agent orchestration",
   );
+  logger.debug({ prompt: promptText }, "multi-agent full prompt");
 
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
@@ -136,12 +139,23 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   let totalSteps = 0;
 
   // Step 1: Decompose the prompt
+  const tb = getTraceBuilder();
+  tb?.startPhase("decomp", "decomposition", "Prompt Decomposition");
+
   onProgress?.("decomposing", "Breaking down the model into components...");
 
   let decomposition: DecompositionResult;
   try {
     decomposition = await decomposePrompt(promptText, interpretation, modelConfig);
+    tb?.addUsage({
+      inputTokens: decomposition.promptTokens,
+      outputTokens: decomposition.completionTokens,
+      costUsd: calculateCostUsd(modelConfig, decomposition.promptTokens, decomposition.completionTokens),
+    });
+    tb?.setModel(modelConfig.label, modelConfig.provider);
+    tb?.endPhase("completed");
   } catch (err) {
+    tb?.endPhase("failed", { error: err instanceof Error ? err.message : String(err) });
     logger.warn({ err: err instanceof Error ? err.message : String(err) }, "decomposition failed, falling back to single agent");
     return runAgentCodegen(input);
   }
@@ -149,42 +163,51 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   totalPromptTokens += decomposition.promptTokens;
   totalCompletionTokens += decomposition.completionTokens;
 
-  // Step 2: Run sub-agents for each component
+  // Step 2: Run sub-agents for each component (in parallel)
   const componentFiles = new Map<string, string>();
-  const subAgentMaxSteps = Math.min(Math.floor(maxSteps / 2), 10);
+  const subAgentMaxSteps = await getSubAgentMaxSteps("workbench");
 
-  for (let i = 0; i < decomposition.components.length; i++) {
-    const component = decomposition.components[i];
-    if (signal?.aborted) break;
+  const overallContext = `This is part of a larger model: "${promptText}".\n\nAll components:\n${decomposition.components.map(c => `- ${c.name}: ${c.description}`).join("\n")}\n\nAssembly plan: ${decomposition.assemblyNotes}`;
 
-    onProgress?.("component", `Building component ${i + 1}/${decomposition.components.length}: ${component.name}...`);
+  onProgress?.("component", `Building ${decomposition.components.length} components in parallel...`);
 
-    const overallContext = `This is part of a larger model: "${promptText}".\n\nAll components:\n${decomposition.components.map(c => `- ${c.name}: ${c.description}`).join("\n")}\n\nAssembly plan: ${decomposition.assemblyNotes}`;
+  // Set up trace edges for parallel sub-agents
+  const subAgentIds = decomposition.components.map(c => `sub-${c.name}`);
+  for (const subId of subAgentIds) {
+    tb?.addEdge("decomp", subId, "data_flow", "component spec");
+  }
+  for (let i = 1; i < subAgentIds.length; i++) {
+    tb?.addEdge(subAgentIds[0], subAgentIds[i], "parallel");
+  }
 
+  const subAgentPromises = decomposition.components.map((component) => {
     const subPrompt = buildSubAgentSystemPrompt({
       componentName: component.name,
       componentDescription: component.description,
       overallContext,
     });
 
-    try {
-      const subUserMessage = `Create the "${component.name}" component.\n\n${component.description}\n\nWrite a function called \`${component.name}\` in main.py that returns the Part. Validate your code, then submit when validation passes. Do NOT render.`;
+    const subUserMessage = `Create the "${component.name}" component.\n\n${component.description}\n\nWrite a function called \`${component.name}\` in main.py that returns the Part. Validate your code, then submit when validation passes. Do NOT render.`;
 
-      const subResult = await runAgentCodegen({
-        promptText: component.description,
-        isModification: false,
-        baseFileName,
-        maxSteps: subAgentMaxSteps,
-        modelConfig,
-        signal,
-        disableRender: true,
-        systemPromptOverride: subPrompt,
-        userMessageOverride: subUserMessage,
-        onProgress: (state, detail) => {
-          onProgress?.(state, `[${component.name}] ${detail}`);
-        },
-      });
+    logger.info({ component: component.name, maxSteps: subAgentMaxSteps }, "starting sub-agent");
 
+    return runAgentCodegen({
+      promptText: component.description,
+      isModification: false,
+      baseFileName,
+      maxSteps: subAgentMaxSteps,
+      modelConfig,
+      signal,
+      disableRender: true,
+      systemPromptOverride: subPrompt,
+      userMessageOverride: subUserMessage,
+      traceNodeId: `sub-${component.name}`,
+      traceLabel: `Sub-Agent: ${component.name}`,
+      traceSkipAutoEdge: true,
+      onProgress: (state, detail) => {
+        onProgress?.(state, `[${component.name}] ${detail}`);
+      },
+    }).then((subResult) => {
       totalPromptTokens += subResult.usage.promptTokens;
       totalCompletionTokens += subResult.usage.completionTokens;
       totalReasoningTokens += subResult.usage.reasoningTokens;
@@ -199,14 +222,27 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
       } else {
         logger.warn({ component: component.name }, "sub-agent produced no code");
       }
-    } catch (err) {
+    }).catch((err) => {
       logger.error({ err: err instanceof Error ? err.message : String(err), component: component.name }, "sub-agent failed");
-    }
+    });
+  });
+
+  await Promise.all(subAgentPromises);
+
+  // Check abort after parallel sub-agents complete
+  if (signal?.aborted) {
+    logger.info("multi-agent orchestration aborted after sub-agents");
+    return runAgentCodegen(input); // fallback won't run either due to abort
   }
 
   if (componentFiles.size === 0) {
     logger.warn("no components produced, falling back to single agent");
     return runAgentCodegen(input);
+  }
+
+  // Add data_flow edges from each completed sub-agent to assembly
+  for (const subId of subAgentIds) {
+    tb?.addEdge(subId, "assembly", "data_flow", "component code");
   }
 
   // Step 3: Run assembly agent
@@ -227,7 +263,7 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     componentSummary,
   });
 
-  const assemblyMaxSteps = Math.min(maxSteps, 15);
+  const assemblyMaxSteps = maxSteps;
   const componentFileList = Array.from(componentFiles.keys()).map(p => `- ${p}`).join("\n");
   const assemblyUserMessage = `Assemble the components into the complete model.\n\nAvailable component files:\n${componentFileList}\n\nView each component file to understand its function signature and dimensions, then write main.py that imports and assembles them. Validate, render, and submit when the render succeeds.`;
 
@@ -242,6 +278,8 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     systemPromptOverride: assemblyPrompt,
     userMessageOverride: assemblyUserMessage,
     evalThreshold: input.evalThreshold,
+    traceNodeId: "assembly",
+    traceLabel: "Assembly Agent",
     onProgress: (state, detail) => {
       onProgress?.(state, `[assembly] ${detail}`);
     },

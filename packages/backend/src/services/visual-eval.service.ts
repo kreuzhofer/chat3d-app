@@ -107,7 +107,7 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
   const zoomEnabled = !!stlBase64;
 
   logger.info(
-    { prompt: userPrompt.slice(0, 80), category: categoryName, complexity, imageCount: images.length, zoomEnabled },
+    { category: categoryName, complexity, imageCount: images.length, zoomEnabled },
     "starting evaluation",
   );
 
@@ -210,7 +210,7 @@ async function runEvaluationWithZoom(ctx: RunEvalInput): Promise<EvaluationResul
 
   // If VLM returned text directly (no zoom requested)
   if (capturedZoomRequests.length === 0) {
-    logger.debug({ response: result1.text?.slice(0, 300) }, "VLM returned direct evaluation (no zoom)");
+    logger.info({ response: result1.text }, "VLM returned direct evaluation (no zoom)");
     return buildFinalResult(result1.text, input, vlmConfig.label, totalPromptTokens, totalCompletionTokens, 0);
   }
 
@@ -278,7 +278,7 @@ async function runEvaluationWithZoom(ctx: RunEvalInput): Promise<EvaluationResul
   totalPromptTokens += result2.usage?.inputTokens ?? 0;
   totalCompletionTokens += result2.usage?.outputTokens ?? 0;
 
-  logger.debug({ response: result2.text?.slice(0, 300), zoomCount }, "VLM returned final evaluation after zoom");
+  logger.info({ response: result2.text, zoomCount }, "VLM returned final evaluation after zoom");
   return buildFinalResult(result2.text, input, vlmConfig.label, totalPromptTokens, totalCompletionTokens, zoomCount);
 }
 

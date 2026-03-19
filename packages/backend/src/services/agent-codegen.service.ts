@@ -28,6 +28,7 @@ import {
 } from "../prompts/agent-system-prompt.js";
 import { buildAgentTools, type AgentEvalResult } from "./agent-tools.service.js";
 import { getAutoApproveThreshold } from "./generation-settings.service.js";
+import { getTraceBuilder } from "./trace-builder.service.js";
 
 const logger = createLogger("agent-codegen");
 
@@ -56,6 +57,16 @@ export interface AgentCodegenInput {
   userMessageOverride?: string;
   /** VLM eval threshold for the submit_result quality gate */
   evalThreshold?: number;
+  /** Code assertions from spec generation (for evaluate_code tool) */
+  codeAssertions?: import("./spec-generation.service.js").CodeAssertion[];
+  /** Spec interpretation (for code review context) */
+  specInterpretation?: string;
+  /** Override trace node ID (used by multi-agent to give sub-agents unique IDs) */
+  traceNodeId?: string;
+  /** Override trace label */
+  traceLabel?: string;
+  /** Skip auto-sequence edge for this node (used for parallel sub-agents with explicit edges) */
+  traceSkipAutoEdge?: boolean;
 }
 
 export interface AgentCodegenResult {
@@ -107,8 +118,12 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
   } = input;
 
   logger.info(
-    { prompt: promptText.slice(0, 80), isModification, maxSteps, model: modelConfig.label, complexity, disableRender },
+    { isModification, maxSteps, model: modelConfig.label, complexity, disableRender },
     "starting agent codegen loop",
+  );
+  logger.debug(
+    { prompt: promptText },
+    "agent codegen full prompt",
   );
 
   // Initialize virtual filesystem
@@ -184,11 +199,20 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       evalThreshold,
       onEvalComplete: (result) => { evalResult = result; },
       getLastEvalResult: () => evalResult,
+      codeAssertions: input.codeAssertions,
+      specInterpretation: input.specInterpretation ?? input.interpretation,
     },
     { disableRender },
   );
 
   // Run the agent loop
+  const tb = getTraceBuilder();
+  const agentNodeId = input.traceNodeId ?? (disableRender ? `sub-agent-${baseFileName.slice(0, 8)}` : "agent");
+  const agentNodeType = disableRender ? "sub_agent" : "agent_codegen";
+  const agentLabel = input.traceLabel ?? (disableRender ? "Sub-Agent" : "Agent Codegen");
+  tb?.startPhase(agentNodeId, agentNodeType, agentLabel, undefined, input.traceSkipAutoEdge);
+  tb?.setModel(modelConfig.label, modelConfig.provider);
+
   try {
     const result = await trackedGenerateText({
       model,
@@ -212,6 +236,37 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
         totalReasoningTokens += reasoningTokens;
 
         const toolNames = event.toolCalls.map(tc => tc.toolName);
+
+        // Trace each step as a child node of the agent
+        const stepId = `${agentNodeId}/step-${stepNum}`;
+        tb?.startPhase(stepId, "agent_step", `Step ${stepNum}`, agentNodeId);
+        tb?.setAgentMeta({ stepNumber: stepNum, maxSteps }, stepId);
+        const stepCostUsd = calculateCostUsd(modelConfig, usage?.inputTokens ?? 0, usage?.outputTokens ?? 0);
+        tb?.addUsage({
+          inputTokens: usage?.inputTokens ?? 0,
+          outputTokens: usage?.outputTokens ?? 0,
+          reasoningTokens,
+          costUsd: stepCostUsd,
+        }, stepId);
+        for (const tc of event.toolCalls) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const tcAny = tc as any;
+          const toolResult = event.toolResults.find((tr: { toolCallId: string }) => tr.toolCallId === tcAny.toolCallId);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const trAny = toolResult as any;
+          tb?.addToolCall({
+            toolName: tcAny.toolName,
+            success: !trAny || !(typeof trAny?.result === "string" && trAny.result.startsWith("Error")),
+            inputSummary: JSON.stringify(tcAny.args ?? {}).slice(0, 200),
+            outputSummary: typeof trAny?.result === "string" ? trAny.result.slice(0, 200) : undefined,
+          }, stepId);
+        }
+        // Capture LLM text response (the assistant's reasoning before tool calls)
+        if (event.text) {
+          tb?.setLlmResponseText(event.text, stepId);
+        }
+        tb?.endPhase("completed", { nodeId: stepId });
+
         logger.info(
           { step: stepNum, maxSteps, tools: toolNames, usage: { input: usage?.inputTokens, output: usage?.outputTokens, reasoning: reasoningTokens } },
           "agent step completed",
@@ -240,6 +295,9 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       "agent codegen loop completed",
     );
 
+    tb?.setAgentMeta({ submitted, renderSuccess, stepNumber: stepCount, maxSteps }, agentNodeId);
+    tb?.endPhase("completed", { nodeId: agentNodeId });
+
     return {
       code: finalCode, files: allFiles, renderedFiles: lastRenderedFiles, renderSuccess,
       usage: {
@@ -250,6 +308,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       stepCount, submitted, evalResult,
     };
   } catch (err) {
+    tb?.endPhase("failed", { error: err instanceof Error ? err.message : String(err), nodeId: agentNodeId });
     if (signal?.aborted) {
       logger.info("agent codegen aborted by signal");
       return {

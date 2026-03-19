@@ -4,7 +4,8 @@ export type SseEventType =
   | "notification.created"
   | "admin.settings.updated"
   | "account.status.changed"
-  | "workbench.job.progress";
+  | "workbench.job.progress"
+  | "workbench.trace.update";
 
 export interface SseEventPayload {
   type: SseEventType;
