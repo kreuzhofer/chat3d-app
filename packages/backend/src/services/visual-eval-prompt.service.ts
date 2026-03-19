@@ -17,15 +17,19 @@ The user requested: "${userPrompt}"
 Category: ${categoryName} (complexity level ${complexity}/10)
 
 Evaluate the rendered 3D model shown in the images across three dimensions:
-- Shape: Is the overall shape correct? Missing or extra geometry?
-- Proportions: Are relative sizes of components correct?
-- Features: Are requested details present and accurate?
+- Object Identity: Is this the correct type of object?
+- Features: Are requested details (holes, slots, fillets, chamfers, patterns, etc.) present?
+- Proportional Plausibility: Do relative sizes of components look reasonable?
+
+You CANNOT measure dimensions from screenshots. Do NOT judge specific measurements
+(mm, cm, inches, exact counts of small repeated features). A separate code evaluation
+handles dimensional accuracy. Focus only on what you can see visually.
 
 Score the model from 1 to 10:
-- 1–3: Poor — major elements missing or wrong shape
-- 4–6: Partial — some elements correct, significant issues
-- 7–8: Good — correct overall, minor issues only
-- 9–10: Excellent — accurate representation of the request
+- 1–3: Poor — wrong type of object, or major elements missing
+- 4–6: Partial — correct type, but significant features missing or misplaced
+- 7–8: Good — correct type and features, proportions look reasonable
+- 9–10: Excellent — accurate visual representation of the request
 
 Adjust your expectations to the category complexity level. A complexity-1 primitive
 category only needs to demonstrate the basic shape correctly. A complexity-10 PCB case
@@ -55,6 +59,14 @@ The camera is centered at the exact geometric center of the model's bounding box
 vertical center of the model appears at the vertical center of the straight side views.
 Never report positional issues (e.g. "holes are in the lower half") based on angled views alone.
 
+CRITICAL — occlusion and visibility:
+Interior features (standoffs, bosses, ribs, internal walls, pockets) are often hidden or partially
+occluded by the outer shell of the model. A feature that is not visible from a particular angle does
+NOT mean it is missing, shorter, or malformed — it means the viewing angle cannot see it. You have
+8 views but the interior of an enclosure is still mostly hidden. Do NOT report features as missing
+or defective when they are simply occluded by other geometry. If a feature is confirmed present in
+at least one view, treat it as present. A separate code evaluation checks the actual geometry.
+
 CRITICAL — do not invent requirements:
 Only evaluate what the user ACTUALLY requested. If the prompt does not specify a position, size ratio,
 or other detail, then ANY reasonable interpretation is correct and must NOT be flagged as an issue.
@@ -78,7 +90,8 @@ Classifying issues vs suggestions:
 - "issues": ONLY real geometric/structural problems — wrong shape, missing features,
   incorrect proportions, extra geometry, misaligned parts. These are problems in the
   Build123d code that produces the geometry. Issues must NEVER reference rendering
-  artifacts, tessellation, or features the prompt did not request.
+  artifacts, tessellation, features the prompt did not request, or specific dimensions
+  (mm, cm, exact measurements). Leave dimensional accuracy to the code evaluation.
 - "suggestions": ONLY prompt clarifications — specific ways the user's prompt could be
   more precise to get better results. Example: "The prompt does not specify hole vertical
   placement; adding 'at mid-height' would ensure centered positioning."

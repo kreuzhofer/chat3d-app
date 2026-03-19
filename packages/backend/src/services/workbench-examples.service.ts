@@ -130,7 +130,7 @@ function mapToExampleDetail(
     screenshotOrtho45Bottom: row.screenshotOrtho45Bottom,
     screenshotIso: row.screenshotIso,
     screenshotIsoBack: row.screenshotIsoBack,
-    evalScore: row.evalScore,
+    evalScore: row.evalScore != null ? Number(row.evalScore) : null,
     evalIssues: parseJsonbArray(row.evalIssues),
     evalSuggestions: parseJsonbArray(row.evalSuggestions),
     evalChecklistResults: parseChecklistResultsJson(row.evalChecklistResults),
@@ -422,7 +422,7 @@ export async function listRecentApprovedExamples(limit = 20): Promise<RecentAppr
     promptText: row.promptRef.prompt,
     categoryId: row.promptRef.category.id,
     categoryName: row.promptRef.category.name,
-    evalScore: row.evalScore,
+    evalScore: row.evalScore != null ? Number(row.evalScore) : null,
     createdAt: row.createdAt,
   }));
 }

@@ -220,7 +220,7 @@ export async function getGalleryModel(exampleId: string): Promise<GalleryModelDe
     promptText: row.promptRef.prompt,
     categoryName: row.promptRef.category.name,
     categoryId: row.promptRef.categoryId,
-    evalScore: row.evalScore,
+    evalScore: row.evalScore != null ? Number(row.evalScore) : null,
     createdAt: row.createdAt.toISOString(),
     code: row.code,
     stlPath: row.stlPath,

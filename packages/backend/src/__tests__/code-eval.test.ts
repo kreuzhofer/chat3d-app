@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { computeCompositeScore } from "../services/code-eval.service.js";
+import { computeCompositeScore } from "../services/code-eval-composite.service.js";
 import { parseSpecResponse } from "../services/spec-generation.service.js";
 
 // ── computeCompositeScore ──────────────────────────────────────────────────
@@ -24,47 +24,56 @@ describe("computeCompositeScore", () => {
     expect(result.source).toBe("code_only");
   });
 
-  it("blends visual and code scores with given weight", () => {
-    // visual=8, code=6, weight=0.4 → 8*0.6 + 6*0.4 = 4.8 + 2.4 = 7.2 → 7
+  it("blends visual and code scores with given weight as float", () => {
+    // visual=8, code=6, weight=0.4 → 8*0.6 + 6*0.4 = 4.8 + 2.4 = 7.2
     const result = computeCompositeScore(8, 6, null, 0.4);
-    expect(result.compositeScore).toBe(7);
+    expect(result.compositeScore).toBe(7.2);
     expect(result.source).toBe("composite");
   });
 
   it("caps composite when visual and code strongly disagree", () => {
-    // visual=9, code=3, weight=0.4 → blend = 9*0.6 + 3*0.4 = 6.6 → 7
+    // visual=9, code=3, weight=0.4 → blend = 9*0.6 + 3*0.4 = 6.6
     // But disagreement ≥ 4, so cap at min(9,3)+1 = 4
     const result = computeCompositeScore(9, 3, null, 0.4);
     expect(result.compositeScore).toBe(4);
   });
 
   it("does not cap when disagreement is less than 4", () => {
-    // visual=8, code=5, diff=3, blend = 8*0.6 + 5*0.4 = 6.8 → 7
+    // visual=8, code=5, diff=3, blend = 8*0.6 + 5*0.4 = 6.8
     const result = computeCompositeScore(8, 5, null, 0.4);
-    expect(result.compositeScore).toBe(7); // no cap since diff < 4
+    expect(result.compositeScore).toBe(6.8);
   });
 
-  it("applies assertion penalty when pass rate is below 1", () => {
-    // visual=8, code=8, assertions=0.5
-    // blend = 8*0.6 + 8*0.4 = 8
-    // assertionFactor = 0.5 + 0.5*sqrt(0.5) = 0.5 + 0.354 = 0.854
-    // 8 * 0.854 = 6.83 → 7
+  // ── Assertion hard-fail behavior ──────────────────────────────────────
+
+  it("hard-caps at 2 when any assertion fails (composite)", () => {
     const result = computeCompositeScore(8, 8, 0.5, 0.4);
-    expect(result.compositeScore).toBe(7);
+    expect(result.compositeScore).toBe(2);
+    expect(result.source).toBe("assertion_fail");
   });
 
-  it("applies assertion penalty even in visual-only mode", () => {
-    // visual=8, assertions=0 (all failed)
-    // assertionFactor = 0.5 + 0.5*sqrt(0) = 0.5
-    // 8 * 0.5 = 4
+  it("hard-caps at 2 when all assertions fail", () => {
     const result = computeCompositeScore(8, null, 0, 0.4);
-    expect(result.compositeScore).toBe(4);
-    expect(result.source).toBe("visual_only");
+    expect(result.compositeScore).toBe(2);
+    expect(result.source).toBe("assertion_fail");
   });
 
-  it("does not apply assertion penalty when all pass", () => {
+  it("hard-caps at 2 even with high scores when assertions fail", () => {
+    const result = computeCompositeScore(10, 10, 0.8, 0.4);
+    expect(result.compositeScore).toBe(2);
+    expect(result.source).toBe("assertion_fail");
+  });
+
+  it("does not cap when all assertions pass", () => {
     const result = computeCompositeScore(8, 8, 1, 0.4);
     expect(result.compositeScore).toBe(8);
+    expect(result.source).toBe("composite");
+  });
+
+  it("does not cap when assertion pass rate is null (no assertions)", () => {
+    const result = computeCompositeScore(8, 8, null, 0.4);
+    expect(result.compositeScore).toBe(8);
+    expect(result.source).toBe("composite");
   });
 
   it("returns 1 when both null", () => {
@@ -88,6 +97,19 @@ describe("computeCompositeScore", () => {
     const result = computeCompositeScore(3, 9, null, 1);
     // blend = 3*0 + 9*1 = 9, but diff ≥ 4, cap = 3+1 = 4
     expect(result.compositeScore).toBe(4);
+  });
+
+  it("assertion fail with low base score caps at base score", () => {
+    // visual=1, code=1, assertions=0.5 → base=1, min(2,1)=1
+    const result = computeCompositeScore(1, 1, 0.5, 0.4);
+    expect(result.compositeScore).toBe(1);
+    expect(result.source).toBe("assertion_fail");
+  });
+
+  it("returns 1-decimal precision for blended scores", () => {
+    // visual=7, code=9, weight=0.3 → 7*0.7 + 9*0.3 = 4.9 + 2.7 = 7.6
+    const result = computeCompositeScore(7, 9, null, 0.3);
+    expect(result.compositeScore).toBe(7.6);
   });
 });
 
