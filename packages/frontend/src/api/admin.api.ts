@@ -328,6 +328,7 @@ export interface GenerationSettingDescriptor {
   isOverridden: boolean;
   min: number;
   max: number;
+  step: number;
   updatedAt: string | null;
 }
 

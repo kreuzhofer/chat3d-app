@@ -25,6 +25,7 @@ interface SettingMeta {
   pipeline: Pipeline | "chat-only";
   min: number;
   max: number;
+  step: number;
 }
 
 export interface GenerationSettingDescriptor {
@@ -37,19 +38,24 @@ export interface GenerationSettingDescriptor {
   isOverridden: boolean;
   min: number;
   max: number;
+  step: number;
   updatedAt: string | null;
 }
 
 // ── Registry ─────────────────────────────────────────────────────────
 
 const SETTINGS_REGISTRY = new Map<string, SettingMeta>([
-  ["workbench.auto_approve_threshold", { default: 8, label: "Auto-approve threshold", description: "Minimum VLM eval score to auto-approve", pipeline: "workbench", min: 1, max: 10 }],
-  ["chat.auto_approve_threshold", { default: 8, label: "Auto-approve threshold", description: "Minimum VLM eval score to auto-approve", pipeline: "chat", min: 1, max: 10 }],
-  ["chat.conversation_history_max_pairs", { default: 5, label: "Conversation history max pairs", description: "Max user/assistant exchange pairs for context", pipeline: "chat-only", min: 1, max: 50 }],
-  ["workbench.spec_generation_enabled", { default: 1, label: "Spec generation enabled", description: "Enable specification step before codegen (1=on, 0=off)", pipeline: "workbench", min: 0, max: 1 }],
-  ["chat.spec_generation_enabled", { default: 1, label: "Spec generation enabled", description: "Enable specification step before codegen (1=on, 0=off)", pipeline: "chat", min: 0, max: 1 }],
-  ["chat.agent_max_steps", { default: 15, label: "Agent max tool-use steps", description: "Maximum number of tool-use steps in the agent codegen loop", pipeline: "chat", min: 3, max: 50 }],
-  ["workbench.agent_max_steps", { default: 15, label: "Agent max tool-use steps", description: "Maximum number of tool-use steps in the agent codegen loop", pipeline: "workbench", min: 3, max: 50 }],
+  ["workbench.auto_approve_threshold", { default: 7.5, label: "Auto-approve threshold", description: "Minimum composite eval score to auto-approve", pipeline: "workbench", min: 1, max: 10, step: 0.1 }],
+  ["chat.auto_approve_threshold", { default: 7.5, label: "Auto-approve threshold", description: "Minimum composite eval score to auto-approve", pipeline: "chat", min: 1, max: 10, step: 0.1 }],
+  ["chat.conversation_history_max_pairs", { default: 5, label: "Conversation history max pairs", description: "Max user/assistant exchange pairs for context", pipeline: "chat-only", min: 1, max: 50, step: 1 }],
+  ["workbench.spec_generation_enabled", { default: 1, label: "Spec generation enabled", description: "Enable specification step before codegen (1=on, 0=off)", pipeline: "workbench", min: 0, max: 1, step: 1 }],
+  ["chat.spec_generation_enabled", { default: 1, label: "Spec generation enabled", description: "Enable specification step before codegen (1=on, 0=off)", pipeline: "chat", min: 0, max: 1, step: 1 }],
+  ["chat.agent_max_steps", { default: 15, label: "Agent max tool-use steps", description: "Maximum number of tool-use steps in the agent codegen loop", pipeline: "chat", min: 3, max: 50, step: 1 }],
+  ["workbench.agent_max_steps", { default: 15, label: "Agent max tool-use steps", description: "Maximum number of tool-use steps in the agent codegen loop", pipeline: "workbench", min: 3, max: 50, step: 1 }],
+  ["workbench.sub_agent_max_steps", { default: 10, label: "Sub-agent max steps", description: "Maximum tool-use steps per sub-agent in multi-agent mode", pipeline: "workbench", min: 3, max: 30, step: 1 }],
+  ["chat.sub_agent_max_steps", { default: 10, label: "Sub-agent max steps", description: "Maximum tool-use steps per sub-agent in multi-agent mode", pipeline: "chat", min: 3, max: 30, step: 1 }],
+  ["workbench.code_eval_weight", { default: 0.4, label: "Code eval weight", description: "Weight of code evaluation in composite score (0=visual only, 1=code only)", pipeline: "workbench", min: 0, max: 1, step: 0.1 }],
+  ["chat.code_eval_weight", { default: 0.4, label: "Code eval weight", description: "Weight of code evaluation in composite score (0=visual only, 1=code only)", pipeline: "chat", min: 0, max: 1, step: 0.1 }],
 ]);
 
 // ── In-memory cache ──────────────────────────────────────────────────
@@ -107,6 +113,14 @@ export async function getAgentMaxSteps(pipeline: "chat" | "workbench"): Promise<
   return getEffective(`${pipeline}.agent_max_steps`);
 }
 
+export async function getSubAgentMaxSteps(pipeline: Pipeline): Promise<number> {
+  return getEffective(`${pipeline}.sub_agent_max_steps`);
+}
+
+export async function getCodeEvalWeight(pipeline: Pipeline): Promise<number> {
+  return getEffective(`${pipeline}.code_eval_weight`);
+}
+
 // ── Admin API ────────────────────────────────────────────────────────
 
 export async function listGenerationSettings(): Promise<GenerationSettingDescriptor[]> {
@@ -126,6 +140,7 @@ export async function listGenerationSettings(): Promise<GenerationSettingDescrip
       isOverridden,
       min: meta.min,
       max: meta.max,
+      step: meta.step,
       updatedAt: null, // populated below if overridden
     });
   }
@@ -173,6 +188,7 @@ export async function updateGenerationSetting(key: string, value: number): Promi
     isOverridden: true,
     min: meta.min,
     max: meta.max,
+    step: meta.step,
     updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -195,6 +211,7 @@ export async function deleteGenerationSetting(key: string): Promise<GenerationSe
     isOverridden: false,
     min: meta.min,
     max: meta.max,
+    step: meta.step,
     updatedAt: null,
   };
 }

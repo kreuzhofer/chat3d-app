@@ -96,7 +96,7 @@ export function GenerationTab({ token }: GenerationTabProps) {
   const chatSettings = settings.filter((s) => s.pipeline === "chat" || s.pipeline === "chat-only");
 
   function isBoolean(setting: GenerationSettingDescriptor): boolean {
-    return setting.min === 0 && setting.max === 1;
+    return setting.min === 0 && setting.max === 1 && setting.step === 1;
   }
 
   async function handleToggle(key: string, checked: boolean) {
@@ -159,7 +159,7 @@ export function GenerationTab({ token }: GenerationTabProps) {
                   type="number"
                   min={setting.min}
                   max={setting.max}
-                  step={1}
+                  step={setting.step}
                   value={editValues[setting.key] ?? String(setting.effectiveValue)}
                   disabled={busy}
                   className="w-20 text-center"
