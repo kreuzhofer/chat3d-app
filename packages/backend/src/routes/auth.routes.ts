@@ -48,9 +48,7 @@ authRouter.post("/register", async (req, res) => {
     return;
   }
 
-  // Email confirmation is required when: enabled AND no registration token was provided
-  // (registration tokens from waitlist/invitations already imply email verification)
-  const requireEmailConfirmation = emailConfirmationEnabled && !registrationToken;
+  const requireEmailConfirmation = emailConfirmationEnabled;
 
   try {
     const result = await prisma.$transaction(async (tx) => {
