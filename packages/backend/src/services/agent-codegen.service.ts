@@ -21,14 +21,15 @@ import {
   calculateCostUsd,
   type LlmModelConfig,
 } from "./llm-config.service.js";
-import { wrapInTemplate } from "./workbench-codegen.service.js";
+import { wrapInTemplate } from "../utils/workbench-code-utils.js";
 import {
   buildAgentSystemPrompt,
   buildFullAgentSystemPrompt,
 } from "../prompts/agent-system-prompt.js";
 import { buildAgentTools, type AgentEvalResult } from "./agent-tools.service.js";
 import { getAutoApproveThreshold } from "./generation-settings.service.js";
-import { getTraceBuilder } from "./trace-builder.service.js";
+import { getTraceBuilder, TraceBuilder } from "./trace-builder.service.js";
+import { updateTraceIncremental } from "./trace-persistence.service.js";
 
 const logger = createLogger("agent-codegen");
 
@@ -67,6 +68,8 @@ export interface AgentCodegenInput {
   traceLabel?: string;
   /** Skip auto-sequence edge for this node (used for parallel sub-agents with explicit edges) */
   traceSkipAutoEdge?: boolean;
+  /** Trace row ID for incremental persistence (optional — skipped if null) */
+  traceId?: string | null;
 }
 
 export interface AgentCodegenResult {
@@ -165,6 +168,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
   let totalReasoningTokens = 0;
+  let completedStepCount = 0;
 
   // Load eval threshold for submit_result quality gate (caller provides pipeline-scoped value)
   const evalThreshold = inputEvalThreshold ?? await getAutoApproveThreshold("chat");
@@ -226,6 +230,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       abortSignal: signal,
       onStepFinish: (event) => {
         const stepNum = event.stepNumber + 1;
+        completedStepCount = stepNum;
         const usage = event.usage;
 
         totalPromptTokens += usage?.inputTokens ?? 0;
@@ -266,6 +271,10 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
           tb?.setLlmResponseText(event.text, stepId);
         }
         tb?.endPhase("completed", { nodeId: stepId });
+        // Incremental trace persistence after each agent step
+        if (input.traceId && tb) {
+          updateTraceIncremental(input.traceId, tb.snapshot());
+        }
 
         logger.info(
           { step: stepNum, maxSteps, tools: toolNames, usage: { input: usage?.inputTokens, output: usage?.outputTokens, reasoning: reasoningTokens } },
@@ -308,7 +317,23 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       stepCount, submitted, evalResult,
     };
   } catch (err) {
-    tb?.endPhase("failed", { error: err instanceof Error ? err.message : String(err), nodeId: agentNodeId });
+    // Add a phantom step node when aborted before any step completed
+    // so the trace shows what was happening at the time of failure
+    if (tb && completedStepCount === 0) {
+      const phantomId = `${agentNodeId}/step-aborted`;
+      tb.startPhase(phantomId, "agent_step", "Step 1 (aborted)", agentNodeId);
+      tb.setAgentMeta({ stepNumber: 1, maxSteps }, phantomId);
+      const errorInfo = TraceBuilder.classifyError(err);
+      tb.endPhase("failed", { error: errorInfo.message, errorInfo, nodeId: phantomId });
+    }
+
+    // Use endPhaseWithError for proper classification
+    tb?.endPhaseWithError(err, { nodeId: agentNodeId });
+    // Persist partial trace immediately
+    if (input.traceId && tb) {
+      updateTraceIncremental(input.traceId, tb.snapshot());
+    }
+
     if (signal?.aborted) {
       logger.info("agent codegen aborted by signal");
       return {

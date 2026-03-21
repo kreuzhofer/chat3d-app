@@ -859,3 +859,85 @@ export async function exportUsageData(
     URL.revokeObjectURL(url);
   }
 }
+
+// ── Pipeline Analytics ──────────────────────────────────────────────
+
+export interface PipelineSummary {
+  totalGenerations: number;
+  avgDurationMs: number;
+  avgCostUsd: number;
+  avgSteps: number;
+  avgLlmCalls: number;
+  completedCount: number;
+  failedCount: number;
+  abortedCount: number;
+  failureRate: number;
+  avgEvalScore: number | null;
+}
+
+export interface PipelineTimeseriesPoint {
+  bucket: string;
+  count: number;
+  avgSteps: number;
+  avgDurationMs: number;
+  avgCostUsd: number;
+  failureRate: number;
+  avgEvalScore: number | null;
+}
+
+export interface PipelineToolUsageRow {
+  toolName: string;
+  callCount: number;
+  successCount: number;
+}
+
+export interface PipelineBreakdown {
+  singleAgentCount: number;
+  multiAgentCount: number;
+  submittedCount: number;
+  stepLimitCount: number;
+}
+
+export interface PipelineFiltersInput {
+  from?: string;
+  to?: string;
+  pipelineType?: string;
+}
+
+function buildPipelineQuery(filters: PipelineFiltersInput, extra?: Record<string, string>): string {
+  const params = new URLSearchParams();
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
+  if (filters.pipelineType) params.set("pipelineType", filters.pipelineType);
+  if (extra) {
+    for (const [k, v] of Object.entries(extra)) params.set(k, v);
+  }
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export async function getPipelineSummary(token: string, filters: PipelineFiltersInput): Promise<PipelineSummary> {
+  return requestAdminJson(token, `/pipeline/summary${buildPipelineQuery(filters)}`);
+}
+
+export async function getPipelineTimeseries(
+  token: string,
+  filters: PipelineFiltersInput,
+  granularity: string,
+): Promise<{ series: PipelineTimeseriesPoint[] }> {
+  return requestAdminJson(token, `/pipeline/timeseries${buildPipelineQuery(filters, { granularity })}`);
+}
+
+export async function getPipelineToolUsage(
+  token: string,
+  filters: PipelineFiltersInput,
+): Promise<{ tools: PipelineToolUsageRow[] }> {
+  return requestAdminJson(token, `/pipeline/tools${buildPipelineQuery(filters)}`);
+}
+
+export async function getPipelineBreakdown(
+  token: string,
+  filters: PipelineFiltersInput,
+): Promise<PipelineBreakdown> {
+  return requestAdminJson(token, `/pipeline/breakdown${buildPipelineQuery(filters)}`);
+}

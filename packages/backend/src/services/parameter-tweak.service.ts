@@ -10,7 +10,7 @@ import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
 import { readStorageFile, storageFileExists, writeStorageFile } from "./file-storage.service.js";
 import { renderBuild123d } from "./rendering.service.js";
-import { wrapInTemplate } from "./workbench-codegen.service.js";
+import { wrapInTemplate } from "../utils/workbench-code-utils.js";
 import { createChatItem, updateChatItem } from "./chat.service.js";
 import { notificationService } from "./notification.service.js";
 import { sseService } from "./sse.service.js";

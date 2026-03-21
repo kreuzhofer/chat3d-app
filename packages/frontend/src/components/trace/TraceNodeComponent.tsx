@@ -91,6 +91,8 @@ function TraceNodeInner({ data, selected }: TraceNodeComponentProps) {
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         {isRunning ? (
           <span style={{ fontSize: 14, display: "inline-block", animation: "spin 1s linear infinite" }}>⏳</span>
+        ) : isFailed ? (
+          <span style={{ fontSize: 14, color: "#ef4444" }}>⚡</span>
         ) : (
           <span style={{ fontSize: 14 }}>{icon}</span>
         )}

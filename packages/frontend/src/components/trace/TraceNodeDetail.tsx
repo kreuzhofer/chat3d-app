@@ -3,7 +3,7 @@
  * Shows tool calls, token breakdown, error details, agent metadata.
  */
 
-import type { TraceNode } from "@chat3d/shared";
+import type { TraceNode, TraceErrorInfo } from "@chat3d/shared";
 import { Badge } from "../ui/badge";
 
 function formatTokens(n: number): string {
@@ -24,6 +24,44 @@ function statusTone(status: string): "success" | "danger" | "warning" | "neutral
   if (status === "failed") return "danger";
   if (status === "skipped") return "neutral";
   return "warning";
+}
+
+function ErrorDetail({ errorInfo, errorMessage }: { errorInfo?: TraceErrorInfo; errorMessage?: string }) {
+  if (errorInfo) {
+    return (
+      <div>
+        <p className="mb-1 font-medium uppercase text-red-400">Error</p>
+        <div className="mb-1 flex items-center gap-2">
+          <Badge tone="danger">{errorInfo.category}</Badge>
+          {errorInfo.errorName ? (
+            <span className="font-mono text-red-300">{errorInfo.errorName}</span>
+          ) : null}
+        </div>
+        <p className="whitespace-pre-wrap break-all rounded bg-red-950/30 p-2 text-red-300">
+          {errorInfo.message}
+        </p>
+        {errorInfo.stack ? (
+          <details className="mt-1">
+            <summary className="cursor-pointer text-[hsl(var(--muted-foreground))] hover:text-red-300">
+              Stack trace
+            </summary>
+            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-red-950/20 p-2 font-mono text-[10px] text-red-300/70">
+              {errorInfo.stack}
+            </pre>
+          </details>
+        ) : null}
+      </div>
+    );
+  }
+  // Fallback for old traces without errorInfo
+  return (
+    <div>
+      <p className="mb-1 font-medium uppercase text-red-400">Error</p>
+      <p className="whitespace-pre-wrap break-all rounded bg-red-950/30 p-2 text-red-300">
+        {errorMessage}
+      </p>
+    </div>
+  );
 }
 
 export function TraceNodeDetail({ node, onClose }: { node: TraceNode; onClose: () => void }) {
@@ -164,13 +202,8 @@ export function TraceNodeDetail({ node, onClose }: { node: TraceNode; onClose: (
         ) : null}
 
         {/* Error */}
-        {node.error ? (
-          <div>
-            <p className="mb-1 font-medium uppercase text-red-400">Error</p>
-            <p className="whitespace-pre-wrap break-all rounded bg-red-950/30 p-2 text-red-300">
-              {node.error}
-            </p>
-          </div>
+        {(node.errorInfo || node.error) ? (
+          <ErrorDetail errorInfo={node.errorInfo} errorMessage={node.error} />
         ) : null}
       </div>
     </div>

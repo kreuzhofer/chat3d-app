@@ -43,6 +43,8 @@ export interface EvaluationResult {
   checklistResults?: ChecklistResult[];
   /** Number of zoom requests the VLM made during evaluation */
   zoomRequestCount?: number;
+  /** Detail of each zoom request (angle + reason) for trace tool call capture */
+  zoomRequests?: Array<{ angle: string; reason: string }>;
 }
 
 export type { ChecklistResult } from "./visual-eval-parser.service.js";
@@ -279,7 +281,8 @@ async function runEvaluationWithZoom(ctx: RunEvalInput): Promise<EvaluationResul
   totalCompletionTokens += result2.usage?.outputTokens ?? 0;
 
   logger.info({ response: result2.text, zoomCount }, "VLM returned final evaluation after zoom");
-  return buildFinalResult(result2.text, input, vlmConfig.label, totalPromptTokens, totalCompletionTokens, zoomCount);
+  const zoomDetails = capturedZoomRequests.slice(0, MAX_ZOOM_REQUESTS).map(r => ({ angle: r.angle, reason: r.reason }));
+  return buildFinalResult(result2.text, input, vlmConfig.label, totalPromptTokens, totalCompletionTokens, zoomCount, zoomDetails);
 }
 
 // ── Build final result from VLM text ─────────────────────────────────
@@ -291,12 +294,13 @@ function buildFinalResult(
   promptTokens: number,
   completionTokens: number,
   zoomRequestCount: number,
+  zoomRequests?: Array<{ angle: string; reason: string }>,
 ): EvaluationResult {
   if (!responseText) {
     return {
       score: 1, issues: ["Empty response from VLM"], suggestions: [],
       vlmModel: vlmModelLabel,
-      promptTokens, completionTokens, zoomRequestCount,
+      promptTokens, completionTokens, zoomRequestCount, zoomRequests,
     };
   }
 
@@ -322,5 +326,6 @@ function buildFinalResult(
     completionTokens,
     checklistResults,
     zoomRequestCount,
+    zoomRequests,
   };
 }

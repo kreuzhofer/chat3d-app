@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
+  Activity,
   ArchiveRestore,
   Bell,
   BookOpen,
@@ -85,6 +86,7 @@ export function Sidebar() {
     { to: "/admin/curation", label: t("admin.curation"), icon: <Star className="h-3.5 w-3.5" /> },
     { to: "/admin/knowledge", label: t("admin.knowledge"), icon: <BookOpen className="h-3.5 w-3.5" /> },
     { to: "/admin/costs", label: t("admin.costs"), icon: <DollarSign className="h-3.5 w-3.5" /> },
+    { to: "/admin/pipeline", label: t("admin.pipeline"), icon: <Activity className="h-3.5 w-3.5" /> },
   ], [t]);
 
   const navLinkClass = (isActive: boolean) =>

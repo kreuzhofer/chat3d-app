@@ -74,6 +74,12 @@ import {
   getUsageTimeseries,
   exportUsageEvents,
 } from "../services/usage-analytics.service.js";
+import {
+  getPipelineSummary,
+  getPipelineTimeseries,
+  getPipelineToolUsage,
+  getPipelineBreakdown,
+} from "../services/pipeline-analytics.service.js";
 import { config } from "../config.js";
 import { prisma } from "../db/prisma.js";
 import {
@@ -1032,6 +1038,64 @@ adminRouter.get("/usage/export", async (req, res) => {
     }
   } catch (error) {
     sendKnownError(res, error, "Failed to export usage events");
+  }
+});
+
+// ── Pipeline Analytics ───────────────────────────────────────────────
+
+adminRouter.get("/pipeline/summary", async (req, res) => {
+  try {
+    const summary = await getPipelineSummary({
+      from: parseOptionalDate(req.query.from),
+      to: parseOptionalDate(req.query.to),
+      pipelineType: typeof req.query.pipelineType === "string" ? req.query.pipelineType : undefined,
+    });
+    res.status(200).json(summary);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to get pipeline summary");
+  }
+});
+
+adminRouter.get("/pipeline/timeseries", async (req, res) => {
+  try {
+    const granularity = typeof req.query.granularity === "string" ? req.query.granularity : "day";
+    const result = await getPipelineTimeseries(
+      {
+        from: parseOptionalDate(req.query.from),
+        to: parseOptionalDate(req.query.to),
+        pipelineType: typeof req.query.pipelineType === "string" ? req.query.pipelineType : undefined,
+      },
+      granularity,
+    );
+    res.status(200).json({ series: result });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to get pipeline timeseries");
+  }
+});
+
+adminRouter.get("/pipeline/tools", async (req, res) => {
+  try {
+    const tools = await getPipelineToolUsage({
+      from: parseOptionalDate(req.query.from),
+      to: parseOptionalDate(req.query.to),
+      pipelineType: typeof req.query.pipelineType === "string" ? req.query.pipelineType : undefined,
+    });
+    res.status(200).json({ tools });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to get pipeline tool usage");
+  }
+});
+
+adminRouter.get("/pipeline/breakdown", async (req, res) => {
+  try {
+    const breakdown = await getPipelineBreakdown({
+      from: parseOptionalDate(req.query.from),
+      to: parseOptionalDate(req.query.to),
+      pipelineType: typeof req.query.pipelineType === "string" ? req.query.pipelineType : undefined,
+    });
+    res.status(200).json(breakdown);
+  } catch (error) {
+    sendKnownError(res, error, "Failed to get pipeline breakdown");
   }
 });
 

@@ -21,6 +21,8 @@ import type {
   TraceToolCall,
   TraceAgentMeta,
   TraceSummary,
+  TraceErrorInfo,
+  TraceErrorCategory,
 } from "@chat3d/shared";
 
 // ── AsyncLocalStorage context ────────────────────────────────────────
@@ -100,7 +102,7 @@ export class TraceBuilder {
   }
 
   /** End a phase, setting status and optional metadata. If nodeId is omitted, pops from the stack. */
-  endPhase(status: TraceNode["status"], opts?: { error?: string; nodeId?: string }): void {
+  endPhase(status: TraceNode["status"], opts?: { error?: string; errorInfo?: TraceErrorInfo; nodeId?: string }): void {
     const resolvedId = opts?.nodeId ?? this.nodeStack.pop();
     if (!resolvedId) return;
 
@@ -117,7 +119,45 @@ export class TraceBuilder {
     node.completedAt = new Date().toISOString();
     node.durationMs = new Date(node.completedAt).getTime() - new Date(node.startedAt).getTime();
     if (opts?.error) node.error = opts.error;
+    if (opts?.errorInfo) node.errorInfo = opts.errorInfo;
     this.emitChange();
+  }
+
+  /** Classify an error into a TraceErrorInfo with category, message, stack, and name. */
+  static classifyError(err: unknown): TraceErrorInfo {
+    const message = err instanceof Error ? err.message : String(err);
+    const errorName = err instanceof Error ? err.name : undefined;
+    const stack = err instanceof Error && err.stack
+      ? err.stack.slice(0, 500)
+      : undefined;
+
+    let category: TraceErrorCategory = "exception";
+
+    if (errorName === "AbortError" || /\babort/i.test(message)) {
+      category = "abort";
+    } else if (/\btimeout\b/i.test(message) || /\btimed?\s*out\b/i.test(message)) {
+      category = "timeout";
+    } else if (errorName === "ProviderRateLimitError" || /rate.?limit/i.test(message)) {
+      category = "rate_limit";
+    } else if (errorName === "ProviderQuotaExhaustedError" || /quota.?exhaust/i.test(message)) {
+      category = "quota_exhausted";
+    } else if (/\brender\b/i.test(message) || /\bbuild123d\b/i.test(message)) {
+      category = "render_failure";
+    } else if (/\bvalidation\b/i.test(message)) {
+      category = "validation_failure";
+    }
+
+    return { category, message, stack, errorName };
+  }
+
+  /** Convenience: classify error, then end the current phase as failed with error info. */
+  endPhaseWithError(err: unknown, opts?: { nodeId?: string }): void {
+    const errorInfo = TraceBuilder.classifyError(err);
+    this.endPhase("failed", {
+      error: errorInfo.message,
+      errorInfo,
+      nodeId: opts?.nodeId,
+    });
   }
 
   /** Set usage on the current (or specified) node. */
@@ -282,7 +322,8 @@ export class TraceBuilder {
     const totalSteps = this.nodes.filter(n => n.type === "agent_step").length;
 
     const hasFailed = this.nodes.some(n => n.status === "failed");
-    const hasAborted = rootNodes.some(n => n.status === "failed" && n.error?.includes("abort"));
+    const hasAborted = this.nodes.some(n => n.errorInfo?.category === "abort")
+      || rootNodes.some(n => n.status === "failed" && n.error?.includes("abort"));
 
     return {
       totalDurationMs: lastEnd > 0 ? lastEnd - firstStart : 0,

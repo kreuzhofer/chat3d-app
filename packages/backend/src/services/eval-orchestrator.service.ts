@@ -279,6 +279,14 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
         });
       }
       if (vlmModel) tb?.setModel(vlmModel);
+      // Add zoom tool calls to the eval-vlm trace node for analytics
+      for (const zr of vlmResult.zoomRequests ?? []) {
+        tb?.addToolCall({
+          toolName: "request_detail_view",
+          success: true,
+          inputSummary: `angle: ${zr.angle}, reason: ${zr.reason}`.slice(0, 200),
+        }, "eval-vlm");
+      }
       tb?.endPhase("completed");
 
       logger.info(

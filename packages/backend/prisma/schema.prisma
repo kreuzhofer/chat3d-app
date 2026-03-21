@@ -483,6 +483,7 @@ model GenerationTrace {
   id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   workbenchExampleId  String?  @unique @map("workbench_example_id") @db.Uuid
   chatItemId          String?  @unique @map("chat_item_id") @db.Uuid
+  promptId            String?  @map("prompt_id") @db.VarChar(255)
   totalDurationMs     Int?     @map("total_duration_ms")
   totalCostUsd        Decimal? @map("total_cost_usd") @db.Decimal(12, 8)
   totalSteps          Int?     @map("total_steps")
@@ -491,6 +492,7 @@ model GenerationTrace {
   pipelineType        String   @map("pipeline_type") @db.VarChar(20)
   trace               Json     @db.JsonB
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
   workbenchExample WorkbenchExample? @relation(fields: [workbenchExampleId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -499,6 +501,7 @@ model GenerationTrace {
   @@index([workbenchExampleId], map: "idx_gen_traces_wb_example")
   @@index([chatItemId], map: "idx_gen_traces_chat_item")
   @@index([createdAt(sort: Desc)], map: "idx_gen_traces_created")
+  @@index([promptId], map: "idx_gen_traces_prompt_id")
   @@map("generation_traces")
 }
 

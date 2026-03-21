@@ -49,6 +49,27 @@ export interface TraceAgentMeta {
   codeSnapshotHash?: string;
 }
 
+// ── Error classification ───────────────────────────────────────────────
+
+export type TraceErrorCategory =
+  | "timeout"
+  | "abort"
+  | "exception"
+  | "render_failure"
+  | "validation_failure"
+  | "rate_limit"
+  | "quota_exhausted"
+  | "unknown";
+
+export interface TraceErrorInfo {
+  category: TraceErrorCategory;
+  message: string;
+  stack?: string;
+  errorName?: string;
+}
+
+// ── Node ──────────────────────────────────────────────────────────────
+
 export interface TraceNode {
   id: string;
   type: TraceNodeType;
@@ -65,7 +86,10 @@ export interface TraceNode {
   agentMeta?: TraceAgentMeta;
   /** LLM text response for this node (truncated for large responses). */
   llmResponseText?: string;
+  /** Simple error message string (kept for backward compat with stored traces). */
   error?: string;
+  /** Rich error info with classification. */
+  errorInfo?: TraceErrorInfo;
 }
 
 // ── Edge types ─────────────────────────────────────────────────────────

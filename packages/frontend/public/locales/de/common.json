@@ -112,7 +112,8 @@
     "generation": "Generierung",
     "curation": "Kuratierung",
     "knowledge": "Wissensbasis",
-    "costs": "Kosten"
+    "costs": "Kosten",
+    "pipeline": "Pipeline"
   },
   "sidebar": {
     "newChat": "Neuer Chat",
