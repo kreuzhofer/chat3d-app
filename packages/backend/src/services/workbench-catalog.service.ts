@@ -2,9 +2,9 @@ import { prisma } from "../db/prisma.js";
 import { embedAndStorePrompt } from "./workbench-embeddings.service.js";
 import { createLogger } from "../utils/logger.js";
 
-const logger = createLogger("seed");
+const logger = createLogger("catalog");
 
-export class WorkbenchSeederError extends Error {
+export class WorkbenchCatalogError extends Error {
   constructor(
     message: string,
     public readonly statusCode = 400,
@@ -90,7 +90,7 @@ export async function listPromptsForCategory(categoryId: string) {
   // Verify category exists
   const cat = await prisma.workbenchCategory.findUnique({ where: { id: categoryId }, select: { id: true } });
   if (!cat) {
-    throw new WorkbenchSeederError("Category not found", 404);
+    throw new WorkbenchCatalogError("Category not found", 404);
   }
 
   // Complex correlated subqueries → stays as raw SQL
@@ -159,7 +159,7 @@ export async function createCategory(data: {
 }) {
   const existing = await prisma.workbenchCategory.findUnique({ where: { rank: data.rank } });
   if (existing) {
-    throw new WorkbenchSeederError(`A category with rank ${data.rank} already exists`, 409);
+    throw new WorkbenchCatalogError(`A category with rank ${data.rank} already exists`, 409);
   }
   const cat = await prisma.workbenchCategory.create({ data });
   logger.info({ id: cat.id, name: cat.name, rank: cat.rank }, "created workbench category");
@@ -171,14 +171,14 @@ export async function updateCategory(
   data: { name?: string; rank?: number; complexity?: number; description?: string },
 ) {
   const cat = await prisma.workbenchCategory.findUnique({ where: { id }, select: { id: true } });
-  if (!cat) throw new WorkbenchSeederError("Category not found", 404);
+  if (!cat) throw new WorkbenchCatalogError("Category not found", 404);
 
   if (data.rank !== undefined) {
     const conflict = await prisma.workbenchCategory.findFirst({
       where: { rank: data.rank, id: { not: id } },
       select: { id: true },
     });
-    if (conflict) throw new WorkbenchSeederError(`A category with rank ${data.rank} already exists`, 409);
+    if (conflict) throw new WorkbenchCatalogError(`A category with rank ${data.rank} already exists`, 409);
   }
 
   await prisma.workbenchCategory.update({ where: { id }, data: { ...data, updatedAt: new Date() } });
@@ -187,7 +187,7 @@ export async function updateCategory(
 
 export async function deleteCategory(id: string) {
   const cat = await prisma.workbenchCategory.findUnique({ where: { id }, select: { id: true } });
-  if (!cat) throw new WorkbenchSeederError("Category not found", 404);
+  if (!cat) throw new WorkbenchCatalogError("Category not found", 404);
 
   const prompts = await prisma.workbenchExamplePrompt.findMany({
     where: { categoryId: id },
@@ -209,8 +209,8 @@ export async function deleteCategory(id: string) {
 
 export async function createPrompts(categoryId: string, prompts: string[]): Promise<number> {
   const cat = await prisma.workbenchCategory.findUnique({ where: { id: categoryId }, select: { id: true } });
-  if (!cat) throw new WorkbenchSeederError("Category not found", 404);
-  if (!prompts.length) throw new WorkbenchSeederError("At least one prompt is required", 400);
+  if (!cat) throw new WorkbenchCatalogError("Category not found", 404);
+  if (!prompts.length) throw new WorkbenchCatalogError("At least one prompt is required", 400);
 
   // Get current max index for this category
   const maxRow = await prisma.workbenchExamplePrompt.aggregate({
@@ -248,7 +248,7 @@ export async function deletePrompt(promptId: string): Promise<void> {
     where: { id: promptId },
     select: { id: true },
   });
-  if (!prompt) throw new WorkbenchSeederError("Prompt not found", 404);
+  if (!prompt) throw new WorkbenchCatalogError("Prompt not found", 404);
 
   await prisma.workbenchExample.deleteMany({ where: { promptId } });
   await prisma.workbenchExamplePrompt.delete({ where: { id: promptId } });
@@ -257,7 +257,7 @@ export async function deletePrompt(promptId: string): Promise<void> {
 
 export async function updatePromptText(promptId: string, newText: string): Promise<void> {
   if (!newText || newText.trim().length === 0) {
-    throw new WorkbenchSeederError("Prompt text cannot be empty", 400);
+    throw new WorkbenchCatalogError("Prompt text cannot be empty", 400);
   }
 
   const trimmed = newText.trim();
@@ -268,7 +268,7 @@ export async function updatePromptText(promptId: string, newText: string): Promi
   `;
 
   if (count === 0) {
-    throw new WorkbenchSeederError("Prompt not found", 404);
+    throw new WorkbenchCatalogError("Prompt not found", 404);
   }
 
   // Re-embed asynchronously

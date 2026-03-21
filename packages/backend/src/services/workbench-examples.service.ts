@@ -9,7 +9,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import { deleteStorageFile } from "./file-storage.service.js";
-import { WorkbenchSeederError } from "./workbench-seeder.service.js";
+import { WorkbenchCatalogError } from "./workbench-catalog.service.js";
 
 const logger = createLogger("workbench-examples");
 
@@ -154,7 +154,7 @@ export async function getExample(exampleId: string): Promise<ExampleDetail> {
   });
 
   if (!row) {
-    throw new WorkbenchSeederError("Example not found", 404);
+    throw new WorkbenchCatalogError("Example not found", 404);
   }
 
   return mapToExampleDetail(row, row.promptRef);
@@ -181,9 +181,9 @@ export async function approveExample(exampleId: string): Promise<void> {
       select: { approvalStatus: true },
     });
     if (!check) {
-      throw new WorkbenchSeederError("Example not found", 404);
+      throw new WorkbenchCatalogError("Example not found", 404);
     }
-    throw new WorkbenchSeederError(
+    throw new WorkbenchCatalogError(
       `Cannot approve example with status '${check.approvalStatus}'`,
       400,
     );
@@ -211,9 +211,9 @@ export async function rejectExample(exampleId: string, note?: string): Promise<v
       select: { approvalStatus: true },
     });
     if (!check) {
-      throw new WorkbenchSeederError("Example not found", 404);
+      throw new WorkbenchCatalogError("Example not found", 404);
     }
-    throw new WorkbenchSeederError(
+    throw new WorkbenchCatalogError(
       `Cannot reject example with status '${check.approvalStatus}'`,
       400,
     );
@@ -224,7 +224,7 @@ export async function rejectExample(exampleId: string, note?: string): Promise<v
 
 export async function updateExampleCode(exampleId: string, newCode: string): Promise<void> {
   if (!newCode || newCode.trim().length === 0) {
-    throw new WorkbenchSeederError("Code cannot be empty", 400);
+    throw new WorkbenchCatalogError("Code cannot be empty", 400);
   }
 
   try {
@@ -253,7 +253,7 @@ export async function updateExampleCode(exampleId: string, newCode: string): Pro
     });
   } catch (error) {
     if ((error as { code?: string }).code === "P2025") {
-      throw new WorkbenchSeederError("Example not found", 404);
+      throw new WorkbenchCatalogError("Example not found", 404);
     }
     throw error;
   }
@@ -266,7 +266,7 @@ export async function deleteExample(exampleId: string): Promise<void> {
     await prisma.workbenchExample.delete({ where: { id: exampleId } });
   } catch (error) {
     if ((error as { code?: string }).code === "P2025") {
-      throw new WorkbenchSeederError("Example not found", 404);
+      throw new WorkbenchCatalogError("Example not found", 404);
     }
     throw error;
   }

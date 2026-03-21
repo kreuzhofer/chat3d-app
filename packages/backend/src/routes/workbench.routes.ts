@@ -17,8 +17,8 @@ import {
   listPromptsForCategory,
   updateCategory,
   updatePromptText,
-  WorkbenchSeederError,
-} from "../services/workbench-seeder.service.js";
+  WorkbenchCatalogError,
+} from "../services/workbench-catalog.service.js";
 import {
   approveExample,
   deleteExample,
@@ -100,7 +100,7 @@ workbenchRouter.get("/categories", async (_req, res) => {
     const categories = await listCategories();
     res.status(200).json(categories);
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -120,7 +120,7 @@ workbenchRouter.post("/categories", async (req, res) => {
     const cat = await createCategory({ name, rank, complexity, description });
     res.status(201).json(cat);
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -136,7 +136,7 @@ workbenchRouter.patch("/categories/:id", async (req, res) => {
     await updateCategory(req.params.id, { name, rank, complexity, description });
     res.status(200).json({ ok: true });
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -149,7 +149,7 @@ workbenchRouter.delete("/categories/:id", async (req, res) => {
     const result = await deleteCategory(req.params.id);
     res.status(200).json({ ok: true, ...result });
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -162,7 +162,7 @@ workbenchRouter.get("/categories/:id/prompts", async (req, res) => {
     const prompts = await listPromptsForCategory(req.params.id);
     res.status(200).json(prompts);
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -184,7 +184,7 @@ workbenchRouter.post("/categories/:id/prompts", async (req, res) => {
     const created = await createPrompts(req.params.id, prompts);
     res.status(201).json({ created });
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -202,7 +202,7 @@ workbenchRouter.patch("/prompts/:id", async (req, res) => {
     await updatePromptText(req.params.id, prompt);
     res.status(200).json({ ok: true });
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -215,7 +215,7 @@ workbenchRouter.delete("/prompts/:id", async (req, res) => {
     await deletePrompt(req.params.id);
     res.status(200).json({ ok: true });
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -264,7 +264,7 @@ workbenchRouter.post("/prompts/:id/improve", async (req, res) => {
     res.status(200).json({ variations: result.variations });
   } catch (error) {
     logger.error({ err: error }, "Failed to generate prompt improvements");
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -284,7 +284,7 @@ workbenchRouter.post("/generate", async (req, res) => {
     const job = await startSingleJob(promptId, "generate", undefined, req.authUser!.id);
     res.status(202).json(job);
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -313,7 +313,7 @@ workbenchRouter.get("/prompts/:promptId/examples", async (req, res) => {
     const examples = await listExamplesForPrompt(req.params.promptId);
     res.status(200).json(examples);
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -326,7 +326,7 @@ workbenchRouter.get("/examples/:id", async (req, res) => {
     const example = await getExample(req.params.id);
     res.status(200).json(example);
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -376,7 +376,7 @@ workbenchRouter.get("/examples/:id/screenshot/:angle", async (req, res) => {
     res.setHeader("Cache-Control", "public, max-age=3600");
     res.status(200).send(buffer);
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -408,7 +408,7 @@ workbenchRouter.patch("/examples/:id/approve", async (req, res) => {
     await approveExample(req.params.id);
     res.status(200).json({ ok: true });
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -422,7 +422,7 @@ workbenchRouter.patch("/examples/:id/reject", async (req, res) => {
     await rejectExample(req.params.id, note);
     res.status(200).json({ ok: true });
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -440,7 +440,7 @@ workbenchRouter.patch("/examples/:id/code", async (req, res) => {
     await updateExampleCode(req.params.id, code);
     res.status(200).json({ ok: true });
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -454,7 +454,7 @@ workbenchRouter.post("/examples/:id/retry", async (req, res) => {
     const job = await startSingleJob(example.promptId, "retry", undefined, req.authUser!.id);
     res.status(202).json(job);
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -468,7 +468,7 @@ workbenchRouter.post("/examples/:id/re-render", async (req, res) => {
     const job = await startSingleJob(example.promptId, "re-render", req.params.id, req.authUser!.id);
     res.status(202).json(job);
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -491,7 +491,7 @@ workbenchRouter.post("/generate/batch", async (req, res) => {
     const job = await startBatchJob(categoryId, { skipApproved: skipApproved ?? true }, req.authUser!.id);
     res.status(202).json(job);
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -514,7 +514,7 @@ workbenchRouter.post("/re-render/batch", async (req, res) => {
     const job = await startBatchReRender(categoryId);
     res.status(202).json(job);
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -537,7 +537,7 @@ workbenchRouter.post("/cleanup/batch", async (req, res) => {
     const job = await startBatchCleanup(categoryId);
     res.status(202).json(job);
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -666,7 +666,7 @@ workbenchRouter.delete("/examples/:id", async (req, res) => {
     await deleteExample(req.params.id);
     res.status(200).json({ ok: true });
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -679,7 +679,7 @@ workbenchRouter.delete("/prompts/:promptId/examples", async (req, res) => {
     const result = await deleteExamplesForPrompt(req.params.promptId);
     res.status(200).json(result);
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -692,7 +692,7 @@ workbenchRouter.delete("/categories/:categoryId/examples", async (req, res) => {
     const result = await deleteExamplesForCategory(req.params.categoryId);
     res.status(200).json(result);
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
@@ -718,7 +718,7 @@ workbenchRouter.get("/export/jsonl", async (_req, res) => {
     res.setHeader("Content-Disposition", "attachment; filename=training-data.jsonl");
     res.status(200).send(jsonl);
   } catch (error) {
-    if (error instanceof WorkbenchSeederError) {
+    if (error instanceof WorkbenchCatalogError) {
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
