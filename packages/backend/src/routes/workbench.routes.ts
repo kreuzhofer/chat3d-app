@@ -9,8 +9,13 @@ import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
 import { FileStorageError, readStorageFile } from "../services/file-storage.service.js";
 import {
+  createCategory,
+  createPrompts,
+  deleteCategory,
+  deletePrompt,
   listCategories,
   listPromptsForCategory,
+  updateCategory,
   updatePromptText,
   WorkbenchSeederError,
 } from "../services/workbench-seeder.service.js";
@@ -103,6 +108,55 @@ workbenchRouter.get("/categories", async (_req, res) => {
   }
 });
 
+workbenchRouter.post("/categories", async (req, res) => {
+  try {
+    const { name, rank, complexity, description } = req.body as {
+      name?: string; rank?: number; complexity?: number; description?: string;
+    };
+    if (!name || rank == null || complexity == null || !description) {
+      res.status(400).json({ error: "name, rank, complexity, and description are required" });
+      return;
+    }
+    const cat = await createCategory({ name, rank, complexity, description });
+    res.status(201).json(cat);
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to create category", detail: String(error) });
+  }
+});
+
+workbenchRouter.patch("/categories/:id", async (req, res) => {
+  try {
+    const { name, rank, complexity, description } = req.body as {
+      name?: string; rank?: number; complexity?: number; description?: string;
+    };
+    await updateCategory(req.params.id, { name, rank, complexity, description });
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to update category", detail: String(error) });
+  }
+});
+
+workbenchRouter.delete("/categories/:id", async (req, res) => {
+  try {
+    const result = await deleteCategory(req.params.id);
+    res.status(200).json({ ok: true, ...result });
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to delete category", detail: String(error) });
+  }
+});
+
 workbenchRouter.get("/categories/:id/prompts", async (req, res) => {
   try {
     const prompts = await listPromptsForCategory(req.params.id);
@@ -113,6 +167,28 @@ workbenchRouter.get("/categories/:id/prompts", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "Failed to list prompts", detail: String(error) });
+  }
+});
+
+workbenchRouter.post("/categories/:id/prompts", async (req, res) => {
+  try {
+    const { prompts } = req.body as { prompts?: string[] };
+    if (!Array.isArray(prompts) || prompts.length === 0) {
+      res.status(400).json({ error: "prompts (non-empty string array) is required" });
+      return;
+    }
+    if (prompts.some((p) => typeof p !== "string" || !p.trim())) {
+      res.status(400).json({ error: "All prompts must be non-empty strings" });
+      return;
+    }
+    const created = await createPrompts(req.params.id, prompts);
+    res.status(201).json({ created });
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to create prompts", detail: String(error) });
   }
 });
 
@@ -131,6 +207,19 @@ workbenchRouter.patch("/prompts/:id", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "Failed to update prompt", detail: String(error) });
+  }
+});
+
+workbenchRouter.delete("/prompts/:id", async (req, res) => {
+  try {
+    await deletePrompt(req.params.id);
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    if (error instanceof WorkbenchSeederError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Failed to delete prompt", detail: String(error) });
   }
 });
 

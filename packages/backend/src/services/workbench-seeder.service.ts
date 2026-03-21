@@ -149,6 +149,112 @@ export async function listPromptsForCategory(categoryId: string) {
   }));
 }
 
+// ── CRUD operations ─────────────────────────────────────────────────
+
+export async function createCategory(data: {
+  name: string;
+  rank: number;
+  complexity: number;
+  description: string;
+}) {
+  const existing = await prisma.workbenchCategory.findUnique({ where: { rank: data.rank } });
+  if (existing) {
+    throw new WorkbenchSeederError(`A category with rank ${data.rank} already exists`, 409);
+  }
+  const cat = await prisma.workbenchCategory.create({ data });
+  logger.info({ id: cat.id, name: cat.name, rank: cat.rank }, "created workbench category");
+  return cat;
+}
+
+export async function updateCategory(
+  id: string,
+  data: { name?: string; rank?: number; complexity?: number; description?: string },
+) {
+  const cat = await prisma.workbenchCategory.findUnique({ where: { id }, select: { id: true } });
+  if (!cat) throw new WorkbenchSeederError("Category not found", 404);
+
+  if (data.rank !== undefined) {
+    const conflict = await prisma.workbenchCategory.findFirst({
+      where: { rank: data.rank, id: { not: id } },
+      select: { id: true },
+    });
+    if (conflict) throw new WorkbenchSeederError(`A category with rank ${data.rank} already exists`, 409);
+  }
+
+  await prisma.workbenchCategory.update({ where: { id }, data: { ...data, updatedAt: new Date() } });
+  logger.info({ id }, "updated workbench category");
+}
+
+export async function deleteCategory(id: string) {
+  const cat = await prisma.workbenchCategory.findUnique({ where: { id }, select: { id: true } });
+  if (!cat) throw new WorkbenchSeederError("Category not found", 404);
+
+  const prompts = await prisma.workbenchExamplePrompt.findMany({
+    where: { categoryId: id },
+    select: { id: true },
+  });
+  const promptIds = prompts.map((p) => p.id);
+
+  const deletedExamples = promptIds.length > 0
+    ? await prisma.workbenchExample.deleteMany({ where: { promptId: { in: promptIds } } })
+    : { count: 0 };
+
+  // Cascade: delete prompts then category
+  await prisma.workbenchExamplePrompt.deleteMany({ where: { categoryId: id } });
+  await prisma.workbenchCategory.delete({ where: { id } });
+
+  logger.info({ id, deletedPrompts: promptIds.length, deletedExamples: deletedExamples.count }, "deleted workbench category");
+  return { deletedPrompts: promptIds.length, deletedExamples: deletedExamples.count };
+}
+
+export async function createPrompts(categoryId: string, prompts: string[]): Promise<number> {
+  const cat = await prisma.workbenchCategory.findUnique({ where: { id: categoryId }, select: { id: true } });
+  if (!cat) throw new WorkbenchSeederError("Category not found", 404);
+  if (!prompts.length) throw new WorkbenchSeederError("At least one prompt is required", 400);
+
+  // Get current max index for this category
+  const maxRow = await prisma.workbenchExamplePrompt.aggregate({
+    where: { categoryId },
+    _max: { index: true },
+  });
+  const startIndex = (maxRow._max.index ?? -1) + 1;
+
+  const data = prompts.map((prompt, i) => ({
+    categoryId,
+    index: startIndex + i,
+    prompt: prompt.trim(),
+  }));
+
+  const result = await prisma.workbenchExamplePrompt.createMany({ data });
+  logger.info({ categoryId, created: result.count }, "bulk-created workbench prompts");
+
+  // Trigger async embedding for each new prompt
+  const created = await prisma.workbenchExamplePrompt.findMany({
+    where: { categoryId, index: { gte: startIndex } },
+    select: { id: true, prompt: true },
+    orderBy: { index: "asc" },
+  });
+  for (const p of created) {
+    void embedAndStorePrompt(p.id, p.prompt).catch((err) =>
+      logger.warn({ err, promptId: p.id }, "failed to embed new prompt"),
+    );
+  }
+
+  return result.count;
+}
+
+export async function deletePrompt(promptId: string): Promise<void> {
+  const prompt = await prisma.workbenchExamplePrompt.findUnique({
+    where: { id: promptId },
+    select: { id: true },
+  });
+  if (!prompt) throw new WorkbenchSeederError("Prompt not found", 404);
+
+  await prisma.workbenchExample.deleteMany({ where: { promptId } });
+  await prisma.workbenchExamplePrompt.delete({ where: { id: promptId } });
+  logger.info({ promptId }, "deleted workbench prompt");
+}
+
 export async function updatePromptText(promptId: string, newText: string): Promise<void> {
   if (!newText || newText.trim().length === 0) {
     throw new WorkbenchSeederError("Prompt text cannot be empty", 400);
