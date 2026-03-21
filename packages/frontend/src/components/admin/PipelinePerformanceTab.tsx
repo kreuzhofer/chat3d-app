@@ -118,11 +118,18 @@ export function PipelinePerformanceTab({ token }: Props) {
     ].filter(d => d.value > 0);
   }, [breakdown]);
 
-  const tsFormatted = useMemo(() => timeseries.map(p => ({
-    ...p,
-    label: new Date(p.bucket).toLocaleDateString(),
-    failureRatePct: +(p.failureRate * 100).toFixed(1),
-  })), [timeseries]);
+  const tsFormatted = useMemo(() => timeseries.map(p => {
+    const d = new Date(p.bucket);
+    let label: string;
+    if (granularity === "hour") {
+      label = d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    } else if (granularity === "week" || granularity === "month") {
+      label = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    } else {
+      label = d.toLocaleDateString();
+    }
+    return { ...p, label, failureRatePct: +(p.failureRate * 100).toFixed(1) };
+  }), [timeseries, granularity]);
 
   return (
     <div className="space-y-6 p-6">
@@ -151,13 +158,13 @@ export function PipelinePerformanceTab({ token }: Props) {
       {/* Charts row 1: Efficiency */}
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionCard title="Avg Agent Steps Over Time">
-          <div className="h-56">
+          <div className="h-56 touch-none">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={tsFormatted}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                 <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
+                <Tooltip isAnimationActive={false} />
                 <Line type="monotone" dataKey="avgSteps" stroke="#3b82f6" name="Avg Steps" dot={false} />
               </LineChart>
             </ResponsiveContainer>
@@ -165,14 +172,28 @@ export function PipelinePerformanceTab({ token }: Props) {
         </SectionCard>
 
         <SectionCard title="Avg Duration Over Time">
-          <div className="h-56">
+          <div className="h-56 touch-none">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={tsFormatted}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                 <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => formatDuration(v)} />
-                <Tooltip formatter={(v: number) => formatDuration(v)} />
+                <Tooltip isAnimationActive={false} formatter={(v: number) => formatDuration(v)} />
                 <Line type="monotone" dataKey="avgDurationMs" stroke="#f59e0b" name="Avg Duration" dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Avg Cost Over Time">
+          <div className="h-56 touch-none">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={tsFormatted}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
+                <Tooltip isAnimationActive={false} formatter={(v: number) => `$${v.toFixed(4)}`} />
+                <Line type="monotone" dataKey="avgCostUsd" stroke="#8b5cf6" name="Avg Cost" dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -182,13 +203,13 @@ export function PipelinePerformanceTab({ token }: Props) {
       {/* Charts row 2: Quality */}
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionCard title="Avg Eval Score Over Time">
-          <div className="h-56">
+          <div className="h-56 touch-none">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={tsFormatted}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                 <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                 <YAxis domain={[0, 10]} tick={{ fontSize: 10 }} />
-                <Tooltip />
+                <Tooltip isAnimationActive={false} />
                 <Line type="monotone" dataKey="avgEvalScore" stroke="#10b981" name="Eval Score" dot={false} connectNulls />
               </LineChart>
             </ResponsiveContainer>
@@ -196,13 +217,13 @@ export function PipelinePerformanceTab({ token }: Props) {
         </SectionCard>
 
         <SectionCard title="Failure Rate Over Time">
-          <div className="h-56">
+          <div className="h-56 touch-none">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={tsFormatted}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                 <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${v}%`} />
-                <Tooltip formatter={(v: number) => `${v}%`} />
+                <Tooltip isAnimationActive={false} formatter={(v: number) => `${v}%`} />
                 <Bar dataKey="failureRatePct" fill="#ef4444" name="Failure %" />
               </BarChart>
             </ResponsiveContainer>
@@ -221,7 +242,7 @@ export function PipelinePerformanceTab({ token }: Props) {
                     <Cell key={i} fill={[PIE_COLORS[3], PIE_COLORS[2], PIE_COLORS[1]][i] ?? PIE_COLORS[0]} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip isAnimationActive={false} />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
@@ -237,7 +258,7 @@ export function PipelinePerformanceTab({ token }: Props) {
                     <Cell key={i} fill={PIE_COLORS[i] ?? PIE_COLORS[0]} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip isAnimationActive={false} />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
