@@ -7,6 +7,9 @@ const logger = createLogger("stl-render");
 export type ViewingAngle = "front" | "back" | "left" | "right" | "top" | "bottom" | "ortho_45" | "ortho_45_bottom" | "isometric" | "isometric_back";
 export type ModelFormat = "stl" | "3mf";
 
+/** Default screenshot size for evaluation and storage (px). */
+export const SCREENSHOT_SIZE = 768;
+
 /** Backend-side timeout for the HTTP call to the STL rendering service.
  *  Must be longer than the service's internal render timeout (30s)
  *  to allow for cold-start page creation + rendering. */
@@ -104,8 +107,8 @@ async function _renderModelScreenshotsInner(
         body: JSON.stringify({
           modelData: input.modelData,
           format: input.format,
-          width: input.width ?? 512,
-          height: input.height ?? 512,
+          width: input.width ?? SCREENSHOT_SIZE,
+          height: input.height ?? SCREENSHOT_SIZE,
           angles,
           ...(input.zoomFactor && input.zoomFactor > 1 ? { zoomFactor: input.zoomFactor } : {}),
         }),

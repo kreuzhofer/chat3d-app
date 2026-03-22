@@ -165,6 +165,7 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
   // ── Phase 2: Code review LLM (cheap) ───────────────────────────────
   let codeScore: number | null = null;
   let codeIssues: string[] = [];
+  let criticalAngles: string[] = [];
   let codeReviewModel: string | null = null;
   let codePromptTokens = 0;
   let codeCompletionTokens = 0;
@@ -183,6 +184,7 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
     const codeResult = await evaluateCode(codeEvalInput);
     codeScore = codeResult.score;
     codeIssues = codeResult.issues;
+    criticalAngles = codeResult.criticalAngles;
     codeReviewModel = codeResult.codeReviewModel;
     codePromptTokens = codeResult.promptTokens;
     codeCompletionTokens = codeResult.completionTokens;
@@ -248,12 +250,33 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
   if (hasImages) {
     tb?.startPhase("eval-vlm", "eval_vlm", "VLM Visual Evaluation", "eval");
     try {
-      logger.info("phase 3: running VLM visual evaluation");
+      // Filter images to critical angles if code review provided recommendations.
+      // Always include ortho_45 as baseline. Fall back to all images if < 3 remain.
+      let vlmImages = input.images;
+      if (criticalAngles.length > 0) {
+        const angleSet = new Set(criticalAngles);
+        angleSet.add("ortho_45"); // always include baseline overview
+        const filtered = input.images.filter(img => angleSet.has(img.angle));
+        if (filtered.length >= 3) {
+          vlmImages = filtered;
+          logger.info(
+            { criticalAngles: [...angleSet], originalCount: input.images.length, filteredCount: filtered.length },
+            "filtered VLM images to critical angles",
+          );
+        } else {
+          logger.info(
+            { criticalAngles, filteredCount: filtered.length },
+            "critical angles yielded < 3 images, using all images",
+          );
+        }
+      }
+
+      logger.info({ imageCount: vlmImages.length }, "phase 3: running VLM visual evaluation");
       const vlmResult = await evaluateModel({
         userPrompt: input.userPrompt,
         categoryName: input.categoryName,
         complexity: input.complexity,
-        images: input.images,
+        images: vlmImages,
         verificationChecklist: input.verificationChecklist,
         stlBase64: input.stlBase64,
         modelFormat: input.modelFormat,

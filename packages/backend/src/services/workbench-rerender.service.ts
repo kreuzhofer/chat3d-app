@@ -122,7 +122,7 @@ export async function reRenderForExample(
   if (stlFile) {
     try {
       const ssResult = await renderModelScreenshots({
-        modelData: stlFile.contentBase64, format: "stl", width: 512, height: 512,
+        modelData: stlFile.contentBase64, format: "stl",
       });
       screenshots = ssResult.images;
     } catch (error) {

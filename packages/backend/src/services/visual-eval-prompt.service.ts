@@ -4,12 +4,33 @@
  * Constructs the system prompt for VLM evaluation of 3D model screenshots.
  */
 
+const ANGLE_DISPLAY_NAMES: Record<string, string> = {
+  front: "front",
+  back: "back",
+  left: "left",
+  right: "right",
+  top: "top",
+  bottom: "bottom",
+  ortho_45: "a 45° down view",
+  ortho_45_bottom: "a 45° up view",
+  isometric: "isometric",
+};
+
+function buildViewDescription(providedAngles?: string[]): string {
+  if (!providedAngles || providedAngles.length === 0) {
+    return "You are provided labeled views: front, back, left, right, top, bottom, a 45° down view, and a 45° up view.\nTogether these cover all six faces of the model plus two complementary 3D overviews (from above and below).";
+  }
+  const names = providedAngles.map(a => ANGLE_DISPLAY_NAMES[a] ?? a);
+  return `You are provided ${names.length} labeled views: ${names.join(", ")}.\nThese views were selected to best show the key features of this model.`;
+}
+
 export function buildEvaluationSystemPrompt(
   userPrompt: string,
   categoryName: string,
   complexity: number,
   verificationChecklist?: string[],
   hasZoomTool?: boolean,
+  providedAngles?: string[],
 ): string {
   let prompt = `You are a 3D model quality evaluator for Build123d CAD models.
 
@@ -47,8 +68,7 @@ This is inherent to the format, not a defect. Curved surfaces (cylinders, sphere
 cones, tori) will ALWAYS appear faceted. The render uses flat shading with no anti-aliasing,
 so edges may look jagged.
 
-You are provided labeled views: front, back, left, right, top, bottom, a 45° down view, and a 45° up view.
-Together these cover all six faces of the model plus two complementary 3D overviews (from above and below).
+${buildViewDescription(providedAngles)}
 
 CRITICAL — positional judgments:
 The 45° angled views create visual displacement: features appear shifted toward the camera's opposite
@@ -63,7 +83,7 @@ CRITICAL — occlusion and visibility:
 Interior features (standoffs, bosses, ribs, internal walls, pockets) are often hidden or partially
 occluded by the outer shell of the model. A feature that is not visible from a particular angle does
 NOT mean it is missing, shorter, or malformed — it means the viewing angle cannot see it. You have
-8 views but the interior of an enclosure is still mostly hidden. Do NOT report features as missing
+${providedAngles?.length ?? 8} views but the interior of an enclosure is still mostly hidden. Do NOT report features as missing
 or defective when they are simply occluded by other geometry. If a feature is confirmed present in
 at least one view, treat it as present. A separate code evaluation checks the actual geometry.
 
@@ -110,13 +130,21 @@ Return JSON only:
     prompt += `
 
 DETAIL VIEW CAPABILITY:
-You have a tool called "request_detail_view" that renders a high-resolution (1024px) screenshot
-with tight framing (model fills ~90% of frame), giving ~3x more pixel density than the standard views.
-The entire model remains visible — nothing is clipped.
-Use it when you need to inspect fine details like thread pitch, gear teeth, drive recesses,
-chamfers, small holes, or any feature that is too small to evaluate clearly in the standard views.
-You may request up to 2 detail views before giving your final evaluation.
-If the standard views are sufficient, provide your evaluation directly without using the tool.`;
+You have a "request_detail_view" tool that renders a 1024px detail view with tight framing.
+ONLY use this when you genuinely CANNOT determine whether a specific feature is present or absent
+from the standard views. Most evaluations should NOT need detail views.
+
+Valid reasons to request a detail view:
+- Verifying thread pitch or gear tooth count on features smaller than ~5% of the model
+- Confirming a tiny drive recess (Phillips, Torx) that is barely visible
+
+Do NOT request detail views for:
+- Overall shape or proportion verification — use standard views
+- Feature presence that you can already see (even if small)
+- Any feature you can describe from the standard views — if you can see it, you don't need zoom
+- General "closer look" or "better inspection" — that is not a valid reason
+
+You may request up to 2 detail views. Provide your evaluation directly unless a feature is truly unresolvable.`;
   }
 
   if (verificationChecklist?.length) {

@@ -106,7 +106,7 @@ function buildImageUserContent(images: LabeledImage[]): ContentPart[] {
 export async function evaluateModel(input: EvaluateModelInput): Promise<EvaluationResult> {
   const { userPrompt, categoryName, complexity, images, stlBase64 } = input;
   const modelFormat = input.modelFormat ?? "stl";
-  const zoomEnabled = !!stlBase64;
+  const zoomEnabled = !!stlBase64 && input.complexity >= 6;
 
   logger.info(
     { category: categoryName, complexity, imageCount: images.length, zoomEnabled },
@@ -125,8 +125,9 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
   const vlmModelLabel = vlmConfig.label;
   logger.info({ model: vlmModelLabel, zoomEnabled }, "using VLM model");
 
+  const providedAngles = images.map(img => img.angle);
   const systemPrompt = buildEvaluationSystemPrompt(
-    userPrompt, categoryName, complexity, input.verificationChecklist, zoomEnabled,
+    userPrompt, categoryName, complexity, input.verificationChecklist, zoomEnabled, providedAngles,
   );
 
   const userContent = buildImageUserContent(images);

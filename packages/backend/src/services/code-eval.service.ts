@@ -31,9 +31,16 @@ export { computeCompositeScore } from "./code-eval-composite.service.js";
 
 // ── Code Review Types ─────────────────────────────────────────────────
 
+/** Valid viewing angles the code review can recommend for VLM evaluation. */
+const VALID_ANGLES = new Set([
+  "front", "back", "left", "right", "top", "bottom", "ortho_45", "ortho_45_bottom",
+]);
+
 export interface CodeReviewResult {
   score: number;
   issues: string[];
+  /** 2-5 viewing angles most relevant for visually verifying this model. */
+  criticalAngles: string[];
   codeReviewModel: string;
   promptTokens: number;
   completionTokens: number;
@@ -58,6 +65,11 @@ All bd_warehouse fastener classes accept these parameters: size, length, fastene
 Do NOT claim any of these parameters are invalid or unsupported — they are part of the bd_warehouse API.
 When bd_warehouse classes are used with correct size parameters (e.g., size="M6-1"), they produce accurate
 ISO-standard geometry with correct dimensions. If the code rendered successfully, trust that the API call is valid.
+
+The environment also has gridfinity_build123d installed: Bin, Base, BaseEqual, BasePlate, BasePlateEqual,
+Compartment, Compartments, CompartmentsEqual, StackingLip, Label, Scoop, MagnetHole, ScrewHole, Weighted, etc.
+These are ALL VALID, available classes. Gridfinity standard: 42mm grid, 7mm per height unit.
+Gridfinity objects (Bin, Base, BasePlate) are BasePartObjects — they are assigned directly to root_part.
 
 Given a user's 3D model request and the generated Build123d Python code, verify:
 
@@ -84,17 +96,26 @@ Score 1-10:
 - 7-8: All parameters correct, minor structural concerns
 - 9-10: Fully matches the prompt specification
 
-Return JSON only:
+Also determine which viewing angles are most important for visually verifying this model.
+Analyze WHERE key features exist in 3D space based on the code:
+- Holes/cuts on XY plane (top face) → include "top"
+- Features on front face → include "front"
+- Symmetric object (left≈right or front≈back) → only one of each parallel pair
+- Flat/thin objects → skip side views that show minimal geometry
+- Always include "ortho_45" as a baseline 3D overview
+Choose 3-5 angles from: front, back, left, right, top, bottom, ortho_45, ortho_45_bottom
+
+IMPORTANT: Return ONLY a JSON object — no analysis, no explanation, no preamble.
 {
   "score": <integer 1-10>,
-  "issues": ["<code-level problem>", ...]
+  "issues": ["<code-level problem>", ...],
+  "criticalAngles": ["ortho_45", "<angle>", ...]
 }
 
-Issues must be specific and actionable. Example issues:
+Issues must be specific and actionable. Example:
 - "diameter = 10 but prompt specifies 15mm"
 - "Only 2 holes created but prompt asks for 4"
-- "Fillet radius is 5mm but prompt says 2mm"
-- "Missing thread pattern requested in prompt"`;
+Do NOT write analysis before the JSON. Output the JSON object directly.`;
 
   if (codegenSystemPrompt) {
     prompt += `\n\n--- Build123d API Reference (same knowledge the code generator had) ---\n${codegenSystemPrompt}`;
@@ -108,6 +129,7 @@ Issues must be specific and actionable. Example issues:
 interface ParsedCodeReview {
   score: number;
   issues: string[];
+  criticalAngles: string[];
 }
 
 function clampScore(score: number): number {
@@ -115,9 +137,16 @@ function clampScore(score: number): number {
   return Math.max(1, Math.min(10, Math.round(score)));
 }
 
+/** Parse criticalAngles from raw JSON value, filtering to valid angles. */
+function parseCriticalAngles(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((a): a is string => typeof a === "string" && VALID_ANGLES.has(a));
+}
+
 function parseCodeReviewResponse(content: string): ParsedCodeReview {
   if (!content || typeof content !== "string") {
-    return { score: 1, issues: ["Empty response"] };
+    return { score: 1, issues: ["Empty response"], criticalAngles: [] };
   }
 
   let jsonStr = content;
@@ -127,12 +156,13 @@ function parseCodeReviewResponse(content: string): ParsedCodeReview {
   }
 
   try {
-    const parsed = JSON.parse(jsonStr) as Partial<ParsedCodeReview>;
+    const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
     return {
-      score: clampScore(parsed.score ?? 1),
+      score: clampScore((parsed.score as number) ?? 1),
       issues: Array.isArray(parsed.issues)
-        ? parsed.issues.filter((i): i is string => typeof i === "string")
+        ? (parsed.issues as unknown[]).filter((i): i is string => typeof i === "string")
         : [],
+      criticalAngles: parseCriticalAngles(parsed.criticalAngles),
     };
   } catch {
     // fall through
@@ -150,7 +180,7 @@ function parseCodeReviewResponse(content: string): ParsedCodeReview {
     }
   }
 
-  return { score, issues };
+  return { score, issues, criticalAngles: [] };
 }
 
 // ── Model Resolution ──────────────────────────────────────────────────
@@ -221,7 +251,7 @@ export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResu
           model: providerModel,
           system: systemPrompt,
           messages: [{ role: "user", content: userContent }],
-          maxOutputTokens: 512,
+          maxOutputTokens: 1024,
         }, {
           purpose: "code_evaluation",
           providerName: config.provider,
@@ -245,13 +275,14 @@ export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResu
         ];
 
         logger.info(
-          { score: parsed.score, codeIssueCount: parsed.issues.length, assertionIssueCount: assertionSummary?.issues.length ?? 0 },
+          { score: parsed.score, codeIssueCount: parsed.issues.length, assertionIssueCount: assertionSummary?.issues.length ?? 0, criticalAngles: parsed.criticalAngles },
           "code evaluation completed",
         );
 
         return {
           score: parsed.score,
           issues: allIssues,
+          criticalAngles: parsed.criticalAngles,
           codeReviewModel: label,
           promptTokens: result.usage?.inputTokens ?? 0,
           completionTokens: result.usage?.outputTokens ?? 0,
@@ -284,6 +315,7 @@ export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResu
         ...(assertionSummary?.issues ?? []),
         `[CODE] Code review failed: ${lastError?.message ?? "Unknown error"}`,
       ],
+      criticalAngles: [],
       codeReviewModel: label,
       promptTokens: 0,
       completionTokens: 0,

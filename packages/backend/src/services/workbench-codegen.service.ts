@@ -44,6 +44,17 @@ const logger = createLogger("workbench");
 export type ProgressCallback = (state: string, detail: string) => void;
 export type TracePublisher = (trace: import("@chat3d/shared").GenerationTrace) => void;
 
+/** Options for generateForPrompt. */
+export interface GenerateOptions {
+  onProgress?: ProgressCallback;
+  tracePublisher?: TracePublisher;
+  externalSignal?: AbortSignal;
+  /** Override the codegen model (for experiments). */
+  codegenModelOverride?: LlmModelConfig;
+  /** Tag resulting workbench_example with an experiment run. */
+  experimentRunId?: string;
+}
+
 export interface GenerateResult {
   exampleId: string | null; promptId: string; iteration: number; code: string;
   renderStatus: "success" | "error" | "skipped"; renderError: string | null;
@@ -101,9 +112,7 @@ function shouldAutoApprove(score: number | null, threshold: number, checklistRes
 
 export async function generateForPrompt(
   promptId: string,
-  onProgress?: ProgressCallback,
-  tracePublisher?: TracePublisher,
-  externalSignal?: AbortSignal,
+  options?: GenerateOptions,
 ): Promise<GenerateResult> {
   return runWithUsageContext({ workbenchExampleId: promptId }, async () => {
     logger.info({ promptId }, "starting generation for prompt");
@@ -112,6 +121,7 @@ export async function generateForPrompt(
     const pipelineController = new AbortController();
     const pipelineTimeout = setTimeout(() => pipelineController.abort(), timeoutMs);
 
+    const externalSignal = options?.externalSignal;
     if (externalSignal) {
       if (externalSignal.aborted) {
         pipelineController.abort();
@@ -121,7 +131,7 @@ export async function generateForPrompt(
     }
 
     try {
-      return await _generateForPromptInner(promptId, pipelineController.signal, onProgress, tracePublisher);
+      return await _generateForPromptInner(promptId, pipelineController.signal, options);
     } finally {
       clearTimeout(pipelineTimeout);
     }
@@ -131,16 +141,24 @@ export async function generateForPrompt(
 async function _generateForPromptInner(
   promptId: string,
   pipelineSignal: AbortSignal,
-  onProgress?: ProgressCallback,
-  tracePublisher?: TracePublisher,
+  options?: GenerateOptions,
 ): Promise<GenerateResult> {
-  // 1. Load context and resolve model
+  // 1. Load context and resolve model (use override if provided)
   const ctx = await loadPromptContext(promptId);
-  const { label: llmModelLabel, config: codegenModelConfig } = await resolveCodegenModel();
+  let llmModelLabel: string;
+  let codegenModelConfig: LlmModelConfig;
+  if (options?.codegenModelOverride) {
+    codegenModelConfig = options.codegenModelOverride;
+    llmModelLabel = codegenModelConfig.label;
+  } else {
+    const resolved = await resolveCodegenModel();
+    llmModelLabel = resolved.label;
+    codegenModelConfig = resolved.config;
+  }
 
   // Initialize trace builder
   const traceBuilder = new TraceBuilder("single_agent");
-  if (tracePublisher) traceBuilder.setOnChange(tracePublisher);
+  if (options?.tracePublisher) traceBuilder.setOnChange(options.tracePublisher);
   traceBuilder.startPhase("root", "root", "Workbench Generation Pipeline");
 
   // Create trace row early for incremental persistence
@@ -152,7 +170,7 @@ async function _generateForPromptInner(
 
   return runWithTrace(traceBuilder, async () => {
     try {
-      return await _runPipeline(ctx, llmModelLabel, codegenModelConfig, traceBuilder, traceId, pipelineSignal, onProgress);
+      return await _runPipeline(ctx, llmModelLabel, codegenModelConfig, traceBuilder, traceId, pipelineSignal, options);
     } catch (err) {
       // Classify and persist error on the current phase + root
       traceBuilder.endPhaseWithError(err);
@@ -175,8 +193,9 @@ async function _runPipeline(
   traceBuilder: TraceBuilder,
   traceId: string | null,
   pipelineSignal: AbortSignal,
-  onProgress?: ProgressCallback,
+  options?: GenerateOptions,
 ): Promise<GenerateResult> {
+  const onProgress = options?.onProgress;
   // 2. Validate prompt
   traceBuilder.startPhase("validation", "prompt_validation", "Prompt Validation");
   onProgress?.("validating", "Validating prompt...");
@@ -191,7 +210,7 @@ async function _runPipeline(
   updateTraceIncremental(traceId, traceBuilder.snapshot());
 
   if (!validation.valid) {
-    return _persistRejectedPrompt(ctx, validation, llmModelLabel, traceBuilder, traceId, onProgress);
+    return _persistRejectedPrompt(ctx, validation, llmModelLabel, traceBuilder, traceId, onProgress, options?.experimentRunId);
   }
 
   // 2b. Spec generation
@@ -257,7 +276,7 @@ async function _runPipeline(
   updateTraceIncremental(traceId, traceBuilder.snapshot());
 
   if (pipelineSignal.aborted) {
-    return _persistAbortedPipeline(ctx, agResult, wbAgentModelConfig, traceBuilder, traceId);
+    return _persistAbortedPipeline(ctx, agResult, wbAgentModelConfig, traceBuilder, traceId, options?.experimentRunId);
   }
 
   let agScreenshots: RenderedScreenshot[] = [];
@@ -268,7 +287,7 @@ async function _runPipeline(
       const stlFile = agResult.renderedFiles.find(f => f.filename.toLowerCase().endsWith(".stl"));
       if (stlFile) {
         const ssResult = await renderModelScreenshots(
-          { modelData: stlFile.contentBase64, format: "stl", width: 512, height: 512 },
+          { modelData: stlFile.contentBase64, format: "stl" },
         );
         agScreenshots = ssResult.images;
       }
@@ -334,6 +353,7 @@ async function _runPipeline(
     promptTokens: agTotalPromptTokens, completionTokens: agTotalCompletionTokens,
     visualScore: agFullEval?.visualScore ?? null, codeEvalScore: agFullEval?.codeScore ?? null,
     assertionPassRate: agFullEval?.assertionPassRate ?? null, evalSource: agFullEval?.source ?? null,
+    experimentRunId: options?.experimentRunId,
   });
 
   // Finalize trace
@@ -354,6 +374,7 @@ async function _persistAbortedPipeline(
   modelConfig: LlmModelConfig,
   traceBuilder: TraceBuilder,
   traceId: string | null,
+  experimentRunId?: string,
 ): Promise<GenerateResult> {
   logger.info({ promptId: ctx.promptId, stepCount: agResult.stepCount }, "pipeline aborted — skipping screenshots/eval");
   const exampleId = crypto.randomUUID();
@@ -366,6 +387,7 @@ async function _persistAbortedPipeline(
     evalScore: null, evalIssues: null, evalSuggestions: null, evalChecklistResults: null,
     approvalStatus: "pending", llmModel: modelConfig.label, vlmModel: null,
     promptTokens: agResult.usage.promptTokens, completionTokens: agResult.usage.completionTokens,
+    experimentRunId,
   });
   const abortInfo = TraceBuilder.classifyError(new Error(renderError));
   traceBuilder.endPhase("failed", { error: renderError, errorInfo: abortInfo });
@@ -381,6 +403,7 @@ async function _persistRejectedPrompt(
   traceBuilder: TraceBuilder,
   traceId: string | null,
   onProgress?: ProgressCallback,
+  experimentRunId?: string,
 ): Promise<GenerateResult> {
   logger.info({ reason: validation.reason }, "prompt rejected by validation");
   onProgress?.("failed", `Prompt validation failed: ${validation.reason}`);
@@ -394,6 +417,7 @@ async function _persistRejectedPrompt(
     approvalStatus: "rejected", rejectionNote: validation.reason,
     llmModel: llmModelLabel, vlmModel: null,
     promptTokens: validation.promptTokens, completionTokens: validation.completionTokens,
+    experimentRunId,
   });
   traceBuilder.endPhase("completed");
   await finalizeTrace(traceId, { workbenchExampleId: exampleId, trace: traceBuilder.build(), summary: traceBuilder.computeSummary() });
