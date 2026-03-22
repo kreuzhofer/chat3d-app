@@ -175,7 +175,7 @@ export function getRunningJobs(): BatchJobSummary[] {
  */
 export async function startBatchJob(
   categoryId: string,
-  options: { skipApproved?: boolean } = {},
+  options: { skipApproved?: boolean; onlyMissing?: boolean } = {},
   userId?: string,
 ): Promise<BatchJobSummary> {
   // Prevent double-starts
@@ -207,9 +207,18 @@ export async function startBatchJob(
     throw new Error("No prompts found for this category");
   }
 
-  // Optionally filter out prompts that already have approved examples
+  // Filter prompts based on options
   let promptsToProcess = allPrompts;
-  if (options.skipApproved) {
+  if (options.onlyMissing) {
+    // Only process prompts that have zero examples
+    const withExamples = await prisma.workbenchExample.findMany({
+      where: { promptId: { in: allPrompts.map((p) => p.id) } },
+      select: { promptId: true },
+      distinct: ["promptId"],
+    });
+    const hasExampleIds = new Set(withExamples.map((r) => r.promptId));
+    promptsToProcess = allPrompts.filter((p) => !hasExampleIds.has(p.id));
+  } else if (options.skipApproved) {
     const approvedExamples = await prisma.workbenchExample.findMany({
       where: {
         promptId: { in: allPrompts.map((p) => p.id) },

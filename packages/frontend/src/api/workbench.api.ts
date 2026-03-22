@@ -215,11 +215,11 @@ export function startReRender(token: string, exampleId: string): Promise<BatchJo
 export function startBatchJob(
   token: string,
   categoryId: string,
-  skipApproved = true,
+  options: { skipApproved?: boolean; onlyMissing?: boolean } = { skipApproved: true },
 ): Promise<BatchJobSummary> {
   return requestJson<BatchJobSummary>(token, "/generate/batch", {
     method: "POST",
-    body: JSON.stringify({ categoryId, skipApproved }),
+    body: JSON.stringify({ categoryId, ...options }),
   });
 }
 

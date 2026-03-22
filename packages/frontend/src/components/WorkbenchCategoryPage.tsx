@@ -226,15 +226,15 @@ export function WorkbenchCategoryPage() {
   }, [singleJobs, loadData, pushToast, token]);
 
   const handleBatchGenerate = useCallback(
-    async (skipApproved: boolean) => {
+    async (options: { skipApproved?: boolean; onlyMissing?: boolean }) => {
       if (!token || !categoryId) return;
       setError(null);
       try {
-        const job = await startBatchJob(token, categoryId, skipApproved);
+        const job = await startBatchJob(token, categoryId, options);
         setBatchJob(job);
         pushToast({
           tone: "info",
-          title: "Batch started",
+          title: options.onlyMissing ? "Generate missing started" : "Batch started",
           description: `Processing ${job.total} prompts${job.skipped > 0 ? ` (${job.skipped} skipped)` : ""}...`,
         });
       } catch (e) {
@@ -357,8 +357,17 @@ export function WorkbenchCategoryPage() {
                 <Button
                   variant="default"
                   size="sm"
+                  iconLeft={<Sparkles className="h-3.5 w-3.5" />}
+                  onClick={() => void handleBatchGenerate({ onlyMissing: true })}
+                  disabled={anySingleRunning}
+                >
+                  Generate Missing
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
                   iconLeft={<Zap className="h-3.5 w-3.5" />}
-                  onClick={() => void handleBatchGenerate(true)}
+                  onClick={() => void handleBatchGenerate({ skipApproved: true })}
                   disabled={anySingleRunning}
                 >
                   Generate All
