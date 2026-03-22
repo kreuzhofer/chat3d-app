@@ -305,7 +305,18 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
     );
 
     tb?.setAgentMeta({ submitted, renderSuccess, stepNumber: stepCount, maxSteps }, agentNodeId);
-    tb?.endPhase("completed", { nodeId: agentNodeId });
+    if (submitted) {
+      tb?.endPhase("completed", { nodeId: agentNodeId });
+    } else {
+      // Agent hit step limit without submitting — mark as failed with step_limit category
+      const stepLimitMsg = `Agent reached maximum step limit (${maxSteps}) without submitting a result`;
+      logger.warn({ stepCount, maxSteps }, stepLimitMsg);
+      tb?.endPhase("failed", {
+        error: stepLimitMsg,
+        errorInfo: { category: "step_limit", message: stepLimitMsg },
+        nodeId: agentNodeId,
+      });
+    }
 
     return {
       code: finalCode, files: allFiles, renderedFiles: lastRenderedFiles, renderSuccess,

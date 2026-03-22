@@ -56,6 +56,8 @@ const SETTINGS_REGISTRY = new Map<string, SettingMeta>([
   ["chat.sub_agent_max_steps", { default: 10, label: "Sub-agent max steps", description: "Maximum tool-use steps per sub-agent in multi-agent mode", pipeline: "chat", min: 3, max: 30, step: 1 }],
   ["workbench.code_eval_weight", { default: 0.4, label: "Code eval weight", description: "Weight of code evaluation in composite score (0=visual only, 1=code only)", pipeline: "workbench", min: 0, max: 1, step: 0.1 }],
   ["chat.code_eval_weight", { default: 0.4, label: "Code eval weight", description: "Weight of code evaluation in composite score (0=visual only, 1=code only)", pipeline: "chat", min: 0, max: 1, step: 0.1 }],
+  ["workbench.pipeline_timeout_minutes", { default: 15, label: "Pipeline timeout (minutes)", description: "Maximum time before the pipeline is aborted", pipeline: "workbench", min: 1, max: 60, step: 1 }],
+  ["chat.pipeline_timeout_minutes", { default: 15, label: "Pipeline timeout (minutes)", description: "Maximum time before the pipeline is aborted", pipeline: "chat", min: 1, max: 60, step: 1 }],
 ]);
 
 // ── In-memory cache ──────────────────────────────────────────────────
@@ -119,6 +121,11 @@ export async function getSubAgentMaxSteps(pipeline: Pipeline): Promise<number> {
 
 export async function getCodeEvalWeight(pipeline: Pipeline): Promise<number> {
   return getEffective(`${pipeline}.code_eval_weight`);
+}
+
+export async function getPipelineTimeoutMs(pipeline: Pipeline): Promise<number> {
+  const minutes = await getEffective(`${pipeline}.pipeline_timeout_minutes`);
+  return minutes * 60 * 1000;
 }
 
 // ── Admin API ────────────────────────────────────────────────────────

@@ -18,12 +18,14 @@ import {
   type RenderedScreenshot,
 } from "./stl-rendering-client.service.js";
 import { pushNotificationService } from "./push-notification.service.js";
+import { flattenForEval } from "../utils/code-flatten.js";
 import {
   getConversationHistoryMaxPairs,
   isSpecGenerationEnabled,
   getAgentMaxSteps,
   getAutoApproveThreshold,
   getCodeEvalWeight,
+  getPipelineTimeoutMs,
 } from "./generation-settings.service.js";
 import { runFullEvaluation } from "./eval-orchestrator.service.js";
 import { generateSpec, formatDisambiguationResponse } from "./spec-generation.service.js";
@@ -1089,6 +1091,10 @@ async function executeQueryPipelineInner(input: {
   const pipelineController = registerPipeline(assistantItemId, input.userId);
   const pipelineSignal = pipelineController.signal;
 
+  // Pipeline timeout — abort after configured duration
+  const chatTimeoutMs = await getPipelineTimeoutMs("chat");
+  const pipelineTimeout = setTimeout(() => pipelineController.abort(), chatTimeoutMs);
+
   function checkAborted() {
     if (pipelineSignal.aborted) throw new PipelineCancelledError();
   }
@@ -1498,9 +1504,9 @@ async function executeQueryPipelineInner(input: {
       // Post-loop code evaluation (runs VLM + code eval + assertions in parallel)
       // The agent uses VLM-only during its iteration loop; this adds code-level verification
       let postLoopEval: { compositeScore: number; visualScore: number | null; codeScore: number | null; assertionPassRate: number | null; source: string; vlmModel: string | null; codeReviewModel: string | null } | null = null;
-      // Combine all project files for code eval (not just main.py)
+      // Flatten multi-file project into single code string for eval
       const agAllCode = agResult.files.length > 1
-        ? agResult.files.map(f => `# --- ${f.path} ---\n${f.content}`).join("\n\n")
+        ? flattenForEval(agResult.files)
         : (agFinalCode ?? "");
       if (agAllCode.trim() && (agScreenshots.length > 0 || epCodeAssertions.length > 0)) {
         try {
@@ -1708,6 +1714,7 @@ async function executeQueryPipelineInner(input: {
       url: `/chat/${input.contextId}`,
     }).catch(() => {/* ignore push errors */});
   } finally {
+    clearTimeout(pipelineTimeout);
     // Recalculate context cost from item totals to correct any drift
     // from interrupted/resumed pipelines or double-counted increments.
     try {

@@ -29,6 +29,7 @@ import {
   isSpecGenerationEnabled,
   getAgentMaxSteps,
   getCodeEvalWeight,
+  getPipelineTimeoutMs,
 } from "./generation-settings.service.js";
 import { generateSpec, type SpecResult } from "./spec-generation.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
@@ -39,7 +40,6 @@ export { wrapInTemplate, stripTemplateBoilerplate } from "../utils/workbench-cod
 export { reRenderForExample } from "./workbench-rerender.service.js";
 
 const logger = createLogger("workbench");
-const PIPELINE_TIMEOUT_MS = 15 * 60 * 1000;
 
 export type ProgressCallback = (state: string, detail: string) => void;
 export type TracePublisher = (trace: import("@chat3d/shared").GenerationTrace) => void;
@@ -108,8 +108,9 @@ export async function generateForPrompt(
   return runWithUsageContext({ workbenchExampleId: promptId }, async () => {
     logger.info({ promptId }, "starting generation for prompt");
 
+    const timeoutMs = await getPipelineTimeoutMs("workbench");
     const pipelineController = new AbortController();
-    const pipelineTimeout = setTimeout(() => pipelineController.abort(), PIPELINE_TIMEOUT_MS);
+    const pipelineTimeout = setTimeout(() => pipelineController.abort(), timeoutMs);
 
     if (externalSignal) {
       if (externalSignal.aborted) {

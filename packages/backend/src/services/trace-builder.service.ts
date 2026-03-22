@@ -322,7 +322,8 @@ export class TraceBuilder {
     const totalSteps = this.nodes.filter(n => n.type === "agent_step").length;
 
     const hasFailed = this.nodes.some(n => n.status === "failed");
-    const hasAborted = this.nodes.some(n => n.errorInfo?.category === "abort")
+    const abortCategories: ReadonlySet<string> = new Set(["abort", "timeout", "step_limit"]);
+    const hasAborted = this.nodes.some(n => n.errorInfo?.category != null && abortCategories.has(n.errorInfo.category))
       || rootNodes.some(n => n.status === "failed" && n.error?.includes("abort"));
 
     return {

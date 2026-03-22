@@ -54,6 +54,7 @@ export interface TraceAgentMeta {
 export type TraceErrorCategory =
   | "timeout"
   | "abort"
+  | "step_limit"
   | "exception"
   | "render_failure"
   | "validation_failure"
