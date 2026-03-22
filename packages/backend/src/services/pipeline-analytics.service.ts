@@ -54,6 +54,11 @@ export interface PipelineBreakdown {
   stepLimitCount: number;
 }
 
+export interface DetailViewAngleRow {
+  angle: string;
+  callCount: number;
+}
+
 // ── Filter builder ─────────────────────────────────────────────────
 
 function buildWhereClause(filters: PipelineFilters): { sql: string; params: unknown[] } {
@@ -253,4 +258,30 @@ export async function getPipelineBreakdown(filters: PipelineFilters): Promise<Pi
     submittedCount,
     stepLimitCount,
   };
+}
+
+// ── Detail View Angle Breakdown ─────────────────────────────────
+
+export async function getDetailViewAngleBreakdown(filters: PipelineFilters): Promise<DetailViewAngleRow[]> {
+  const { sql: whereClause, params } = buildWhereClause(filters);
+
+  const query = `
+    SELECT
+      TRIM(REPLACE(SPLIT_PART(tool->>'inputSummary', ',', 1), 'angle:', '')) AS "angle",
+      COUNT(*)::int AS "callCount"
+    FROM generation_traces gt,
+         jsonb_array_elements(gt.trace->'nodes') AS node,
+         jsonb_array_elements(COALESCE(node->'toolCalls', '[]'::jsonb)) AS tool
+    ${whereClause}
+      ${whereClause ? "AND" : "WHERE"} tool->>'toolName' = 'request_detail_view'
+    GROUP BY 1
+    ORDER BY "callCount" DESC
+  `;
+
+  try {
+    return await prisma.$queryRawUnsafe<DetailViewAngleRow[]>(query, ...params);
+  } catch (err) {
+    logger.warn({ err }, "detail view angle breakdown query failed");
+    return [];
+  }
 }

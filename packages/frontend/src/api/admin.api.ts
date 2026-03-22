@@ -941,3 +941,15 @@ export async function getPipelineBreakdown(
 ): Promise<PipelineBreakdown> {
   return requestAdminJson(token, `/pipeline/breakdown${buildPipelineQuery(filters)}`);
 }
+
+export interface DetailViewAngleRow {
+  angle: string;
+  callCount: number;
+}
+
+export async function getDetailViewAngles(
+  token: string,
+  filters: PipelineFiltersInput,
+): Promise<{ angles: DetailViewAngleRow[] }> {
+  return requestAdminJson(token, `/pipeline/detail-view-angles${buildPipelineQuery(filters)}`);
+}

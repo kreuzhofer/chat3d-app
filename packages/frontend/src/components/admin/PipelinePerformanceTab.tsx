@@ -19,11 +19,13 @@ import {
   getPipelineTimeseries,
   getPipelineToolUsage,
   getPipelineBreakdown,
+  getDetailViewAngles,
   type PipelineSummary,
   type PipelineTimeseriesPoint,
   type PipelineToolUsageRow,
   type PipelineBreakdown,
   type PipelineFiltersInput,
+  type DetailViewAngleRow,
 } from "../../api/admin.api";
 import { SectionCard } from "../layout/SectionCard";
 import { InlineAlert } from "../layout/InlineAlert";
@@ -73,6 +75,7 @@ export function PipelinePerformanceTab({ token }: Props) {
   const [timeseries, setTimeseries] = useState<PipelineTimeseriesPoint[]>([]);
   const [tools, setTools] = useState<PipelineToolUsageRow[]>([]);
   const [breakdown, setBreakdown] = useState<PipelineBreakdown | null>(null);
+  const [angles, setAngles] = useState<DetailViewAngleRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -82,16 +85,18 @@ export function PipelinePerformanceTab({ token }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const [s, ts, t, b] = await Promise.all([
+      const [s, ts, t, b, a] = await Promise.all([
         getPipelineSummary(token, filters),
         getPipelineTimeseries(token, filters, granularity),
         getPipelineToolUsage(token, filters),
         getPipelineBreakdown(token, filters),
+        getDetailViewAngles(token, filters),
       ]);
       setSummary(s);
       setTimeseries(ts.series);
       setTools(t.tools);
       setBreakdown(b);
+      setAngles(a.angles);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load pipeline data");
     } finally {
@@ -310,10 +315,43 @@ export function PipelinePerformanceTab({ token }: Props) {
         </SectionCard>
       ) : null}
 
+      {/* Detail View Angle Breakdown */}
+      {angles.length > 0 ? (
+        <SectionCard title="Detail View Angles">
+          <DetailViewAngleChart angles={angles} tools={tools} />
+        </SectionCard>
+      ) : null}
+
       {loading ? (
         <p className="text-center text-sm text-[hsl(var(--muted-foreground))]">Loading...</p>
       ) : null}
     </div>
+  );
+}
+
+function DetailViewAngleChart({ angles, tools }: { angles: DetailViewAngleRow[]; tools: PipelineToolUsageRow[] }) {
+  const detailViewCalls = tools.find(t => t.toolName === "request_detail_view")?.callCount ?? 0;
+  const submitCalls = tools.find(t => t.toolName === "submit_result")?.callCount ?? 0;
+  const detailViewRate = submitCalls > 0 ? ((detailViewCalls / submitCalls) * 100).toFixed(1) : "—";
+
+  return (
+    <>
+      <p className="mb-3 text-xs text-[hsl(var(--muted-foreground))]">
+        Detail View Rate: <span className="font-semibold text-[hsl(var(--foreground))]">{detailViewRate}%</span>
+        <span className="ml-2">({detailViewCalls} detail views / {submitCalls} submissions)</span>
+      </p>
+      <div className="h-48 touch-none">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={angles} layout="vertical" margin={{ left: 10, right: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+            <XAxis type="number" tick={{ fontSize: 10 }} />
+            <YAxis type="category" dataKey="angle" tick={{ fontSize: 11 }} width={60} />
+            <Tooltip isAnimationActive={false} />
+            <Bar dataKey="callCount" fill="#8b5cf6" name="Calls" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </>
   );
 }
 
