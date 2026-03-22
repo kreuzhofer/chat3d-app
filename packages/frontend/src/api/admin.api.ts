@@ -942,6 +942,20 @@ export async function getPipelineBreakdown(
   return requestAdminJson(token, `/pipeline/breakdown${buildPipelineQuery(filters)}`);
 }
 
+export interface DetailViewTimeseriesPoint {
+  bucket: string;
+  detailViewCount: number;
+  submitCount: number;
+}
+
+export async function getDetailViewTimeseries(
+  token: string,
+  filters: PipelineFiltersInput,
+  granularity: string,
+): Promise<{ series: DetailViewTimeseriesPoint[] }> {
+  return requestAdminJson(token, `/pipeline/detail-view-timeseries${buildPipelineQuery(filters, { granularity })}`);
+}
+
 export interface DetailViewAngleRow {
   angle: string;
   callCount: number;

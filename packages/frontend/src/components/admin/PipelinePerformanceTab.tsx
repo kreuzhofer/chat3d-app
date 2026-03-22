@@ -20,12 +20,14 @@ import {
   getPipelineToolUsage,
   getPipelineBreakdown,
   getDetailViewAngles,
+  getDetailViewTimeseries,
   type PipelineSummary,
   type PipelineTimeseriesPoint,
   type PipelineToolUsageRow,
   type PipelineBreakdown,
   type PipelineFiltersInput,
   type DetailViewAngleRow,
+  type DetailViewTimeseriesPoint,
 } from "../../api/admin.api";
 import { SectionCard } from "../layout/SectionCard";
 import { InlineAlert } from "../layout/InlineAlert";
@@ -68,6 +70,13 @@ function formatDuration(ms: number): string {
   return `${(ms / 60000).toFixed(1)}m`;
 }
 
+function formatBucketLabel(bucket: string, granularity: string): string {
+  const d = new Date(bucket);
+  if (granularity === "hour") return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  if (granularity === "week" || granularity === "month") return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return d.toLocaleDateString();
+}
+
 export function PipelinePerformanceTab({ token }: Props) {
   const [preset, setPreset] = useState("7d");
   const [granularity, setGranularity] = useState("day");
@@ -76,6 +85,7 @@ export function PipelinePerformanceTab({ token }: Props) {
   const [tools, setTools] = useState<PipelineToolUsageRow[]>([]);
   const [breakdown, setBreakdown] = useState<PipelineBreakdown | null>(null);
   const [angles, setAngles] = useState<DetailViewAngleRow[]>([]);
+  const [dvTimeseries, setDvTimeseries] = useState<DetailViewTimeseriesPoint[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -85,18 +95,20 @@ export function PipelinePerformanceTab({ token }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const [s, ts, t, b, a] = await Promise.all([
+      const [s, ts, t, b, a, dvts] = await Promise.all([
         getPipelineSummary(token, filters),
         getPipelineTimeseries(token, filters, granularity),
         getPipelineToolUsage(token, filters),
         getPipelineBreakdown(token, filters),
         getDetailViewAngles(token, filters),
+        getDetailViewTimeseries(token, filters, granularity),
       ]);
       setSummary(s);
       setTimeseries(ts.series);
       setTools(t.tools);
       setBreakdown(b);
       setAngles(a.angles);
+      setDvTimeseries(dvts.series);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load pipeline data");
     } finally {
@@ -123,18 +135,13 @@ export function PipelinePerformanceTab({ token }: Props) {
     ].filter(d => d.value > 0);
   }, [breakdown]);
 
-  const tsFormatted = useMemo(() => timeseries.map(p => {
-    const d = new Date(p.bucket);
-    let label: string;
-    if (granularity === "hour") {
-      label = d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-    } else if (granularity === "week" || granularity === "month") {
-      label = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    } else {
-      label = d.toLocaleDateString();
-    }
-    return { ...p, label, failureRatePct: +(p.failureRate * 100).toFixed(1) };
-  }), [timeseries, granularity]);
+  const tsFormatted = useMemo(() => timeseries.map(p => ({
+    ...p, label: formatBucketLabel(p.bucket, granularity), failureRatePct: +(p.failureRate * 100).toFixed(1),
+  })), [timeseries, granularity]);
+
+  const dvTsFormatted = useMemo(() => dvTimeseries.map(p => ({
+    ...p, label: formatBucketLabel(p.bucket, granularity),
+  })), [dvTimeseries, granularity]);
 
   return (
     <div className="space-y-6 p-6">
@@ -315,7 +322,25 @@ export function PipelinePerformanceTab({ token }: Props) {
         </SectionCard>
       ) : null}
 
-      {/* Detail View Angle Breakdown */}
+      {/* Detail View: timeseries + angle breakdown */}
+      {dvTsFormatted.length > 0 ? (
+        <SectionCard title="Detail Views vs Submissions Over Time">
+          <div className="h-56 touch-none">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={dvTsFormatted}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} />
+                <Tooltip isAnimationActive={false} />
+                <Legend />
+                <Bar dataKey="submitCount" fill="#3b82f6" name="Submissions" />
+                <Bar dataKey="detailViewCount" fill="#8b5cf6" name="Detail Views" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+      ) : null}
+
       {angles.length > 0 ? (
         <SectionCard title="Detail View Angles">
           <DetailViewAngleChart angles={angles} tools={tools} />

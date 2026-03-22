@@ -59,6 +59,12 @@ export interface DetailViewAngleRow {
   callCount: number;
 }
 
+export interface DetailViewTimeseriesPoint {
+  bucket: string;
+  detailViewCount: number;
+  submitCount: number;
+}
+
 // ── Filter builder ─────────────────────────────────────────────────
 
 function buildWhereClause(filters: PipelineFilters): { sql: string; params: unknown[] } {
@@ -282,6 +288,48 @@ export async function getDetailViewAngleBreakdown(filters: PipelineFilters): Pro
     return await prisma.$queryRawUnsafe<DetailViewAngleRow[]>(query, ...params);
   } catch (err) {
     logger.warn({ err }, "detail view angle breakdown query failed");
+    return [];
+  }
+}
+
+export async function getDetailViewTimeseries(
+  filters: PipelineFilters,
+  granularity: string,
+): Promise<DetailViewTimeseriesPoint[]> {
+  if (!VALID_GRANULARITIES.has(granularity)) {
+    throw new Error(`Invalid granularity: ${granularity}`);
+  }
+
+  const { sql: whereClause, params } = buildWhereClause(filters);
+
+  const query = `
+    SELECT
+      date_trunc('${granularity}', gt.created_at) AS bucket,
+      COUNT(*) FILTER (WHERE tool->>'toolName' = 'request_detail_view')::int AS "detailViewCount",
+      COUNT(*) FILTER (WHERE tool->>'toolName' = 'submit_result')::int AS "submitCount"
+    FROM generation_traces gt,
+         jsonb_array_elements(gt.trace->'nodes') AS node,
+         jsonb_array_elements(COALESCE(node->'toolCalls', '[]'::jsonb)) AS tool
+    ${whereClause}
+      ${whereClause ? "AND" : "WHERE"} tool->>'toolName' IN ('request_detail_view', 'submit_result')
+    GROUP BY bucket
+    ORDER BY bucket ASC
+  `;
+
+  try {
+    const rows = await prisma.$queryRawUnsafe<Array<{
+      bucket: Date;
+      detailViewCount: number;
+      submitCount: number;
+    }>>(query, ...params);
+
+    return rows.map((r) => ({
+      bucket: r.bucket.toISOString(),
+      detailViewCount: r.detailViewCount,
+      submitCount: r.submitCount,
+    }));
+  } catch (err) {
+    logger.warn({ err }, "detail view timeseries query failed");
     return [];
   }
 }

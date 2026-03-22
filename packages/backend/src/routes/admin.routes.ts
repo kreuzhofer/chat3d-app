@@ -80,6 +80,7 @@ import {
   getPipelineToolUsage,
   getPipelineBreakdown,
   getDetailViewAngleBreakdown,
+  getDetailViewTimeseries,
 } from "../services/pipeline-analytics.service.js";
 import { config } from "../config.js";
 import { prisma } from "../db/prisma.js";
@@ -1097,6 +1098,23 @@ adminRouter.get("/pipeline/breakdown", async (req, res) => {
     res.status(200).json(breakdown);
   } catch (error) {
     sendKnownError(res, error, "Failed to get pipeline breakdown");
+  }
+});
+
+adminRouter.get("/pipeline/detail-view-timeseries", async (req, res) => {
+  try {
+    const granularity = typeof req.query.granularity === "string" ? req.query.granularity : "day";
+    const series = await getDetailViewTimeseries(
+      {
+        from: parseOptionalDate(req.query.from),
+        to: parseOptionalDate(req.query.to),
+        pipelineType: typeof req.query.pipelineType === "string" ? req.query.pipelineType : undefined,
+      },
+      granularity,
+    );
+    res.status(200).json({ series });
+  } catch (error) {
+    sendKnownError(res, error, "Failed to get detail view timeseries");
   }
 });
 
