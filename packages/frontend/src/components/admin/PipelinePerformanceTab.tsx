@@ -327,15 +327,15 @@ export function PipelinePerformanceTab({ token }: Props) {
         <SectionCard title="Detail Views vs Submissions Over Time">
           <div className="h-56 touch-none">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={dvTsFormatted}>
+              <LineChart data={dvTsFormatted}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                 <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 10 }} />
                 <Tooltip isAnimationActive={false} />
                 <Legend />
-                <Bar dataKey="submitCount" fill="#3b82f6" name="Submissions" />
-                <Bar dataKey="detailViewCount" fill="#8b5cf6" name="Detail Views" />
-              </BarChart>
+                <Line type="monotone" dataKey="submitCount" stroke="#3b82f6" name="Submissions" dot={false} />
+                <Line type="monotone" dataKey="detailViewCount" stroke="#8b5cf6" name="Detail Views" dot={false} />
+              </LineChart>
             </ResponsiveContainer>
           </div>
         </SectionCard>
