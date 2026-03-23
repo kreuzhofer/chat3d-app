@@ -88,7 +88,7 @@ function parseChecklistResultsJson(
 
 export async function listExamplesForPrompt(promptId: string): Promise<ExampleDetail[]> {
   const rows = await prisma.workbenchExample.findMany({
-    where: { promptId },
+    where: { promptId, experimentRunId: null },
     include: { promptRef: { include: { category: true } } },
     orderBy: { createdAt: "desc" },
   });
@@ -274,14 +274,14 @@ export async function deleteExample(exampleId: string): Promise<void> {
 
 export async function deleteExamplesForPrompt(promptId: string): Promise<{ deleted: number }> {
   const { count } = await prisma.workbenchExample.deleteMany({
-    where: { promptId },
+    where: { promptId, experimentRunId: null },
   });
   return { deleted: count };
 }
 
 export async function deleteExamplesForCategory(categoryId: string): Promise<{ deleted: number }> {
   const { count } = await prisma.workbenchExample.deleteMany({
-    where: { promptRef: { categoryId } },
+    where: { promptRef: { categoryId }, experimentRunId: null },
   });
   return { deleted: count };
 }
@@ -351,7 +351,7 @@ export async function cleanupExamplesForPrompt(promptId: string): Promise<{
             p.category_id
      FROM workbench_examples e
      JOIN workbench_example_prompts p ON p.id = e.prompt_id
-     WHERE e.prompt_id = ${promptId}::uuid
+     WHERE e.prompt_id = ${promptId}::uuid AND e.experiment_run_id IS NULL
      ORDER BY
        CASE e.approval_status
          WHEN 'human_approved' THEN 1
@@ -411,6 +411,7 @@ export async function listRecentApprovedExamples(limit = 20): Promise<RecentAppr
       approvalStatus: { in: ["auto_approved", "human_approved"] },
       renderStatus: "success",
       screenshotIso: { not: null },
+      experimentRunId: null,
     },
     include: { promptRef: { include: { category: true } } },
     orderBy: { createdAt: "desc" },
@@ -461,6 +462,7 @@ export async function listTopRatedByCategory(
       WHERE e.approval_status IN ('auto_approved', 'human_approved')
         AND e.render_status = 'success'
         AND e.screenshot_iso IS NOT NULL
+        AND e.experiment_run_id IS NULL
     )
     SELECT id, prompt_text, category_id, category_name, complexity, eval_score, created_at
     FROM ranked
@@ -530,7 +532,7 @@ export async function getExportStats(): Promise<ExportStats> {
       COUNT(DISTINCT CASE WHEN e.approval_status = 'rejected' THEN e.id END)::text AS rejected
     FROM workbench_categories c
     LEFT JOIN workbench_example_prompts p ON p.category_id = c.id
-    LEFT JOIN workbench_examples e ON e.prompt_id = p.id
+    LEFT JOIN workbench_examples e ON e.prompt_id = p.id AND e.experiment_run_id IS NULL
     GROUP BY c.id
     ORDER BY c.rank
   `;
@@ -574,6 +576,7 @@ export async function exportApprovedJsonl(): Promise<string> {
     where: {
       approvalStatus: { in: ["auto_approved", "human_approved"] },
       renderStatus: "success",
+      experimentRunId: null,
     },
     select: {
       code: true,

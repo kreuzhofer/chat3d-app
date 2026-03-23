@@ -280,6 +280,41 @@ export async function getModelForPurposeWithFallback(
   return getModelForPurpose(fallback);
 }
 
+/**
+ * Resolve a model config directly by model ID (not via purpose map).
+ * Used by experiments to override the model for a specific pipeline stage.
+ */
+export async function resolveModelConfigById(modelId: string): Promise<LlmModelConfig> {
+  const model = await prisma.llmModel.findUnique({
+    where: { id: modelId },
+    include: { providerRef: true },
+  });
+  if (!model) throw new Error(`LLM model not found: ${modelId}`);
+  if (!model.isActive) throw new Error(`LLM model is not active: ${model.provider}/${model.modelName}`);
+
+  const provider = model.providerRef;
+  const apiKey = provider.apiKey?.trim() || null;
+  return {
+    id: model.id,
+    provider: model.provider,
+    providerType: provider.providerType,
+    modelName: model.modelName,
+    displayName: model.displayName ?? `${model.provider}/${model.modelName}`,
+    label: `${model.provider}/${model.modelName}`,
+    costPer1mInput: Number(model.costPer1mInput),
+    costPer1mOutput: Number(model.costPer1mOutput),
+    maxOutputTokens: model.maxOutputTokens,
+    maxContextTokens: model.maxContextTokens,
+    supportsThinking: model.supportsThinking,
+    thinkingEffort: model.defaultThinkingEffort,
+    supportsVision: model.supportsVision,
+    supportsEmbeddings: model.supportsEmbeddings,
+    endpointUrl: provider.endpointUrl,
+    apiKey,
+    maxConcurrent: provider.maxConcurrent ?? null,
+  };
+}
+
 // ── Provider instantiation ──────────────────────────────────────────
 
 /** Resolves the effective SDK type for provider dispatch. */

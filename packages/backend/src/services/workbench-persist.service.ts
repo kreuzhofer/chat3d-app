@@ -47,6 +47,7 @@ export async function insertExample(data: {
   codeEvalScore?: number | null;
   assertionPassRate?: number | null;
   evalSource?: string | null;
+  experimentRunId?: string | null;
 }): Promise<string> {
   const created = await prisma.workbenchExample.create({
     data: {
@@ -83,6 +84,7 @@ export async function insertExample(data: {
       codeEvalScore: data.codeEvalScore ?? null,
       assertionPassRate: data.assertionPassRate ?? null,
       evalSource: data.evalSource ?? null,
+      experimentRunId: data.experimentRunId ?? null,
     },
     select: { id: true },
   });

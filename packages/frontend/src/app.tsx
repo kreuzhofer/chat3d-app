@@ -74,6 +74,10 @@ const AdminPipelinePage = lazy(async () => {
   const module = await import("./pages/admin/AdminPipelinePage");
   return { default: module.AdminPipelinePage };
 });
+const AdminExperimentsPage = lazy(async () => {
+  const module = await import("./pages/admin/AdminExperimentsPage");
+  return { default: module.AdminExperimentsPage };
+});
 const BackupsPage = lazy(async () => {
   const module = await import("./components/BackupsPage");
   return { default: module.BackupsPage };
@@ -174,6 +178,7 @@ function AuthenticatedApp() {
             <Route path="knowledge" element={<AdminKnowledgePage />} />
             <Route path="costs" element={<AdminCostsPage />} />
             <Route path="pipeline" element={<AdminPipelinePage />} />
+            <Route path="experiments" element={<AdminExperimentsPage />} />
           </Route>
           <Route path="/workbench" element={<AdminRouteGuard><WorkbenchPage /></AdminRouteGuard>} />
           <Route path="/workbench/:categoryId" element={<AdminRouteGuard><WorkbenchCategoryPage /></AdminRouteGuard>} />

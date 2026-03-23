@@ -212,7 +212,7 @@ export async function startBatchJob(
   if (options.onlyMissing) {
     // Only process prompts that have zero examples
     const withExamples = await prisma.workbenchExample.findMany({
-      where: { promptId: { in: allPrompts.map((p) => p.id) } },
+      where: { promptId: { in: allPrompts.map((p) => p.id) }, experimentRunId: null },
       select: { promptId: true },
       distinct: ["promptId"],
     });
@@ -223,6 +223,7 @@ export async function startBatchJob(
       where: {
         promptId: { in: allPrompts.map((p) => p.id) },
         approvalStatus: { in: ["auto_approved", "human_approved"] },
+        experimentRunId: null,
       },
       select: { promptId: true },
       distinct: ["promptId"],
@@ -295,6 +296,7 @@ export async function startBatchReRender(categoryId: string): Promise<BatchJobSu
       promptRef: { categoryId },
       code: { not: "" },
       renderStatus: "success",
+      experimentRunId: null,
     },
     select: {
       id: true,
@@ -529,7 +531,11 @@ async function runBatchJob(
 
     let result: GenerateResult | null = null;
     try {
-      result = await generateForPrompt(prompt.id, buildProgressCallback(job, prompt.id), buildTracePublisher(job, prompt.id), job.abortController.signal);
+      result = await generateForPrompt(prompt.id, {
+        onProgress: buildProgressCallback(job, prompt.id),
+        tracePublisher: buildTracePublisher(job, prompt.id),
+        externalSignal: job.abortController.signal,
+      });
 
       if (result.disambiguationNeeded) {
         // Prompt needs disambiguation — count as skipped
@@ -655,7 +661,11 @@ async function runSingleJob(
     if (type === "re-render" && exampleId) {
       result = await reRenderForExample(exampleId, onProgress);
     } else {
-      result = await generateForPrompt(promptId, onProgress, buildTracePublisher(job, promptId), job.abortController.signal);
+      result = await generateForPrompt(promptId, {
+        onProgress,
+        tracePublisher: buildTracePublisher(job, promptId),
+        externalSignal: job.abortController.signal,
+      });
     }
 
     if (result.approvalStatus === "rejected") {
@@ -844,7 +854,7 @@ export async function startBatchCleanup(categoryId: string): Promise<BatchJobSum
     SELECT p.id, p.prompt
     FROM workbench_example_prompts p
     WHERE p.category_id = ${categoryId}::uuid
-      AND (SELECT COUNT(*) FROM workbench_examples e WHERE e.prompt_id = p.id) > 1
+      AND (SELECT COUNT(*) FROM workbench_examples e WHERE e.prompt_id = p.id AND e.experiment_run_id IS NULL) > 1
     ORDER BY p.index ASC
   `;
   if (prompts.length === 0) {

@@ -110,6 +110,7 @@ model User {
   appSettingsUpdated            AppSettings[]
   waitlistEntriesApproved       WaitlistEntry[]
   llmUsageEvents                LlmUsageEvent[]
+  experiments                   Experiment[]
 
   @@index([role], map: "idx_users_role")
   @@index([status], map: "idx_users_status")
@@ -398,7 +399,8 @@ model WorkbenchCategory {
   updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz()
 
   // Relations
-  prompts WorkbenchExamplePrompt[]
+  prompts     WorkbenchExamplePrompt[]
+  experiments Experiment[]
 
   @@map("workbench_categories")
 }
@@ -422,6 +424,7 @@ model WorkbenchExamplePrompt {
   tags                       WorkbenchPromptTag[]
   remixedContexts            ChatContext[]         @relation("remixOrigin")
   remixedCurationCandidates  CurationCandidate[]   @relation("curationRemixOrigin")
+  experimentSelections       ExperimentPromptSelection[]
 
   @@unique([categoryId, index])
   @@index([categoryId], map: "idx_wb_prompts_category")
@@ -466,16 +469,19 @@ model WorkbenchExample {
   codeEvalScore         Decimal? @map("code_eval_score") @db.Decimal(3, 1)
   assertionPassRate     Decimal? @map("assertion_pass_rate") @db.Decimal(3, 2)
   evalSource            String?  @map("eval_source") @db.VarChar(20)
+  experimentRunId       String?  @map("experiment_run_id") @db.Uuid
 
   // Relations
   promptRef           WorkbenchExamplePrompt @relation(fields: [promptId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   curationCandidates  CurationCandidate[]
   generationTrace     GenerationTrace?
+  experimentRun       ExperimentRun?         @relation(fields: [experimentRunId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([promptId], map: "idx_wb_examples_prompt")
   @@index([approvalStatus], map: "idx_wb_examples_approval")
   @@index([evalScore], map: "idx_wb_examples_eval_score")
   @@index([featured], map: "idx_wb_examples_featured")
+  @@index([experimentRunId], map: "idx_wb_examples_experiment_run")
   @@map("workbench_examples")
 }
 
@@ -503,6 +509,69 @@ model GenerationTrace {
   @@index([createdAt(sort: Desc)], map: "idx_gen_traces_created")
   @@index([promptId], map: "idx_gen_traces_prompt_id")
   @@map("generation_traces")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EXPERIMENTS (LLM model comparison benchmarks)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+model Experiment {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String    @db.VarChar(255)
+  categoryId    String    @map("category_id") @db.Uuid
+  promptCount   Int       @map("prompt_count")
+  promptSeed    Int       @default(42) @map("prompt_seed")
+  testedPurpose String    @default("workbench_codegen") @map("tested_purpose") @db.VarChar(50)
+  status        String    @default("created") @db.VarChar(20)
+  createdBy     String?   @map("created_by") @db.Uuid
+  startedAt     DateTime? @map("started_at") @db.Timestamptz()
+  completedAt   DateTime? @map("completed_at") @db.Timestamptz()
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  category        WorkbenchCategory          @relation(fields: [categoryId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  createdByUser   User?                      @relation(fields: [createdBy], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  runs            ExperimentRun[]
+  promptSelections ExperimentPromptSelection[]
+
+  @@index([categoryId], map: "idx_experiments_category")
+  @@index([status], map: "idx_experiments_status")
+  @@map("experiment_experiments")
+}
+
+model ExperimentRun {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  experimentId String    @map("experiment_id") @db.Uuid
+  modelId      String    @map("model_id") @db.Uuid
+  modelLabel   String    @map("model_label") @db.VarChar(255)
+  runOrder     Int       @map("run_order")
+  status       String    @default("pending") @db.VarChar(20)
+  startedAt    DateTime? @map("started_at") @db.Timestamptz()
+  completedAt  DateTime? @map("completed_at") @db.Timestamptz()
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  experiment Experiment         @relation(fields: [experimentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  model      LlmModel           @relation(fields: [modelId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  examples   WorkbenchExample[]
+
+  @@index([experimentId], map: "idx_exp_runs_experiment")
+  @@map("experiment_runs")
+}
+
+model ExperimentPromptSelection {
+  experimentId   String @map("experiment_id") @db.Uuid
+  promptId       String @map("prompt_id") @db.Uuid
+  selectionOrder Int    @map("selection_order")
+
+  // Relations
+  experiment Experiment             @relation(fields: [experimentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  prompt     WorkbenchExamplePrompt @relation(fields: [promptId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([experimentId, promptId])
+  @@map("experiment_prompt_selections")
 }
 
 model WorkbenchPromptTag {
@@ -570,8 +639,9 @@ model LlmModel {
   updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz()
 
   // Relations
-  providerRef LlmProvider    @relation(fields: [provider], references: [name], onUpdate: Cascade, onDelete: Restrict, map: "fk_llm_models_provider")
-  purposes    LlmPurposeMap[]
+  providerRef    LlmProvider     @relation(fields: [provider], references: [name], onUpdate: Cascade, onDelete: Restrict, map: "fk_llm_models_provider")
+  purposes       LlmPurposeMap[]
+  experimentRuns ExperimentRun[]
 
   @@unique([provider, modelName])
   @@map("llm_models")

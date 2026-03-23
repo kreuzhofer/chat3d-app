@@ -113,7 +113,8 @@
     "curation": "Curation",
     "knowledge": "Knowledge",
     "costs": "Costs",
-    "pipeline": "Pipeline"
+    "pipeline": "Pipeline",
+    "experiments": "Experiments"
   },
   "sidebar": {
     "newChat": "New Chat",

@@ -83,6 +83,7 @@ export async function listGalleryCategories(
     WHERE e.approval_status IN ('auto_approved', 'human_approved')
       AND e.render_status = 'success'
       AND e.screenshot_iso IS NOT NULL
+      AND e.experiment_run_id IS NULL
   `;
   const total = Number(countRows[0]?.cnt ?? 0);
 
@@ -96,6 +97,7 @@ export async function listGalleryCategories(
     WHERE e.approval_status IN ('auto_approved', 'human_approved')
       AND e.render_status = 'success'
       AND e.screenshot_iso IS NOT NULL
+      AND e.experiment_run_id IS NULL
     GROUP BY c.id
     ORDER BY c.rank
     LIMIT ${pageSize} OFFSET ${offset}
@@ -114,6 +116,7 @@ export async function listGalleryCategories(
         AND e.approval_status IN ('auto_approved', 'human_approved')
         AND e.render_status = 'success'
         AND e.screenshot_iso IS NOT NULL
+        AND e.experiment_run_id IS NULL
       ORDER BY
         e.featured DESC,
         e.eval_score DESC NULLS LAST,
@@ -170,6 +173,7 @@ export async function listGalleryModels(
       AND e.approval_status IN ('auto_approved', 'human_approved')
       AND e.render_status = 'success'
       AND e.screenshot_iso IS NOT NULL
+      AND e.experiment_run_id IS NULL
   `;
   const total = Number(countRows[0]?.cnt ?? 0);
 
@@ -183,6 +187,7 @@ export async function listGalleryModels(
       AND e.approval_status IN ('auto_approved', 'human_approved')
       AND e.render_status = 'success'
       AND e.screenshot_iso IS NOT NULL
+      AND e.experiment_run_id IS NULL
     ORDER BY e.eval_score DESC NULLS LAST, e.created_at DESC
     LIMIT ${pageSize} OFFSET ${offset}
   `;
@@ -265,6 +270,7 @@ export async function searchGalleryModels(
       AND e.approval_status IN ('auto_approved', 'human_approved')
       AND e.render_status = 'success'
       AND e.screenshot_iso IS NOT NULL
+      AND e.experiment_run_id IS NULL
       AND (1 - (p.embedding <=> ${pgVector}::vector)) > 0.3
   `;
   const total = Number(countRows[0]?.cnt ?? 0);
@@ -280,6 +286,7 @@ export async function searchGalleryModels(
       AND e.approval_status IN ('auto_approved', 'human_approved')
       AND e.render_status = 'success'
       AND e.screenshot_iso IS NOT NULL
+      AND e.experiment_run_id IS NULL
       AND (1 - (p.embedding <=> ${pgVector}::vector)) > 0.3
     ORDER BY p.embedding <=> ${pgVector}::vector ASC
     LIMIT ${pageSize} OFFSET ${offset}
@@ -384,6 +391,7 @@ export async function getModelPosition(
       AND e.approval_status IN ('auto_approved', 'human_approved')
       AND e.render_status = 'success'
       AND e.screenshot_iso IS NOT NULL
+      AND e.experiment_run_id IS NULL
       AND (
         (e.eval_score IS NOT NULL AND ${example.evalScore}::numeric IS NOT NULL AND e.eval_score > ${example.evalScore}::numeric)
         OR (e.eval_score IS NOT NULL AND ${example.evalScore}::numeric IS NULL)
@@ -575,6 +583,7 @@ export async function listStarterPrompts(limit = 4): Promise<StarterPrompt[]> {
       WHERE e.approval_status IN ('auto_approved', 'human_approved')
         AND e.render_status = 'success'
         AND e.screenshot_iso IS NOT NULL
+        AND e.experiment_run_id IS NULL
       ORDER BY p.prompt, e.featured DESC, e.eval_score DESC NULLS LAST
     ) deduped
     ORDER BY deduped.featured DESC, deduped.eval_score DESC NULLS LAST

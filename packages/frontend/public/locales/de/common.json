@@ -113,7 +113,8 @@
     "curation": "Kuratierung",
     "knowledge": "Wissensbasis",
     "costs": "Kosten",
-    "pipeline": "Pipeline"
+    "pipeline": "Pipeline",
+    "experiments": "Experimente"
   },
   "sidebar": {
     "newChat": "Neuer Chat",

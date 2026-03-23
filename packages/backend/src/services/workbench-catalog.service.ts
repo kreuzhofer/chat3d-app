@@ -52,7 +52,7 @@ export async function listCategories() {
       c.updated_at
     FROM workbench_categories c
     LEFT JOIN workbench_example_prompts p ON p.category_id = c.id
-    LEFT JOIN workbench_examples e ON e.prompt_id = p.id
+    LEFT JOIN workbench_examples e ON e.prompt_id = p.id AND e.experiment_run_id IS NULL
     GROUP BY c.id
     ORDER BY c.rank
   `;
@@ -104,7 +104,7 @@ export async function listPromptsForCategory(categoryId: string) {
       MAX(e.eval_score) AS best_score,
       (SELECT e2.approval_status
        FROM workbench_examples e2
-       WHERE e2.prompt_id = p.id
+       WHERE e2.prompt_id = p.id AND e2.experiment_run_id IS NULL
        ORDER BY
          CASE e2.approval_status
            WHEN 'human_approved' THEN 1
@@ -117,7 +117,7 @@ export async function listPromptsForCategory(categoryId: string) {
       ) AS best_approval,
       (SELECT e3.id
        FROM workbench_examples e3
-       WHERE e3.prompt_id = p.id
+       WHERE e3.prompt_id = p.id AND e3.experiment_run_id IS NULL
        ORDER BY
          CASE e3.approval_status
            WHEN 'human_approved' THEN 1
@@ -130,7 +130,7 @@ export async function listPromptsForCategory(categoryId: string) {
       ) AS best_example_id,
       p.created_at
     FROM workbench_example_prompts p
-    LEFT JOIN workbench_examples e ON e.prompt_id = p.id
+    LEFT JOIN workbench_examples e ON e.prompt_id = p.id AND e.experiment_run_id IS NULL
     WHERE p.category_id = ${categoryId}::uuid
     GROUP BY p.id
     ORDER BY p.index

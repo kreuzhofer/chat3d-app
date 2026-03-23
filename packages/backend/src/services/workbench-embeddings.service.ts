@@ -124,6 +124,7 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
     FROM workbench_example_prompts p
     JOIN workbench_examples e ON e.prompt_id = p.id
     WHERE e.approval_status IN ('auto_approved', 'human_approved')
+      AND e.experiment_run_id IS NULL
       AND (p.embedding IS NULL
            OR p.embedding_model IS NULL
            OR p.embedding_model != ${currentModel})
@@ -257,6 +258,7 @@ export async function findSimilarExamples(
        JOIN workbench_example_prompts p ON p.id = e.prompt_id
        WHERE p.embedding IS NOT NULL
          AND e.approval_status IN ('auto_approved', 'human_approved')
+       AND e.experiment_run_id IS NULL
        ORDER BY p.embedding <=> ${pgVector}::vector ASC
        LIMIT ${candidateLimit}
     `;
@@ -327,6 +329,7 @@ export async function checkSimilarity(
      JOIN workbench_example_prompts p ON p.id = e.prompt_id
      WHERE p.embedding IS NOT NULL
        AND e.approval_status IN ('auto_approved', 'human_approved')
+       AND e.experiment_run_id IS NULL
      ORDER BY p.embedding <=> ${pgVector}::vector ASC
      LIMIT ${limit}
   `;
@@ -363,6 +366,7 @@ export async function getEmbeddingStatus(): Promise<EmbeddingStatus> {
     FROM workbench_example_prompts p
     JOIN workbench_examples e ON e.prompt_id = p.id
     WHERE e.approval_status IN ('auto_approved', 'human_approved')
+      AND e.experiment_run_id IS NULL
   `;
   const row = rows[0];
   const total = Number(row.total);
