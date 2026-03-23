@@ -145,6 +145,12 @@ def _camera_pose_for_angle(
 # under co-located or shallow-offset lighting.
 _PLANAR_VIEWS = frozenset(("top", "bottom"))
 
+# Cardinal views look straight at one face.  Through-holes and cutouts
+# are invisible without shadow mapping because interior faces get the
+# same lighting as the front surface.  Shadow mapping + reduced fill
+# darkens recessed geometry, making cutouts clearly visible.
+_CARDINAL_VIEWS = frozenset(("front", "back", "left", "right"))
+
 
 def _make_light_pose(eye: np.ndarray, target: np.ndarray) -> np.ndarray:
     """Build a look-at pose for a directional light, auto-selecting up."""
@@ -166,6 +172,12 @@ def _build_key_lights(
 
     Top/bottom views use aggressive cross-lighting (~65° from camera axis)
     so vertical features are brightly lit while horizontal surfaces are dim.
+
+    Cardinal views (front/back/left/right) use multi-light jitter to create
+    soft shadows that reveal cutouts and holes on the face being viewed.
+    Three lights at slightly offset positions simulate an area light source,
+    producing overlapping shadows with gradient edges instead of hard lines.
+
     Other views use a moderate offset (~40°) for depth without over-darkening.
     """
     eye_cam = cam_pose[:3, 3]
@@ -175,17 +187,35 @@ def _build_key_lights(
     if angle in _PLANAR_VIEWS:
         # Near-horizontal cross-lighting from two sides (~65° from camera
         # axis).  Combined with SHADOWS_DIRECTIONAL this produces the best
-        # results for interior feature detection: the VLM can confirm all
-        # four standoff positions despite a checkerboard-like shadow pattern
-        # from opposing wall shadows (scored 7/10 vs 4-5 without shadows).
-        primary = eye_cam + right * distance * 2.0 + up_cam * distance * 1.0
-        secondary = eye_cam - right * distance * 1.5 - up_cam * distance * 0.8
+        # results for interior feature detection.
+        # Use 3 jittered lights per side for softer shadow edges.
+        lights = []
+        jitter = distance * 0.15  # Jitter amount for soft shadows
+
+        primary_base = eye_cam + right * distance * 2.0 + up_cam * distance * 1.0
+        for offset in [np.zeros(3), right * jitter, -right * jitter]:
+            lights.append((_make_light_pose(primary_base + offset, center), 3.5 / 3))
+
+        secondary_base = eye_cam - right * distance * 1.5 - up_cam * distance * 0.8
+        for offset in [np.zeros(3), right * jitter, -right * jitter]:
+            lights.append((_make_light_pose(secondary_base + offset, center), 2.0 / 3))
+
+        return lights
+
+    elif angle in _CARDINAL_VIEWS:
+        # Cardinal views: key light with 3 jittered copies for soft shadows.
+        # Shadows reveal cutouts/holes on the face being viewed.
+        # Reduced fill (see render loop) keeps recessed areas darker.
+        jitter = distance * 0.12
+        base = eye_cam + right * distance * 0.8 + up_cam * distance * 0.6
         return [
-            (_make_light_pose(primary, center), 3.5),
-            (_make_light_pose(secondary, center), 2.0),
+            (_make_light_pose(base, center), 5.0 / 3),
+            (_make_light_pose(base + right * jitter + up_cam * jitter * 0.5, center), 5.0 / 3),
+            (_make_light_pose(base - right * jitter - up_cam * jitter * 0.5, center), 5.0 / 3),
         ]
+
     else:
-        # Moderate offset: factors (0.8, 0.6) → ~40° from camera axis.
+        # Angled views: single offset key light, no shadows needed.
         offset = right * distance * 0.8 + up_cam * distance * 0.6
         return [(_make_light_pose(eye_cam + offset, center), 5.0)]
 
@@ -321,15 +351,18 @@ def render_screenshots(
             scene.add(light, pose=light_pose)
 
         # Camera-co-located fill — ensures no visible face goes completely dark.
-        fill_light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0], intensity=1.5)
+        # Cardinal views use reduced fill so cutout interiors appear darker
+        # than the front surface, making through-holes visible.
+        fill_intensity = 0.8 if angle in _CARDINAL_VIEWS else 1.5
+        fill_light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0], intensity=fill_intensity)
         scene.add(fill_light, pose=cam_pose)
 
-        # Render — enable shadow maps only for planar views (top/bottom)
-        # where shadows from vertical features reveal depth.  Other views
-        # rely on shading from the offset key light alone; shadow mapping
-        # on angled/cardinal views added more confusion than clarity.
+        # Enable shadow maps for planar and cardinal views.
+        # Planar: shadows from vertical features reveal depth on floor.
+        # Cardinal: shadows at cutout edges darken recessed geometry.
+        # Angled views don't need shadows — geometry visible from oblique angle.
         flags = RenderFlags.OFFSCREEN
-        if angle in _PLANAR_VIEWS:
+        if angle in _PLANAR_VIEWS or angle in _CARDINAL_VIEWS:
             flags |= RenderFlags.SHADOWS_DIRECTIONAL
         color, _ = renderer.render(scene, flags=flags)
 
