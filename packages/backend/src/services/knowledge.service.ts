@@ -299,34 +299,43 @@ export async function backfillKnowledgeEmbeddings(): Promise<{ embedded: number;
     const batch = rows.slice(i, i + BATCH_SIZE);
     const texts = batch.map(r => buildEmbeddingText(r.title, r.description, r.code, r.source_type));
 
-    const embedResult = await trackedEmbedMany({
-      model,
-      values: texts,
-      providerOptions: { openai: { dimensions: 1536 } },
-    }, {
-      purpose: "knowledge_embedding",
-      providerName: embeddingCfg.provider,
-      modelId: embeddingCfg.id,
-      modelName: embeddingCfg.modelName,
-      modelConfig: {
-        costPer1mInput: embeddingCfg.costPer1mInput,
-        costPer1mOutput: embeddingCfg.costPer1mOutput,
-      },
-    });
+    logger.debug({ batchIdx: Math.floor(i / BATCH_SIZE) + 1, titles: batch.map(r => r.title), textLengths: texts.map(t => t.length) }, "embedding batch starting");
 
-    await prisma.$transaction(async (tx) => {
-      for (let j = 0; j < batch.length; j++) {
-        const pgVector = `[${embedResult.embeddings[j].join(",")}]`;
-        await tx.$executeRaw`
-          UPDATE build123d_knowledge
-          SET embedding = ${pgVector}::vector, embedding_model = ${currentModel}
-          WHERE id = ${batch[j].id}::uuid
-        `;
-      }
-    });
+    try {
+      const embedResult = await trackedEmbedMany({
+        model,
+        values: texts,
+        providerOptions: { openai: { dimensions: 1536 } },
+      }, {
+        purpose: "knowledge_embedding",
+        providerName: embeddingCfg.provider,
+        modelId: embeddingCfg.id,
+        modelName: embeddingCfg.modelName,
+        modelConfig: {
+          costPer1mInput: embeddingCfg.costPer1mInput,
+          costPer1mOutput: embeddingCfg.costPer1mOutput,
+        },
+      });
 
-    embedded += batch.length;
-    logger.info({ batch: Math.floor(i / BATCH_SIZE) + 1, embedded }, "knowledge embedding batch done");
+      logger.debug({ batchIdx: Math.floor(i / BATCH_SIZE) + 1, embeddingCount: embedResult.embeddings.length }, "embedding API call succeeded");
+
+      await prisma.$transaction(async (tx) => {
+        for (let j = 0; j < batch.length; j++) {
+          const pgVector = `[${embedResult.embeddings[j].join(",")}]`;
+          await tx.$executeRaw`
+            UPDATE build123d_knowledge
+            SET embedding = ${pgVector}::vector, embedding_model = ${currentModel}
+            WHERE id = ${batch[j].id}::uuid
+          `;
+        }
+      });
+
+      embedded += batch.length;
+      logger.info({ batch: Math.floor(i / BATCH_SIZE) + 1, embedded }, "knowledge embedding batch done");
+    } catch (err) {
+      logger.error({ err, batchIdx: Math.floor(i / BATCH_SIZE) + 1, titles: batch.map(r => r.title), textLengths: texts.map(t => t.length) }, "knowledge embedding batch FAILED");
+      throw err;
+    }
   }
 
   return { embedded, skipped: 0 };
