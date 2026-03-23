@@ -8,6 +8,10 @@ pydantic==2.12.5
 build123d @ git+https://github.com/gumyr/build123d.git@dev
 # bd_warehouse: parametric mechanical components (threads, fasteners, bearings, gears, pipes)
 bd_warehouse
+# gridfinity_build123d: parametric Gridfinity storage bins, bases, and baseplates
+# Requires typing_extensions for Python <3.12 (backports typing.override)
+typing_extensions>=4.0
+gridfinity_build123d @ git+https://github.com/Ruudjhuu/gridfinity_build123d.git
 # pyrender-based screenshot rendering (EGL offscreen)
 trimesh>=4.0
 pyrender>=0.1.45

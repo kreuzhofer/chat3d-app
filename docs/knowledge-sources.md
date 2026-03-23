@@ -88,7 +88,7 @@ Reference knowledge is **not** passively searched via RAG. Instead, a **keyword-
 
 | Source | URL | Description | Priority |
 |--------|-----|-------------|----------|
-| **gridfinity_build123d** | [github.com/Ruudjhuu/gridfinity_build123d](https://github.com/Ruudjhuu/gridfinity_build123d) | Gridfinity bins, baseplates (42mm grid standard) | Medium |
+| **gridfinity_build123d** | [github.com/Ruudjhuu/gridfinity_build123d](https://github.com/Ruudjhuu/gridfinity_build123d) | Gridfinity bins, baseplates (42mm grid standard) — **library integrated, knowledge entries planned** | High |
 | **capistry** | [github.com/larssont/capistry](https://github.com/larssont/capistry) | Parametric keyboard keycap modeling | Low |
 | **py_gearworks** | [github.com/GarryBGoode/py_gearworks](https://github.com/GarryBGoode/py_gearworks) | Involute gear generators | Low |
 | **gflabel** | [github.com/ndevenish/gflabel](https://github.com/ndevenish/gflabel) | 3D-printable gridfinity labels | Low |
@@ -593,7 +593,7 @@ All initially planned reference sources have been added:
 | ISO metric fastener table | M2–M8 socket cap screw dimensions | Done (`reference_upload`) |
 | USB-C connector dimensions | Receptacle opening, depth, tolerances | Done (`reference_upload`) |
 | FDM 3D printing guidelines | Wall thickness, overhangs, tolerances | Done (`reference_upload` + `reference_url` via Prusa KB) |
-| Gridfinity specification | Grid size, height units, wall dimensions | Not yet added |
+| Gridfinity specification | Grid size (42mm), height units (7mm), wall dimensions, magnet/screw dims | Planned — add after library integration |
 
 Additional connectors also added: USB-A, HDMI, HDMI Micro, barrel jack, RJ45, audio jack, pin header.
 

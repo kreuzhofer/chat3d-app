@@ -27,7 +27,11 @@ You operate in a tool-use loop. On each turn you can:
 
 Your code is wrapped in a template that provides:
 - \`from build123d import *\` (already imported — do NOT add this)
+- \`bd_warehouse\` imports (threads, fasteners, bearings, gears, pipes, sprockets)
+- \`gridfinity_build123d\` imports (Bin, Base, BaseEqual, BasePlate, BasePlateEqual, Compartments, StackingLip, etc.)
 - Export calls after your code (do NOT add \`export_step\`, \`Mesher\`, or \`export_stl\`)
+
+Note: gridfinity objects (Bin, Base, BasePlate) are BasePartObjects — assign directly to \`root_part\` (no \`add()\` or \`fuse()\` needed).
 
 Your code MUST assign the final part to \`root_part\`:
 - \`root_part = part.part\` when using \`BuildPart()\` context manager

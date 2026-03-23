@@ -29,6 +29,12 @@ RUN if pip --help | grep -q -- "--resume-retries"; then \
       pip install --no-cache-dir --retries 50 --timeout 120 --upgrade -r /code/requirements.txt; \
     fi
 
+# Backport typing.override for Python <3.12 (needed by gridfinity_build123d)
+RUN python -c "import typing; typing.override" 2>/dev/null || \
+    SITE_DIR=$(python -c "import site; print(site.getsitepackages()[0])") && \
+    echo 'import typing; from typing_extensions import override; typing.override = override' \
+    > "$SITE_DIR/sitecustomize.py"
+
 COPY ./app /code/app
 
 # pyrender needs EGL for headless offscreen rendering

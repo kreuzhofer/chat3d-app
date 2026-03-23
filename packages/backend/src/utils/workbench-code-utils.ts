@@ -24,6 +24,16 @@ from bd_warehouse.bearing import SingleRowDeepGrooveBallBearing
 from bd_warehouse.gear import SpurGear
 from bd_warehouse.pipe import Pipe, PipeSection
 from bd_warehouse.sprocket import Sprocket
+from gridfinity_build123d import (
+    Bin, Base, BaseEqual,
+    BasePlate, BasePlateEqual,
+    BasePlateBlockFrame, BasePlateBlockFull, BasePlateBlockSkeleton,
+    Compartment, Compartments, CompartmentsEqual,
+    StackingLip, Label, Scoop, Weighted,
+    MagnetHole, ScrewHole, ScrewHoleCounterbore, ScrewHoleCountersink,
+    HoleFeature,
+    TopCorners, TopMiddle, BottomCorners, BottomMiddle, BottomSides,
+)
 ###CODE###
 export_step(root_part, "###FILENAME###.step")
 exporter = Mesher()
@@ -54,6 +64,8 @@ export function stripTemplateBoilerplate(code: string): string {
       const trimmed = line.trim();
       if (trimmed === "from build123d import *") return false;
       if (trimmed === "import math") return false;
+      if (trimmed.startsWith("from bd_warehouse.")) return false;
+      if (trimmed.startsWith("from gridfinity_build123d")) return false;
       if (trimmed.startsWith("export_step(")) return false;
       if (trimmed.startsWith("exporter = Mesher(")) return false;
       if (trimmed.startsWith("exporter.add_shape(")) return false;
