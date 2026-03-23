@@ -13,6 +13,7 @@ import type { ProjectFile, RenderedFile } from "./rendering.service.js";
 import { doValidate, doRender, runVlmEval, type AgentEvalResult } from "./agent-render-helpers.service.js";
 import { checkAssertions } from "./code-eval-assertions.service.js";
 import { evaluateCode } from "./code-eval.service.js";
+import { flattenForEval } from "../utils/code-flatten.js";
 import type { CodeAssertion } from "./spec-generation.service.js";
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
 import {
@@ -221,7 +222,7 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
         // Hard gate: run assertion check before expensive VLM eval
         if (deps.codeAssertions && deps.codeAssertions.length > 0) {
           const submitFiles = fs.getFiles();
-          const submitCode = submitFiles.map(f => `# --- ${f.path} ---\n${f.content}`).join("\n\n");
+          const submitCode = flattenForEval(submitFiles);
           if (submitCode.trim()) {
             try {
               const assertResult = await checkAssertions(submitCode, deps.codeAssertions);
@@ -288,7 +289,7 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
         if (allFiles.length === 0) {
           return "ERROR: No files in the project. Create main.py first.";
         }
-        const allCode = allFiles.map(f => `# --- ${f.path} ---\n${f.content}`).join("\n\n");
+        const allCode = flattenForEval(allFiles);
 
         onProgress?.("evaluating", "Reviewing code...");
         const parts: string[] = [];
