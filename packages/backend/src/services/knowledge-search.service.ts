@@ -255,30 +255,33 @@ export async function hybridSearchKnowledge(
 
 // ── Pre-Retrieval for Agent Codegen ──────────────────────────────────
 
-/** Minimum normalized RRF relevance to include in pre-retrieval (0-1 scale) */
-const PRE_RETRIEVAL_THRESHOLD = 0.3;
-
 /**
  * Pre-retrieve reference knowledge matching the prompt using hybrid search.
- * Filters to reference-type entries and applies a relevance threshold to avoid
- * injecting irrelevant context into the system prompt.
+ * Filters to reference-type entries and applies the global RAG similarity
+ * threshold to avoid injecting irrelevant context into the system prompt.
  */
 export async function preRetrieveReferenceKnowledge(
   promptText: string,
   interpretation?: string,
 ): Promise<{ references: PreRetrievedReference[]; embeddingTokens: number }> {
+  const { getRagSimilarityThreshold, getRagMaxKnowledge } = await import("./generation-settings.service.js");
+  const [simThreshold, maxKnowledge] = await Promise.all([
+    getRagSimilarityThreshold(),
+    getRagMaxKnowledge(),
+  ]);
+
   const queryText = interpretation
     ? `${promptText} ${interpretation}`
     : promptText;
 
-  const { matches, embeddingTokens } = await hybridSearchKnowledge(queryText, 5, {
+  const { matches, embeddingTokens } = await hybridSearchKnowledge(queryText, maxKnowledge * 2, {
     semanticWeight: 0.6,
     lexicalWeight: 0.4,
   });
 
   const filtered = matches
-    .filter(m => m.sourceType === "reference" && m.similarity >= PRE_RETRIEVAL_THRESHOLD)
-    .slice(0, 3);
+    .filter(m => m.sourceType === "reference" && m.similarity >= simThreshold)
+    .slice(0, maxKnowledge);
 
   return {
     references: filtered.map(m => ({

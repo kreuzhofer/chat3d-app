@@ -27,7 +27,7 @@ You operate in a tool-use loop. On each turn you can:
 
 Your code is wrapped in a template that provides:
 - \`from build123d import *\` (already imported — do NOT add this)
-- \`bd_warehouse\` imports (threads, fasteners, bearings, gears, pipes, sprockets)
+- \`bd_warehouse\` imports (threads, fasteners, bearings, gears, pipes)
 - \`gridfinity_build123d\` imports (Bin, Base, BaseEqual, BasePlate, BasePlateEqual, Compartments, StackingLip, etc.)
 - Export calls after your code (do NOT add \`export_step\`, \`Mesher\`, or \`export_stl\`)
 
@@ -203,6 +203,13 @@ All dimensions are in millimeters.
 - Use search_examples or lookup_api if you're unsure about a Build123d API
 `;
 
+/** Pre-retrieved example match for sub-agent prompt injection. */
+export interface SubAgentExample {
+  prompt: string;
+  code: string;
+  similarity: number;
+}
+
 /**
  * Build system prompt for a sub-agent that creates a single component.
  */
@@ -210,6 +217,10 @@ export function buildSubAgentSystemPrompt(options: {
   componentName: string;
   componentDescription: string;
   overallContext: string;
+  relevantExamples?: SubAgentExample[];
+  gapWarning?: string;
+  /** Pre-formatted knowledge section from research (specs, technique patterns). */
+  knowledgeSection?: string;
 }): string {
   const parts = [SUB_AGENT_PREAMBLE];
 
@@ -225,6 +236,21 @@ Create your component in \`main.py\`. Write a function called \`${options.compon
 Validate your code, then submit when validation passes.
 `);
 
+  // Inject pre-retrieved examples (from tailored RAG)
+  if (options.relevantExamples && options.relevantExamples.length > 0) {
+    parts.push(formatSubAgentExamples(options.relevantExamples));
+  }
+
+  // Inject gap warning when no good examples were found
+  if (options.gapWarning) {
+    parts.push(options.gapWarning);
+  }
+
+  // Inject knowledge from research (specs, technique patterns, reference data)
+  if (options.knowledgeSection) {
+    parts.push(options.knowledgeSection);
+  }
+
   // Use tiered (operation-aware) API reference for sub-agents — much smaller than full prompt
   const apiReference = buildTieredSystemPrompt({
     promptText: options.componentDescription,
@@ -233,6 +259,20 @@ Validate your code, then submit when validation passes.
   parts.push("## Build123d API Reference\n\n" + apiReference);
 
   return parts.join("\n");
+}
+
+function formatSubAgentExamples(examples: SubAgentExample[]): string {
+  const MAX_EXAMPLE_LINES = 20;
+  const truncate = (code: string): string => {
+    const lines = code.split("\n");
+    if (lines.length <= MAX_EXAMPLE_LINES) return code;
+    return lines.slice(0, MAX_EXAMPLE_LINES).join("\n") + `\n# ... (${lines.length - MAX_EXAMPLE_LINES} more lines)`;
+  };
+  const entries = examples.map((m, i) => {
+    const code = truncate(m.code);
+    return `### Example ${i + 1} (${(m.similarity * 100).toFixed(0)}% match)\nPrompt: ${m.prompt}\n\`\`\`python\n${code}\n\`\`\``;
+  });
+  return `## Relevant Examples\n\nThese examples are similar to your component. Study the patterns and adapt them — do NOT copy directly.\n\n${entries.join("\n\n")}`;
 }
 
 // ── Assembly agent prompt ───────────────────────────────────────────
@@ -319,6 +359,15 @@ ${options.assemblyNotes}
 ${options.componentSummary}
 
 View the component files to see their exact function signatures and dimensions, then write main.py to assemble them.
+
+## Fixing Component Errors
+If a render fails with an error traceback pointing to a component file (e.g., \`components/case_body.py\`),
+you MUST fix the error in THAT component file — do NOT rewrite main.py to work around it.
+Read the traceback carefully: it tells you which file and line caused the error.
+Use text_editor to view and edit the component file directly. Common fixes:
+- \`offset()\` / shell errors: reduce fillet radius, increase wall thickness, or simplify geometry before shelling
+- \`fillet()\` errors: radius too large for the edge — reduce radius or remove fillet
+- Import errors: check the function name matches what main.py imports
 `;
 
   return basePrompt + "\n" + assemblySection;

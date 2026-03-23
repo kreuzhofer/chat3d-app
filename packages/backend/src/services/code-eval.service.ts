@@ -59,7 +59,7 @@ function buildCodeReviewSystemPrompt(
 The code runs in an environment with Build123d AND bd_warehouse installed. bd_warehouse provides parametric
 ISO-standard mechanical components: CounterSunkScrew, HexHeadScrew, SocketHeadCapScrew, PanHeadScrew,
 ButtonHeadScrew, SetScrew, HexNut, HexNutWithFlange, IsoThread, AcmeThread, MetricTrapezoidalThread,
-SpurGear, SingleRowDeepGrooveBallBearing, Sprocket, Pipe, ChamferedWasher, CheeseHeadWasher, etc.
+SpurGear, SingleRowDeepGrooveBallBearing, Pipe, ChamferedWasher, CheeseHeadWasher, etc.
 These are ALL VALID, available classes — do NOT flag them as undefined or unavailable.
 All bd_warehouse fastener classes accept these parameters: size, length, fastener_type, simple, hand.
 Do NOT claim any of these parameters are invalid or unsupported — they are part of the bd_warehouse API.
@@ -112,9 +112,20 @@ IMPORTANT: Return ONLY a JSON object — no analysis, no explanation, no preambl
   "criticalAngles": ["ortho_45", "<angle>", ...]
 }
 
-Issues must be specific and actionable. Example:
+Issues must be ACTUAL PROBLEMS only — not analysis or verification steps.
+Do NOT include issues that conclude with "this is correct" or "this is acceptable".
+If you verify a dimension and find it correct, that is NOT an issue — omit it entirely.
+Only report genuine mismatches between the prompt specification and the code.
+
+Example issues (real problems):
 - "diameter = 10 but prompt specifies 15mm"
 - "Only 2 holes created but prompt asks for 4"
+- "Port cutouts on long side but prompt says short side"
+
+NOT issues (analysis — omit these):
+- "standoff_inset=4mm... this is actually correct"
+- "USB-C position converts to -12mm in centered coords — this is correct"
+
 Do NOT write analysis before the JSON. Output the JSON object directly.`;
 
   if (codegenSystemPrompt) {

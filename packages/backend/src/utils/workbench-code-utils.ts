@@ -23,7 +23,6 @@ from bd_warehouse.fastener import (
 from bd_warehouse.bearing import SingleRowDeepGrooveBallBearing
 from bd_warehouse.gear import SpurGear
 from bd_warehouse.pipe import Pipe, PipeSection
-from bd_warehouse.sprocket import Sprocket
 from gridfinity_build123d import (
     Bin, Base, BaseEqual,
     BasePlate, BasePlateEqual,

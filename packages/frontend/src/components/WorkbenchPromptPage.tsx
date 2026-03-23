@@ -6,6 +6,7 @@ import {
   cancelJob as apiCancelJob,
   deleteExample as apiDeleteExample,
   deleteExamplesForPrompt as apiDeleteExamplesForPrompt,
+  deletePrompt as apiDeletePrompt,
   getActiveJobForPrompt,
   getExample,
   getExampleTrace,
@@ -98,6 +99,7 @@ export function WorkbenchPromptPage() {
   const [codeEditValue, setCodeEditValue] = useState("");
   const [editingPrompt, setEditingPrompt] = useState(false);
   const [promptEditValue, setPromptEditValue] = useState("");
+  const [descriptionEditValue, setDescriptionEditValue] = useState("");
   const [confirmDeleteExampleId, setConfirmDeleteExampleId] = useState<string | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
   const [improveDialogOpen, setImproveDialogOpen] = useState(false);
@@ -338,7 +340,7 @@ export function WorkbenchPromptPage() {
     setActionBusy(true);
     setError(null);
     try {
-      await updatePromptText(token, promptId, promptEditValue);
+      await updatePromptText(token, promptId, promptEditValue, descriptionEditValue || null);
       setEditingPrompt(false);
       pushToast({ tone: "success", title: "Prompt updated" });
       await loadData();
@@ -347,7 +349,7 @@ export function WorkbenchPromptPage() {
     } finally {
       setActionBusy(false);
     }
-  }, [loadData, promptEditValue, promptId, pushToast, token]);
+  }, [loadData, promptEditValue, descriptionEditValue, promptId, pushToast, token]);
 
   const handleImprovePrompt = useCallback(async () => {
     if (!token || !promptId) return;
@@ -464,6 +466,26 @@ export function WorkbenchPromptPage() {
                 Delete All
               </Button>
             ) : null}
+            <Button
+              size="sm"
+              variant="destructive"
+              iconLeft={<Trash2 className="h-3.5 w-3.5" />}
+              disabled={busy}
+              onClick={async () => {
+                if (!token || !promptId || !categoryId) return;
+                if (!window.confirm("Delete this prompt and all its examples? This cannot be undone.")) return;
+                setActionBusy(true);
+                try {
+                  await apiDeletePrompt(token, promptId);
+                  navigate(`/workbench/${categoryId}`);
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : String(e));
+                  setActionBusy(false);
+                }
+              }}
+            >
+              Delete Prompt
+            </Button>
           </div>
         }
       />
@@ -487,7 +509,7 @@ export function WorkbenchPromptPage() {
               size="sm"
               variant="outline"
               iconLeft={<Pencil className="h-3 w-3" />}
-              onClick={() => { setPromptEditValue(prompt?.prompt ?? ""); setEditingPrompt(true); }}
+              onClick={() => { setPromptEditValue(prompt?.prompt ?? ""); setDescriptionEditValue(prompt?.description ?? ""); setEditingPrompt(true); }}
             >
               Edit
             </Button>
@@ -495,14 +517,34 @@ export function WorkbenchPromptPage() {
         }
       >
         {editingPrompt ? (
-          <textarea
-            className="w-full rounded border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 text-sm"
-            rows={3}
-            value={promptEditValue}
-            onChange={(e) => setPromptEditValue(e.target.value)}
-          />
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[hsl(var(--muted-foreground))]">Prompt</label>
+              <textarea
+                className="w-full rounded border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 text-sm"
+                rows={3}
+                value={promptEditValue}
+                onChange={(e) => setPromptEditValue(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[hsl(var(--muted-foreground))]">Description <span className="font-normal">(techniques demonstrated, purpose — used for RAG matching)</span></label>
+              <textarea
+                className="w-full rounded border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 text-sm"
+                rows={2}
+                placeholder="e.g., Demonstrates rectangular port cutout in box wall using Pos + Box with Mode.SUBTRACT..."
+                value={descriptionEditValue}
+                onChange={(e) => setDescriptionEditValue(e.target.value)}
+              />
+            </div>
+          </div>
         ) : (
-          <p className="text-sm">{prompt?.prompt ?? "..."}</p>
+          <div>
+            <p className="text-sm">{prompt?.prompt ?? "..."}</p>
+            {prompt?.description ? (
+              <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))] italic">{prompt.description}</p>
+            ) : null}
+          </div>
         )}
       </SectionCard>
       </div>

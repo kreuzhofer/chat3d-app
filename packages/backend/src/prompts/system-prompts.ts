@@ -51,7 +51,7 @@ export const CODEGEN_SECTION_OUTPUT_CONTRACT = `## Output Contract
 - All dimensions are in millimeters
 - No interactive elements, no \`import sys\`, no \`matplotlib\`, no \`show()\` calls
 - No imports from \`ocp_vscode\` or other libraries not listed above
-- The template also pre-imports \`bd_warehouse\` classes (threads, fasteners, bearings, gears, pipes, sprockets) and \`gridfinity_build123d\` classes (bins, bases, baseplates, compartments). Use them when applicable — see the reference sections below.
+- The template also pre-imports \`bd_warehouse\` classes (threads, fasteners, bearings, gears, pipes) and \`gridfinity_build123d\` classes (bins, bases, baseplates, compartments). Use them when applicable — see the reference sections below.
 
 Your code will be inserted into this template:
 \`\`\`
@@ -61,7 +61,6 @@ from bd_warehouse.fastener import CounterSunkScrew, HexHeadScrew, SocketHeadCapS
 from bd_warehouse.bearing import SingleRowDeepGrooveBallBearing
 from bd_warehouse.gear import SpurGear
 from bd_warehouse.pipe import Pipe, PipeSection
-from bd_warehouse.sprocket import Sprocket
 from gridfinity_build123d import Bin, Base, BaseEqual, BasePlate, BasePlateEqual, ...
 {YOUR CODE HERE}
 export_step(root_part, "model.step")
@@ -413,7 +412,7 @@ The template pre-imports \`bd_warehouse\` classes. Use them instead of building 
 
 ### CRITICAL — combining bd_warehouse objects with other geometry
 
-bd_warehouse threads, fasteners, bearings, gears, and sprockets are **pre-built shapes**. They CANNOT be used with \`add()\` inside \`BuildPart()\` — this produces empty geometry.
+bd_warehouse threads, fasteners, bearings, gears, and pipes are **pre-built shapes**. They CANNOT be used with \`add()\` inside \`BuildPart()\` — this produces empty geometry.
 
 \`\`\`python
 # WRONG — produces empty STL:
@@ -666,7 +665,7 @@ const CONDITIONAL_SECTIONS: ConditionalSection[] = [
   { key: "sketch_on_face", section: CODEGEN_SECTION_SKETCH_ON_FACE, pattern: /BuildSketch\([^)]+\)/ },
   { key: "revolve", section: CODEGEN_SECTION_REVOLVE, pattern: /revolve\(/ },
   { key: "parametric", section: CODEGEN_SECTION_PARAMETRIC, pattern: /import math|math\./ },
-  { key: "bd_warehouse", section: CODEGEN_SECTION_BD_WAREHOUSE, pattern: /IsoThread|AcmeThread|CounterSunkScrew|HexHeadScrew|SocketHeadCapScrew|HexNut|SpurGear|SingleRowDeepGrooveBallBearing|Sprocket|bd_warehouse/ },
+  { key: "bd_warehouse", section: CODEGEN_SECTION_BD_WAREHOUSE, pattern: /IsoThread|AcmeThread|CounterSunkScrew|HexHeadScrew|SocketHeadCapScrew|HexNut|SpurGear|SingleRowDeepGrooveBallBearing|bd_warehouse/ },
   { key: "gridfinity", section: CODEGEN_SECTION_GRIDFINITY, pattern: /gridfinity|Gridfinity|BaseEqual|BasePlateEqual|CompartmentsEqual|StackingLip|gridfinity_build123d/ },
 ];
 

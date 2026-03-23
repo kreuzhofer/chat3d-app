@@ -72,35 +72,65 @@ function computeCost(meta: TrackingMeta, usage: ExtractedUsage): number {
 type GenerateTextParams = Parameters<typeof generateText>[0];
 type GenerateTextResult = Awaited<ReturnType<typeof generateText>>;
 
+/** Default timeouts for LLM calls.
+ * Opus on Bedrock can take 2-4 min for first token on complex tool-use prompts.
+ * These are generous to avoid premature aborts — the pipeline timeout is the real safety net. */
+const DEFAULT_TIMEOUT = {
+  totalMs: 600_000,  // 10 min total per generateText call (covers multi-step tool loops)
+  stepMs: 300_000,   // 5 min per individual LLM step (Opus TTFT can be 2-4 min)
+  chunkMs: 300_000,  // 5 min between chunks (generateText may use internal streaming)
+};
+
 export async function trackedGenerateText(
   options: GenerateTextParams,
   tracking: TrackingMeta,
 ): Promise<GenerateTextResult> {
-  const start = Date.now();
-  const result = await generateText(options);
-  const durationMs = Date.now() - start;
+  const callerSignal = options.abortSignal as AbortSignal | undefined;
 
-  const usage = extractUsage(result.usage);
-  const cost = computeCost(tracking, usage);
+  // Hard timeout per call via AbortController (safety net if SDK timeout doesn't work)
+  const hardTimeoutController = new AbortController();
+  const timer = setTimeout(() => {
+    logger.warn({ purpose: tracking.purpose, timeoutMs: DEFAULT_TIMEOUT.totalMs }, "LLM call hard timeout — aborting");
+    hardTimeoutController.abort();
+  }, DEFAULT_TIMEOUT.totalMs);
 
-  recordUsageEvent({
-    providerName: tracking.providerName,
-    modelId: tracking.modelId,
-    modelName: tracking.modelName,
-    purpose: tracking.purpose,
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    reasoningTokens: usage.reasoningTokens,
-    cacheReadTokens: usage.cacheReadTokens,
-    cacheWriteTokens: usage.cacheWriteTokens,
-    totalTokens: usage.totalTokens,
-    estimatedCostUsd: cost,
-    durationMs,
-    isEstimated: usage.inputTokens === 0 && usage.outputTokens === 0,
-    generationAttempt: tracking.generationAttempt,
-  });
+  const combinedSignal = callerSignal
+    ? AbortSignal.any([callerSignal, hardTimeoutController.signal])
+    : hardTimeoutController.signal;
 
-  return result;
+  try {
+    const start = Date.now();
+    const result = await generateText({
+      ...options,
+      timeout: options.timeout ?? DEFAULT_TIMEOUT,
+      abortSignal: combinedSignal,
+    });
+
+    const durationMs = Date.now() - start;
+    const usage = extractUsage(result.usage);
+    const cost = computeCost(tracking, usage);
+
+    recordUsageEvent({
+      providerName: tracking.providerName,
+      modelId: tracking.modelId,
+      modelName: tracking.modelName,
+      purpose: tracking.purpose,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      reasoningTokens: usage.reasoningTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
+      totalTokens: usage.totalTokens,
+      estimatedCostUsd: cost,
+      durationMs,
+      isEstimated: usage.inputTokens === 0 && usage.outputTokens === 0,
+      generationAttempt: tracking.generationAttempt,
+    });
+
+    return result;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── trackedEmbed ───────────────────────────────────────────────────

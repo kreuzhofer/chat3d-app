@@ -22,7 +22,7 @@ interface SettingMeta {
   default: number;
   label: string;
   description: string;
-  pipeline: Pipeline | "chat-only";
+  pipeline: Pipeline | "chat-only" | "global";
   min: number;
   max: number;
   step: number;
@@ -58,6 +58,13 @@ const SETTINGS_REGISTRY = new Map<string, SettingMeta>([
   ["chat.code_eval_weight", { default: 0.4, label: "Code eval weight", description: "Weight of code evaluation in composite score (0=visual only, 1=code only)", pipeline: "chat", min: 0, max: 1, step: 0.1 }],
   ["workbench.pipeline_timeout_minutes", { default: 15, label: "Pipeline timeout (minutes)", description: "Maximum time before the pipeline is aborted", pipeline: "workbench", min: 1, max: 60, step: 1 }],
   ["chat.pipeline_timeout_minutes", { default: 15, label: "Pipeline timeout (minutes)", description: "Maximum time before the pipeline is aborted", pipeline: "chat", min: 1, max: 60, step: 1 }],
+  // Global settings (apply to both workbench and chat pipelines)
+  ["global.agent_search_tools", { default: 1, label: "Agent search tools", description: "Enable search_examples, search_knowledge, and lookup_api tools for agents (1=on, 0=off). When off, agents rely on pre-loaded research results only.", pipeline: "global", min: 0, max: 1, step: 1 }],
+  ["global.rag_similarity_threshold", { default: 0.75, label: "RAG similarity threshold", description: "Minimum cosine similarity for examples/knowledge to be included in the pipeline", pipeline: "global", min: 0.1, max: 1.0, step: 0.05 }],
+  ["global.rag_gap_threshold", { default: 0.75, label: "RAG gap detection threshold", description: "If best match is below this, flag as a gap and warn the agent", pipeline: "global", min: 0.1, max: 1.0, step: 0.05 }],
+  ["global.rag_max_examples", { default: 3, label: "Max workbench examples", description: "Number of workbench examples to retrieve per search", pipeline: "global", min: 1, max: 10, step: 1 }],
+  ["global.rag_max_knowledge", { default: 3, label: "Max knowledge entries", description: "Number of knowledge base entries to retrieve per search", pipeline: "global", min: 1, max: 10, step: 1 }],
+  ["global.llm_max_retries", { default: 3, label: "LLM max retries", description: "Maximum number of retries with exponential backoff for transient LLM failures (timeouts, rate limits, connection errors)", pipeline: "global", min: 0, max: 10, step: 1 }],
 ]);
 
 // ── In-memory cache ──────────────────────────────────────────────────
@@ -126,6 +133,32 @@ export async function getCodeEvalWeight(pipeline: Pipeline): Promise<number> {
 export async function getPipelineTimeoutMs(pipeline: Pipeline): Promise<number> {
   const minutes = await getEffective(`${pipeline}.pipeline_timeout_minutes`);
   return minutes * 60 * 1000;
+}
+
+// ── Global settings ──────────────────────────────────────────────────
+
+export async function isAgentSearchToolsEnabled(): Promise<boolean> {
+  return (await getEffective("global.agent_search_tools")) === 1;
+}
+
+export async function getRagSimilarityThreshold(): Promise<number> {
+  return getEffective("global.rag_similarity_threshold");
+}
+
+export async function getRagGapThreshold(): Promise<number> {
+  return getEffective("global.rag_gap_threshold");
+}
+
+export async function getRagMaxExamples(): Promise<number> {
+  return getEffective("global.rag_max_examples");
+}
+
+export async function getRagMaxKnowledge(): Promise<number> {
+  return getEffective("global.rag_max_knowledge");
+}
+
+export async function getLlmMaxRetries(): Promise<number> {
+  return getEffective("global.llm_max_retries");
 }
 
 // ── Admin API ────────────────────────────────────────────────────────

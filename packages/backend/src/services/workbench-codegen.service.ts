@@ -19,6 +19,7 @@ import {
   finalizeTrace,
 } from "./trace-persistence.service.js";
 import { flattenForEval } from "../utils/code-flatten.js";
+import { runResearch, type ResearchPackage } from "./research-agent.service.js";
 import type { RenderedScreenshot } from "./stl-rendering-client.service.js";
 import { renderModelScreenshots } from "./stl-rendering-client.service.js";
 import { runFullEvaluation, type FullEvalResult } from "./eval-orchestrator.service.js";
@@ -168,9 +169,36 @@ async function _generateForPromptInner(
     trace: traceBuilder.snapshot(),
   });
 
+  // Create placeholder example early so the trace can be linked to it.
+  // Updated with actual results at the end of the pipeline; stays as "pending"
+  // if the pipeline aborts.
+  const earlyExampleId = crypto.randomUUID();
+  await insertExample({
+    id: earlyExampleId,
+    promptId,
+    iteration: 0,
+    code: "",
+    renderStatus: "pending",
+    renderError: null,
+    stlPath: null, stepPath: null, threemfPath: null,
+    ...NULL_SCREENSHOTS,
+    evalScore: null, evalIssues: null, evalSuggestions: null, evalChecklistResults: null,
+    approvalStatus: "pending",
+    llmModel: llmModelLabel, vlmModel: null,
+    promptTokens: 0, completionTokens: 0,
+    experimentRunId: options?.experimentRunId,
+  });
+  // Link trace to example immediately (without finalizing)
+  if (traceId) {
+    prisma.generationTrace.update({
+      where: { id: traceId },
+      data: { workbenchExampleId: earlyExampleId },
+    }).catch(() => {}); // non-fatal, fire-and-forget
+  }
+
   return runWithTrace(traceBuilder, async () => {
     try {
-      return await _runPipeline(ctx, llmModelLabel, codegenModelConfig, traceBuilder, traceId, pipelineSignal, options);
+      return await _runPipeline(ctx, llmModelLabel, codegenModelConfig, traceBuilder, traceId, pipelineSignal, options, earlyExampleId);
     } catch (err) {
       // Classify and persist error on the current phase + root
       traceBuilder.endPhaseWithError(err);
@@ -194,6 +222,7 @@ async function _runPipeline(
   traceId: string | null,
   pipelineSignal: AbortSignal,
   options?: GenerateOptions,
+  earlyExampleId?: string,
 ): Promise<GenerateResult> {
   const onProgress = options?.onProgress;
   // 2. Validate prompt
@@ -243,7 +272,44 @@ async function _runPipeline(
     updateTraceIncremental(traceId, traceBuilder.snapshot());
   }
 
-  // 3. Agent codegen
+  // 3. Research phase — identify techniques and find relevant examples/knowledge
+  let researchPackage: ResearchPackage | null = null;
+  if (specResult && !pipelineSignal.aborted) {
+    traceBuilder.startPhase("research", "research", "Technique Research");
+    onProgress?.("researching", "Finding relevant techniques and examples...");
+    try {
+      const { detectPromptOperations } = await import("../prompts/system-prompts.js");
+      const ops = detectPromptOperations(ctx.prompt, specResult.interpretation);
+      researchPackage = await runResearch({
+        promptText: ctx.prompt,
+        interpretation: specResult.interpretation,
+        complexity: specResult.complexity,
+        detectedOperations: ops,
+        signal: pipelineSignal,
+      });
+      // Compute LLM cost for the research phase
+      // Research uses spec_generation model — resolve config for cost calculation
+      let researchLlmCost = 0;
+      if (researchPackage.llmTokens) {
+        try {
+          const researchModelCfg = await getModelForPurposeWithFallback("spec_generation");
+          researchLlmCost = calculateCostUsd(researchModelCfg, researchPackage.llmTokens.prompt, researchPackage.llmTokens.completion);
+        } catch { /* cost tracking is non-critical */ }
+      }
+      traceBuilder.addUsage({
+        inputTokens: researchPackage.llmTokens?.prompt ?? 0,
+        outputTokens: researchPackage.llmTokens?.completion ?? 0,
+        costUsd: researchLlmCost,
+      });
+      traceBuilder.endPhase("completed");
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, "research phase failed (continuing without)");
+      traceBuilder.endPhase("failed", { error: err instanceof Error ? err.message : String(err) });
+    }
+    updateTraceIncremental(traceId, traceBuilder.snapshot());
+  }
+
+  // 4. Agent codegen
   const dynAutoApprove = await getAutoApproveThreshold("workbench");
   const wbAgentModelConfig = await getModelForPurposeWithFallback("workbench_codegen", "agent_codegen");
   const wbAgMaxSteps = await getAgentMaxSteps("workbench");
@@ -267,6 +333,7 @@ async function _runPipeline(
     evalThreshold: dynAutoApprove,
     codeAssertions: specResult?.codeAssertions,
     specInterpretation: specResult?.interpretation,
+    researchPackage,
     traceId,
   };
 
@@ -326,7 +393,7 @@ async function _runPipeline(
     : shouldAutoApprove(agScore, dynAutoApprove, agFullEval?.checklistResults);
 
   const storedCode = agAllCode;
-  const exampleId = crypto.randomUUID();
+  const exampleId = earlyExampleId ?? crypto.randomUUID();
   const filePaths = await persistWorkbenchFiles({
     categoryId: ctx.categoryId, exampleId,
     renderedFiles: agResult.renderedFiles, code: storedCode, screenshots: agScreenshots,

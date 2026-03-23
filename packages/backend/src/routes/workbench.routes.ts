@@ -194,12 +194,12 @@ workbenchRouter.post("/categories/:id/prompts", async (req, res) => {
 
 workbenchRouter.patch("/prompts/:id", async (req, res) => {
   try {
-    const { prompt } = req.body as { prompt?: string };
+    const { prompt, description } = req.body as { prompt?: string; description?: string | null };
     if (!prompt || typeof prompt !== "string") {
       res.status(400).json({ error: "prompt (string) is required" });
       return;
     }
-    await updatePromptText(req.params.id, prompt);
+    await updatePromptText(req.params.id, prompt, description);
     res.status(200).json({ ok: true });
   } catch (error) {
     if (error instanceof WorkbenchCatalogError) {

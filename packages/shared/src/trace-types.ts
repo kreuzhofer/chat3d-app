@@ -44,7 +44,7 @@ export interface TraceAgentMeta {
   stepNumber?: number;
   maxSteps?: number;
   submitted?: boolean;
-  renderSuccess?: boolean;
+  renderSuccess?: boolean | "skipped";
   evalScore?: number;
   codeSnapshotHash?: string;
 }

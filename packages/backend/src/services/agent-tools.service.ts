@@ -62,14 +62,10 @@ const API_SECTIONS: Record<string, string> = {
 export type { ValidationResult, RenderResult, AgentEvalResult } from "./agent-render-helpers.service.js";
 export { doValidate, doRender } from "./agent-render-helpers.service.js";
 
+import { truncateCode } from "../utils/code-truncate.js";
+
 const MAX_EXAMPLE_LINES = 20;
 const MAX_KNOWLEDGE_CODE_LINES = 30;
-
-function truncateCode(code: string, maxLines: number): string {
-  const lines = code.split("\n");
-  if (lines.length <= maxLines) return code;
-  return lines.slice(0, maxLines).join("\n") + `\n# ... (${lines.length - maxLines} more lines)`;
-}
 
 export interface AgentToolDeps {
   fs: AgentFilesystem;
@@ -95,7 +91,7 @@ export interface AgentToolDeps {
   specInterpretation?: string;
 }
 
-export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: boolean }): Record<string, any> {
+export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: boolean; enableSearch?: boolean }): Record<string, any> {
   const { fs, wrapProjectFiles, baseFileName, signal, onProgress, onRenderSuccess, onSubmit } = deps;
 
   const tools: Record<string, any> = {
@@ -111,6 +107,20 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
         onProgress?.("validating", "Validating code...");
         try {
           const result = await doValidate(wrapProjectFiles());
+          // Sub-agents write functions (no root_part) — filter that specific error
+          if (options.disableRender && !result.valid && result.text.includes("root_part")) {
+            const filtered = result.text
+              .split("\n")
+              .filter(line => !line.includes("root_part"))
+              .join("\n")
+              .replace(/Errors:\s*\n\s*\n/, "");
+            // If root_part was the only error, treat as valid
+            const hasOtherErrors = filtered.includes("Syntax error") || filtered.includes("severity");
+            if (!hasOtherErrors) {
+              return result.text.replace("Validation FAILED", "Validation PASSED (component mode — no root_part needed)")
+                .replace(/\nErrors:\n[^\n]*root_part[^\n]*\n?/, "\n");
+            }
+          }
           return result.text;
         } catch (err) {
           logger.warn({ err: err instanceof Error ? err.message : String(err) }, "validate_code tool error");
@@ -119,7 +129,11 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
       },
     },
 
-    search_examples: {
+  };
+
+  // Add search/lookup tools only when enabled (disabled for sub-agents with pre-loaded research)
+  if (options.enableSearch) {
+    tools.search_examples = {
       type: "function" as const,
       description: "Search the workbench for similar Build123d examples. Use this to see how similar models are built. Returns up to 3 examples with their prompt and code.",
       inputSchema: zodSchema(z.object({
@@ -127,11 +141,14 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
       })),
       execute: async ({ query }: { query: string }) => {
         try {
-          const { matches } = await findSimilarExamples(query, 3);
-          if (matches.length === 0) {
-            return "No similar examples found in the workbench.";
+          const { getRagMaxExamples, getRagSimilarityThreshold } = await import("./generation-settings.service.js");
+          const [maxEx, simThreshold] = await Promise.all([getRagMaxExamples(), getRagSimilarityThreshold()]);
+          const { matches } = await findSimilarExamples(query, maxEx);
+          const filtered = matches.filter(m => m.similarity >= simThreshold);
+          if (filtered.length === 0) {
+            return "No similar examples found in the workbench (above similarity threshold).";
           }
-          return matches.map((m, i) => {
+          return filtered.map((m, i) => {
             const codePreview = truncateCode(m.code, MAX_EXAMPLE_LINES);
             return `### Example ${i + 1} (similarity: ${(m.similarity * 100).toFixed(0)}%)\nPrompt: ${m.prompt}\n\nCode:\n\`\`\`python\n${codePreview}\n\`\`\``;
           }).join("\n\n");
@@ -140,9 +157,9 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
           return "Example search unavailable.";
         }
       },
-    },
+    };
 
-    lookup_api: {
+    tools.lookup_api = {
       type: "function" as const,
       description: "Look up Build123d API reference documentation for a specific topic. Available topics: primitives_3d, primitives_2d, sketch_ops, operations_3d, boolean, positioning, edge_face_selection, fillets_chamfers, offset_shell, arrays_patterns, build_contexts, buildline, sweep, loft, sketch_on_face, revolve, parametric_math",
       inputSchema: zodSchema(z.object({
@@ -156,9 +173,9 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
         }
         return section;
       },
-    },
+    };
 
-    search_knowledge: {
+    tools.search_knowledge = {
       type: "function" as const,
       description: "Search the Build123d external knowledge base (official docs, repo examples, test patterns, and reference material like specs and dimensions) for working code snippets or technical reference related to a technique or concept. Use when you need to see how a specific API or pattern works, or when you need dimensions/specifications for components.",
       inputSchema: zodSchema(z.object({
@@ -166,7 +183,9 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
       })),
       execute: async ({ query }: { query: string }) => {
         try {
-          const { matches } = await hybridSearchKnowledge(query, 3);
+          const { getRagMaxKnowledge } = await import("./generation-settings.service.js");
+          const maxKnowledge = await getRagMaxKnowledge();
+          const { matches } = await hybridSearchKnowledge(query, maxKnowledge);
           if (matches.length === 0) {
             return "No matching knowledge entries found.";
           }
@@ -187,9 +206,10 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
           return "Knowledge search unavailable.";
         }
       },
-    },
+    };
+  } // end enableSearch
 
-    list_files: {
+  tools.list_files = {
       type: "function" as const,
       description: "List files in the project with line counts. Cheaper than viewing each file individually.",
       inputSchema: zodSchema(z.object({
@@ -205,15 +225,28 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
           .map(f => `  ${f.path} (${f.content.split("\n").length} lines)`)
           .join("\n");
       },
-    },
+    };
 
-    submit_result: {
+  tools.submit_result = {
       type: "function" as const,
-      description: "Submit your result after a successful render. Automatically runs a visual evaluation (VLM) to check quality. If the score is below the acceptance threshold, the submission is REJECTED and you must address the issues before re-submitting.",
+      description: options.disableRender
+        ? "Submit your component code after validation passes. No render needed — the assembly agent handles rendering."
+        : "Submit your result after a successful render. Automatically runs a visual evaluation (VLM) to check quality. If the score is below the acceptance threshold, the submission is REJECTED and you must address the issues before re-submitting.",
       inputSchema: zodSchema(z.object({
         summary: z.string().describe("Brief summary of what was built or changed"),
       })),
       execute: async ({ summary }: { summary: string }) => {
+        // Sub-agents (component mode): accept code without render/VLM
+        if (options.disableRender) {
+          const code = fs.getMainCode();
+          if (!code || !code.trim()) {
+            return "ERROR: No code in main.py. Write your component code first.";
+          }
+          onSubmit();
+          logger.info({ summary }, "sub-agent submitted component code");
+          return `Component submitted: ${summary}`;
+        }
+
         const renderedFiles = deps.getLastRenderedFiles();
         if (renderedFiles.length === 0) {
           return "ERROR: No rendered model available. Render the project first before submitting.";
@@ -264,9 +297,9 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
         logger.info({ summary, score: lastEval?.score }, "agent submitted result");
         return `Result submitted (score: ${lastEval?.score ?? "?"}/${10}): ${summary}`;
       },
-    },
+    };
 
-    evaluate_model: {
+  tools.evaluate_model = {
       type: "function" as const,
       description: "Evaluate the rendered 3D model against the user's prompt using a vision model (VLM). Takes screenshots and scores the model 1-10. Only call after a successful render. Use this to check quality before submitting — submit_result also runs evaluation automatically.",
       inputSchema: zodSchema(z.object({})),
@@ -278,9 +311,9 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
           onProgress,
         });
       },
-    },
+    };
 
-    evaluate_code: {
+  tools.evaluate_code = {
       type: "function" as const,
       description: "Review your code for correctness against the user's prompt. Runs two checks: (1) Assertion check — verifies numeric parameters (dimensions, counts) match the spec (free, instant). (2) Code review — an LLM reviews the code for parameter accuracy, feature completeness, and logical correctness (cheap, ~5s). Call this BEFORE rendering to catch dimensional errors early. You do NOT need a rendered model for this.",
       inputSchema: zodSchema(z.object({})),
@@ -345,9 +378,9 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
 
         return parts.join("\n");
       },
-    },
+    };
 
-    text_editor: {
+  tools.text_editor = {
       type: "function" as const,
       description: `A text editor for viewing and editing Python files in the project directory.
 
@@ -403,8 +436,7 @@ Always view a file before editing it to see the current line numbers and content
             return `ERROR: Unknown command: ${command}`;
         }
       },
-    },
-  };
+    };
 
   // Add render_project and validate_and_render unless disabled (sub-agents)
   if (!options.disableRender) {

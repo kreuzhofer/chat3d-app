@@ -100,6 +100,7 @@ export async function listPromptsForCategory(categoryId: string) {
       p.category_id,
       p.index,
       p.prompt,
+      p.description,
       COUNT(e.id)::text AS example_count,
       MAX(e.eval_score) AS best_score,
       (SELECT e2.approval_status
@@ -141,6 +142,7 @@ export async function listPromptsForCategory(categoryId: string) {
     categoryId: row.category_id,
     index: row.index,
     prompt: row.prompt,
+    description: row.description ?? null,
     exampleCount: Number(row.example_count),
     bestScore: row.best_score,
     bestApproval: row.best_approval,
@@ -255,24 +257,31 @@ export async function deletePrompt(promptId: string): Promise<void> {
   logger.info({ promptId }, "deleted workbench prompt");
 }
 
-export async function updatePromptText(promptId: string, newText: string): Promise<void> {
+export async function updatePromptText(promptId: string, newText: string, description?: string | null): Promise<void> {
   if (!newText || newText.trim().length === 0) {
     throw new WorkbenchCatalogError("Prompt text cannot be empty", 400);
   }
 
   const trimmed = newText.trim();
+  const desc = description !== undefined ? (description?.trim() || null) : undefined;
 
   // Clear embedding so it gets re-generated (pgvector column → raw SQL)
-  const count = await prisma.$executeRaw`
-    UPDATE workbench_example_prompts SET prompt = ${trimmed}, embedding = NULL WHERE id = ${promptId}::uuid
-  `;
+  // Update description only if explicitly provided (undefined = no change)
+  const count = desc !== undefined
+    ? await prisma.$executeRaw`
+        UPDATE workbench_example_prompts SET prompt = ${trimmed}, description = ${desc}, embedding = NULL WHERE id = ${promptId}::uuid
+      `
+    : await prisma.$executeRaw`
+        UPDATE workbench_example_prompts SET prompt = ${trimmed}, embedding = NULL WHERE id = ${promptId}::uuid
+      `;
 
   if (count === 0) {
     throw new WorkbenchCatalogError("Prompt not found", 404);
   }
 
-  // Re-embed asynchronously
-  void embedAndStorePrompt(promptId, trimmed).catch((err) =>
+  // Re-embed asynchronously (includes description if available)
+  const finalDesc = desc !== undefined ? desc : (await prisma.workbenchExamplePrompt.findUnique({ where: { id: promptId }, select: { description: true } }))?.description;
+  void embedAndStorePrompt(promptId, trimmed, finalDesc).catch((err) =>
     logger.warn({ err, promptId }, "failed to re-embed prompt"),
   );
 }

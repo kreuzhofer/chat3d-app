@@ -6,7 +6,7 @@
  */
 
 import { createLogger } from "../utils/logger.js";
-import { getSubAgentMaxSteps } from "./generation-settings.service.js";
+import { getSubAgentMaxSteps, getRagSimilarityThreshold, getRagGapThreshold, getRagMaxExamples, isAgentSearchToolsEnabled } from "./generation-settings.service.js";
 import { trackedGenerateText } from "./tracked-llm.service.js";
 import {
   createProviderModel,
@@ -16,6 +16,7 @@ import {
 import {
   buildSubAgentSystemPrompt,
   buildAssemblyAgentSystemPrompt,
+  type SubAgentExample,
 } from "../prompts/agent-system-prompt.js";
 import {
   runAgentCodegen,
@@ -23,8 +24,19 @@ import {
   type AgentCodegenResult,
 } from "./agent-codegen.service.js";
 import { getTraceBuilder } from "./trace-builder.service.js";
+import { findSimilarExamples } from "./workbench-embeddings.service.js";
+import { collectMissingExample } from "./rag-gap-collector.service.js";
+import { evaluateCode, type CodeReviewResult } from "./code-eval.service.js";
+import { withLlmRetry } from "../utils/llm-retry.js";
+import { filterResearchForComponent, type ResearchPackage } from "./research-agent.service.js";
+import { formatResearchSection } from "./research-format.service.js";
 
 const logger = createLogger("agent-multi");
+
+/** Minimum code review score for a component to pass to assembly. */
+const COMPONENT_EVAL_THRESHOLD = 5;
+
+// RAG thresholds loaded from global settings at runtime
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -163,7 +175,60 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   totalPromptTokens += decomposition.promptTokens;
   totalCompletionTokens += decomposition.completionTokens;
 
-  // Step 2: Run sub-agents for each component (in parallel)
+  // Step 2: Route research results to components, or fall back to per-component search
+  const examplesByComponent = new Map<string, SubAgentExample[]>();
+  const knowledgeByComponent = new Map<string, string>();  // formatted knowledge text per component
+  let ragGapThreshold = 0.75;
+
+  if (input.researchPackage && input.researchPackage.techniques.length > 0) {
+    // Use research package — filter technique results per component
+    ragGapThreshold = await getRagGapThreshold();
+    for (const component of decomposition.components) {
+      const filtered = filterResearchForComponent(input.researchPackage, component.description);
+      examplesByComponent.set(component.name, filtered.examples);
+      // Format knowledge for sub-agent prompt injection
+      const knowledgeSection = formatResearchSection({ ...filtered, examples: [], gapWarnings: [] });
+      if (knowledgeSection) {
+        knowledgeByComponent.set(component.name, knowledgeSection);
+      }
+      logger.info({ component: component.name, examples: filtered.examples.length, knowledge: filtered.knowledge.length }, "routed research to component");
+    }
+  } else {
+    // Fallback: per-component search (legacy path)
+    onProgress?.("retrieving", "Finding relevant examples for components...");
+    const [ragSimThreshold, gapThresh, ragMaxExamples] = await Promise.all([
+      getRagSimilarityThreshold(), getRagGapThreshold(), getRagMaxExamples(),
+    ]);
+    ragGapThreshold = gapThresh;
+
+    const preRetrievalResults = await Promise.all(
+      decomposition.components.map(async (component) => {
+        try {
+          const { matches } = await findSimilarExamples(component.description, ragMaxExamples);
+          const filtered = matches.filter(m => m.similarity >= ragSimThreshold);
+          return { componentName: component.name, matches: filtered };
+        } catch (err) {
+          logger.warn({ err: err instanceof Error ? err.message : String(err), component: component.name }, "pre-retrieval failed");
+          return { componentName: component.name, matches: [] as SubAgentExample[] };
+        }
+      }),
+    );
+    for (const r of preRetrievalResults) {
+      examplesByComponent.set(r.componentName, r.matches);
+    }
+
+    // Detect and log RAG gaps
+    for (const { componentName, matches } of preRetrievalResults) {
+      const bestSimilarity = matches.length > 0 ? Math.max(...matches.map(m => m.similarity)) : 0;
+      if (bestSimilarity < ragGapThreshold) {
+        logger.info({ component: componentName, bestSimilarity: bestSimilarity.toFixed(2) }, "RAG gap detected");
+        collectMissingExample(componentName, decomposition.components.find(c => c.name === componentName)?.description ?? componentName)
+          .catch(err => logger.debug({ err: err instanceof Error ? err.message : String(err) }, "gap collection failed"));
+      }
+    }
+  }
+
+  // Step 3: Run sub-agents for each component (in parallel)
   const componentFiles = new Map<string, string>();
   const subAgentMaxSteps = await getSubAgentMaxSteps("workbench");
 
@@ -180,54 +245,115 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     tb?.addEdge(subAgentIds[0], subAgentIds[i], "parallel");
   }
 
-  const subAgentPromises = decomposition.components.map((component) => {
-    const subPrompt = buildSubAgentSystemPrompt({
-      componentName: component.name,
-      componentDescription: component.description,
-      overallContext,
-    });
+  /** Run a sub-agent with shared config. Throws on transient errors (for retry). */
+  async function runSubAgent(
+    component: DecomposedComponent,
+    userMessage: string,
+    traceId: string,
+    traceLabel: string,
+  ): Promise<AgentCodegenResult> {
+    // Let errors propagate so withLlmRetry can catch and retry transient ones
+    return await runAgentCodegen({
+        promptText: component.description,
+        isModification: false,
+        baseFileName,
+        maxSteps: subAgentMaxSteps,
+        modelConfig,
+        signal,
+        disableRender: true,
+        enableSearch: false,
+        systemPromptOverride: buildSubAgentSystemPrompt({
+          componentName: component.name,
+          componentDescription: component.description,
+          overallContext,
+          relevantExamples: examplesByComponent.get(component.name) ?? [],
+          gapWarning: (examplesByComponent.get(component.name)?.length ?? 0) === 0
+            ? `## ⚠ No Similar Examples Found\n\nUse simple, proven Build123d patterns. Build incrementally.`
+            : undefined,
+          knowledgeSection: knowledgeByComponent.get(component.name),
+        }),
+        userMessageOverride: userMessage,
+        traceNodeId: traceId,
+        traceLabel,
+        traceSkipAutoEdge: true,
+        traceId: input.traceId,
+        onProgress: (state, detail) => {
+          onProgress?.(state, `[${component.name}] ${detail}`);
+        },
+      });
+  }
 
-    const subUserMessage = `Create the "${component.name}" component.\n\n${component.description}\n\nWrite a function called \`${component.name}\` in main.py that returns the Part. Validate your code, then submit when validation passes. Do NOT render.`;
+  // Build sub-agent tasks as functions (not promises) so they don't start until called
+  const subAgentTasks = decomposition.components.map((component) => async () => {
+    const userMessage = `Create the "${component.name}" component.\n\n${component.description}\n\nWrite a function called \`${component.name}\` in main.py that returns the Part. Validate your code, then submit when validation passes. Do NOT render.`;
 
     logger.info({ component: component.name, maxSteps: subAgentMaxSteps }, "starting sub-agent");
 
-    return runAgentCodegen({
-      promptText: component.description,
-      isModification: false,
-      baseFileName,
-      maxSteps: subAgentMaxSteps,
-      modelConfig,
-      signal,
-      disableRender: true,
-      systemPromptOverride: subPrompt,
-      userMessageOverride: subUserMessage,
-      traceNodeId: `sub-${component.name}`,
-      traceLabel: `Sub-Agent: ${component.name}`,
-      traceSkipAutoEdge: true,
-      onProgress: (state, detail) => {
-        onProgress?.(state, `[${component.name}] ${detail}`);
-      },
-    }).then((subResult) => {
-      totalPromptTokens += subResult.usage.promptTokens;
-      totalCompletionTokens += subResult.usage.completionTokens;
-      totalReasoningTokens += subResult.usage.reasoningTokens;
-      totalSteps += subResult.stepCount;
+    // Run sub-agent with retry on transient failures (Bedrock throttling, timeouts)
+    let subResult: AgentCodegenResult | null = null;
+    try {
+      subResult = await withLlmRetry(
+        () => runSubAgent(component, userMessage, `sub-${component.name}`, `Sub-Agent: ${component.name}`),
+        {
+          provider: modelConfig.provider,
+          maxRetries: 3,
+          baseDelayMs: 10_000,
+          maxDelayMs: 60_000,
+          onRetry: (attempt, maxAttempts, delayMs, reason) => {
+            onProgress?.("component", `[${component.name}] ${reason} — attempt ${attempt}/${maxAttempts}, retrying in ${Math.round(delayMs / 1000)}s...`);
+          },
+        },
+      );
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : String(err), component: component.name }, "sub-agent failed after retries");
+      onProgress?.("component", `[${component.name}] Failed after all retry attempts`);
+    }
+    if (!subResult || !subResult.code.trim()) {
+      logger.warn({ component: component.name }, "sub-agent produced no code");
+      return;
+    }
 
-      if (subResult.code.trim()) {
-        componentFiles.set(`components/${component.name}.py`, subResult.code);
-        logger.info(
-          { component: component.name, codeLength: subResult.code.length, steps: subResult.stepCount },
-          "sub-agent completed component",
-        );
-      } else {
-        logger.warn({ component: component.name }, "sub-agent produced no code");
+    totalPromptTokens += subResult.usage.promptTokens;
+    totalCompletionTokens += subResult.usage.completionTokens;
+    totalReasoningTokens += subResult.usage.reasoningTokens;
+    totalSteps += subResult.stepCount;
+
+    // Code eval gate
+    let componentCode = subResult.code;
+    try {
+      const evalResult = await evaluateCode({ userPrompt: component.description, code: componentCode });
+      totalPromptTokens += evalResult.promptTokens;
+      totalCompletionTokens += evalResult.completionTokens;
+      logger.info({ component: component.name, score: evalResult.score, issueCount: evalResult.issues.length }, "component code eval completed");
+      const evalCost = calculateCostUsd(modelConfig, evalResult.promptTokens, evalResult.completionTokens);
+      tb?.addUsage({ inputTokens: evalResult.promptTokens, outputTokens: evalResult.completionTokens, costUsd: evalCost }, `sub-${component.name}`);
+      tb?.setAgentMeta({ evalScore: evalResult.score } as any, `sub-${component.name}`);
+
+      // Retry with feedback if score too low
+      if (evalResult.score < COMPONENT_EVAL_THRESHOLD && evalResult.issues.length > 0) {
+        logger.info({ component: component.name, score: evalResult.score }, "component below threshold — retrying with feedback");
+        const feedback = `Your previous code scored ${evalResult.score}/10.\n\nIssues:\n${evalResult.issues.map(i => `- ${i}`).join("\n")}\n\nFix these issues. Keep the same function signature.`;
+        const evalRetryId = `sub-${component.name}-eval-retry`;
+        tb?.addEdge(`sub-${component.name}`, evalRetryId, "sequence", "eval retry");
+        const retryResult = await runSubAgent(component, feedback, evalRetryId, `Sub-Agent Eval Retry: ${component.name}`);
+        if (retryResult?.code.trim()) {
+          componentCode = retryResult.code;
+          totalPromptTokens += retryResult.usage.promptTokens;
+          totalCompletionTokens += retryResult.usage.completionTokens;
+          totalReasoningTokens += retryResult.usage.reasoningTokens;
+          totalSteps += retryResult.stepCount;
+        }
       }
-    }).catch((err) => {
-      logger.error({ err: err instanceof Error ? err.message : String(err), component: component.name }, "sub-agent failed");
-    });
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : String(err), component: component.name }, "component code eval failed (accepting anyway)");
+    }
+
+    componentFiles.set(`components/${component.name}.py`, componentCode);
+    logger.info({ component: component.name, codeLength: componentCode.length, steps: subResult.stepCount }, "component accepted");
   });
 
-  await Promise.all(subAgentPromises);
+  // Run sub-agents in parallel
+  await Promise.all(subAgentTasks.map(task => task()));
 
   // Check abort after parallel sub-agents complete
   if (signal?.aborted) {
@@ -257,15 +383,25 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     })
     .join("\n");
 
-  const assemblyPrompt = buildAssemblyAgentSystemPrompt({
+  let assemblyPrompt = buildAssemblyAgentSystemPrompt({
     originalPrompt: promptText,
     assemblyNotes: decomposition.assemblyNotes,
     componentSummary,
   });
 
+  // Inject research package into assembly prompt (it uses systemPromptOverride,
+  // so the agent-codegen pre-retrieval path is skipped)
+  if (input.researchPackage) {
+    const section = formatResearchSection(input.researchPackage);
+    if (section) {
+      assemblyPrompt += "\n\n" + section;
+      logger.info({ examples: input.researchPackage.examples.length, knowledge: input.researchPackage.knowledge.length }, "injected research into assembly prompt");
+    }
+  }
+
   const assemblyMaxSteps = maxSteps;
   const componentFileList = Array.from(componentFiles.keys()).map(p => `- ${p}`).join("\n");
-  const assemblyUserMessage = `Assemble the components into the complete model.\n\nAvailable component files:\n${componentFileList}\n\nView each component file to understand its function signature and dimensions, then write main.py that imports and assembles them. Validate, render, and submit when the render succeeds.`;
+  const assemblyUserMessage = `Create the final model matching this user request:\n\n"${promptText}"\n\nAvailable component files:\n${componentFileList}\n\nAssembly notes: ${decomposition.assemblyNotes}\n\nView each component file to understand its function signature and dimensions, then write main.py that imports and positions them EXACTLY as the user prompt describes. Validate, render, and submit when the render succeeds.`;
 
   const assemblyResult = await runAgentCodegen({
     promptText: assemblyUserMessage,
@@ -321,3 +457,4 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     evalResult: assemblyResult.evalResult,
   };
 }
+

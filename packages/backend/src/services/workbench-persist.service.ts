@@ -49,10 +49,45 @@ export async function insertExample(data: {
   evalSource?: string | null;
   experimentRunId?: string | null;
 }): Promise<string> {
-  const created = await prisma.workbenchExample.create({
-    data: {
+  const created = await prisma.workbenchExample.upsert({
+    where: { id: data.id },
+    create: {
       id: data.id,
       promptId: data.promptId,
+      iteration: data.iteration,
+      code: data.code,
+      renderStatus: data.renderStatus,
+      renderError: data.renderError,
+      stlPath: data.stlPath,
+      stepPath: data.stepPath,
+      threemfPath: data.threemfPath,
+      screenshotFront: data.screenshotFront,
+      screenshotBack: data.screenshotBack,
+      screenshotLeft: data.screenshotLeft,
+      screenshotRight: data.screenshotRight,
+      screenshotTop: data.screenshotTop,
+      screenshotBottom: data.screenshotBottom,
+      screenshotOrtho45: data.screenshotOrtho45,
+      screenshotOrtho45Bottom: data.screenshotOrtho45Bottom,
+      screenshotIso: data.screenshotIso,
+      screenshotIsoBack: data.screenshotIsoBack,
+      evalScore: data.evalScore,
+      evalIssues: data.evalIssues ?? undefined,
+      evalSuggestions: data.evalSuggestions ?? undefined,
+      evalChecklistResults: data.evalChecklistResults ?? undefined,
+      approvalStatus: data.approvalStatus,
+      rejectionNote: data.rejectionNote ?? null,
+      llmModel: data.llmModel,
+      vlmModel: data.vlmModel,
+      promptTokens: data.promptTokens,
+      completionTokens: data.completionTokens,
+      visualScore: data.visualScore ?? null,
+      codeEvalScore: data.codeEvalScore ?? null,
+      assertionPassRate: data.assertionPassRate ?? null,
+      evalSource: data.evalSource ?? null,
+      experimentRunId: data.experimentRunId ?? null,
+    },
+    update: {
       iteration: data.iteration,
       code: data.code,
       renderStatus: data.renderStatus,

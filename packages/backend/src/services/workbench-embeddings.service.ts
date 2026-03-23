@@ -95,11 +95,16 @@ export async function embedPromptTextWithUsage(text: string): Promise<{ embeddin
 }
 
 /**
- * Embed a prompt and store the vector + model name in the database.
+ * Embed a prompt (+ optional description) and store the vector + model name.
+ * When a description is available, embeds `prompt + description` together so
+ * the vector captures both what the model IS and what techniques it TEACHES.
  */
-export async function embedAndStorePrompt(promptId: string, promptText: string): Promise<void> {
+export async function embedAndStorePrompt(promptId: string, promptText: string, description?: string | null): Promise<void> {
   const { config: embeddingCfg } = await resolveEmbeddingConfig();
-  const embedding = await embedPromptText(promptText);
+  const textToEmbed = description
+    ? `${promptText}\n\n${description}`
+    : promptText;
+  const embedding = await embedPromptText(textToEmbed);
   const pgVector = `[${embedding.join(",")}]`;
   await prisma.$executeRaw`
     UPDATE workbench_example_prompts SET embedding = ${pgVector}::vector, embedding_model = ${embeddingCfg.modelName} WHERE id = ${promptId}::uuid
@@ -119,8 +124,8 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
   const currentModel = embeddingCfg.modelName;
   logger.info({ provider: embeddingCfg.provider, model: currentModel }, "resolving embedding model");
 
-  const rows = await prisma.$queryRaw<{ id: string; prompt: string }[]>`
-    SELECT DISTINCT p.id, p.prompt
+  const rows = await prisma.$queryRaw<{ id: string; prompt: string; description: string | null }[]>`
+    SELECT DISTINCT p.id, p.prompt, p.description
     FROM workbench_example_prompts p
     JOIN workbench_examples e ON e.prompt_id = p.id
     WHERE e.approval_status IN ('auto_approved', 'human_approved')
@@ -142,7 +147,7 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
 
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE);
-    const texts = batch.map((row) => row.prompt);
+    const texts = batch.map((row) => row.description ? `${row.prompt}\n\n${row.description}` : row.prompt);
 
     logger.info({ batch: i / BATCH_SIZE + 1, size: batch.length }, "embedding batch");
     let embedResult;
@@ -192,37 +197,9 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
 // ── Operation detection backfill ─────────────────────────────────────
 
 /**
- * Backfill `detected_operations` on all workbench_example_prompts that
- * have an empty array. This is a one-time migration for existing prompts.
+ * Backfill detected_operations — extracted to workbench-embeddings-backfill.service.ts.
  */
-export async function backfillDetectedOperations(): Promise<{ updated: number }> {
-  const { detectPromptOperations } = await import("../prompts/system-prompts.js");
-
-  const rows = await prisma.workbenchExamplePrompt.findMany({
-    where: { detectedOperations: { isEmpty: true } },
-    select: { id: true, prompt: true },
-  });
-
-  if (rows.length === 0) {
-    logger.info("all prompts already have detected operations");
-    return { updated: 0 };
-  }
-
-  logger.info({ count: rows.length }, "backfilling detected operations");
-  let updated = 0;
-
-  for (const row of rows) {
-    const ops = [...detectPromptOperations(row.prompt)];
-    await prisma.workbenchExamplePrompt.update({
-      where: { id: row.id },
-      data: { detectedOperations: ops },
-    });
-    updated++;
-  }
-
-  logger.info({ updated }, "detected operations backfill complete");
-  return { updated };
-}
+export { backfillDetectedOperations } from "./workbench-embeddings-backfill.service.js";
 
 // ── Vector similarity search ────────────────────────────────────────
 

@@ -35,6 +35,16 @@ RUN python -c "import typing; typing.override" 2>/dev/null || \
     echo 'import typing; from typing_extensions import override; typing.override = override' \
     > "$SITE_DIR/sitecustomize.py"
 
+# Install ocp_vscode stub — bd_warehouse.gear imports it unconditionally
+# but the real package requires a GUI. This stub provides no-op replacements.
+RUN SITE_DIR=$(python -c "import site; print(site.getsitepackages()[0])") && \
+    mkdir -p "$SITE_DIR/ocp_vscode" && \
+    echo 'from .stub import *' > "$SITE_DIR/ocp_vscode/__init__.py"
+
+COPY ./app/ocp_vscode_stub.py /tmp/ocp_vscode_stub.py
+RUN SITE_DIR=$(python -c "import site; print(site.getsitepackages()[0])") && \
+    cp /tmp/ocp_vscode_stub.py "$SITE_DIR/ocp_vscode/stub.py"
+
 COPY ./app /code/app
 
 # pyrender needs EGL for headless offscreen rendering

@@ -40,6 +40,10 @@ export interface ExampleDetail {
   screenshotIso: string | null;
   screenshotIsoBack: string | null;
   evalScore: number | null;
+  visualScore: number | null;
+  codeEvalScore: number | null;
+  assertionPassRate: number | null;
+  evalSource: string | null;
   evalIssues: string[];
   evalSuggestions: string[];
   evalChecklistResults: Array<{ question: string; pass: boolean; detail: string }> | null;
@@ -131,6 +135,10 @@ function mapToExampleDetail(
     screenshotIso: row.screenshotIso,
     screenshotIsoBack: row.screenshotIsoBack,
     evalScore: row.evalScore != null ? Number(row.evalScore) : null,
+    visualScore: row.visualScore != null ? Number(row.visualScore) : null,
+    codeEvalScore: row.codeEvalScore != null ? Number(row.codeEvalScore) : null,
+    assertionPassRate: row.assertionPassRate != null ? Number(row.assertionPassRate) : null,
+    evalSource: row.evalSource,
     evalIssues: parseJsonbArray(row.evalIssues),
     evalSuggestions: parseJsonbArray(row.evalSuggestions),
     evalChecklistResults: parseChecklistResultsJson(row.evalChecklistResults),

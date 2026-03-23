@@ -92,6 +92,7 @@ export function GenerationTab({ token }: GenerationTabProps) {
     return Number.isFinite(num) && num !== setting.effectiveValue;
   }
 
+  const globalSettings = settings.filter((s) => s.pipeline === "global");
   const workbenchSettings = settings.filter((s) => s.pipeline === "workbench");
   const chatSettings = settings.filter((s) => s.pipeline === "chat" || s.pipeline === "chat-only");
 
@@ -211,6 +212,14 @@ export function GenerationTab({ token }: GenerationTabProps) {
   return (
     <div className="space-y-4">
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
+
+      {globalSettings.length > 0 && (
+        <SectionCard title="Global" description="Settings that apply to both workbench and chat pipelines.">
+          <div className="grid gap-3">
+            {globalSettings.map(renderSettingRow)}
+          </div>
+        </SectionCard>
+      )}
 
       <SectionCard title="Workbench Pipeline" description="Settings for the workbench example generation pipeline.">
         <div className="grid gap-3">

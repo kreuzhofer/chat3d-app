@@ -9,7 +9,7 @@
  * OpenAI, etc.) via the standard createProviderModel() path.
  */
 
-import { stepCountIs, hasToolCall } from "ai";
+import { stepCountIs } from "ai";
 import { trackedGenerateText } from "./tracked-llm.service.js";
 import { createLogger } from "../utils/logger.js";
 import { AgentFilesystem } from "./agent-filesystem.service.js";
@@ -70,6 +70,10 @@ export interface AgentCodegenInput {
   traceSkipAutoEdge?: boolean;
   /** Trace row ID for incremental persistence (optional — skipped if null) */
   traceId?: string | null;
+  /** Pre-compiled research package (replaces legacy preRetrieveReferenceKnowledge) */
+  researchPackage?: import("./research-agent.service.js").ResearchPackage | null;
+  /** Enable search tools (search_examples, search_knowledge, lookup_api). Default true. */
+  enableSearch?: boolean;
 }
 
 export interface AgentCodegenResult {
@@ -143,17 +147,27 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       ? buildFullAgentSystemPrompt({ isModification })
       : buildAgentSystemPrompt({ promptText, interpretation, isModification }));
 
-  // Pre-retrieval: inject reference knowledge into system prompt
+  // Inject research package or fall back to legacy pre-retrieval
   if (!systemPromptOverride) {
-    try {
-      const { references: refMatches } = await preRetrieveReferenceKnowledge(promptText, interpretation);
-      if (refMatches.length > 0) {
-        const refSection = formatReferenceSection(refMatches);
-        systemPrompt += "\n\n" + refSection;
-        logger.info({ matchCount: refMatches.length, titles: refMatches.map(m => m.title) }, "pre-retrieved reference knowledge");
+    if (input.researchPackage && (input.researchPackage.examples.length > 0 || input.researchPackage.knowledge.length > 0)) {
+      const { formatResearchSection } = await import("./research-format.service.js");
+      const researchSection = formatResearchSection(input.researchPackage);
+      if (researchSection) {
+        systemPrompt += "\n\n" + researchSection;
+        logger.info({ examples: input.researchPackage.examples.length, knowledge: input.researchPackage.knowledge.length, gaps: input.researchPackage.gapWarnings.length }, "injected research package");
       }
-    } catch (err) {
-      logger.warn({ err: err instanceof Error ? err.message : String(err) }, "reference pre-retrieval failed, continuing without");
+    } else {
+      // Fallback: legacy pre-retrieval (for chat pipeline or when research is unavailable)
+      try {
+        const { references: refMatches } = await preRetrieveReferenceKnowledge(promptText, interpretation);
+        if (refMatches.length > 0) {
+          const refSection = formatReferenceSection(refMatches);
+          systemPrompt += "\n\n" + refSection;
+          logger.info({ matchCount: refMatches.length, titles: refMatches.map(m => m.title) }, "pre-retrieved reference knowledge (legacy fallback)");
+        }
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, "reference pre-retrieval failed, continuing without");
+      }
     }
   }
 
@@ -185,6 +199,11 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
     }));
   };
 
+  // Resolve enableSearch: explicit input > global setting
+  const resolvedEnableSearch = input.enableSearch !== undefined
+    ? input.enableSearch
+    : await (await import("./generation-settings.service.js")).isAgentSearchToolsEnabled();
+
   // Build tools via factory
   const agentTools = buildAgentTools(
     {
@@ -206,7 +225,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       codeAssertions: input.codeAssertions,
       specInterpretation: input.specInterpretation ?? input.interpretation,
     },
-    { disableRender },
+    { disableRender, enableSearch: resolvedEnableSearch },
   );
 
   // Run the agent loop
@@ -225,7 +244,10 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       tools: agentTools,
       stopWhen: [
         stepCountIs(maxSteps),
-        hasToolCall("submit_result"),
+        // Stop only when submit_result is accepted (onSubmit called).
+        // hasToolCall("submit_result") would stop on rejected submissions too,
+        // preventing the agent from retrying after threshold rejection.
+        (_opts: { steps: unknown[] }) => submitted,
       ],
       abortSignal: signal,
       onStepFinish: (event) => {
@@ -259,11 +281,29 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
           const toolResult = event.toolResults.find((tr: { toolCallId: string }) => tr.toolCallId === tcAny.toolCallId);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const trAny = toolResult as any;
+
+          // Extract output text — AI SDK v6 uses .output, older versions used .result
+          const rawResult = trAny?.output ?? trAny?.result;
+          let outputText: string | undefined;
+          if (typeof rawResult === "string") {
+            outputText = rawResult;
+          } else if (Array.isArray(rawResult)) {
+            // AI SDK sometimes wraps in [{type:"text", text:"..."}]
+            const textPart = rawResult.find((p: { type?: string }) => p?.type === "text");
+            outputText = textPart?.text ?? JSON.stringify(rawResult).slice(0, 500);
+          } else if (rawResult != null) {
+            outputText = JSON.stringify(rawResult).slice(0, 500);
+          }
+
+          // Detect failure from output content, not just tool call status
+          const failPatterns = ["FAILED", "ERROR:", "error:", "not valid", "not found"];
+          const outputFailed = outputText != null && failPatterns.some(p => outputText!.includes(p));
+
           tb?.addToolCall({
             toolName: tcAny.toolName,
-            success: !trAny || !(typeof trAny?.result === "string" && trAny.result.startsWith("Error")),
+            success: !outputFailed,
             inputSummary: JSON.stringify(tcAny.args ?? {}).slice(0, 200),
-            outputSummary: typeof trAny?.result === "string" ? trAny.result.slice(0, 200) : undefined,
+            outputSummary: outputText?.slice(0, 500),
           }, stepId);
         }
         // Capture LLM text response (the assistant's reasoning before tool calls)
@@ -304,16 +344,19 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       "agent codegen loop completed",
     );
 
-    tb?.setAgentMeta({ submitted, renderSuccess, stepNumber: stepCount, maxSteps }, agentNodeId);
+    tb?.setAgentMeta({ submitted, renderSuccess: input.disableRender ? "skipped" : renderSuccess, stepNumber: stepCount, maxSteps }, agentNodeId);
     if (submitted) {
       tb?.endPhase("completed", { nodeId: agentNodeId });
     } else {
-      // Agent hit step limit without submitting — mark as failed with step_limit category
-      const stepLimitMsg = `Agent reached maximum step limit (${maxSteps}) without submitting a result`;
-      logger.warn({ stepCount, maxSteps }, stepLimitMsg);
+      // Distinguish between step limit vs. other reasons for not submitting
+      const hitLimit = stepCount >= maxSteps;
+      const msg = hitLimit
+        ? `Agent reached maximum step limit (${maxSteps}) without submitting a result`
+        : `Agent stopped after ${stepCount} steps without a successful submission (render or eval may have failed)`;
+      logger.warn({ stepCount, maxSteps, hitLimit }, msg);
       tb?.endPhase("failed", {
-        error: stepLimitMsg,
-        errorInfo: { category: "step_limit", message: stepLimitMsg },
+        error: msg,
+        errorInfo: { category: hitLimit ? "step_limit" : "no_submission", message: msg },
         nodeId: agentNodeId,
       });
     }

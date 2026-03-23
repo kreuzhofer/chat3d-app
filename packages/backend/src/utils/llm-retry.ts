@@ -31,6 +31,8 @@ export interface LlmRetryOptions {
   baseDelayMs?: number;
   /** Maximum delay cap in ms (default: from config). */
   maxDelayMs?: number;
+  /** Called before each retry with attempt info — use for UI progress reporting. */
+  onRetry?: (attempt: number, maxAttempts: number, delayMs: number, reason: string) => void;
 }
 
 /**
@@ -83,6 +85,9 @@ export async function withLlmRetry<T>(
           },
           `${errorKind}, retrying in ${delay}ms`,
         );
+
+        // Report retry progress for UI visibility
+        options?.onRetry?.(attempt + 2, maxRetries + 1, delay, errorKind);
 
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;

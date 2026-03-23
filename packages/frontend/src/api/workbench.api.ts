@@ -46,6 +46,7 @@ export interface WorkbenchPrompt {
   categoryId: string;
   index: number;
   prompt: string;
+  description: string | null;
   exampleCount: number;
   bestScore: number | null;
   bestApproval: string | null;
@@ -158,10 +159,16 @@ export function listPromptsForCategory(token: string, categoryId: string): Promi
   });
 }
 
-export function updatePromptText(token: string, promptId: string, prompt: string): Promise<{ ok: true }> {
+export function updatePromptText(token: string, promptId: string, prompt: string, description?: string | null): Promise<{ ok: true }> {
   return requestJson<{ ok: true }>(token, `/prompts/${encodeURIComponent(promptId)}`, {
     method: "PATCH",
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, ...(description !== undefined ? { description } : {}) }),
+  });
+}
+
+export function deletePrompt(token: string, promptId: string): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(token, `/prompts/${encodeURIComponent(promptId)}`, {
+    method: "DELETE",
   });
 }
 
