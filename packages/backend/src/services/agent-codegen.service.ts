@@ -74,6 +74,8 @@ export interface AgentCodegenInput {
   researchPackage?: import("./research-agent.service.js").ResearchPackage | null;
   /** Enable search tools (search_examples, search_knowledge, lookup_api). Default true. */
   enableSearch?: boolean;
+  /** Precise geometric blueprint from spec generation — used as primary codegen instruction. */
+  constructionSpec?: string;
 }
 
 export interface AgentCodegenResult {
@@ -187,7 +189,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
   // Load eval threshold for submit_result quality gate (caller provides pipeline-scoped value)
   const evalThreshold = inputEvalThreshold ?? await getAutoApproveThreshold("chat");
 
-  const userMessage = userMessageOverride ?? buildAgentUserMessage(promptText, isModification, baselineCode);
+  const userMessage = userMessageOverride ?? buildAgentUserMessage(promptText, isModification, baselineCode, input.constructionSpec);
 
   // Helper: wrap files for rendering/validation
   const wrapProjectFiles = (): ProjectFile[] => {
@@ -411,6 +413,7 @@ function buildAgentUserMessage(
   promptText: string,
   isModification: boolean,
   baselineCode?: string,
+  constructionSpec?: string,
 ): string {
   const parts: string[] = [];
 
@@ -422,6 +425,16 @@ function buildAgentUserMessage(
     parts.push(`Create a Build123d model for the following request:`);
     parts.push("");
     parts.push(promptText);
+
+    if (constructionSpec) {
+      parts.push("");
+      parts.push("## Construction Specification");
+      parts.push("");
+      parts.push(constructionSpec);
+      parts.push("");
+      parts.push("Follow the construction specification above as your primary guide. It contains the precise geometric operations, dimensions, and positions to implement.");
+    }
+
     parts.push("");
     parts.push("Create main.py with your code, validate it, render it, and submit when you're satisfied with the result.");
   }

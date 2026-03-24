@@ -31,6 +31,7 @@ export function buildEvaluationSystemPrompt(
   verificationChecklist?: string[],
   hasZoomTool?: boolean,
   providedAngles?: string[],
+  constructionSpec?: string,
 ): string {
   let prompt = `You are a 3D model quality evaluator for Build123d CAD models.
 
@@ -145,6 +146,17 @@ Do NOT request detail views for:
 - General "closer look" or "better inspection" — that is not a valid reason
 
 You may request up to 2 detail views. Provide your evaluation directly unless a feature is truly unresolvable.`;
+  }
+
+  if (constructionSpec) {
+    prompt += `
+
+## Geometric Specification
+The model should implement the following structural properties:
+${constructionSpec}
+
+Use this specification as your primary reference for evaluating correctness. Check whether
+the visible geometry matches the structural properties listed above.`;
   }
 
   if (verificationChecklist?.length) {

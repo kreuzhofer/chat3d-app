@@ -34,6 +34,10 @@ const logger = createLogger("research-agent");
 export interface ResearchInput {
   promptText: string;
   interpretation?: string;
+  /** What the thing IS — for RAG reference search (replaces promptText for "reference" queries). */
+  semanticContext?: string;
+  /** Precise geometric blueprint — for technique decomposition (replaces interpretation). */
+  constructionSpec?: string;
   complexity?: "simple" | "medium" | "complex";
   detectedOperations: Set<string>;
   signal?: AbortSignal;
@@ -61,44 +65,46 @@ export interface ResearchPackage {
  * Skips LLM decomposition for simple prompts (rule-based only).
  */
 export async function runResearch(input: ResearchInput): Promise<ResearchPackage> {
-  const { promptText, interpretation, complexity, detectedOperations, signal } = input;
+  const { promptText, interpretation, semanticContext, constructionSpec, complexity, detectedOperations, signal } = input;
 
   if (signal?.aborted) {
     return emptyPackage();
   }
 
   // Step 1: Technique decomposition
+  // Prefer constructionSpec for technique extraction (it lists geometric operations directly)
   let techniques: TechniqueEntry[];
   let llmTokens: { prompt: number; completion: number } | null = null;
+  const decompInput = constructionSpec || interpretation;
 
   const useRuleBased = complexity === "simple" || detectedOperations.size <= 2;
 
   if (useRuleBased) {
-    const result = extractTechniquesFromOperations(promptText, interpretation, detectedOperations);
+    const result = extractTechniquesFromOperations(promptText, decompInput, detectedOperations);
     techniques = result.techniques;
     logger.info({ count: techniques.length, method: "rule-based" }, "technique decomposition");
   } else {
     // Try LLM first, fall back to rule-based
-    const llmResult = await decomposeTechniquesWithLlm(promptText, interpretation);
+    const llmResult = await decomposeTechniquesWithLlm(promptText, decompInput);
     llmTokens = llmResult.llmTokens;
 
     if (llmResult.techniques.length > 0) {
       techniques = llmResult.techniques;
       logger.info({ count: techniques.length, method: "llm" }, "technique decomposition");
     } else {
-      const fallback = extractTechniquesFromOperations(promptText, interpretation, detectedOperations);
+      const fallback = extractTechniquesFromOperations(promptText, decompInput, detectedOperations);
       techniques = fallback.techniques;
       logger.info({ count: techniques.length, method: "rule-based-fallback" }, "technique decomposition");
     }
   }
 
-  // Always include the original prompt as a search query for subject-specific
-  // reference data (e.g., "Raspberry Pi 4" → finds Pi 4 mechanical dimensions).
-  // Technique queries find HOW to build; the prompt query finds WHAT to build.
-  const promptQuery = interpretation
-    ? `${promptText} ${interpretation}`.slice(0, 300)
-    : promptText.slice(0, 300);
-  techniques.push({ technique: promptQuery, operationCategory: "reference" });
+  // Always include a reference search query for subject-specific data
+  // (e.g., "Raspberry Pi 4 Model B enclosure" → finds Pi 4 mechanical dimensions).
+  // Prefer semanticContext (domain-focused, no dimensions) over raw prompt.
+  const referenceQuery = semanticContext
+    ? semanticContext.slice(0, 300)
+    : (interpretation ? `${promptText} ${interpretation}`.slice(0, 300) : promptText.slice(0, 300));
+  techniques.push({ technique: referenceQuery, operationCategory: "reference" });
 
   if (signal?.aborted) {
     return emptyPackage(llmTokens);

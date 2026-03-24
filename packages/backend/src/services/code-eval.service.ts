@@ -53,6 +53,7 @@ function buildCodeReviewSystemPrompt(
   userPrompt: string,
   specInterpretation?: string,
   codegenSystemPrompt?: string,
+  constructionSpec?: string,
 ): string {
   let prompt = `You are a Build123d code reviewer for 3D CAD models.
 
@@ -89,7 +90,7 @@ Do NOT flag issues for aspects the prompt does not specify — if the prompt doe
 any reasonable value is correct.
 
 The user requested: "${userPrompt}"
-${specInterpretation ? `\nInterpreted as: ${specInterpretation}\n` : ""}
+${constructionSpec ? `\n## Construction Specification\n${constructionSpec}\n\nVerify the code implements each item in the specification above.\n` : (specInterpretation ? `\nInterpreted as: ${specInterpretation}\n` : "")}
 Score 1-10:
 - 1-3: Wrong dimensions or missing major features
 - 4-6: Some parameters wrong or features incomplete
@@ -223,6 +224,8 @@ export interface CodeEvalInput {
   specInterpretation?: string;
   codeAssertions?: CodeAssertion[];
   codegenSystemPrompt?: string;
+  /** Precise geometric blueprint — replaces specInterpretation for more detailed verification. */
+  constructionSpec?: string;
 }
 
 export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResult> {
@@ -247,7 +250,7 @@ export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResu
   const { label, config } = await resolveCodeReviewModel();
   logger.info({ model: label }, "using code review model");
 
-  const systemPrompt = buildCodeReviewSystemPrompt(userPrompt, specInterpretation, codegenSystemPrompt);
+  const systemPrompt = buildCodeReviewSystemPrompt(userPrompt, specInterpretation, codegenSystemPrompt, input.constructionSpec);
   const userContent = `Review this Build123d code:\n\n\`\`\`python\n${code}\n\`\`\``;
 
   const semaphore = getLlmSemaphore(config.provider, config.maxConcurrent);

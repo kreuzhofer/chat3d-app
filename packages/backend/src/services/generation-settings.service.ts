@@ -61,10 +61,12 @@ const SETTINGS_REGISTRY = new Map<string, SettingMeta>([
   // Global settings (apply to both workbench and chat pipelines)
   ["global.agent_search_tools", { default: 1, label: "Agent search tools", description: "Enable search_examples, search_knowledge, and lookup_api tools for agents (1=on, 0=off). When off, agents rely on pre-loaded research results only.", pipeline: "global", min: 0, max: 1, step: 1 }],
   ["global.rag_similarity_threshold", { default: 0.75, label: "RAG similarity threshold", description: "Minimum cosine similarity for examples/knowledge to be included in the pipeline", pipeline: "global", min: 0.1, max: 1.0, step: 0.05 }],
-  ["global.rag_gap_threshold", { default: 0.75, label: "RAG gap detection threshold", description: "If best match is below this, flag as a gap and warn the agent", pipeline: "global", min: 0.1, max: 1.0, step: 0.05 }],
+  ["global.rag_gap_threshold", { default: 0.85, label: "RAG gap detection threshold", description: "If best match is below this, flag as a gap and warn the agent", pipeline: "global", min: 0.1, max: 1.0, step: 0.05 }],
+  ["global.rag_gap_threshold_reference", { default: 0.90, label: "RAG reference gap threshold", description: "Gap threshold for subject-level reference queries (e.g., 'Raspberry Pi 4'). Higher than general gap threshold to demand more specific building blocks.", pipeline: "global", min: 0.1, max: 1.0, step: 0.05 }],
   ["global.rag_max_examples", { default: 3, label: "Max workbench examples", description: "Number of workbench examples to retrieve per search", pipeline: "global", min: 1, max: 10, step: 1 }],
   ["global.rag_max_knowledge", { default: 3, label: "Max knowledge entries", description: "Number of knowledge base entries to retrieve per search", pipeline: "global", min: 1, max: 10, step: 1 }],
   ["global.llm_max_retries", { default: 3, label: "LLM max retries", description: "Maximum number of retries with exponential backoff for transient LLM failures (timeouts, rate limits, connection errors)", pipeline: "global", min: 0, max: 10, step: 1 }],
+  ["workbench.spec_enrichment_enabled", { default: 1, label: "Spec enrichment enabled", description: "Enable second-pass spec enrichment using research results (1=on, 0=off). Adds ~$0.003/prompt but produces precise construction specs.", pipeline: "workbench", min: 0, max: 1, step: 1 }],
 ]);
 
 // ── In-memory cache ──────────────────────────────────────────────────
@@ -149,6 +151,10 @@ export async function getRagGapThreshold(): Promise<number> {
   return getEffective("global.rag_gap_threshold");
 }
 
+export async function getRagGapThresholdReference(): Promise<number> {
+  return getEffective("global.rag_gap_threshold_reference");
+}
+
 export async function getRagMaxExamples(): Promise<number> {
   return getEffective("global.rag_max_examples");
 }
@@ -159,6 +165,10 @@ export async function getRagMaxKnowledge(): Promise<number> {
 
 export async function getLlmMaxRetries(): Promise<number> {
   return getEffective("global.llm_max_retries");
+}
+
+export async function isSpecEnrichmentEnabled(): Promise<boolean> {
+  return (await getEffective("workbench.spec_enrichment_enabled")) === 1;
 }
 
 // ── Admin API ────────────────────────────────────────────────────────

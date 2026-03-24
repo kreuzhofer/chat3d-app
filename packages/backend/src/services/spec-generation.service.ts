@@ -49,6 +49,12 @@ export interface SpecResult {
   complexity: SpecComplexity;
   promptTokens: number;
   completionTokens: number;
+  /** What the thing IS — domain/object type, no dimensions. For RAG search only. */
+  semanticContext: string;
+  /** Precise geometric blueprint — dimensions, operations, positions. For codegen agent. */
+  constructionSpec: string;
+  /** Objective structural checks referencing only geometry, not object identity. For VLM/code eval. */
+  verificationCriteria: string[];
 }
 
 // ── System prompt ───────────────────────────────────────────────────
@@ -84,6 +90,19 @@ Given a user's prompt describing a 3D model, produce:
 
    If the prompt has no explicit numeric values, return an empty array.
 
+6. **semanticContext**: 1-2 sentences identifying the object and its domain. No dimensions or construction details. This is used as a search query to find reference material and similar examples.
+   Example: "Raspberry Pi 4 Model B enclosure with removable lid"
+
+7. **constructionSpec**: A bulleted list of geometric operations with dimensions, positions, and relationships — a machinist's blueprint. Each bullet should be one discrete construction step. Include ALL dimensions from the prompt. If exact dimensions are not stated, derive reasonable defaults and note them. Example:
+   - Base box: 90×62×30mm, wall thickness 2mm
+   - Port cutouts (short side): USB-C 9×3.5mm at offset 7mm from corner
+   - 4× M2.5 standoffs at corner insets, height 3mm
+
+8. **verificationCriteria**: 3-6 objective structural checks that reference ONLY geometry, not the object's name or identity. A visual evaluator should be able to check these by looking at rendered views without knowing what the object is supposed to be. Example:
+   - "Rectangular box with a separate removable lid piece"
+   - "Rectangular openings visible on side faces"
+   - "4 cylindrical posts inside the box"
+
 Be LENIENT about disambiguation. Most prompts should NOT need disambiguation. Only flag when multiple fundamentally different interpretations exist (e.g., "container with lid" — is the lid attached with a hinge, threaded, or snap-fit?).
 
 Return JSON only:
@@ -92,7 +111,10 @@ Return JSON only:
   "verificationChecklist": ["..."],
   "codeAssertions": [{"parameter": "...", "aliases": [...], "operator": "...", "value": N, "description": "..."}],
   "disambiguationNeeded": true|false,
-  "disambiguationQuestions": ["..."]
+  "disambiguationQuestions": ["..."],
+  "semanticContext": "...",
+  "constructionSpec": "- step 1\\n- step 2\\n...",
+  "verificationCriteria": ["..."]
 }`;
 
 // ── Response parsing ─────────────────────────────────────────────────
@@ -103,6 +125,9 @@ interface ParsedSpec {
   codeAssertions: CodeAssertion[];
   disambiguationNeeded: boolean;
   disambiguationQuestions: string[];
+  semanticContext: string;
+  constructionSpec: string;
+  verificationCriteria: string[];
 }
 
 const EMPTY_SPEC: ParsedSpec = {
@@ -111,6 +136,9 @@ const EMPTY_SPEC: ParsedSpec = {
   codeAssertions: [],
   disambiguationNeeded: false,
   disambiguationQuestions: [],
+  semanticContext: "",
+  constructionSpec: "",
+  verificationCriteria: [],
 };
 
 function parseCodeAssertions(raw: unknown): CodeAssertion[] {
@@ -128,16 +156,24 @@ function parseCodeAssertions(raw: unknown): CodeAssertion[] {
 }
 
 function buildSpecFromParsed(raw: Partial<ParsedSpec>): ParsedSpec {
+  const verificationCriteria = Array.isArray(raw.verificationCriteria)
+    ? raw.verificationCriteria.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+    : [];
+  const verificationChecklist = Array.isArray(raw.verificationChecklist)
+    ? raw.verificationChecklist.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+    : [];
+
   return {
     interpretation: typeof raw.interpretation === "string" ? raw.interpretation : "",
-    verificationChecklist: Array.isArray(raw.verificationChecklist)
-      ? raw.verificationChecklist.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-      : [],
+    verificationChecklist: verificationChecklist.length > 0 ? verificationChecklist : verificationCriteria,
     codeAssertions: parseCodeAssertions((raw as Record<string, unknown>).codeAssertions),
     disambiguationNeeded: raw.disambiguationNeeded === true,
     disambiguationQuestions: Array.isArray(raw.disambiguationQuestions)
       ? raw.disambiguationQuestions.filter((q): q is string => typeof q === "string" && q.trim().length > 0)
       : [],
+    semanticContext: typeof raw.semanticContext === "string" ? raw.semanticContext : "",
+    constructionSpec: typeof raw.constructionSpec === "string" ? raw.constructionSpec : "",
+    verificationCriteria: verificationCriteria.length > 0 ? verificationCriteria : verificationChecklist,
   };
 }
 
@@ -172,6 +208,9 @@ export function parseSpecResponse(content: string): ParsedSpec {
       codeAssertions: [],
       disambiguationNeeded: disambiguationMatch?.[1]?.toLowerCase() === "true",
       disambiguationQuestions: [],
+      semanticContext: "",
+      constructionSpec: "",
+      verificationCriteria: [],
     };
   }
 
@@ -233,7 +272,7 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
         model,
         system: SPEC_SYSTEM_PROMPT,
         messages: [{ role: "user", content: promptText }],
-        maxOutputTokens: 1024,
+        maxOutputTokens: 1536,
       }, {
         purpose: "spec_generation",
         providerName: config.provider,
@@ -254,6 +293,9 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
         checklistCount: parsed.verificationChecklist.length,
         assertionCount: parsed.codeAssertions.length,
         questionCount: parsed.disambiguationQuestions.length,
+        criteriaCount: parsed.verificationCriteria.length,
+        hasConstructionSpec: parsed.constructionSpec.length > 0,
+        hasSemanticContext: parsed.semanticContext.length > 0,
         interpretation: parsed.interpretation,
         complexity,
       },
@@ -286,6 +328,9 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
       complexity: deriveComplexity(promptText),
       promptTokens: 0,
       completionTokens: 0,
+      semanticContext: "",
+      constructionSpec: "",
+      verificationCriteria: [],
     };
   }
 }

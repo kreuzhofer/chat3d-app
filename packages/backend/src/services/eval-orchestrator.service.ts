@@ -39,6 +39,10 @@ export interface FullEvalInput {
   stlBase64?: string;
   modelFormat?: ModelFormat;
   codeEvalWeight: number;
+  /** Precise geometric blueprint — used by code eval and VLM for objective structural checks. */
+  constructionSpec?: string;
+  /** Objective structural checks (geometry-only, no semantic references). Replaces verificationChecklist for VLM. */
+  verificationCriteria?: string[];
 }
 
 export interface FullEvalResult {
@@ -178,6 +182,7 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
       specInterpretation: input.specInterpretation,
       codeAssertions: undefined, // already ran assertions above
       codegenSystemPrompt: input.codegenSystemPrompt,
+      constructionSpec: input.constructionSpec,
     };
 
     logger.info("phase 2: running code review LLM");
@@ -192,7 +197,7 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
     {
       let codeReviewCost = 0;
       try {
-        const cfg = await getModelForPurposeWithFallback("code_evaluation", "conversation");
+        const cfg = await getModelForPurposeWithFallback("code_review", "conversation");
         codeReviewCost = calculateCostUsd(cfg, codePromptTokens, codeCompletionTokens);
       } catch { /* cost stays 0 */ }
       tb?.addUsage({
@@ -271,13 +276,19 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
         }
       }
 
+      // Prefer verificationCriteria (objective structural checks) over verificationChecklist (may contain semantic refs)
+      const effectiveChecklist = input.verificationCriteria?.length
+        ? input.verificationCriteria
+        : input.verificationChecklist;
+
       logger.info({ imageCount: vlmImages.length }, "phase 3: running VLM visual evaluation");
       const vlmResult = await evaluateModel({
         userPrompt: input.userPrompt,
         categoryName: input.categoryName,
         complexity: input.complexity,
         images: vlmImages,
-        verificationChecklist: input.verificationChecklist,
+        verificationChecklist: effectiveChecklist,
+        constructionSpec: input.constructionSpec,
         stlBase64: input.stlBase64,
         modelFormat: input.modelFormat,
       });

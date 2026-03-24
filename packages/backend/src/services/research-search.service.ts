@@ -11,6 +11,7 @@ import { hybridSearchKnowledge, type KnowledgeSearchMatch } from "./knowledge-se
 import {
   getRagSimilarityThreshold,
   getRagGapThreshold,
+  getRagGapThresholdReference,
   getRagMaxExamples,
   getRagMaxKnowledge,
 } from "./generation-settings.service.js";
@@ -50,9 +51,10 @@ export interface SearchResult {
 export async function searchTechniques(
   techniques: TechniqueEntry[],
 ): Promise<SearchResult> {
-  const [simThreshold, gapThreshold, maxExamples, maxKnowledge] = await Promise.all([
+  const [simThreshold, gapThreshold, gapThresholdRef, maxExamples, maxKnowledge] = await Promise.all([
     getRagSimilarityThreshold(),
     getRagGapThreshold(),
+    getRagGapThresholdReference(),
     getRagMaxExamples(),
     getRagMaxKnowledge(),
   ]);
@@ -92,8 +94,11 @@ export async function searchTechniques(
         0,
       );
 
-      // Record gap if best match is below threshold
-      if (bestSim < gapThreshold) {
+      // Record gap if best match is below threshold.
+      // Reference queries (subject-level, e.g. "Raspberry Pi 4") use a higher
+      // threshold to be more demanding about building-block examples.
+      const effectiveGapThreshold = t.operationCategory === "reference" ? gapThresholdRef : gapThreshold;
+      if (bestSim < effectiveGapThreshold) {
         gaps.push({ technique: t.technique, bestSimilarity: bestSim, query: t.technique });
       }
 

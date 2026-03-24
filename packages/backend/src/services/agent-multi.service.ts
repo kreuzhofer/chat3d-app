@@ -58,6 +58,7 @@ async function decomposePrompt(
   promptText: string,
   interpretation: string | undefined,
   modelConfig: LlmModelConfig,
+  constructionSpec?: string,
 ): Promise<DecompositionResult> {
   const model = createProviderModel(modelConfig);
 
@@ -74,9 +75,16 @@ Rules:
 Respond with raw JSON only. No markdown, no code fences, no explanation:
 {"components":[{"name":"component_name","description":"Brief description with dimensions"}],"assemblyNotes":"Brief positioning instructions"}`;
 
-  const fullPrompt = interpretation
-    ? `User request: ${promptText}\n\nInterpretation: ${interpretation}`
-    : promptText;
+  // Prefer constructionSpec for decomposition — it contains precise geometric
+  // operations which map better to component boundaries than semantic descriptions
+  let fullPrompt: string;
+  if (constructionSpec) {
+    fullPrompt = `User request: ${promptText}\n\nConstruction Specification:\n${constructionSpec}`;
+  } else if (interpretation) {
+    fullPrompt = `User request: ${promptText}\n\nInterpretation: ${interpretation}`;
+  } else {
+    fullPrompt = promptText;
+  }
 
   const result = await trackedGenerateText({
     model,
@@ -158,7 +166,7 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
 
   let decomposition: DecompositionResult;
   try {
-    decomposition = await decomposePrompt(promptText, interpretation, modelConfig);
+    decomposition = await decomposePrompt(promptText, interpretation, modelConfig, input.constructionSpec);
     tb?.addUsage({
       inputTokens: decomposition.promptTokens,
       outputTokens: decomposition.completionTokens,

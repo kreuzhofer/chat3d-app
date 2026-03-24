@@ -65,6 +65,8 @@ export interface EvaluateModelInput {
   images: LabeledImage[];
   /** Optional verification checklist from spec generation step */
   verificationChecklist?: string[];
+  /** Precise geometric blueprint — provides structural context for evaluation. */
+  constructionSpec?: string;
   /** Raw STL/3MF base64 data — enables VLM zoom capability when provided */
   stlBase64?: string;
   /** Model format for zoom re-renders (default: "stl") */
@@ -127,7 +129,7 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
 
   const providedAngles = images.map(img => img.angle);
   const systemPrompt = buildEvaluationSystemPrompt(
-    userPrompt, categoryName, complexity, input.verificationChecklist, zoomEnabled, providedAngles,
+    userPrompt, categoryName, complexity, input.verificationChecklist, zoomEnabled, providedAngles, input.constructionSpec,
   );
 
   const userContent = buildImageUserContent(images);

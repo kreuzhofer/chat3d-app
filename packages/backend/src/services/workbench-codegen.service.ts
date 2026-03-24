@@ -28,11 +28,13 @@ import { validatePrompt } from "./workbench-prompt-validation.service.js";
 import {
   getAutoApproveThreshold,
   isSpecGenerationEnabled,
+  isSpecEnrichmentEnabled,
   getAgentMaxSteps,
   getCodeEvalWeight,
   getPipelineTimeoutMs,
 } from "./generation-settings.service.js";
 import { generateSpec, type SpecResult } from "./spec-generation.service.js";
+import { enrichSpec } from "./spec-enrichment.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
 import { insertExample, persistWorkbenchFiles } from "./workbench-persist.service.js";
 import crypto from "node:crypto";
@@ -283,6 +285,8 @@ async function _runPipeline(
       researchPackage = await runResearch({
         promptText: ctx.prompt,
         interpretation: specResult.interpretation,
+        semanticContext: specResult.semanticContext,
+        constructionSpec: specResult.constructionSpec,
         complexity: specResult.complexity,
         detectedOperations: ops,
         signal: pipelineSignal,
@@ -307,6 +311,32 @@ async function _runPipeline(
       traceBuilder.endPhase("failed", { error: err instanceof Error ? err.message : String(err) });
     }
     updateTraceIncremental(traceId, traceBuilder.snapshot());
+  }
+
+  // 3b. Enrichment pass — refine constructionSpec with researched dimensions
+  if (specResult && researchPackage && researchPackage.knowledge.length > 0 && !pipelineSignal.aborted) {
+    const enrichmentEnabled = await isSpecEnrichmentEnabled();
+    if (enrichmentEnabled && specResult.constructionSpec) {
+      traceBuilder.startPhase("enrichment", "spec_enrichment", "Spec Enrichment");
+      onProgress?.("enriching", "Enriching specification with reference data...");
+      try {
+        const enrichModelCfg = await getModelForPurposeWithFallback("spec_generation", "conversation");
+        const enriched = await enrichSpec(specResult, researchPackage);
+        if (enriched.constructionSpec) {
+          specResult = { ...specResult, constructionSpec: enriched.constructionSpec, verificationCriteria: enriched.verificationCriteria };
+        }
+        traceBuilder.addUsage({
+          inputTokens: enriched.promptTokens,
+          outputTokens: enriched.completionTokens,
+          costUsd: calculateCostUsd(enrichModelCfg, enriched.promptTokens, enriched.completionTokens),
+        });
+        traceBuilder.endPhase("completed");
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, "spec enrichment failed (continuing with rough spec)");
+        traceBuilder.endPhase("failed", { error: err instanceof Error ? err.message : String(err) });
+      }
+      updateTraceIncremental(traceId, traceBuilder.snapshot());
+    }
   }
 
   // 4. Agent codegen
@@ -335,6 +365,7 @@ async function _runPipeline(
     specInterpretation: specResult?.interpretation,
     researchPackage,
     traceId,
+    constructionSpec: specResult?.constructionSpec,
   };
 
   const agResult = wbUseMultiAgent
@@ -346,6 +377,9 @@ async function _runPipeline(
     return _persistAbortedPipeline(ctx, agResult, wbAgentModelConfig, traceBuilder, traceId, options?.experimentRunId);
   }
 
+  const agAllCode = flattenForEval(agResult.files.length > 1 ? agResult.files : [{ path: "main.py", content: agResult.code }]);
+
+  // Always take screenshots (needed for workbench UI display)
   let agScreenshots: RenderedScreenshot[] = [];
   if (agResult.renderSuccess && agResult.renderedFiles.length > 0) {
     traceBuilder.startPhase("screenshots", "screenshots", "Screenshots");
@@ -366,12 +400,32 @@ async function _runPipeline(
     updateTraceIncremental(traceId, traceBuilder.snapshot());
   }
 
+  // If the agent already submitted successfully (passed its quality gate),
+  // reuse its eval result — no redundant VLM + code review calls.
   let agFullEval: FullEvalResult | null = null;
-  const agStlFile = agResult.renderedFiles.find(f => f.filename.toLowerCase().endsWith(".stl"));
-  const agCodeEvalWeight = await getCodeEvalWeight("workbench");
-  const agAllCode = flattenForEval(agResult.files.length > 1 ? agResult.files : [{ path: "main.py", content: agResult.code }]);
-  if (agScreenshots.length > 0 || agAllCode.trim()) {
+
+  if (agResult.submitted && agResult.evalResult) {
+    logger.info({ agentScore: agResult.evalResult.score }, "reusing agent eval result (agent submitted successfully)");
+    agFullEval = {
+      compositeScore: agResult.evalResult.score,
+      visualScore: agResult.evalResult.score,
+      codeScore: null,
+      assertionPassRate: null,
+      assertionsFailed: false,
+      source: "visual_only",
+      vlmIssues: agResult.evalResult.issues,
+      vlmSuggestions: agResult.evalResult.suggestions,
+      codeIssues: [],
+      vlmModel: agResult.evalResult.vlmModel,
+      codeReviewModel: null,
+      totalPromptTokens: 0,
+      totalCompletionTokens: 0,
+    };
+  } else if (agScreenshots.length > 0 || agAllCode.trim()) {
+    // Agent didn't submit or no eval available — run full eval pipeline
     onProgress?.("evaluating", "Evaluating quality...");
+    const agStlFile = agResult.renderedFiles.find(f => f.filename.toLowerCase().endsWith(".stl"));
+    const agCodeEvalWeight = await getCodeEvalWeight("workbench");
     const vlmImages = agScreenshots.filter(s => s.angle !== "isometric").map(s => ({ angle: s.angle, base64: s.base64 }));
     agFullEval = await runFullEvaluation({
       code: agAllCode, userPrompt: ctx.prompt,
@@ -379,6 +433,8 @@ async function _runPipeline(
       codeAssertions: specResult?.codeAssertions,
       images: vlmImages, categoryName: ctx.categoryName, complexity: ctx.complexity,
       verificationChecklist: specResult?.verificationChecklist,
+      constructionSpec: specResult?.constructionSpec,
+      verificationCriteria: specResult?.verificationCriteria,
       stlBase64: agStlFile?.contentBase64, modelFormat: "stl",
       codeEvalWeight: agCodeEvalWeight,
     });
