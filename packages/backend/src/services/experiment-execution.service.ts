@@ -21,6 +21,30 @@ interface RunningExperiment {
 
 let runningExperiment: RunningExperiment | null = null;
 
+// ── Startup recovery ────────────────────────────────────────────────
+
+/**
+ * Recover experiments stuck in "running" status after a server restart.
+ * Marks them and their runs as "failed" so they can be re-run.
+ */
+export async function recoverStuckExperiments(): Promise<void> {
+  const stuck = await prisma.experiment.findMany({
+    where: { status: "running" },
+    select: { id: true, runs: { where: { status: "running" }, select: { id: true } } },
+  });
+  if (stuck.length === 0) return;
+
+  for (const exp of stuck) {
+    await prisma.$transaction([
+      ...exp.runs.map((r) =>
+        prisma.experimentRun.update({ where: { id: r.id }, data: { status: "failed", completedAt: new Date() } }),
+      ),
+      prisma.experiment.update({ where: { id: exp.id }, data: { status: "failed", completedAt: new Date() } }),
+    ]);
+  }
+  logger.warn({ count: stuck.length, ids: stuck.map((e) => e.id) }, "recovered stuck experiments after restart");
+}
+
 // ── Start experiment ────────────────────────────────────────────────
 
 export async function startExperiment(experimentId: string, userId: string): Promise<void> {

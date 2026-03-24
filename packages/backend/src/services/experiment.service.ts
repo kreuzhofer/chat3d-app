@@ -341,9 +341,13 @@ export async function getExperimentStatus(id: string) {
   });
   if (!exp) throw new ExperimentError("Experiment not found", 404);
 
+  // Only count examples that have finished processing (not early placeholders)
   const exampleCounts = await prisma.workbenchExample.groupBy({
     by: ["experimentRunId"],
-    where: { experimentRunId: { in: exp.runs.map((r) => r.id) } },
+    where: {
+      experimentRunId: { in: exp.runs.map((r) => r.id) },
+      renderStatus: { not: "pending" },
+    },
     _count: true,
   });
   const countMap = new Map(exampleCounts.map((c) => [c.experimentRunId, c._count]));

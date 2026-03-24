@@ -7,6 +7,7 @@ import { initializeI18n } from "./i18n/config.js";
 import { emailService } from "./services/email.service.js";
 import { initializeEmailTemplates } from "./services/email-template.service.js";
 import { startJobQueue, stopJobQueue } from "./services/job-queue.service.js";
+import { recoverStuckExperiments } from "./services/experiment-execution.service.js";
 const logger = createLogger("backend");
 
 await initializeI18n();
@@ -30,6 +31,11 @@ const server = app.listen(config.port, () => {
   // Resume pipelines that were interrupted by the last shutdown
   void resumeStalePipelines().catch((err) => {
     logger.error({ err }, "failed to resume stale pipelines on startup");
+  });
+
+  // Recover experiments stuck in "running" after restart
+  void recoverStuckExperiments().catch((err) => {
+    logger.error({ err }, "failed to recover stuck experiments on startup");
   });
 
   // Start persistent job queue for knowledge pipeline
