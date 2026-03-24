@@ -40,6 +40,13 @@ export interface CodeAssertion {
   description: string;
 }
 
+/** Verification criterion with visibility annotation for eval routing. */
+export interface AnnotatedCriterion {
+  text: string;
+  /** "visual" = clearly visible at standard resolution, "code" = too small/internal, "both" = borderline */
+  visibility: "visual" | "code" | "both";
+}
+
 export interface SpecResult {
   interpretation: string;
   verificationChecklist: string[];
@@ -53,8 +60,8 @@ export interface SpecResult {
   semanticContext: string;
   /** Precise geometric blueprint — dimensions, operations, positions. For codegen agent. */
   constructionSpec: string;
-  /** Objective structural checks referencing only geometry, not object identity. For VLM/code eval. */
-  verificationCriteria: string[];
+  /** Objective structural checks with visibility annotations for eval routing. */
+  verificationCriteria: AnnotatedCriterion[];
 }
 
 // ── System prompt ───────────────────────────────────────────────────
@@ -98,10 +105,21 @@ Given a user's prompt describing a 3D model, produce:
    - Port cutouts (short side): USB-C 9×3.5mm at offset 7mm from corner
    - 4× M2.5 standoffs at corner insets, height 3mm
 
-8. **verificationCriteria**: 3-6 objective structural checks that reference ONLY geometry, not the object's name or identity. A visual evaluator should be able to check these by looking at rendered views without knowing what the object is supposed to be. Example:
-   - "Rectangular box with a separate removable lid piece"
-   - "Rectangular openings visible on side faces"
-   - "4 cylindrical posts inside the box"
+8. **verificationCriteria**: 3-6 objective structural checks, each annotated with a visibility category. Each item has:
+   - "text": the check itself, referencing ONLY geometry (not the object's name/identity)
+   - "visibility": one of "visual", "code", or "both"
+
+   Visibility rules:
+   - "visual" — overall shape, major openings (>10% of model size), proportions — clearly visible in a 768px screenshot
+   - "code" — small features (<3mm relative to model), internal geometry, precise dimensions, chamfers/fillets on thin edges — impossible to verify visually
+   - "both" — borderline features that both evaluators should check (e.g., standoffs inside an open box, medium-size cutouts)
+
+   Example:
+   [
+     {"text": "Rectangular box shape with correct proportions", "visibility": "visual"},
+     {"text": "1mm chamfer on all top edges", "visibility": "code"},
+     {"text": "4 cylindrical standoff posts inside the box", "visibility": "both"}
+   ]
 
 Be LENIENT about disambiguation. Most prompts should NOT need disambiguation. Only flag when multiple fundamentally different interpretations exist (e.g., "container with lid" — is the lid attached with a hinge, threaded, or snap-fit?).
 
@@ -114,7 +132,7 @@ Return JSON only:
   "disambiguationQuestions": ["..."],
   "semanticContext": "...",
   "constructionSpec": "- step 1\\n- step 2\\n...",
-  "verificationCriteria": ["..."]
+  "verificationCriteria": [{"text": "...", "visibility": "visual|code|both"}]
 }`;
 
 // ── Response parsing ─────────────────────────────────────────────────
@@ -127,7 +145,7 @@ interface ParsedSpec {
   disambiguationQuestions: string[];
   semanticContext: string;
   constructionSpec: string;
-  verificationCriteria: string[];
+  verificationCriteria: AnnotatedCriterion[];
 }
 
 const EMPTY_SPEC: ParsedSpec = {
@@ -155,17 +173,45 @@ function parseCodeAssertions(raw: unknown): CodeAssertion[] {
     }));
 }
 
+/** Parse verificationCriteria — handles both annotated objects and plain strings. */
+function parseVerificationCriteria(raw: unknown): AnnotatedCriterion[] {
+  if (!Array.isArray(raw)) return [];
+  const validVisibility = new Set(["visual", "code", "both"]);
+  return raw
+    .map((item: unknown) => {
+      if (typeof item === "string" && item.trim()) {
+        return { text: item.trim(), visibility: "both" as const };
+      }
+      if (typeof item === "object" && item !== null) {
+        const obj = item as Record<string, unknown>;
+        const text = typeof obj.text === "string" ? obj.text.trim() : "";
+        const vis = typeof obj.visibility === "string" && validVisibility.has(obj.visibility)
+          ? obj.visibility as AnnotatedCriterion["visibility"]
+          : "both";
+        if (text) return { text, visibility: vis };
+      }
+      return null;
+    })
+    .filter((c): c is AnnotatedCriterion => c !== null);
+}
+
 function buildSpecFromParsed(raw: Partial<ParsedSpec>): ParsedSpec {
-  const verificationCriteria = Array.isArray(raw.verificationCriteria)
-    ? raw.verificationCriteria.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-    : [];
+  const verificationCriteria = parseVerificationCriteria((raw as Record<string, unknown>).verificationCriteria);
   const verificationChecklist = Array.isArray(raw.verificationChecklist)
     ? raw.verificationChecklist.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
     : [];
 
+  // Derive checklist from criteria text if no explicit checklist
+  const criteriaTexts = verificationCriteria.map(c => c.text);
+  const effectiveChecklist = verificationChecklist.length > 0 ? verificationChecklist : criteriaTexts;
+  // Derive criteria from checklist if no explicit criteria
+  const effectiveCriteria = verificationCriteria.length > 0
+    ? verificationCriteria
+    : verificationChecklist.map(text => ({ text, visibility: "both" as const }));
+
   return {
     interpretation: typeof raw.interpretation === "string" ? raw.interpretation : "",
-    verificationChecklist: verificationChecklist.length > 0 ? verificationChecklist : verificationCriteria,
+    verificationChecklist: effectiveChecklist,
     codeAssertions: parseCodeAssertions((raw as Record<string, unknown>).codeAssertions),
     disambiguationNeeded: raw.disambiguationNeeded === true,
     disambiguationQuestions: Array.isArray(raw.disambiguationQuestions)
@@ -173,7 +219,7 @@ function buildSpecFromParsed(raw: Partial<ParsedSpec>): ParsedSpec {
       : [],
     semanticContext: typeof raw.semanticContext === "string" ? raw.semanticContext : "",
     constructionSpec: typeof raw.constructionSpec === "string" ? raw.constructionSpec : "",
-    verificationCriteria: verificationCriteria.length > 0 ? verificationCriteria : verificationChecklist,
+    verificationCriteria: effectiveCriteria,
   };
 }
 

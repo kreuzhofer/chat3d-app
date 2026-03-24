@@ -23,7 +23,6 @@ import { runResearch, type ResearchPackage } from "./research-agent.service.js";
 import type { RenderedScreenshot } from "./stl-rendering-client.service.js";
 import { renderModelScreenshots } from "./stl-rendering-client.service.js";
 import { runFullEvaluation, type FullEvalResult } from "./eval-orchestrator.service.js";
-import { WorkbenchCatalogError } from "./workbench-catalog.service.js";
 import { validatePrompt } from "./workbench-prompt-validation.service.js";
 import {
   getAutoApproveThreshold,
@@ -37,10 +36,20 @@ import { generateSpec, type SpecResult } from "./spec-generation.service.js";
 import { enrichSpec } from "./spec-enrichment.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
 import { insertExample, persistWorkbenchFiles } from "./workbench-persist.service.js";
+import {
+  loadPromptContext,
+  resolveCodegenModel,
+  shouldAutoApprove,
+  earlyExitResult,
+  NULL_SCREENSHOTS,
+} from "./workbench-pipeline-helpers.service.js";
+import { persistAbortedPipeline, persistRejectedPrompt } from "./workbench-pipeline-persist.service.js";
 import crypto from "node:crypto";
 
 export { wrapInTemplate, stripTemplateBoilerplate } from "../utils/workbench-code-utils.js";
 export { reRenderForExample } from "./workbench-rerender.service.js";
+// Re-export extracted helpers for backward compat
+export { resolveCodegenModel } from "./workbench-pipeline-helpers.service.js";
 
 const logger = createLogger("workbench");
 
@@ -62,55 +71,10 @@ export interface GenerateResult {
   exampleId: string | null; promptId: string; iteration: number; code: string;
   renderStatus: "success" | "error" | "skipped"; renderError: string | null;
   evalScore: number | null; evalIssues: string[] | null; evalSuggestions: string[] | null;
-  evalChecklistResults: Array<{ question: string; pass: boolean; detail: string }> | null;
+  evalChecklistResults: Array<{ question: string; pass: boolean | null; detail: string }> | null;
   approvalStatus: "pending" | "auto_approved" | "rejected";
   llmModel: string; vlmModel: string | null;
   disambiguationNeeded?: boolean; disambiguationQuestions?: string[];
-}
-
-interface PromptContext {
-  promptId: string; prompt: string; categoryId: string; categoryName: string; complexity: number;
-}
-
-/** Null screenshot paths for failed/aborted examples. */
-const NULL_SCREENSHOTS = {
-  screenshotFront: null, screenshotBack: null, screenshotLeft: null, screenshotRight: null,
-  screenshotTop: null, screenshotBottom: null, screenshotOrtho45: null,
-  screenshotOrtho45Bottom: null, screenshotIso: null, screenshotIsoBack: null,
-} as const;
-
-/** Build an early-exit GenerateResult (rejected, aborted, disambiguation, etc.). */
-function earlyExitResult(b: { exampleId: string | null; promptId: string; iteration: number; code: string; renderError: string | null; approvalStatus: "pending" | "rejected"; llmModel: string; disambiguationNeeded?: boolean; disambiguationQuestions?: string[] }): GenerateResult {
-  return { ...b, renderStatus: b.renderError ? "error" : "skipped", evalScore: null, evalIssues: null, evalSuggestions: null, evalChecklistResults: null, vlmModel: null };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function resolveCodegenModel(): Promise<{ model: any; label: string; config: LlmModelConfig }> {
-  const cfg = await getModelForPurposeWithFallback("workbench_codegen", "agent_codegen");
-  const { createProviderModel: create } = await import("./llm-config.service.js");
-  const model = create(cfg);
-  return { model, label: cfg.label, config: cfg };
-}
-
-async function loadPromptContext(promptId: string): Promise<PromptContext> {
-  const row = await prisma.workbenchExamplePrompt.findUnique({
-    where: { id: promptId },
-    include: { category: true },
-  });
-  if (!row) throw new WorkbenchCatalogError("Prompt not found", 404);
-  return {
-    promptId: row.id,
-    prompt: row.prompt,
-    categoryId: row.categoryId,
-    categoryName: row.category.name,
-    complexity: row.category.complexity,
-  };
-}
-
-function shouldAutoApprove(score: number | null, threshold: number, checklistResults?: Array<{ pass: boolean }> | null): boolean {
-  if (score === null || score < threshold) return false;
-  if (!checklistResults || checklistResults.length === 0) return true;
-  return checklistResults.filter(r => r.pass).length / checklistResults.length >= 0.8;
 }
 
 export async function generateForPrompt(
@@ -241,7 +205,7 @@ async function _runPipeline(
   updateTraceIncremental(traceId, traceBuilder.snapshot());
 
   if (!validation.valid) {
-    return _persistRejectedPrompt(ctx, validation, llmModelLabel, traceBuilder, traceId, onProgress, options?.experimentRunId);
+    return persistRejectedPrompt(ctx, validation, llmModelLabel, traceBuilder, traceId, onProgress, options?.experimentRunId);
   }
 
   // 2b. Spec generation
@@ -374,7 +338,7 @@ async function _runPipeline(
   updateTraceIncremental(traceId, traceBuilder.snapshot());
 
   if (pipelineSignal.aborted) {
-    return _persistAbortedPipeline(ctx, agResult, wbAgentModelConfig, traceBuilder, traceId, options?.experimentRunId);
+    return persistAbortedPipeline(ctx, agResult, wbAgentModelConfig, traceBuilder, traceId, options?.experimentRunId);
   }
 
   const agAllCode = flattenForEval(agResult.files.length > 1 ? agResult.files : [{ path: "main.py", content: agResult.code }]);
@@ -434,7 +398,7 @@ async function _runPipeline(
       images: vlmImages, categoryName: ctx.categoryName, complexity: ctx.complexity,
       verificationChecklist: specResult?.verificationChecklist,
       constructionSpec: specResult?.constructionSpec,
-      verificationCriteria: specResult?.verificationCriteria,
+      annotatedCriteria: specResult?.verificationCriteria,
       stlBase64: agStlFile?.contentBase64, modelFormat: "stl",
       codeEvalWeight: agCodeEvalWeight,
     });
@@ -491,58 +455,3 @@ async function _runPipeline(
   };
 }
 
-async function _persistAbortedPipeline(
-  ctx: PromptContext,
-  agResult: Awaited<ReturnType<typeof runAgentCodegen>>,
-  modelConfig: LlmModelConfig,
-  traceBuilder: TraceBuilder,
-  traceId: string | null,
-  experimentRunId?: string,
-): Promise<GenerateResult> {
-  logger.info({ promptId: ctx.promptId, stepCount: agResult.stepCount }, "pipeline aborted — skipping screenshots/eval");
-  const exampleId = crypto.randomUUID();
-  const code = flattenForEval(agResult.files.length > 1 ? agResult.files : [{ path: "main.py", content: agResult.code }]);
-  const renderError = "Pipeline aborted (timeout or cancellation)";
-  await insertExample({
-    id: exampleId, promptId: ctx.promptId, iteration: agResult.stepCount, code,
-    renderStatus: "error", renderError,
-    stlPath: null, stepPath: null, threemfPath: null, ...NULL_SCREENSHOTS,
-    evalScore: null, evalIssues: null, evalSuggestions: null, evalChecklistResults: null,
-    approvalStatus: "pending", llmModel: modelConfig.label, vlmModel: null,
-    promptTokens: agResult.usage.promptTokens, completionTokens: agResult.usage.completionTokens,
-    experimentRunId,
-  });
-  const abortInfo = TraceBuilder.classifyError(new Error(renderError));
-  traceBuilder.endPhase("failed", { error: renderError, errorInfo: abortInfo });
-  await finalizeTrace(traceId, { workbenchExampleId: exampleId, trace: traceBuilder.build(), summary: traceBuilder.computeSummary() });
-  return earlyExitResult({ exampleId, promptId: ctx.promptId, iteration: agResult.stepCount, code, renderError, approvalStatus: "pending", llmModel: modelConfig.label });
-}
-
-/** Insert a rejected-prompt example and finalize trace. */
-async function _persistRejectedPrompt(
-  ctx: PromptContext,
-  validation: { reason?: string; promptTokens: number; completionTokens: number },
-  llmModelLabel: string,
-  traceBuilder: TraceBuilder,
-  traceId: string | null,
-  onProgress?: ProgressCallback,
-  experimentRunId?: string,
-): Promise<GenerateResult> {
-  logger.info({ reason: validation.reason }, "prompt rejected by validation");
-  onProgress?.("failed", `Prompt validation failed: ${validation.reason}`);
-  const exampleId = crypto.randomUUID();
-  const renderError = `Prompt validation failed: ${validation.reason}`;
-  await insertExample({
-    id: exampleId, promptId: ctx.promptId, iteration: 0,
-    code: "-- PROMPT VALIDATION REJECTED --", renderStatus: "error", renderError,
-    stlPath: null, stepPath: null, threemfPath: null, ...NULL_SCREENSHOTS,
-    evalScore: null, evalIssues: null, evalSuggestions: null, evalChecklistResults: null,
-    approvalStatus: "rejected", rejectionNote: validation.reason,
-    llmModel: llmModelLabel, vlmModel: null,
-    promptTokens: validation.promptTokens, completionTokens: validation.completionTokens,
-    experimentRunId,
-  });
-  traceBuilder.endPhase("completed");
-  await finalizeTrace(traceId, { workbenchExampleId: exampleId, trace: traceBuilder.build(), summary: traceBuilder.computeSummary() });
-  return earlyExitResult({ exampleId, promptId: ctx.promptId, iteration: 0, code: "-- PROMPT VALIDATION REJECTED --", renderError, approvalStatus: "rejected", llmModel: llmModelLabel });
-}

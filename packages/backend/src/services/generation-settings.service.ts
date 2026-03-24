@@ -67,6 +67,11 @@ const SETTINGS_REGISTRY = new Map<string, SettingMeta>([
   ["global.rag_max_knowledge", { default: 3, label: "Max knowledge entries", description: "Number of knowledge base entries to retrieve per search", pipeline: "global", min: 1, max: 10, step: 1 }],
   ["global.llm_max_retries", { default: 3, label: "LLM max retries", description: "Maximum number of retries with exponential backoff for transient LLM failures (timeouts, rate limits, connection errors)", pipeline: "global", min: 0, max: 10, step: 1 }],
   ["workbench.spec_enrichment_enabled", { default: 1, label: "Spec enrichment enabled", description: "Enable second-pass spec enrichment using research results (1=on, 0=off). Adds ~$0.003/prompt but produces precise construction specs.", pipeline: "workbench", min: 0, max: 1, step: 1 }],
+  ["global.zoom_followup_enabled", { default: 1, label: "Zoom follow-up enabled", description: "Enable targeted 2x zoom for uncertain VLM checklist items (1=on, 0=off)", pipeline: "global", min: 0, max: 1, step: 1 }],
+  ["global.zoom_resolution_px", { default: 1536, label: "Zoom resolution (px)", description: "Resolution for high-res follow-up screenshots", pipeline: "global", min: 1024, max: 2048, step: 256 }],
+  ["global.zoom_max_followups", { default: 3, label: "Max zoom follow-ups", description: "Maximum number of uncertain items to resolve via 2x zoom per evaluation", pipeline: "global", min: 1, max: 5, step: 1 }],
+  ["global.adaptive_weight_enabled", { default: 1, label: "Adaptive eval weight", description: "Shift code/visual eval weight based on feature visibility (1=on, 0=off)", pipeline: "global", min: 0, max: 1, step: 1 }],
+  ["global.adaptive_weight_range", { default: 0.2, label: "Adaptive weight range", description: "How far the code eval weight can shift from the base (±range)", pipeline: "global", min: 0.05, max: 0.4, step: 0.05 }],
 ]);
 
 // ── In-memory cache ──────────────────────────────────────────────────
@@ -169,6 +174,26 @@ export async function getLlmMaxRetries(): Promise<number> {
 
 export async function isSpecEnrichmentEnabled(): Promise<boolean> {
   return (await getEffective("workbench.spec_enrichment_enabled")) === 1;
+}
+
+export async function isZoomFollowUpEnabled(): Promise<boolean> {
+  return (await getEffective("global.zoom_followup_enabled")) === 1;
+}
+
+export async function getZoomResolution(): Promise<number> {
+  return getEffective("global.zoom_resolution_px");
+}
+
+export async function getZoomMaxFollowUps(): Promise<number> {
+  return getEffective("global.zoom_max_followups");
+}
+
+export async function isAdaptiveWeightEnabled(): Promise<boolean> {
+  return (await getEffective("global.adaptive_weight_enabled")) === 1;
+}
+
+export async function getAdaptiveWeightRange(): Promise<number> {
+  return getEffective("global.adaptive_weight_range");
 }
 
 // ── Admin API ────────────────────────────────────────────────────────

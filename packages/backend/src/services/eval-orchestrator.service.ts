@@ -13,11 +13,14 @@ import { evaluateModel, type LabeledImage, type ChecklistResult } from "./visual
 import { evaluateCode, type CodeEvalInput } from "./code-eval.service.js";
 import { checkAssertions, type AssertionCheckSummary } from "./code-eval-assertions.service.js";
 import { computeCompositeScore } from "./code-eval-composite.service.js";
+import { renderHighResScreenshots, resolveUncertainItems } from "./visual-eval-zoom.service.js";
+import { isUncertain } from "./visual-eval-parser.service.js";
 import type { CodeAssertion } from "./spec-generation.service.js";
 import type { ModelFormat } from "./stl-rendering-client.service.js";
 import { createLogger } from "../utils/logger.js";
 import { getTraceBuilder } from "./trace-builder.service.js";
 import { getModelForPurposeWithFallback, calculateCostUsd } from "./llm-config.service.js";
+import { isZoomFollowUpEnabled, getZoomResolution, getZoomMaxFollowUps, isAdaptiveWeightEnabled, getAdaptiveWeightRange } from "./generation-settings.service.js";
 
 const logger = createLogger("eval-orchestrator");
 
@@ -41,8 +44,8 @@ export interface FullEvalInput {
   codeEvalWeight: number;
   /** Precise geometric blueprint — used by code eval and VLM for objective structural checks. */
   constructionSpec?: string;
-  /** Objective structural checks (geometry-only, no semantic references). Replaces verificationChecklist for VLM. */
-  verificationCriteria?: string[];
+  /** Annotated verification criteria with visibility routing (visual/code/both). */
+  annotatedCriteria?: import("./spec-generation.service.js").AnnotatedCriterion[];
 }
 
 export interface FullEvalResult {
@@ -78,9 +81,12 @@ function buildResult(opts: {
   codeReviewModel: string | null;
   totalPromptTokens: number;
   totalCompletionTokens: number;
+  annotatedCriteria?: import("./spec-generation.service.js").AnnotatedCriterion[];
+  adaptiveWeightRange?: number;
 }): FullEvalResult {
   const composite = computeCompositeScore(
     opts.visualScore, opts.codeScore, opts.assertionPassRate, opts.codeEvalWeight,
+    opts.annotatedCriteria, opts.adaptiveWeightRange,
   );
   return {
     compositeScore: composite.compositeScore,
@@ -183,6 +189,7 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
       codeAssertions: undefined, // already ran assertions above
       codegenSystemPrompt: input.codegenSystemPrompt,
       constructionSpec: input.constructionSpec,
+      annotatedCriteria: input.annotatedCriteria,
     };
 
     logger.info("phase 2: running code review LLM");
@@ -276,10 +283,14 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
         }
       }
 
-      // Prefer verificationCriteria (objective structural checks) over verificationChecklist (may contain semantic refs)
-      const effectiveChecklist = input.verificationCriteria?.length
-        ? input.verificationCriteria
-        : input.verificationChecklist;
+      // Build effective checklist: filter annotated criteria by visibility (visual + both only)
+      // Code-only items are excluded from VLM — the code reviewer handles them
+      let effectiveChecklist = input.verificationChecklist;
+      if (input.annotatedCriteria?.length) {
+        effectiveChecklist = input.annotatedCriteria
+          .filter(c => c.visibility !== "code")
+          .map(c => c.text);
+      }
 
       logger.info({ imageCount: vlmImages.length }, "phase 3: running VLM visual evaluation");
       const vlmResult = await evaluateModel({
@@ -300,6 +311,27 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
       vlmPromptTokens = vlmResult.promptTokens;
       vlmCompletionTokens = vlmResult.completionTokens;
       checklistResults = vlmResult.checklistResults;
+
+      // Zoom follow-up for uncertain checklist items
+      const hasUncertain = checklistResults?.some(c => isUncertain(c));
+      if (hasUncertain && input.stlBase64 && checklistResults) {
+        const [zoomEnabled, zoomRes, maxFollowUps] = await Promise.all([
+          isZoomFollowUpEnabled(), getZoomResolution(), getZoomMaxFollowUps(),
+        ]);
+        if (zoomEnabled) {
+          try {
+            logger.info({ uncertainCount: checklistResults.filter(c => isUncertain(c)).length }, "rendering 2x screenshots for uncertain items");
+            const highRes = await renderHighResScreenshots(input.stlBase64, input.modelFormat ?? "stl", zoomRes);
+            const zoomResult = await resolveUncertainItems(checklistResults, highRes, maxFollowUps, input.constructionSpec);
+            checklistResults = zoomResult.resolvedChecklist;
+            vlmPromptTokens += zoomResult.promptTokens;
+            vlmCompletionTokens += zoomResult.completionTokens;
+            logger.info({ followUpCount: zoomResult.followUpCount }, "zoom follow-ups completed");
+          } catch (err) {
+            logger.warn({ err: err instanceof Error ? err.message : String(err) }, "zoom follow-up failed, keeping uncertain results");
+          }
+        }
+      }
 
       {
         let vlmCost = 0;
@@ -338,6 +370,8 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
   // ── Composite score ─────────────────────────────────────────────────
   tb?.endPhase("completed"); // close eval orchestration
   const assertionPassRate = assertionSummary?.passRate ?? null;
+  const adaptiveEnabled = await isAdaptiveWeightEnabled();
+  const adaptiveRange = adaptiveEnabled ? await getAdaptiveWeightRange() : undefined;
   const result = buildResult({
     visualScore, codeScore,
     assertionPassRate, assertionsFailed: false,
@@ -346,6 +380,8 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
     checklistResults, vlmModel, codeReviewModel,
     totalPromptTokens: vlmPromptTokens + codePromptTokens,
     totalCompletionTokens: vlmCompletionTokens + codeCompletionTokens,
+    annotatedCriteria: input.annotatedCriteria,
+    adaptiveWeightRange: adaptiveRange,
   });
 
   logger.info(

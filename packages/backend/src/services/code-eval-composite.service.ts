@@ -3,7 +3,10 @@
  *
  * Combines visual (VLM) score, code review score, and assertion pass rate
  * into a single composite score. Assertion failures act as a hard gate.
+ * Supports adaptive weighting based on visibility-annotated criteria.
  */
+
+import type { AnnotatedCriterion } from "./spec-generation.service.js";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -14,11 +17,39 @@ export interface CompositeEvaluation {
   assertionPassRate: number | null;
   mergedIssues: string[];
   source: "composite" | "visual_only" | "code_only" | "assertion_fail";
+  /** Effective code eval weight after adaptive adjustment (for observability). */
+  effectiveCodeEvalWeight?: number;
 }
 
 /** Round to 1 decimal place. */
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
+}
+
+// ── Adaptive Weight ──────────────────────────────────────────────────
+
+/**
+ * Compute adaptive code eval weight based on visibility distribution.
+ * Shifts weight toward code eval when most features are code-only,
+ * toward visual when most are visually verifiable.
+ */
+export function computeAdaptiveWeight(
+  baseWeight: number,
+  range: number,
+  criteria: AnnotatedCriterion[],
+): number {
+  if (criteria.length === 0) return baseWeight;
+
+  const codeCount = criteria.filter(c => c.visibility === "code").length;
+  const bothCount = criteria.filter(c => c.visibility === "both").length;
+  const total = criteria.length;
+
+  // codeRatio: 0 = all visual, 1 = all code, 0.5 = balanced
+  const codeRatio = (codeCount + 0.5 * bothCount) / total;
+  // Shift from base: positive when code-heavy, negative when visual-heavy
+  const shift = (codeRatio - 0.5) * range * 2; // range=0.2 → max shift ±0.2
+
+  return Math.max(0.1, Math.min(0.9, baseWeight + shift));
 }
 
 // ── Composite Score ───────────────────────────────────────────────────
@@ -28,7 +59,13 @@ export function computeCompositeScore(
   codeScore: number | null,
   assertionPassRate: number | null,
   codeEvalWeight: number,
+  annotatedCriteria?: AnnotatedCriterion[],
+  adaptiveWeightRange?: number,
 ): CompositeEvaluation {
+  // Adaptive weight adjustment
+  const effectiveWeight = (annotatedCriteria && annotatedCriteria.length > 0 && adaptiveWeightRange)
+    ? computeAdaptiveWeight(codeEvalWeight, adaptiveWeightRange, annotatedCriteria)
+    : codeEvalWeight;
   const hasVisual = visualScore !== null;
   const hasCode = codeScore !== null;
 
@@ -40,7 +77,7 @@ export function computeCompositeScore(
 
   if (hasMatchedAssertionFailure) {
     const baseScore = hasVisual && hasCode
-      ? round1(visualScore! * (1 - codeEvalWeight) + codeScore! * codeEvalWeight)
+      ? round1(visualScore! * (1 - effectiveWeight) + codeScore! * effectiveWeight)
       : hasVisual ? visualScore!
       : hasCode ? codeScore!
       : 1;
@@ -69,8 +106,8 @@ export function computeCompositeScore(
   let source: CompositeEvaluation["source"];
 
   if (hasVisual && hasCode) {
-    const visualWeight = 1 - codeEvalWeight;
-    const blended = visualScore! * visualWeight + codeScore! * codeEvalWeight;
+    const visualWeight = 1 - effectiveWeight;
+    const blended = visualScore! * visualWeight + codeScore! * effectiveWeight;
     composite = Math.max(1, Math.min(10, round1(blended)));
 
     // If visual and code strongly disagree, take the lower score
@@ -95,5 +132,6 @@ export function computeCompositeScore(
     assertionPassRate,
     mergedIssues: [],
     source,
+    effectiveCodeEvalWeight: effectiveWeight,
   };
 }

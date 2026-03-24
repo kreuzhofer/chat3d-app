@@ -108,10 +108,11 @@ function buildImageUserContent(images: LabeledImage[]): ContentPart[] {
 export async function evaluateModel(input: EvaluateModelInput): Promise<EvaluationResult> {
   const { userPrompt, categoryName, complexity, images, stlBase64 } = input;
   const modelFormat = input.modelFormat ?? "stl";
-  const zoomEnabled = !!stlBase64 && input.complexity >= 6;
+  // Old tool-use zoom is disabled — replaced by targeted follow-up for uncertain items
+  const zoomEnabled = false;
 
   logger.info(
-    { category: categoryName, complexity, imageCount: images.length, zoomEnabled },
+    { category: categoryName, complexity, imageCount: images.length },
     "starting evaluation",
   );
 
@@ -313,7 +314,12 @@ function buildFinalResult(
   if (input.verificationChecklist?.length) {
     checklistResults = parseChecklistResults(responseText);
     if (checklistResults.length > 0) {
-      logger.info({ checklistCount: checklistResults.length, passCount: checklistResults.filter(c => c.pass).length }, "checklist results parsed");
+      const uncertainCount = checklistResults.filter(c => c.pass === null).length;
+      logger.info({
+        checklistCount: checklistResults.length,
+        passCount: checklistResults.filter(c => c.pass === true).length,
+        uncertainCount,
+      }, "checklist results parsed");
     }
   }
 

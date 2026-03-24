@@ -11,8 +11,14 @@
 
 export interface ChecklistResult {
   question: string;
-  pass: boolean;
+  /** true = pass, false = fail, null = uncertain (cannot resolve at this resolution) */
+  pass: boolean | null;
   detail: string;
+}
+
+/** Check if a checklist result is uncertain (VLM could not resolve the feature). */
+export function isUncertain(result: ChecklistResult): boolean {
+  return result.pass === null;
 }
 
 export interface ParsedEvaluation {
@@ -123,13 +129,14 @@ export function parseChecklistResults(content: string): ChecklistResult[] {
       jsonStr = fenceMatch[1].trim();
     }
 
-    const parsed = JSON.parse(jsonStr) as { checklist?: Array<{ question?: string; pass?: boolean; detail?: string }> };
+    const parsed = JSON.parse(jsonStr) as { checklist?: Array<{ question?: string; pass?: boolean | null | string; detail?: string }> };
     if (parsed.checklist && Array.isArray(parsed.checklist)) {
       return parsed.checklist
         .filter((c) => typeof c.question === "string")
         .map((c) => ({
           question: c.question!,
-          pass: c.pass === true,
+          // null or "uncertain" string → null (uncertain). Otherwise boolean.
+          pass: c.pass === null || c.pass === "uncertain" ? null : c.pass === true,
           detail: typeof c.detail === "string" ? c.detail : "",
         }));
     }
@@ -145,8 +152,10 @@ export function parseChecklistResults(content: string): ChecklistResult[] {
     for (const line of lines) {
       const trimmed = line.replace(/^[\t ]*[-•*]\s*/, "").trim();
       if (!trimmed) continue;
-      const passMatch = /;\s*(pass|fail)\.?\s*$/i.exec(trimmed);
-      const pass = passMatch ? passMatch[1].toLowerCase() === "pass" : !/(fail|incorrect|wrong|missing)/i.test(trimmed);
+      const passMatch = /;\s*(pass|fail|uncertain)\.?\s*$/i.exec(trimmed);
+      const pass = passMatch
+        ? (passMatch[1].toLowerCase() === "uncertain" ? null : passMatch[1].toLowerCase() === "pass")
+        : (/(uncertain|cannot determine|cannot resolve)/i.test(trimmed) ? null : !/(fail|incorrect|wrong|missing)/i.test(trimmed));
       const boldMatch = trimmed.match(/^\*\*([^*]+)\*\*\s*[—–-]\s*(.*)/);
       if (boldMatch) {
         results.push({

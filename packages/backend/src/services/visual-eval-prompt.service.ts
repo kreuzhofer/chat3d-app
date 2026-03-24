@@ -162,14 +162,51 @@ the visible geometry matches the structural properties listed above.`;
   if (verificationChecklist?.length) {
     prompt += `
 
-Verification Checklist — answer each with pass/fail and a brief explanation:
+Verification Checklist — answer each with pass, fail, or uncertain:
 ${verificationChecklist.map((q, i) => `${i + 1}. ${q}`).join("\n")}
+
+For each item, set "pass" to:
+- true — feature is clearly present/correct in the images
+- false — feature is clearly absent or wrong
+- null — you CANNOT resolve this feature at the current image resolution (too small, too subtle, or occluded in all views)
+
+Mark "uncertain" (null) ONLY when you literally cannot resolve the feature at this resolution.
+If you can see the feature at all, even subtly, call it pass or fail. Uncertain is a last resort
+for features that are physically below the visible resolution threshold.
 
 Include in your JSON response:
 "checklist": [
-  { "question": "...", "pass": true|false, "detail": "brief explanation" },
+  { "question": "...", "pass": true|false|null, "detail": "brief explanation" },
   ...
 ]`;
+  }
+
+  return prompt;
+}
+
+// ── Follow-up prompt for uncertain items ─────────────────────────────
+
+/**
+ * Build a focused system prompt for a single uncertain checklist follow-up.
+ * Sent with ONE high-resolution image and ONE specific question.
+ */
+export function buildUncertainFollowUpPrompt(
+  question: string,
+  constructionSpec?: string,
+): string {
+  let prompt = `You are a 3D model detail inspector. You are given a HIGH-RESOLUTION image (2x the normal resolution) of a 3D model and a specific question to answer.
+
+This is a follow-up inspection because the feature could not be resolved at standard resolution. Look carefully at the high-resolution image.
+
+Question: ${question}
+
+Answer with pass (feature is present/correct) or fail (feature is absent/wrong). Do NOT answer uncertain — you must commit to pass or fail based on this higher resolution image.
+
+Return JSON only:
+{ "pass": true|false, "detail": "brief explanation of what you see" }`;
+
+  if (constructionSpec) {
+    prompt += `\n\nFor reference, the model's construction specification:\n${constructionSpec}`;
   }
 
   return prompt;

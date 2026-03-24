@@ -54,6 +54,7 @@ function buildCodeReviewSystemPrompt(
   specInterpretation?: string,
   codegenSystemPrompt?: string,
   constructionSpec?: string,
+  annotatedCriteria?: import("./spec-generation.service.js").AnnotatedCriterion[],
 ): string {
   let prompt = `You are a Build123d code reviewer for 3D CAD models.
 
@@ -128,6 +129,14 @@ NOT issues (analysis — omit these):
 - "USB-C position converts to -12mm in centered coords — this is correct"
 
 Do NOT write analysis before the JSON. Output the JSON object directly.`;
+
+  // Highlight code-only criteria that the VLM cannot verify
+  const codeOnlyItems = annotatedCriteria?.filter(c => c.visibility === "code");
+  if (codeOnlyItems && codeOnlyItems.length > 0) {
+    prompt += `\n\n## Code-Only Verification (VLM cannot check these — YOU are the sole verifier)
+Pay special attention to these features which are too small or internal to verify visually:
+${codeOnlyItems.map(c => `- ${c.text}`).join("\n")}`;
+  }
 
   if (codegenSystemPrompt) {
     prompt += `\n\n--- Build123d API Reference (same knowledge the code generator had) ---\n${codegenSystemPrompt}`;
@@ -226,6 +235,8 @@ export interface CodeEvalInput {
   codegenSystemPrompt?: string;
   /** Precise geometric blueprint — replaces specInterpretation for more detailed verification. */
   constructionSpec?: string;
+  /** Annotated criteria with visibility — code reviewer emphasizes code-only items. */
+  annotatedCriteria?: import("./spec-generation.service.js").AnnotatedCriterion[];
 }
 
 export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResult> {
@@ -250,7 +261,7 @@ export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResu
   const { label, config } = await resolveCodeReviewModel();
   logger.info({ model: label }, "using code review model");
 
-  const systemPrompt = buildCodeReviewSystemPrompt(userPrompt, specInterpretation, codegenSystemPrompt, input.constructionSpec);
+  const systemPrompt = buildCodeReviewSystemPrompt(userPrompt, specInterpretation, codegenSystemPrompt, input.constructionSpec, input.annotatedCriteria);
   const userContent = `Review this Build123d code:\n\n\`\`\`python\n${code}\n\`\`\``;
 
   const semaphore = getLlmSemaphore(config.provider, config.maxConcurrent);
