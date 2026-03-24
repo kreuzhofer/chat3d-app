@@ -46,6 +46,8 @@ export interface FullEvalInput {
   constructionSpec?: string;
   /** Annotated verification criteria with visibility routing (visual/code/both). */
   annotatedCriteria?: import("./spec-generation.service.js").AnnotatedCriterion[];
+  /** Pre-filled VLM score from agent eval — skip VLM call if provided. */
+  agentVlmScore?: { score: number; issues: string[]; suggestions: string[]; vlmModel: string };
 }
 
 export interface FullEvalResult {
@@ -259,7 +261,14 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
   let vlmCompletionTokens = 0;
   let checklistResults: ChecklistResult[] | undefined;
 
-  if (hasImages) {
+  // If agent already provided a VLM score, reuse it instead of calling VLM again
+  if (input.agentVlmScore) {
+    visualScore = input.agentVlmScore.score;
+    vlmIssues = input.agentVlmScore.issues;
+    vlmSuggestions = input.agentVlmScore.suggestions;
+    vlmModel = input.agentVlmScore.vlmModel;
+    logger.info({ agentScore: visualScore }, "phase 3: reusing agent VLM score (skipping VLM call)");
+  } else if (hasImages) {
     tb?.startPhase("eval-vlm", "eval_vlm", "VLM Visual Evaluation", "eval");
     try {
       // Filter images to critical angles if code review provided recommendations.
