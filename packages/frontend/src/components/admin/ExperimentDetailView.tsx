@@ -8,14 +8,17 @@ import {
   getExperiment,
   getExperimentComparison,
   getExperimentStatus,
+  getPerPromptComparison,
   startExperiment,
   cancelExperiment,
   rerunExperiment,
   type Experiment,
   type RunMetrics,
   type ExperimentStatus,
+  type PromptComparison,
 } from "../../api/experiment.api";
 import { ExperimentPromptComparisonTable } from "./ExperimentPromptComparisonTable";
+import { ExperimentOutliers } from "./ExperimentOutliers";
 import { ExperimentCreateDialog } from "./ExperimentCreateDialog";
 
 interface Props {
@@ -29,6 +32,7 @@ const COLORS = ["#2563eb", "#16a34a", "#dc2626", "#d97706", "#7c3aed", "#0891b2"
 export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
   const [experiment, setExperiment] = useState<Experiment | null>(null);
   const [comparison, setComparison] = useState<RunMetrics[] | null>(null);
+  const [promptData, setPromptData] = useState<PromptComparison[] | null>(null);
   const [status, setStatus] = useState<ExperimentStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,8 +43,12 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
       const exp = await getExperiment(token, experimentId);
       setExperiment(exp);
       if (exp.status === "completed" || exp.status === "failed") {
-        const comp = await getExperimentComparison(token, experimentId);
+        const [comp, prompts] = await Promise.all([
+          getExperimentComparison(token, experimentId),
+          getPerPromptComparison(token, experimentId),
+        ]);
         setComparison(comp.runs);
+        setPromptData(prompts);
       }
       if (exp.status === "running") {
         const st = await getExperimentStatus(token, experimentId);
@@ -96,7 +104,8 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
         <>
           <ComparisonTable runs={comparison} />
           <ComparisonCharts runs={comparison} />
-          <ExperimentPromptComparisonTable token={token} experimentId={experimentId} />
+          {promptData && <ExperimentOutliers data={promptData} />}
+          {promptData && <ExperimentPromptComparisonTable data={promptData} />}
         </>
       )}
     </div>

@@ -272,6 +272,9 @@ export function MessageBubble({
                         <p className="text-xs text-[hsl(var(--muted-foreground))]">
                           Usage: {segment.usage.inputTokens} in / {segment.usage.outputTokens} out{segment.usage.reasoningTokens > 0 ? ` / ${segment.usage.reasoningTokens} thinking` : ""} / {segment.usage.totalTokens} total ·
                           est. ${formatEstimatedCostUsd(segment.usage.estimatedCostUsd)}
+                          {segment.usage.durationMs != null && segment.usage.durationMs > 0 ? (
+                            <> · {(segment.usage.durationMs / 1000).toFixed(1)}s · {(segment.usage.outputTokens / (segment.usage.durationMs / 1000)).toFixed(1)} tok/s</>
+                          ) : null}
                         </p>
                       ) : null}
                       {segment.artifact ? (

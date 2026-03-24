@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react";
+/**
+ * Per-prompt comparison table for experiment results.
+ * Shows eval/visual/code scores, cost, duration, and winner highlighting.
+ */
+
 import { SectionCard } from "../layout/SectionCard";
 import { Badge } from "../ui/badge";
-import { getPerPromptComparison, type PromptComparison, type PromptRunResult } from "../../api/experiment.api";
+import type { PromptComparison, PromptRunResult } from "../../api/experiment.api";
 
 interface Props {
-  token: string;
-  experimentId: string;
+  data: PromptComparison[];
 }
 
 const COLORS = ["#2563eb", "#16a34a", "#dc2626", "#d97706", "#7c3aed", "#0891b2"];
@@ -33,9 +36,14 @@ function ScoreCell({ run, isWinner }: { run: PromptRunResult; isWinner: boolean 
           {run.approvalStatus === "auto_approved" && (
             <span className="ml-1 text-[0.7rem] text-[hsl(var(--success))]">A</span>
           )}
-          <div className="text-[0.7rem] text-[hsl(var(--muted-foreground))]">
+          <div className="flex gap-2 text-[0.65rem] text-[hsl(var(--muted-foreground))]">
+            {run.visualScore != null && <span>vis:{run.visualScore.toFixed(1)}</span>}
+            {run.codeEvalScore != null && <span>code:{run.codeEvalScore.toFixed(1)}</span>}
+          </div>
+          <div className="text-[0.65rem] text-[hsl(var(--muted-foreground))]">
             {run.totalSteps != null && <span>{run.totalSteps}st</span>}
             {run.costUsd != null && <span> ${run.costUsd.toFixed(3)}</span>}
+            {run.durationMs != null && <span> {(run.durationMs / 1000).toFixed(0)}s</span>}
           </div>
         </div>
       )}
@@ -43,22 +51,37 @@ function ScoreCell({ run, isWinner }: { run: PromptRunResult; isWinner: boolean 
   );
 }
 
-export function ExperimentPromptComparisonTable({ token, experimentId }: Props) {
-  const [data, setData] = useState<PromptComparison[]>([]);
-  const [loading, setLoading] = useState(true);
+/** Delta badge: green if this model scored higher, red if lower. */
+function DeltaCell({ row }: { row: PromptComparison }) {
+  if (row.runs.length !== 2) return null;
+  const [a, b] = row.runs;
+  if (a.evalScore == null || b.evalScore == null) return <td className="p-2 text-center text-[hsl(var(--muted-foreground))]">-</td>;
+  const delta = a.evalScore - b.evalScore;
+  if (delta === 0) return <td className="p-2 text-center text-[hsl(var(--muted-foreground))]">=</td>;
+  const positive = delta > 0;
+  return (
+    <td className="p-2 text-center text-xs" style={{ color: positive ? "hsl(var(--success))" : "hsl(var(--destructive))" }}>
+      {positive ? "+" : ""}{delta.toFixed(1)}
+    </td>
+  );
+}
 
-  useEffect(() => {
-    getPerPromptComparison(token, experimentId)
-      .then(setData)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [token, experimentId]);
-
-  if (loading) return <SectionCard title="Per-Prompt Comparison"><p className="text-[hsl(var(--muted-foreground))]">Loading...</p></SectionCard>;
+export function ExperimentPromptComparisonTable({ data }: Props) {
   if (data.length === 0) return null;
 
-  // Get unique run labels
   const runLabels = data[0]?.runs.map((r) => r.modelLabel) ?? [];
+  const showDelta = runLabels.length === 2;
+
+  // Compute win counts
+  const winCounts = runLabels.map((_, runIdx) =>
+    data.filter((row) => {
+      const scores = row.runs.map((r) => r.evalScore).filter((s): s is number => s != null);
+      if (scores.length === 0) return false;
+      const maxScore = Math.max(...scores);
+      const thisScore = row.runs[runIdx]?.evalScore;
+      return thisScore === maxScore && scores.filter((s) => s === maxScore).length === 1;
+    }).length,
+  );
 
   return (
     <SectionCard title="Per-Prompt Comparison">
@@ -69,15 +92,17 @@ export function ExperimentPromptComparisonTable({ token, experimentId }: Props) 
               <th className="p-2 text-left text-[hsl(var(--muted-foreground))]" style={{ width: 40 }}>#</th>
               <th className="p-2 text-left text-[hsl(var(--muted-foreground))]" style={{ minWidth: 200 }}>Prompt</th>
               {runLabels.map((label, i) => (
-                <th key={label} className="p-2 text-center" style={{ color: COLORS[i % COLORS.length], minWidth: 100 }}>
+                <th key={label} className="p-2 text-center" style={{ color: COLORS[i % COLORS.length], minWidth: 120 }}>
                   {label.split("/").pop()}
                 </th>
               ))}
+              {showDelta && (
+                <th className="p-2 text-center text-[hsl(var(--muted-foreground))]" style={{ width: 60 }}>Delta</th>
+              )}
             </tr>
           </thead>
           <tbody>
             {data.map((row) => {
-              // Find winner (highest eval score)
               const scores = row.runs.map((r) => r.evalScore).filter((s): s is number => s != null);
               const maxScore = scores.length > 0 ? Math.max(...scores) : null;
               const winnerIds = maxScore != null
@@ -99,6 +124,7 @@ export function ExperimentPromptComparisonTable({ token, experimentId }: Props) 
                       isWinner={winnerIds.includes(run.runId) && winnerIds.length < row.runs.length}
                     />
                   ))}
+                  {showDelta && <DeltaCell row={row} />}
                 </tr>
               );
             })}
@@ -106,26 +132,18 @@ export function ExperimentPromptComparisonTable({ token, experimentId }: Props) 
         </table>
       </div>
 
-      {/* Summary row */}
-      <div className="mt-3 text-xs text-[hsl(var(--muted-foreground))]">
-        <strong>Win counts:</strong>{" "}
-        {runLabels.map((label, i) => {
-          const runIdx = i;
-          const wins = data.filter((row) => {
-            const scores = row.runs.map((r) => r.evalScore).filter((s): s is number => s != null);
-            if (scores.length === 0) return false;
-            const maxScore = Math.max(...scores);
-            const thisScore = row.runs[runIdx]?.evalScore;
-            return thisScore === maxScore && scores.filter((s) => s === maxScore).length === 1;
-          }).length;
-          return (
-            <span key={label} style={{ marginRight: 12, color: COLORS[i % COLORS.length] }}>
-              {label.split("/").pop()}: {wins}
-            </span>
-          );
-        })}
+      {/* Summary */}
+      <div className="mt-3 flex items-center gap-4 text-xs text-[hsl(var(--muted-foreground))]">
+        <strong>Wins:</strong>
+        {runLabels.map((label, i) => (
+          <span key={label} style={{ color: COLORS[i % COLORS.length] }}>
+            {label.split("/").pop()}: {winCounts[i]}
+          </span>
+        ))}
+        <span className="text-[hsl(var(--muted-foreground))]">
+          Ties: {data.length - winCounts.reduce((a, b) => a + b, 0)}
+        </span>
       </div>
     </SectionCard>
   );
 }
-

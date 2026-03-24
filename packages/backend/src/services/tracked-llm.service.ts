@@ -73,12 +73,12 @@ type GenerateTextParams = Parameters<typeof generateText>[0];
 type GenerateTextResult = Awaited<ReturnType<typeof generateText>>;
 
 /** Default timeouts for LLM calls.
- * Opus on Bedrock can take 2-4 min for first token on complex tool-use prompts.
+ * Opus on Bedrock can take 5+ min for complex codegen prompts (threads, sweeps, etc.).
  * These are generous to avoid premature aborts — the pipeline timeout is the real safety net. */
 const DEFAULT_TIMEOUT = {
-  totalMs: 600_000,  // 10 min total per generateText call (covers multi-step tool loops)
-  stepMs: 300_000,   // 5 min per individual LLM step (Opus TTFT can be 2-4 min)
-  chunkMs: 300_000,  // 5 min between chunks (generateText may use internal streaming)
+  totalMs: 900_000,  // 15 min total per generateText call (covers multi-step tool loops)
+  stepMs: 480_000,   // 8 min per individual LLM step (Opus TTFT can be 5+ min on complex prompts)
+  chunkMs: 480_000,  // 8 min between chunks (generateText may use internal streaming)
 };
 
 export async function trackedGenerateText(

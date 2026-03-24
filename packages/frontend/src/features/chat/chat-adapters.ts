@@ -24,6 +24,7 @@ export interface ChatSegment {
     reasoningTokens: number;
     totalTokens: number;
     estimatedCostUsd: number;
+    durationMs: number | null;
   } | null;
   suggestions: string[];
   artifact: {
@@ -95,12 +96,16 @@ function mapUsage(value: unknown): ChatSegment["usage"] {
     return null;
   }
 
+  const rawDuration = Number(usage.durationMs);
+  const durationMs = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : null;
+
   return {
     inputTokens,
     outputTokens,
     reasoningTokens,
     totalTokens,
     estimatedCostUsd,
+    durationMs,
   };
 }
 

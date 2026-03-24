@@ -86,6 +86,7 @@ interface QueryUsageSummary {
   reasoningTokens: number;
   totalTokens: number;
   estimatedCostUsd: number;
+  durationMs: number;
 }
 
 interface QueryArtifactSummary {
@@ -585,6 +586,7 @@ function summarizeUsage(usageRecords: LlmUsageMetadata[]): QueryUsageSummary {
       reasoningTokens: summary.reasoningTokens + usage.reasoningTokens,
       totalTokens: summary.totalTokens + usage.totalTokens,
       estimatedCostUsd: Number((summary.estimatedCostUsd + usage.estimatedCostUsd).toFixed(8)),
+      durationMs: 0,
     }),
     {
       inputTokens: 0,
@@ -592,6 +594,7 @@ function summarizeUsage(usageRecords: LlmUsageMetadata[]): QueryUsageSummary {
       reasoningTokens: 0,
       totalTokens: 0,
       estimatedCostUsd: 0,
+      durationMs: 0,
     },
   );
 }
@@ -1123,6 +1126,7 @@ async function executeQueryPipelineInner(input: {
   let epTotalCompletionTokens = 0;
   let epTotalReasoningTokens = 0;
   let epTotalCostUsd = 0;
+  const epStartTime = Date.now();
 
   try {
     await publishQueryState({
@@ -1276,6 +1280,7 @@ async function executeQueryPipelineInner(input: {
             reasoningTokens: epTotalReasoningTokens,
             totalTokens: epTotalPromptTokens + epTotalCompletionTokens,
             estimatedCostUsd: chatOnlyCost,
+            durationMs: Date.now() - epStartTime,
           },
         },
       ];
@@ -1363,6 +1368,7 @@ async function executeQueryPipelineInner(input: {
                 reasoningTokens: epTotalReasoningTokens,
                 totalTokens: epTotalPromptTokens + epTotalCompletionTokens,
                 estimatedCostUsd: disambigCost,
+                durationMs: Date.now() - epStartTime,
               },
             },
           ],
@@ -1560,6 +1566,7 @@ async function executeQueryPipelineInner(input: {
         reasoningTokens: epTotalReasoningTokens,
         totalTokens: epTotalPromptTokens + epTotalCompletionTokens,
         estimatedCostUsd: Number(epTotalCostUsd.toFixed(8)),
+        durationMs: Date.now() - epStartTime,
       };
 
       const agAllFailed = agFinalFiles.length === 0;
