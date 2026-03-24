@@ -27,7 +27,14 @@ function ScoreCell({ run, isWinner }: { run: PromptRunResult; isWinner: boolean 
   return (
     <td className="p-2" style={{ fontWeight: isWinner ? 700 : 400 }}>
       {failed ? (
-        <Badge variant="destructive" className="text-[0.7rem]">Failed</Badge>
+        <div>
+          <Badge variant="destructive" className="text-[0.7rem]">Failed</Badge>
+          {(run.failureReason || run.renderError) && (
+            <div className="mt-0.5 max-w-[180px] text-[0.6rem] leading-tight text-[hsl(var(--destructive))]" title={run.failureReason ?? run.renderError ?? ""}>
+              {(run.failureReason ?? run.renderError ?? "").slice(0, 80)}{(run.failureReason ?? run.renderError ?? "").length > 80 ? "..." : ""}
+            </div>
+          )}
+        </div>
       ) : (
         <div>
           <span style={{ color: scoreColor(run.evalScore) }} className="text-[0.9rem] font-semibold">

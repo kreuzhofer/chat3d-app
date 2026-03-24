@@ -24,6 +24,7 @@ interface OutlierRow {
   costUsd: number | null;
   totalSteps: number | null;
   approvalStatus: string | null;
+  failureReason: string | null;
 }
 
 function toOutlierRow(prompt: PromptComparison, run: PromptRunResult): OutlierRow {
@@ -37,6 +38,7 @@ function toOutlierRow(prompt: PromptComparison, run: PromptRunResult): OutlierRo
     costUsd: run.costUsd,
     totalSteps: run.totalSteps,
     approvalStatus: run.approvalStatus,
+    failureReason: run.failureReason ?? run.renderError,
   };
 }
 
@@ -85,7 +87,14 @@ function OutlierTable({ rows, label, color }: { rows: OutlierRow[]; label: strin
               </td>
               <td className="p-1.5 text-center">
                 {row.renderStatus === "error" ? (
-                  <Badge variant="destructive" className="text-[0.65rem]">Failed</Badge>
+                  <div>
+                    <Badge variant="destructive" className="text-[0.65rem]">Failed</Badge>
+                    {row.failureReason && (
+                      <div className="mt-0.5 max-w-[200px] text-[0.6rem] leading-tight text-[hsl(var(--destructive))]" title={row.failureReason}>
+                        {row.failureReason.slice(0, 60)}{row.failureReason.length > 60 ? "..." : ""}
+                      </div>
+                    )}
+                  </div>
                 ) : row.approvalStatus === "auto_approved" ? (
                   <Badge variant="secondary" className="text-[0.65rem]">Auto-approved</Badge>
                 ) : (

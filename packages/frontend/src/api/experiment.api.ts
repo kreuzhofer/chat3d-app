@@ -99,6 +99,8 @@ export interface PromptRunResult {
   durationMs: number | null;
   costUsd: number | null;
   totalSteps: number | null;
+  renderError: string | null;
+  failureReason: string | null;
 }
 
 export interface PromptComparison {

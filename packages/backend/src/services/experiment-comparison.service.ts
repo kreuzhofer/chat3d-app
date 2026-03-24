@@ -44,6 +44,8 @@ interface PromptRunResult {
   durationMs: number | null;
   costUsd: number | null;
   totalSteps: number | null;
+  renderError: string | null;
+  failureReason: string | null;
 }
 
 interface PromptComparison {
@@ -167,12 +169,15 @@ interface PromptResultRow {
   total_duration_ms: number | null;
   total_cost_usd: number | null;
   total_steps: number | null;
+  render_error: string | null;
+  failure_reason: string | null;
 }
 
 export async function getPerPromptComparison(experimentId: string): Promise<PromptComparison[]> {
   const exp = await prisma.experiment.findUnique({ where: { id: experimentId }, select: { id: true } });
   if (!exp) throw new ExperimentError("Experiment not found", 404);
 
+  // Extract failure reason from the last failed node in the trace JSON
   const rows = await prisma.$queryRaw<PromptResultRow[]>`
     SELECT
       eps.prompt_id,
@@ -188,7 +193,15 @@ export async function getPerPromptComparison(experimentId: string): Promise<Prom
       e.approval_status,
       t.total_duration_ms,
       t.total_cost_usd,
-      t.total_steps
+      t.total_steps,
+      e.render_error,
+      (
+        SELECT n->>'error'
+        FROM jsonb_array_elements(t.trace->'nodes') n
+        WHERE n->>'error' IS NOT NULL AND n->>'status' = 'failed'
+        ORDER BY jsonb_array_length(t.trace->'nodes') DESC
+        LIMIT 1
+      ) AS failure_reason
     FROM experiment_prompt_selections eps
     CROSS JOIN experiment_runs r
     JOIN workbench_example_prompts p ON p.id = eps.prompt_id
@@ -224,6 +237,8 @@ export async function getPerPromptComparison(experimentId: string): Promise<Prom
       durationMs: row.total_duration_ms != null ? Number(row.total_duration_ms) : null,
       costUsd: row.total_cost_usd != null ? Number(row.total_cost_usd) : null,
       totalSteps: row.total_steps != null ? Number(row.total_steps) : null,
+      renderError: row.render_error,
+      failureReason: row.failure_reason,
     });
   }
 
