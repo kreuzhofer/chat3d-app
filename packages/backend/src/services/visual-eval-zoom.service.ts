@@ -28,11 +28,20 @@ export interface HighResRenderResult {
   byAngle: Map<string, string>;
 }
 
+export interface ZoomFollowUpDetail {
+  question: string;
+  angle: string;
+  pass: boolean;
+  detail: string;
+}
+
 export interface ZoomFollowUpResult {
   /** Updated checklist with uncertain items resolved */
   resolvedChecklist: ChecklistResult[];
   /** Number of follow-up VLM calls made */
   followUpCount: number;
+  /** Per-item details for trace recording */
+  followUpDetails: ZoomFollowUpDetail[];
   /** Total tokens used across all follow-ups */
   promptTokens: number;
   completionTokens: number;
@@ -91,7 +100,7 @@ export async function resolveUncertainItems(
     .filter(({ item }) => isUncertain(item));
 
   if (uncertainItems.length === 0) {
-    return { resolvedChecklist: checklist, followUpCount: 0, promptTokens: 0, completionTokens: 0 };
+    return { resolvedChecklist: checklist, followUpCount: 0, followUpDetails: [], promptTokens: 0, completionTokens: 0 };
   }
 
   logger.info({ uncertainCount: uncertainItems.length, maxFollowUps }, "resolving uncertain checklist items");
@@ -106,6 +115,7 @@ export async function resolveUncertainItems(
 
   const resolvedChecklist = [...checklist];
   let followUpCount = 0;
+  const followUpDetails: ZoomFollowUpDetail[] = [];
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
 
@@ -130,6 +140,7 @@ export async function resolveUncertainItems(
         detail: `[2x zoom] ${result.detail}`,
       };
       followUpCount++;
+      followUpDetails.push({ question: item.question, angle, pass: result.pass, detail: result.detail });
       totalPromptTokens += result.promptTokens;
       totalCompletionTokens += result.completionTokens;
 
@@ -139,7 +150,7 @@ export async function resolveUncertainItems(
     }
   }
 
-  return { resolvedChecklist, followUpCount, promptTokens: totalPromptTokens, completionTokens: totalCompletionTokens };
+  return { resolvedChecklist, followUpCount, followUpDetails, promptTokens: totalPromptTokens, completionTokens: totalCompletionTokens };
 }
 
 // ── Single follow-up call ────────────────────────────────────────────

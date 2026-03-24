@@ -273,13 +273,13 @@ export async function getDetailViewAngleBreakdown(filters: PipelineFilters): Pro
 
   const query = `
     SELECT
-      TRIM(REPLACE(SPLIT_PART(tool->>'inputSummary', ',', 1), 'angle:', '')) AS "angle",
+      TRIM(REPLACE(SPLIT_PART(tool->>'inputSummary', ', angle: ', 2), 'angle:', '')) AS "angle",
       COUNT(*)::int AS "callCount"
     FROM generation_traces gt,
          jsonb_array_elements(gt.trace->'nodes') AS node,
          jsonb_array_elements(COALESCE(node->'toolCalls', '[]'::jsonb)) AS tool
     ${whereClause}
-      ${whereClause ? "AND" : "WHERE"} tool->>'toolName' = 'request_detail_view'
+      ${whereClause ? "AND" : "WHERE"} tool->>'toolName' = 'zoom_followup'
     GROUP BY 1
     ORDER BY "callCount" DESC
   `;
@@ -305,13 +305,13 @@ export async function getDetailViewTimeseries(
   const query = `
     SELECT
       date_trunc('${granularity}', gt.created_at) AS bucket,
-      COUNT(*) FILTER (WHERE tool->>'toolName' = 'request_detail_view')::int AS "detailViewCount",
+      COUNT(*) FILTER (WHERE tool->>'toolName' = 'zoom_followup')::int AS "detailViewCount",
       COUNT(*) FILTER (WHERE tool->>'toolName' = 'submit_result')::int AS "submitCount"
     FROM generation_traces gt,
          jsonb_array_elements(gt.trace->'nodes') AS node,
          jsonb_array_elements(COALESCE(node->'toolCalls', '[]'::jsonb)) AS tool
     ${whereClause}
-      ${whereClause ? "AND" : "WHERE"} tool->>'toolName' IN ('request_detail_view', 'submit_result')
+      ${whereClause ? "AND" : "WHERE"} tool->>'toolName' IN ('zoom_followup', 'submit_result')
     GROUP BY bucket
     ORDER BY bucket ASC
   `;

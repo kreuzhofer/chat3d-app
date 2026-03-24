@@ -8,6 +8,7 @@ import {
   deleteExperiment,
   startExperiment,
   cancelExperiment,
+  rerunExperiment,
   type ExperimentListItem,
 } from "../../api/experiment.api";
 import { ExperimentCreateDialog } from "./ExperimentCreateDialog";
@@ -70,6 +71,16 @@ export function ExperimentsTab({ token }: Props) {
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to cancel experiment");
+    }
+  };
+
+  const handleRerun = async (id: string) => {
+    if (!window.confirm("Re-run this experiment? This will delete all existing results and start fresh.")) return;
+    try {
+      await rerunExperiment(token, id);
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to re-run experiment");
     }
   };
 
@@ -156,6 +167,11 @@ export function ExperimentsTab({ token }: Props) {
                         Cancel
                       </Button>
                     )}
+                    {["completed", "failed", "cancelled"].includes(exp.status) && (
+                      <Button size="sm" variant="outline" onClick={() => handleRerun(exp.id)} className="mr-1">
+                        Re-run
+                      </Button>
+                    )}
                     {exp.status !== "running" && (
                       <Button size="sm" variant="destructive" onClick={() => handleDelete(exp.id)}>
                         Delete
@@ -173,7 +189,7 @@ export function ExperimentsTab({ token }: Props) {
         <ExperimentCreateDialog
           token={token}
           onClose={() => setShowCreate(false)}
-          onCreated={() => { setShowCreate(false); refresh(); }}
+          onSaved={() => { setShowCreate(false); refresh(); }}
         />
       )}
     </div>

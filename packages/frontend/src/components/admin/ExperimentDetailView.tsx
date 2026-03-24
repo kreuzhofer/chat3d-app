@@ -10,11 +10,13 @@ import {
   getExperimentStatus,
   startExperiment,
   cancelExperiment,
+  rerunExperiment,
   type Experiment,
   type RunMetrics,
   type ExperimentStatus,
 } from "../../api/experiment.api";
 import { ExperimentPromptComparisonTable } from "./ExperimentPromptComparisonTable";
+import { ExperimentCreateDialog } from "./ExperimentCreateDialog";
 
 interface Props {
   token: string;
@@ -30,6 +32,7 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
   const [status, setStatus] = useState<ExperimentStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showEdit, setShowEdit] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -72,24 +75,21 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
     <div className="p-4">
       <Button variant="outline" size="sm" onClick={onBack} className="mb-4">Back to list</Button>
 
-      <ExperimentHeader experiment={experiment} status={status} token={token} onRefresh={load} setError={setError} />
+      <ExperimentHeader experiment={experiment} status={status} token={token} onRefresh={load} setError={setError} onEdit={() => setShowEdit(true)} />
+
+      {showEdit && (
+        <ExperimentCreateDialog
+          token={token}
+          experiment={experiment}
+          onClose={() => setShowEdit(false)}
+          onSaved={() => { setShowEdit(false); load(); }}
+        />
+      )}
 
       {error && <InlineAlert variant="error" message={error} />}
 
       {experiment.status === "running" && status && (
-        <SectionCard title="Progress">
-          {status.runs.map((r) => (
-            <div key={r.id} className="flex items-center gap-2 py-1">
-              <Badge variant={r.status === "running" ? "default" : r.status === "completed" ? "secondary" : "outline"}>
-                {r.status}
-              </Badge>
-              <span className="text-sm">{r.modelLabel}</span>
-              <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                ({r.completedPrompts}/{experiment.promptCount} prompts)
-              </span>
-            </div>
-          ))}
-        </SectionCard>
+        <RunProgressSection status={status} promptCount={experiment.promptCount} />
       )}
 
       {comparison && comparison.length > 0 && (
@@ -103,15 +103,66 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
   );
 }
 
+// ── Progress Bar ─────────────────────────────────────────────────────
+
+function ProgressBar({ value, max, color }: { value: number; max: number; color?: string }) {
+  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+  return (
+    <div className="h-2 w-full overflow-hidden rounded-full bg-[hsl(var(--muted))]">
+      <div
+        className="h-full rounded-full transition-all duration-500"
+        style={{ width: `${pct}%`, backgroundColor: color ?? "hsl(var(--primary))" }}
+      />
+    </div>
+  );
+}
+
+function RunProgressSection({ status, promptCount }: { status: ExperimentStatus; promptCount: number }) {
+  const totalCompleted = status.runs.reduce((sum, r) => sum + r.completedPrompts, 0);
+  const totalExpected = status.runs.length * promptCount;
+  const overallPct = totalExpected > 0 ? Math.round((totalCompleted / totalExpected) * 100) : 0;
+
+  return (
+    <SectionCard title={`Progress — ${overallPct}%`}>
+      <div className="mb-3">
+        <ProgressBar value={totalCompleted} max={totalExpected} />
+      </div>
+      <div className="space-y-2">
+        {status.runs.map((r, i) => {
+          const pct = promptCount > 0 ? Math.round((r.completedPrompts / promptCount) * 100) : 0;
+          return (
+            <div key={r.id} className="flex items-center gap-3">
+              <Badge variant={r.status === "running" ? "default" : r.status === "completed" ? "secondary" : "outline"} className="w-20 justify-center text-[0.65rem]">
+                {r.status}
+              </Badge>
+              <span className="w-40 truncate text-sm">{r.modelLabel.split("/").pop()}</span>
+              <div className="flex-1">
+                <ProgressBar value={r.completedPrompts} max={promptCount} color={COLORS[i % COLORS.length]} />
+              </div>
+              <span className="w-24 text-right text-xs text-[hsl(var(--muted-foreground))]">
+                {r.completedPrompts}/{promptCount} ({pct}%)
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </SectionCard>
+  );
+}
+
 // ── Header ──────────────────────────────────────────────────────────
 
-function ExperimentHeader({ experiment, status, token, onRefresh, setError }: {
+function ExperimentHeader({ experiment, status, token, onRefresh, setError, onEdit }: {
   experiment: Experiment;
   status: ExperimentStatus | null;
   token: string;
   onRefresh: () => void;
   setError: (e: string | null) => void;
+  onEdit: () => void;
 }) {
+  const canRerun = ["completed", "failed", "cancelled"].includes(experiment.status);
+  const canEdit = ["created", "cancelled"].includes(experiment.status);
+
   return (
     <SectionCard title={experiment.name}>
       <div className="mb-3 grid grid-cols-3 gap-2 text-sm">
@@ -132,16 +183,29 @@ function ExperimentHeader({ experiment, status, token, onRefresh, setError }: {
         ))}
       </div>
 
-      {experiment.status === "created" && (
-        <Button size="sm" onClick={async () => { try { await startExperiment(token, experiment.id); onRefresh(); } catch (e) { setError((e as Error).message); } }}>
-          Start Experiment
-        </Button>
-      )}
-      {experiment.status === "running" && (
-        <Button size="sm" variant="outline" onClick={async () => { try { await cancelExperiment(token, experiment.id); onRefresh(); } catch (e) { setError((e as Error).message); } }}>
-          Cancel
-        </Button>
-      )}
+      <div className="flex gap-2">
+        {canEdit && (
+          <Button size="sm" variant="outline" onClick={onEdit}>Edit</Button>
+        )}
+        {experiment.status === "created" && (
+          <Button size="sm" onClick={async () => { try { await startExperiment(token, experiment.id); onRefresh(); } catch (e) { setError((e as Error).message); } }}>
+            Start Experiment
+          </Button>
+        )}
+        {experiment.status === "running" && (
+          <Button size="sm" variant="outline" onClick={async () => { try { await cancelExperiment(token, experiment.id); onRefresh(); } catch (e) { setError((e as Error).message); } }}>
+            Cancel
+          </Button>
+        )}
+        {canRerun && (
+          <Button size="sm" variant="outline" onClick={async () => {
+            if (!window.confirm("Re-run this experiment? This will delete all existing results and start fresh.")) return;
+            try { await rerunExperiment(token, experiment.id); onRefresh(); } catch (e) { setError((e as Error).message); }
+          }}>
+            Re-run
+          </Button>
+        )}
+      </div>
     </SectionCard>
   );
 }
@@ -233,9 +297,7 @@ function ComparisonCharts({ runs }: { runs: RunMetrics[] }) {
               <YAxis domain={[0, 10]} tick={{ fontSize: 11, fill: "hsl(213 31% 70%)" }} />
               <Tooltip contentStyle={{ backgroundColor: "hsl(222 47% 14%)", border: "1px solid hsl(217 33% 22%)", borderRadius: 6, color: "hsl(213 31% 91%)" }} />
               <Bar dataKey="evalScore" fill="#2563eb">
-                {chartData.map((d, i) => (
-                  <Cell key={i} fill={d.color} />
-                ))}
+                {chartData.map((d, i) => <Cell key={i} fill={d.color} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -249,9 +311,7 @@ function ComparisonCharts({ runs }: { runs: RunMetrics[] }) {
               <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: "hsl(213 31% 70%)" }} />
               <Tooltip contentStyle={{ backgroundColor: "hsl(222 47% 14%)", border: "1px solid hsl(217 33% 22%)", borderRadius: 6, color: "hsl(213 31% 91%)" }} />
               <Bar dataKey="successRate" fill="#16a34a">
-                {chartData.map((d, i) => (
-                  <Cell key={i} fill={d.color} />
-                ))}
+                {chartData.map((d, i) => <Cell key={i} fill={d.color} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -265,9 +325,7 @@ function ComparisonCharts({ runs }: { runs: RunMetrics[] }) {
               <YAxis tick={{ fontSize: 11, fill: "hsl(213 31% 70%)" }} />
               <Tooltip contentStyle={{ backgroundColor: "hsl(222 47% 14%)", border: "1px solid hsl(217 33% 22%)", borderRadius: 6, color: "hsl(213 31% 91%)" }} />
               <Bar dataKey="avgCost" fill="#d97706">
-                {chartData.map((d, i) => (
-                  <Cell key={i} fill={d.color} />
-                ))}
+                {chartData.map((d, i) => <Cell key={i} fill={d.color} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -281,9 +339,7 @@ function ComparisonCharts({ runs }: { runs: RunMetrics[] }) {
               <YAxis tick={{ fontSize: 11, fill: "hsl(213 31% 70%)" }} />
               <Tooltip contentStyle={{ backgroundColor: "hsl(222 47% 14%)", border: "1px solid hsl(217 33% 22%)", borderRadius: 6, color: "hsl(213 31% 91%)" }} />
               <Bar dataKey="avgDuration" fill="#7c3aed">
-                {chartData.map((d, i) => (
-                  <Cell key={i} fill={d.color} />
-                ))}
+                {chartData.map((d, i) => <Cell key={i} fill={d.color} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>

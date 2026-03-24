@@ -7,11 +7,13 @@ import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import {
   createExperiment,
+  updateExperiment,
   deleteExperiment,
   getExperiment,
   getExperimentStatus,
   listExperiments,
   previewPromptSelection,
+  rerunExperiment,
   ExperimentError,
 } from "../services/experiment.service.js";
 import { startExperiment, cancelExperiment } from "../services/experiment-execution.service.js";
@@ -97,6 +99,16 @@ experimentRouter.get("/:id", async (req: Request, res: Response) => {
   }
 });
 
+experimentRouter.patch("/:id", async (req: Request, res: Response) => {
+  try {
+    const { name, categoryIds, promptCount, promptSeed, modelIds } = req.body;
+    const experiment = await updateExperiment(req.params.id, { name, categoryIds, promptCount, promptSeed, modelIds });
+    res.json(experiment);
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
 experimentRouter.delete("/:id", async (req: Request, res: Response) => {
   try {
     await deleteExperiment(req.params.id);
@@ -121,6 +133,15 @@ experimentRouter.post("/:id/cancel", async (req: Request, res: Response) => {
   try {
     await cancelExperiment(req.params.id);
     res.json({ ok: true, message: "Experiment cancelled" });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+experimentRouter.post("/:id/rerun", async (req: Request, res: Response) => {
+  try {
+    await rerunExperiment(req.params.id);
+    res.json({ ok: true, message: "Experiment reset for re-run" });
   } catch (err) {
     handleError(err, res);
   }

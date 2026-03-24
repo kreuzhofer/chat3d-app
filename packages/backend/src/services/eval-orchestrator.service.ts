@@ -335,6 +335,15 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
             checklistResults = zoomResult.resolvedChecklist;
             vlmPromptTokens += zoomResult.promptTokens;
             vlmCompletionTokens += zoomResult.completionTokens;
+            // Record each zoom follow-up as a trace tool call for pipeline analytics
+            for (const detail of zoomResult.followUpDetails) {
+              tb?.addToolCall({
+                toolName: "zoom_followup",
+                success: true,
+                inputSummary: `question: ${detail.question.slice(0, 80)}, angle: ${detail.angle}`,
+                outputSummary: `pass: ${detail.pass}, detail: ${detail.detail.slice(0, 100)}`,
+              }, "eval-vlm");
+            }
             logger.info({ followUpCount: zoomResult.followUpCount }, "zoom follow-ups completed");
           } catch (err) {
             logger.warn({ err: err instanceof Error ? err.message : String(err) }, "zoom follow-up failed, keeping uncertain results");
@@ -354,14 +363,6 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
         });
       }
       if (vlmModel) tb?.setModel(vlmModel);
-      // Add zoom tool calls to the eval-vlm trace node for analytics
-      for (const zr of vlmResult.zoomRequests ?? []) {
-        tb?.addToolCall({
-          toolName: "request_detail_view",
-          success: true,
-          inputSummary: `angle: ${zr.angle}, reason: ${zr.reason}`.slice(0, 200),
-        }, "eval-vlm");
-      }
       tb?.endPhase("completed");
 
       logger.info(

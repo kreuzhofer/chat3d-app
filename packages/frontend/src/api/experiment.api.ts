@@ -111,6 +111,7 @@ export interface PromptComparison {
 export interface ExperimentStatus {
   id: string;
   status: string;
+  promptCount: number;
   runs: Array<{
     id: string;
     modelLabel: string;
@@ -147,6 +148,16 @@ export async function createExperiment(token: string, data: {
   return request<Experiment>(token, "", { method: "POST", body: JSON.stringify(data) });
 }
 
+export async function updateExperiment(token: string, id: string, data: {
+  name?: string;
+  categoryIds?: string[];
+  promptCount?: number;
+  promptSeed?: number;
+  modelIds?: string[];
+}) {
+  return request<Experiment>(token, `/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+
 export async function deleteExperiment(token: string, id: string) {
   return request<{ ok: boolean }>(token, `/${id}`, { method: "DELETE" });
 }
@@ -157,6 +168,10 @@ export async function startExperiment(token: string, id: string) {
 
 export async function cancelExperiment(token: string, id: string) {
   return request<{ ok: boolean }>(token, `/${id}/cancel`, { method: "POST" });
+}
+
+export async function rerunExperiment(token: string, id: string) {
+  return request<{ ok: boolean }>(token, `/${id}/rerun`, { method: "POST" });
 }
 
 export async function getExperimentStatus(token: string, id: string) {

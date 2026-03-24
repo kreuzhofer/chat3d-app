@@ -202,7 +202,7 @@ Do not consider a change complete until the Docker build succeeds.
 
 ### File Size Limits — MANDATORY
 
-**No source file (`.ts`, `.tsx`) may exceed 400 lines.** This is a hard limit. If a change would push a file over 400 lines, refactor first. Target 200–300 lines per file.
+**No source file (`.ts`, `.tsx`) should exceed 400 lines.** Target 200–300 lines per file. Up to 500 lines is acceptable when staying under 400 would require sacrificing clarity, valuable comments, or force awkward splits. Never exceed 500 lines.
 
 **Decomposition rules by file type:**
 - **Services:** Extract distinct pipeline stages, data-access helpers, or protocol-specific logic into separate files. One cohesive responsibility per service file.

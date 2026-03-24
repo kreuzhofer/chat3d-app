@@ -324,7 +324,7 @@ export function PipelinePerformanceTab({ token }: Props) {
 
       {/* Detail View: timeseries + angle breakdown */}
       {dvTsFormatted.length > 0 ? (
-        <SectionCard title="Detail Views vs Submissions Over Time">
+        <SectionCard title="Zoom Follow-ups vs Submissions Over Time">
           <div className="h-56 touch-none">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={dvTsFormatted}>
@@ -334,7 +334,7 @@ export function PipelinePerformanceTab({ token }: Props) {
                 <Tooltip isAnimationActive={false} />
                 <Legend />
                 <Line type="monotone" dataKey="submitCount" stroke="#3b82f6" name="Submissions" dot={false} />
-                <Line type="monotone" dataKey="detailViewCount" stroke="#8b5cf6" name="Detail Views" dot={false} />
+                <Line type="monotone" dataKey="detailViewCount" stroke="#8b5cf6" name="Zoom Follow-ups" dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -342,7 +342,7 @@ export function PipelinePerformanceTab({ token }: Props) {
       ) : null}
 
       {angles.length > 0 ? (
-        <SectionCard title="Detail View Angles">
+        <SectionCard title="Zoom Follow-up Angles">
           <DetailViewAngleChart angles={angles} tools={tools} />
         </SectionCard>
       ) : null}
@@ -355,15 +355,15 @@ export function PipelinePerformanceTab({ token }: Props) {
 }
 
 function DetailViewAngleChart({ angles, tools }: { angles: DetailViewAngleRow[]; tools: PipelineToolUsageRow[] }) {
-  const detailViewCalls = tools.find(t => t.toolName === "request_detail_view")?.callCount ?? 0;
+  const zoomCalls = tools.find(t => t.toolName === "zoom_followup")?.callCount ?? 0;
   const submitCalls = tools.find(t => t.toolName === "submit_result")?.callCount ?? 0;
-  const detailViewRate = submitCalls > 0 ? ((detailViewCalls / submitCalls) * 100).toFixed(1) : "—";
+  const zoomRate = submitCalls > 0 ? ((zoomCalls / submitCalls) * 100).toFixed(1) : "—";
 
   return (
     <>
       <p className="mb-3 text-xs text-[hsl(var(--muted-foreground))]">
-        Detail View Rate: <span className="font-semibold text-[hsl(var(--foreground))]">{detailViewRate}%</span>
-        <span className="ml-2">({detailViewCalls} detail views / {submitCalls} submissions)</span>
+        Zoom Follow-up Rate: <span className="font-semibold text-[hsl(var(--foreground))]">{zoomRate}%</span>
+        <span className="ml-2">({zoomCalls} zoom follow-ups / {submitCalls} submissions)</span>
       </p>
       <div className="h-48 touch-none">
         <ResponsiveContainer width="100%" height="100%">

@@ -303,9 +303,9 @@ async function _runPipeline(
     }
   }
 
-  // 4. Agent codegen
+  // 4. Agent codegen — codegenModelConfig is already resolved (from experiment override or purpose map)
   const dynAutoApprove = await getAutoApproveThreshold("workbench");
-  const wbAgentModelConfig = await getModelForPurposeWithFallback("workbench_codegen", "agent_codegen");
+  const wbAgentModelConfig = codegenModelConfig;
   const wbAgMaxSteps = await getAgentMaxSteps("workbench");
   const wbUseMultiAgent = specResult?.complexity === "complex";
   if (wbUseMultiAgent) traceBuilder.setPipelineType("multi_agent");

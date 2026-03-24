@@ -5,23 +5,31 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import {
   createExperiment,
+  updateExperiment,
   listWorkbenchCategories,
   listLlmModels,
   previewPrompts,
+  type Experiment,
 } from "../../api/experiment.api";
 
 interface Props {
   token: string;
   onClose: () => void;
-  onCreated: () => void;
+  onSaved: () => void;
+  /** When provided, the dialog operates in edit mode with pre-populated values. */
+  experiment?: Experiment;
 }
 
-export function ExperimentCreateDialog({ token, onClose, onCreated }: Props) {
-  const [name, setName] = useState("");
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
-  const [promptCount, setPromptCount] = useState(10);
-  const [promptSeed, setPromptSeed] = useState(42);
-  const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
+export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: Props) {
+  const isEdit = !!experiment;
+
+  const [name, setName] = useState(experiment?.name ?? "");
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>(experiment?.categoryIds ?? []);
+  const [promptCount, setPromptCount] = useState(experiment?.promptCount ?? 10);
+  const [promptSeed, setPromptSeed] = useState(experiment?.promptSeed ?? 42);
+  const [selectedModelIds, setSelectedModelIds] = useState<string[]>(
+    experiment?.runs.map((r) => r.modelId).filter(Boolean) as string[] ?? [],
+  );
   const [categories, setCategories] = useState<Array<{ id: string; name: string; promptCount: number; approvedPromptCount: number }>>([]);
   const [models, setModels] = useState<Array<{ id: string; provider: string; modelName: string; displayName: string | null; isActive: boolean }>>([]);
   const [previewedPrompts, setPreviewedPrompts] = useState<Array<{ id: string; prompt: string; index: number }>>([]);
@@ -77,23 +85,33 @@ export function ExperimentCreateDialog({ token, onClose, onCreated }: Props) {
     setSubmitting(true);
     setError(null);
     try {
-      await createExperiment(token, {
-        name: name.trim(),
-        categoryIds: selectedCategoryIds,
-        promptCount,
-        promptSeed,
-        modelIds: selectedModelIds,
-      });
-      onCreated();
+      if (isEdit) {
+        await updateExperiment(token, experiment.id, {
+          name: name.trim(),
+          categoryIds: selectedCategoryIds,
+          promptCount,
+          promptSeed,
+          modelIds: selectedModelIds,
+        });
+      } else {
+        await createExperiment(token, {
+          name: name.trim(),
+          categoryIds: selectedCategoryIds,
+          promptCount,
+          promptSeed,
+          modelIds: selectedModelIds,
+        });
+      }
+      onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create experiment");
+      setError(err instanceof Error ? err.message : `Failed to ${isEdit ? "update" : "create"} experiment`);
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <Dialog open title="New Experiment" onClose={onClose}>
+    <Dialog open title={isEdit ? "Edit Experiment" : "New Experiment"} onClose={onClose}>
       {error && (
         <p className="mb-3 text-sm text-[hsl(var(--destructive))]">{error}</p>
       )}
@@ -178,7 +196,7 @@ export function ExperimentCreateDialog({ token, onClose, onCreated }: Props) {
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
         <Button onClick={handleSubmit} disabled={submitting || selectedModelIds.length < 2}>
-          {submitting ? "Creating..." : "Create Experiment"}
+          {submitting ? "Saving..." : isEdit ? "Save Changes" : "Create Experiment"}
         </Button>
       </div>
     </Dialog>
