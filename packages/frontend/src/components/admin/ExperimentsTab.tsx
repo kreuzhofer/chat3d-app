@@ -132,7 +132,7 @@ export function ExperimentsTab({ token }: Props) {
                       {exp.name}
                     </button>
                   </td>
-                  <td className="p-2">{exp.categoryName}</td>
+                  <td className="p-2">{exp.categoryNames.join(", ")}</td>
                   <td className="p-2"><code className="text-xs">{exp.testedPurpose}</code></td>
                   <td className="p-2">{exp.promptCount}</td>
                   <td className="p-2">

@@ -3,7 +3,6 @@ import { Dialog } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Select } from "../ui/select";
 import {
   createExperiment,
   listWorkbenchCategories,
@@ -19,11 +18,11 @@ interface Props {
 
 export function ExperimentCreateDialog({ token, onClose, onCreated }: Props) {
   const [name, setName] = useState("");
-  const [categoryId, setCategoryId] = useState("");
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [promptCount, setPromptCount] = useState(10);
   const [promptSeed, setPromptSeed] = useState(42);
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
-  const [categories, setCategories] = useState<Array<{ id: string; name: string; promptCount: number }>>([]);
+  const [categories, setCategories] = useState<Array<{ id: string; name: string; promptCount: number; approvedPromptCount: number }>>([]);
   const [models, setModels] = useState<Array<{ id: string; provider: string; modelName: string; displayName: string | null; isActive: boolean }>>([]);
   const [previewedPrompts, setPreviewedPrompts] = useState<Array<{ id: string; prompt: string; index: number }>>([]);
   const [error, setError] = useState<string | null>(null);
@@ -40,22 +39,29 @@ export function ExperimentCreateDialog({ token, onClose, onCreated }: Props) {
   }, [token]);
 
   const loadPreview = useCallback(async () => {
-    if (!categoryId || promptCount <= 0) {
+    if (selectedCategoryIds.length === 0 || promptCount <= 0) {
       setPreviewedPrompts([]);
       return;
     }
     try {
-      const result = await previewPrompts(token, categoryId, promptCount, promptSeed);
+      const result = await previewPrompts(token, selectedCategoryIds, promptCount, promptSeed);
       setPreviewedPrompts(result);
     } catch {
       setPreviewedPrompts([]);
     }
-  }, [token, categoryId, promptCount, promptSeed]);
+  }, [token, selectedCategoryIds, promptCount, promptSeed]);
 
   useEffect(() => { loadPreview(); }, [loadPreview]);
 
-  const selectedCategory = categories.find((c) => c.id === categoryId);
-  const maxPrompts = selectedCategory?.promptCount ?? 0;
+  const maxPrompts = categories
+    .filter((c) => selectedCategoryIds.includes(c.id))
+    .reduce((sum, c) => sum + c.approvedPromptCount, 0);
+
+  const toggleCategory = (categoryId: string) => {
+    setSelectedCategoryIds((prev) =>
+      prev.includes(categoryId) ? prev.filter((id) => id !== categoryId) : [...prev, categoryId],
+    );
+  };
 
   const toggleModel = (modelId: string) => {
     setSelectedModelIds((prev) =>
@@ -65,7 +71,7 @@ export function ExperimentCreateDialog({ token, onClose, onCreated }: Props) {
 
   const handleSubmit = async () => {
     if (!name.trim()) { setError("Name is required"); return; }
-    if (!categoryId) { setError("Select a category"); return; }
+    if (selectedCategoryIds.length === 0) { setError("Select at least one category"); return; }
     if (selectedModelIds.length < 2) { setError("Select at least 2 models to compare"); return; }
 
     setSubmitting(true);
@@ -73,7 +79,7 @@ export function ExperimentCreateDialog({ token, onClose, onCreated }: Props) {
     try {
       await createExperiment(token, {
         name: name.trim(),
-        categoryId,
+        categoryIds: selectedCategoryIds,
         promptCount,
         promptSeed,
         modelIds: selectedModelIds,
@@ -99,13 +105,25 @@ export function ExperimentCreateDialog({ token, onClose, onCreated }: Props) {
         </div>
 
         <div>
-          <Label>Category</Label>
-          <Select
-            value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
-            placeholder="Select category"
-            options={categories.map((c) => ({ value: c.id, label: `${c.name} (${c.promptCount} prompts)` }))}
-          />
+          <Label>Categories (select 1+)</Label>
+          <div className="max-h-[200px] overflow-auto rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] p-2">
+            {categories.map((c) => (
+              <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-[hsl(var(--muted))]">
+                <input
+                  type="checkbox"
+                  checked={selectedCategoryIds.includes(c.id)}
+                  onChange={() => toggleCategory(c.id)}
+                  className="accent-[hsl(var(--primary))]"
+                />
+                <span className="text-sm text-[hsl(var(--foreground))]">
+                  {c.name}
+                  <span className="ml-1 text-[hsl(var(--muted-foreground))]">
+                    ({c.approvedPromptCount} approved / {c.promptCount} total)
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
@@ -145,7 +163,7 @@ export function ExperimentCreateDialog({ token, onClose, onCreated }: Props) {
 
         {previewedPrompts.length > 0 && (
           <div>
-            <Label>Selected prompts preview ({previewedPrompts.length})</Label>
+            <Label>Selected prompts preview ({previewedPrompts.length} approved)</Label>
             <div className="max-h-[120px] overflow-auto rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] p-2 text-xs text-[hsl(var(--muted-foreground))]">
               {previewedPrompts.map((p) => (
                 <div key={p.id} className="border-b border-[hsl(var(--border)_/_0.3)] py-0.5">

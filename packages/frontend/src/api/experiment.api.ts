@@ -40,7 +40,8 @@ export interface PromptSelection {
 export interface Experiment {
   id: string;
   name: string;
-  category: { id: string; name: string; complexity?: number };
+  categoryIds: string[];
+  categories: Array<{ id: string; name: string; complexity?: number }>;
   promptCount: number;
   promptSeed: number;
   testedPurpose: string;
@@ -55,8 +56,8 @@ export interface Experiment {
 export interface ExperimentListItem {
   id: string;
   name: string;
-  categoryName: string;
-  categoryId: string;
+  categoryIds: string[];
+  categoryNames: string[];
   promptCount: number;
   testedPurpose: string;
   status: string;
@@ -137,7 +138,7 @@ export async function getExperiment(token: string, id: string) {
 
 export async function createExperiment(token: string, data: {
   name: string;
-  categoryId: string;
+  categoryIds: string[];
   promptCount: number;
   promptSeed?: number;
   testedPurpose?: string;
@@ -170,10 +171,10 @@ export async function getPerPromptComparison(token: string, id: string) {
   return request<PromptComparison[]>(token, `/${id}/prompts`);
 }
 
-export async function previewPrompts(token: string, categoryId: string, count: number, seed: number) {
+export async function previewPrompts(token: string, categoryIds: string[], count: number, seed: number) {
   return request<Array<{ id: string; prompt: string; index: number }>>(
     token,
-    `/preview-prompts?categoryId=${categoryId}&count=${count}&seed=${seed}`,
+    `/preview-prompts?categoryIds=${categoryIds.join(",")}&count=${count}&seed=${seed}`,
   );
 }
 
@@ -205,5 +206,6 @@ export async function listWorkbenchCategories(token: string) {
     name: string;
     complexity: number;
     promptCount: number;
+    approvedPromptCount: number;
   }>;
 }

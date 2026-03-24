@@ -26,6 +26,7 @@ interface CategoryRow {
   human_approved_count: string;
   pending_count: string;
   rejected_count: string;
+  approved_prompt_count: string;
   avg_rating: string | null;
   created_at: Date;
   updated_at: Date;
@@ -47,6 +48,7 @@ export async function listCategories() {
       COUNT(DISTINCT CASE WHEN e.approval_status = 'human_approved' THEN p.id END)::text AS human_approved_count,
       COUNT(DISTINCT CASE WHEN e.approval_status = 'pending' THEN p.id END)::text AS pending_count,
       COUNT(DISTINCT CASE WHEN e.approval_status = 'rejected' THEN p.id END)::text AS rejected_count,
+      COUNT(DISTINCT CASE WHEN e.approval_status IN ('auto_approved', 'human_approved') THEN p.id END)::text AS approved_prompt_count,
       ROUND(AVG(e.eval_score) FILTER (WHERE e.eval_score IS NOT NULL), 1)::text AS avg_rating,
       c.created_at,
       c.updated_at
@@ -68,6 +70,7 @@ export async function listCategories() {
     humanApprovedCount: Number(row.human_approved_count),
     pendingCount: Number(row.pending_count),
     rejectedCount: Number(row.rejected_count),
+    approvedPromptCount: Number(row.approved_prompt_count),
     avgRating: row.avg_rating !== null ? Number(row.avg_rating) : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

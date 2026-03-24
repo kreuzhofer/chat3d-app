@@ -400,7 +400,6 @@ model WorkbenchCategory {
 
   // Relations
   prompts     WorkbenchExamplePrompt[]
-  experiments Experiment[]
 
   @@map("workbench_categories")
 }
@@ -519,7 +518,7 @@ model GenerationTrace {
 model Experiment {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name          String    @db.VarChar(255)
-  categoryId    String    @map("category_id") @db.Uuid
+  categoryIds   String[]  @default([]) @map("category_ids")
   promptCount   Int       @map("prompt_count")
   promptSeed    Int       @default(42) @map("prompt_seed")
   testedPurpose String    @default("workbench_codegen") @map("tested_purpose") @db.VarChar(50)
@@ -531,12 +530,10 @@ model Experiment {
   updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz()
 
   // Relations
-  category        WorkbenchCategory          @relation(fields: [categoryId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   createdByUser   User?                      @relation(fields: [createdBy], references: [id], onDelete: SetNull, onUpdate: NoAction)
   runs            ExperimentRun[]
   promptSelections ExperimentPromptSelection[]
 
-  @@index([categoryId], map: "idx_experiments_category")
   @@index([status], map: "idx_experiments_status")
   @@map("experiment_experiments")
 }

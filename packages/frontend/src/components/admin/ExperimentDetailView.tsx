@@ -115,7 +115,7 @@ function ExperimentHeader({ experiment, status, token, onRefresh, setError }: {
   return (
     <SectionCard title={experiment.name}>
       <div className="mb-3 grid grid-cols-3 gap-2 text-sm">
-        <div><strong>Category:</strong> {experiment.category.name}</div>
+        <div><strong>Categories:</strong> {experiment.categories.map(c => c.name).join(", ")}</div>
         <div><strong>Purpose:</strong> <code>{experiment.testedPurpose}</code></div>
         <div><strong>Status:</strong> <Badge variant={experiment.status === "running" ? "default" : "secondary"}>{experiment.status}</Badge></div>
         <div><strong>Prompts:</strong> {experiment.promptCount} (seed: {experiment.promptSeed})</div>

@@ -38,10 +38,10 @@ function handleError(err: unknown, res: Response) {
 
 experimentRouter.post("/", async (req: Request, res: Response) => {
   try {
-    const { name, categoryId, promptCount, promptSeed, testedPurpose, modelIds } = req.body;
+    const { name, categoryIds, promptCount, promptSeed, testedPurpose, modelIds } = req.body;
     const experiment = await createExperiment({
       name,
-      categoryId,
+      categoryIds,
       promptCount,
       promptSeed,
       testedPurpose,
@@ -71,13 +71,14 @@ experimentRouter.get("/", async (req: Request, res: Response) => {
 
 experimentRouter.get("/preview-prompts", async (req: Request, res: Response) => {
   try {
-    const { categoryId, count, seed } = req.query;
-    if (!categoryId || !count) {
-      res.status(400).json({ error: "categoryId and count are required" });
+    const { categoryIds, count, seed } = req.query;
+    if (!categoryIds || !count) {
+      res.status(400).json({ error: "categoryIds and count are required" });
       return;
     }
+    const ids = (categoryIds as string).split(",").filter(Boolean);
     const prompts = await previewPromptSelection(
-      categoryId as string,
+      ids,
       Number(count),
       seed ? Number(seed) : 42,
     );

@@ -31,11 +31,22 @@ function selectPromptIds(allIds: string[], count: number, seed: number): string[
   return arr.slice(0, count);
 }
 
+// ── Approved-prompt filter (reused by create + preview) ─────────────
+
+const APPROVED_PROMPT_FILTER = {
+  examples: {
+    some: {
+      approvalStatus: { in: ["auto_approved", "human_approved"] },
+      experimentRunId: null,
+    },
+  },
+} as const;
+
 // ── Create ──────────────────────────────────────────────────────────
 
 export interface CreateExperimentInput {
   name: string;
-  categoryId: string;
+  categoryIds: string[];
   promptCount: number;
   promptSeed?: number;
   testedPurpose?: string;
@@ -44,14 +55,19 @@ export interface CreateExperimentInput {
 }
 
 export async function createExperiment(input: CreateExperimentInput) {
-  const { name, categoryId, promptCount, promptSeed = 42, testedPurpose = "workbench_codegen", modelIds, createdBy } = input;
+  const { name, categoryIds, promptCount, promptSeed = 42, testedPurpose = "workbench_codegen", modelIds, createdBy } = input;
 
-  // Validate category
-  const category = await prisma.workbenchCategory.findUnique({
-    where: { id: categoryId },
+  // Validate categories
+  if (categoryIds.length === 0) throw new ExperimentError("At least one category is required", 400);
+  const categories = await prisma.workbenchCategory.findMany({
+    where: { id: { in: categoryIds } },
     select: { id: true, name: true },
   });
-  if (!category) throw new ExperimentError("Category not found", 404);
+  if (categories.length !== categoryIds.length) {
+    const found = new Set(categories.map((c) => c.id));
+    const missing = categoryIds.filter((id) => !found.has(id));
+    throw new ExperimentError(`Categories not found: ${missing.join(", ")}`, 404);
+  }
 
   // Validate models exist and are active
   if (modelIds.length < 2) throw new ExperimentError("At least 2 models required for comparison", 400);
@@ -68,14 +84,16 @@ export async function createExperiment(input: CreateExperimentInput) {
     throw new ExperimentError(`Models not found or inactive: ${missing.join(", ")}`, 400);
   }
 
-  // Get all prompt IDs in category (ordered by index for deterministic selection)
+  // Get approved prompt IDs across all categories (deterministic order)
   const prompts = await prisma.workbenchExamplePrompt.findMany({
-    where: { categoryId },
+    where: { categoryId: { in: categoryIds }, ...APPROVED_PROMPT_FILTER },
     select: { id: true },
-    orderBy: { index: "asc" },
+    orderBy: [{ categoryId: "asc" }, { index: "asc" }],
   });
-  if (prompts.length === 0) throw new ExperimentError("Category has no prompts", 400);
-  if (promptCount > prompts.length) throw new ExperimentError(`Requested ${promptCount} prompts but category only has ${prompts.length}`, 400);
+  if (prompts.length === 0) throw new ExperimentError("Selected categories have no approved prompts", 400);
+  if (promptCount > prompts.length) {
+    throw new ExperimentError(`Requested ${promptCount} prompts but only ${prompts.length} approved prompts available`, 400);
+  }
 
   // Select prompts using seeded shuffle
   const selectedIds = selectPromptIds(prompts.map((p) => p.id), promptCount, promptSeed);
@@ -85,7 +103,7 @@ export async function createExperiment(input: CreateExperimentInput) {
     const exp = await tx.experiment.create({
       data: {
         name,
-        categoryId,
+        categoryIds,
         promptCount,
         promptSeed,
         testedPurpose,
@@ -130,7 +148,6 @@ export async function getExperiment(id: string) {
   const exp = await prisma.experiment.findUnique({
     where: { id },
     include: {
-      category: { select: { id: true, name: true, complexity: true } },
       runs: {
         orderBy: { runOrder: "asc" },
         include: { model: { select: { id: true, displayName: true, modelName: true, provider: true } } },
@@ -142,19 +159,20 @@ export async function getExperiment(id: string) {
     },
   });
   if (!exp) throw new ExperimentError("Experiment not found", 404);
-  return mapExperiment(exp);
+
+  const categories = await resolveCategories(exp.categoryIds);
+  return mapExperiment(exp, categories);
 }
 
 export async function listExperiments(filters?: { status?: string; categoryId?: string; limit?: number; offset?: number }) {
   const where: Record<string, unknown> = {};
   if (filters?.status) where.status = filters.status;
-  if (filters?.categoryId) where.categoryId = filters.categoryId;
+  if (filters?.categoryId) where.categoryIds = { has: filters.categoryId };
 
   const [rows, total] = await Promise.all([
     prisma.experiment.findMany({
       where,
       include: {
-        category: { select: { id: true, name: true } },
         runs: { orderBy: { runOrder: "asc" }, select: { id: true, modelLabel: true, status: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -164,12 +182,16 @@ export async function listExperiments(filters?: { status?: string; categoryId?: 
     prisma.experiment.count({ where }),
   ]);
 
+  // Batch-resolve category names
+  const allCatIds = [...new Set(rows.flatMap((r) => r.categoryIds))];
+  const catMap = await resolveCategoryMap(allCatIds);
+
   return {
     items: rows.map((r) => ({
       id: r.id,
       name: r.name,
-      categoryName: r.category.name,
-      categoryId: r.categoryId,
+      categoryIds: r.categoryIds,
+      categoryNames: r.categoryIds.map((cid) => catMap.get(cid) ?? "Unknown"),
       promptCount: r.promptCount,
       testedPurpose: r.testedPurpose,
       status: r.status,
@@ -195,13 +217,15 @@ export async function deleteExperiment(id: string) {
 
 // ── Preview prompt selection ────────────────────────────────────────
 
-export async function previewPromptSelection(categoryId: string, count: number, seed: number) {
+export async function previewPromptSelection(categoryIds: string[], count: number, seed: number) {
   const prompts = await prisma.workbenchExamplePrompt.findMany({
-    where: { categoryId },
+    where: { categoryId: { in: categoryIds }, ...APPROVED_PROMPT_FILTER },
     select: { id: true, prompt: true, index: true },
-    orderBy: { index: "asc" },
+    orderBy: [{ categoryId: "asc" }, { index: "asc" }],
   });
-  if (count > prompts.length) throw new ExperimentError(`Requested ${count} but only ${prompts.length} available`, 400);
+  if (count > prompts.length) {
+    throw new ExperimentError(`Requested ${count} but only ${prompts.length} approved prompts available`, 400);
+  }
 
   const selectedIds = new Set(selectPromptIds(prompts.map((p) => p.id), count, seed));
   return prompts
@@ -255,14 +279,34 @@ export async function getExperimentStatus(id: string) {
   };
 }
 
+// ── Category resolution helpers ─────────────────────────────────────
+
+async function resolveCategories(categoryIds: string[]) {
+  if (categoryIds.length === 0) return [];
+  return prisma.workbenchCategory.findMany({
+    where: { id: { in: categoryIds } },
+    select: { id: true, name: true, complexity: true },
+  });
+}
+
+async function resolveCategoryMap(categoryIds: string[]) {
+  if (categoryIds.length === 0) return new Map<string, string>();
+  const cats = await prisma.workbenchCategory.findMany({
+    where: { id: { in: categoryIds } },
+    select: { id: true, name: true },
+  });
+  return new Map(cats.map((c) => [c.id, c.name]));
+}
+
 // ── Mapper ──────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapExperiment(exp: any) {
+function mapExperiment(exp: any, categories: Array<{ id: string; name: string; complexity: number }>) {
   return {
     id: exp.id,
     name: exp.name,
-    category: exp.category,
+    categoryIds: exp.categoryIds,
+    categories,
     promptCount: exp.promptCount,
     promptSeed: exp.promptSeed,
     testedPurpose: exp.testedPurpose,
