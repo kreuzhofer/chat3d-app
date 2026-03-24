@@ -24,25 +24,32 @@ let runningExperiment: RunningExperiment | null = null;
 // ── Startup recovery ────────────────────────────────────────────────
 
 /**
- * Recover experiments stuck in "running" status after a server restart.
- * Marks them and their runs as "failed" so they can be re-run.
+ * Resume experiments stuck in "running" status after a server restart.
+ * Picks up where they left off — skips completed runs and already-generated prompts.
  */
 export async function recoverStuckExperiments(): Promise<void> {
   const stuck = await prisma.experiment.findMany({
     where: { status: "running" },
-    select: { id: true, runs: { where: { status: "running" }, select: { id: true } } },
+    include: {
+      runs: { orderBy: { runOrder: "asc" } },
+      promptSelections: { orderBy: { selectionOrder: "asc" } },
+    },
   });
   if (stuck.length === 0) return;
 
+  logger.info({ count: stuck.length, ids: stuck.map((e) => e.id) }, "resuming stuck experiments after restart");
+
+  // Resume experiments one at a time (normally only one can be running)
   for (const exp of stuck) {
-    await prisma.$transaction([
-      ...exp.runs.map((r) =>
-        prisma.experimentRun.update({ where: { id: r.id }, data: { status: "failed", completedAt: new Date() } }),
-      ),
-      prisma.experiment.update({ where: { id: exp.id }, data: { status: "failed", completedAt: new Date() } }),
-    ]);
+    const abortController = new AbortController();
+    runningExperiment = { experimentId: exp.id, abortController };
+
+    try {
+      await executeExperiment(exp, abortController);
+    } catch (err) {
+      logger.error({ err, experimentId: exp.id }, "resumed experiment failed unexpectedly");
+    }
   }
-  logger.warn({ count: stuck.length, ids: stuck.map((e) => e.id) }, "recovered stuck experiments after restart");
 }
 
 // ── Start experiment ────────────────────────────────────────────────
@@ -92,7 +99,7 @@ export async function cancelExperiment(experimentId: string): Promise<void> {
 
 interface ExperimentWithRelations {
   id: string;
-  runs: Array<{ id: string; modelId: string; modelLabel: string; runOrder: number }>;
+  runs: Array<{ id: string; modelId: string; modelLabel: string; runOrder: number; status: string }>;
   promptSelections: Array<{ promptId: string; selectionOrder: number }>;
 }
 
@@ -102,6 +109,12 @@ async function executeExperiment(exp: ExperimentWithRelations, abortController: 
 
   try {
     for (const run of exp.runs) {
+      // Skip runs that already reached a terminal state
+      if (run.status === "completed" || run.status === "cancelled" || run.status === "failed") {
+        if (run.status !== "completed") allSucceeded = false;
+        continue;
+      }
+
       if (abortController.signal.aborted) {
         await prisma.experimentRun.update({
           where: { id: run.id },
@@ -145,25 +158,56 @@ interface RunInfo {
   modelId: string;
   modelLabel: string;
   runOrder: number;
+  status: string;
 }
 
 async function executeRun(run: RunInfo, promptIds: string[], signal: AbortSignal): Promise<void> {
-  logger.info({ runId: run.id, model: run.modelLabel, promptCount: promptIds.length }, "starting experiment run");
-
-  await prisma.experimentRun.update({
-    where: { id: run.id },
-    data: { status: "running", startedAt: new Date() },
+  // Find prompts already completed for this run (non-pending examples)
+  const completedExamples = await prisma.workbenchExample.findMany({
+    where: { experimentRunId: run.id, renderStatus: { not: "pending" } },
+    select: { promptId: true },
   });
+  const completedPromptIds = new Set(completedExamples.map((e) => e.promptId));
+  const remainingPromptIds = promptIds.filter((id) => !completedPromptIds.has(id));
+
+  // Clean up orphaned pending examples from interrupted pipelines
+  if (completedPromptIds.size > 0) {
+    await prisma.workbenchExample.deleteMany({
+      where: { experimentRunId: run.id, renderStatus: "pending" },
+    });
+  }
+
+  logger.info({
+    runId: run.id, model: run.modelLabel,
+    promptCount: promptIds.length, remainingCount: remainingPromptIds.length,
+    skippedCount: completedPromptIds.size,
+  }, run.status === "running" ? "resuming experiment run" : "starting experiment run");
+
+  if (remainingPromptIds.length === 0) {
+    await prisma.experimentRun.update({
+      where: { id: run.id },
+      data: { status: "completed", completedAt: new Date() },
+    });
+    logger.info({ runId: run.id, model: run.modelLabel }, "experiment run already complete — nothing to resume");
+    return;
+  }
+
+  // Only set startedAt on fresh runs, not when resuming
+  const updateData: { status: string; startedAt?: Date } = { status: "running" };
+  if (run.status !== "running") {
+    updateData.startedAt = new Date();
+  }
+  await prisma.experimentRun.update({ where: { id: run.id }, data: updateData });
 
   // Resolve model config for override
   const modelConfig = await resolveModelConfigById(run.modelId);
   // Also create the provider model instance for the config
   const _model = createProviderModel(modelConfig);
 
-  let successCount = 0;
+  let successCount = completedExamples.length;
   let failCount = 0;
 
-  for (const promptId of promptIds) {
+  for (const promptId of remainingPromptIds) {
     if (signal.aborted) break;
 
     try {

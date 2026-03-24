@@ -33,9 +33,9 @@ const server = app.listen(config.port, () => {
     logger.error({ err }, "failed to resume stale pipelines on startup");
   });
 
-  // Recover experiments stuck in "running" after restart
+  // Resume experiments that were running when the server last shut down
   void recoverStuckExperiments().catch((err) => {
-    logger.error({ err }, "failed to recover stuck experiments on startup");
+    logger.error({ err }, "failed to resume stuck experiments on startup");
   });
 
   // Start persistent job queue for knowledge pipeline
