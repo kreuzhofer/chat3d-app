@@ -47,12 +47,14 @@ export function HomePage({ waitlistEnabled }: HomePageProps) {
               <Zap className="h-4 w-4" />
               {primaryLabel}
             </Link>
+            {/* Pricing link hidden for now
             <Link
               to="/pricing"
               className="inline-flex h-10 items-center justify-center rounded-md border border-white/30 bg-transparent px-5 py-2 text-sm font-medium text-white transition hover:bg-white/10"
             >
               View Pricing
             </Link>
+            */}
           </div>
           <p className="text-xs text-slate-300">
             {waitlistEnabled
@@ -153,12 +155,14 @@ export function HomePage({ waitlistEnabled }: HomePageProps) {
             <Zap className="h-4 w-4" />
             {primaryLabel}
           </Link>
+          {/* Pricing link hidden for now
           <Link
             to="/pricing"
             className="inline-flex h-10 items-center justify-center rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-5 py-2 text-sm font-medium text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
           >
             Explore Pricing
           </Link>
+          */}
         </div>
       </section>
     </div>

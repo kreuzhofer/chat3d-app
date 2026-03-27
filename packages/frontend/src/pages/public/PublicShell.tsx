@@ -53,12 +53,14 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
             >
               {t("common:nav.gallery")}
             </NavLink>
+            {/* Pricing link hidden for now
             <NavLink
               to="/pricing"
               className="rounded-md px-3 py-2 text-sm text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
             >
               {t("common:nav.pricing")}
             </NavLink>
+            */}
             <NavLink
               to="/login"
               className="rounded-md px-3 py-2 text-sm text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
@@ -103,6 +105,7 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
               >
                 {t("common:nav.gallery")}
               </NavLink>
+              {/* Pricing link hidden for now
               <NavLink
                 to="/pricing"
                 className="rounded-md px-3 py-2 text-sm text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
@@ -110,6 +113,7 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
               >
                 {t("common:nav.pricing")}
               </NavLink>
+              */}
               <NavLink
                 to="/login"
                 className="rounded-md px-3 py-2 text-sm text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
