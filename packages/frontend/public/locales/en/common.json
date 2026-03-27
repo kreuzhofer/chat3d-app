@@ -11,7 +11,8 @@
     "workbench": "Workbench",
     "backups": "Backups",
     "notifications": "Notifications",
-    "gallery": "Gallery"
+    "gallery": "Gallery",
+    "learnMore": "Learn More"
   },
   "actions": {
     "send": "Send",

@@ -11,7 +11,8 @@
     "workbench": "Werkbank",
     "backups": "Sicherungen",
     "notifications": "Benachrichtigungen",
-    "gallery": "Galerie"
+    "gallery": "Galerie",
+    "learnMore": "Mehr erfahren"
   },
   "actions": {
     "send": "Senden",

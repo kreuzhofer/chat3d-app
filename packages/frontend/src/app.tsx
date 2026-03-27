@@ -13,6 +13,7 @@ import { VersionFooter } from "./components/VersionFooter";
 import { DataDeletionPage } from "./pages/public/DataDeletionPage";
 import { HomePage } from "./pages/public/HomePage";
 import { ImprintPage } from "./pages/public/ImprintPage";
+import { LearnMorePage } from "./pages/public/LearnMorePage";
 import { LegalPage } from "./pages/public/LegalPage";
 import { ConfirmEmailPage } from "./pages/public/ConfirmEmailPage";
 import { ForgotPasswordPage } from "./pages/public/ForgotPasswordPage";
@@ -247,6 +248,7 @@ function PublicApp() {
       <Routes>
         <Route path="/" element={<HomePage waitlistEnabled={resolvedWaitlistEnabled} />} />
         <Route path="/pricing" element={<PricingPage waitlistEnabled={resolvedWaitlistEnabled} />} />
+        <Route path="/learn-more" element={<LearnMorePage waitlistEnabled={resolvedWaitlistEnabled} />} />
         <Route path="/gallery" element={<GalleryPage />} />
         <Route path="/gallery/category/:categoryId" element={<GalleryPage />} />
         <Route path="/login" element={<LoginPage waitlistEnabled={resolvedWaitlistEnabled} />} />

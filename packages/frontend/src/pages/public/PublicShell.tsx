@@ -1,7 +1,7 @@
 import { type PropsWithChildren, useMemo, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Box, Menu, X } from "lucide-react";
+import { Box, Github, Menu, X } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { LanguageSelector } from "../../components/LanguageSelector";
 import { PullToRefreshIndicator } from "../../components/layout/PullToRefreshIndicator";
@@ -52,6 +52,12 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
               className="rounded-md px-3 py-2 text-sm text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
             >
               {t("common:nav.gallery")}
+            </NavLink>
+            <NavLink
+              to="/learn-more"
+              className="rounded-md px-3 py-2 text-sm text-[hsl(var(--muted-foreground))] transition hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
+            >
+              {t("common:nav.learnMore")}
             </NavLink>
             {/* Pricing link hidden for now
             <NavLink
@@ -104,6 +110,13 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
                 onClick={() => setMenuOpen(false)}
               >
                 {t("common:nav.gallery")}
+              </NavLink>
+              <NavLink
+                to="/learn-more"
+                className="rounded-md px-3 py-2 text-sm text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
+                onClick={() => setMenuOpen(false)}
+              >
+                {t("common:nav.learnMore")}
               </NavLink>
               {/* Pricing link hidden for now
               <NavLink
@@ -159,6 +172,15 @@ export function PublicShell({ children, waitlistEnabled, waitlistState }: PropsW
             <Link className="transition hover:text-[hsl(var(--foreground))]" to="/legal">
               {t("common:footer.legal")}
             </Link>
+            <a
+              href="https://github.com/kreuzhofer/chat3d-app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 transition hover:text-[hsl(var(--foreground))]"
+            >
+              <Github className="h-4 w-4" />
+              GitHub
+            </a>
           </div>
         </div>
       </footer>
