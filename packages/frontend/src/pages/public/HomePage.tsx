@@ -41,6 +41,12 @@ export function HomePage({ waitlistEnabled }: HomePageProps) {
           </p>
           <div className="flex flex-wrap items-center gap-3 pt-2">
             <Link
+              to="/learn-more"
+              className="inline-flex h-10 items-center justify-center rounded-md border border-white/30 bg-transparent px-5 py-2 text-sm font-medium text-white transition hover:bg-white/10"
+            >
+              Learn More
+            </Link>
+            <Link
               to={primaryPath}
               className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[hsl(var(--primary))] px-5 py-2 text-sm font-medium text-[hsl(var(--primary-foreground))] transition hover:brightness-110"
             >
@@ -155,14 +161,12 @@ export function HomePage({ waitlistEnabled }: HomePageProps) {
             <Zap className="h-4 w-4" />
             {primaryLabel}
           </Link>
-          {/* Pricing link hidden for now
           <Link
-            to="/pricing"
+            to="/learn-more"
             className="inline-flex h-10 items-center justify-center rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-1))] px-5 py-2 text-sm font-medium text-[hsl(var(--foreground))] transition hover:bg-[hsl(var(--muted))]"
           >
-            Explore Pricing
+            Learn More
           </Link>
-          */}
         </div>
       </section>
     </div>
