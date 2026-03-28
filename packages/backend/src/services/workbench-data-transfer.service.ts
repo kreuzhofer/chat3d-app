@@ -91,6 +91,9 @@ interface ExportPrompt {
   prompt: string;
   embedding: number[] | null;
   embedding_model: string | null;
+  construction_spec: string | null;
+  spec_embedding: number[] | null;
+  spec_embedding_model: string | null;
   created_at: string;
 }
 
@@ -337,10 +340,15 @@ async function runExport(job: TransferJob): Promise<void> {
       prompt: string;
       embedding: string | null;
       embedding_model: string | null;
+      construction_spec: string | null;
+      spec_embedding: string | null;
+      spec_embedding_model: string | null;
       created_at: Date;
     }[]>`
       SELECT id, category_id, index, prompt,
               embedding::text AS embedding, embedding_model,
+              construction_spec,
+              spec_embedding::text AS spec_embedding, spec_embedding_model,
               created_at
        FROM workbench_example_prompts
        ORDER BY category_id, index ASC
@@ -352,6 +360,9 @@ async function runExport(job: TransferJob): Promise<void> {
       prompt: r.prompt,
       embedding: r.embedding ? JSON.parse(r.embedding) : null,
       embedding_model: r.embedding_model ?? null,
+      construction_spec: r.construction_spec ?? null,
+      spec_embedding: r.spec_embedding ? JSON.parse(r.spec_embedding) : null,
+      spec_embedding_model: r.spec_embedding_model ?? null,
       created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     }));
 
@@ -709,16 +720,25 @@ async function runZipImport(job: TransferJob, filePath: string): Promise<void> {
       });
     }
 
-    // Insert prompts (with embeddings — pgvector requires raw SQL)
+    // Insert prompts (with embeddings — pgvector requires raw SQL for vector columns)
     job.progress = { phase: "inserting prompts", detail: `${data.prompts.length} rows` };
     for (const p of data.prompts) {
       const embeddingValue = p.embedding
         ? `[${p.embedding.join(",")}]`
         : null;
-      if (embeddingValue) {
+      const specEmbeddingValue = p.spec_embedding
+        ? `[${p.spec_embedding.join(",")}]`
+        : null;
+      const constructionSpec = p.construction_spec ?? null;
+      const specEmbeddingModel = p.spec_embedding_model ?? null;
+      if (embeddingValue || specEmbeddingValue) {
+        // Use raw SQL when any vector columns are present
         await tx.$executeRaw`
-          INSERT INTO workbench_example_prompts (id, category_id, index, prompt, embedding, embedding_model, created_at)
-          VALUES (${p.id}::uuid, ${p.category_id}::uuid, ${p.index}, ${p.prompt}, ${embeddingValue}::vector, ${p.embedding_model}, ${new Date(p.created_at)})
+          INSERT INTO workbench_example_prompts (id, category_id, index, prompt, embedding, embedding_model, construction_spec, spec_embedding, spec_embedding_model, created_at)
+          VALUES (${p.id}::uuid, ${p.category_id}::uuid, ${p.index}, ${p.prompt},
+                  ${embeddingValue}::vector, ${p.embedding_model},
+                  ${constructionSpec}, ${specEmbeddingValue}::vector, ${specEmbeddingModel},
+                  ${new Date(p.created_at)})
         `;
       } else {
         await tx.workbenchExamplePrompt.create({
@@ -728,6 +748,8 @@ async function runZipImport(job: TransferJob, filePath: string): Promise<void> {
             index: p.index,
             prompt: p.prompt,
             embeddingModel: p.embedding_model,
+            constructionSpec: constructionSpec,
+            specEmbeddingModel: specEmbeddingModel,
             createdAt: new Date(p.created_at),
           },
         });
@@ -953,16 +975,25 @@ async function runJsonImport(job: TransferJob, filePath: string): Promise<void> 
       });
     }
 
-    // Insert prompts (with embeddings — pgvector requires raw SQL)
+    // Insert prompts (with embeddings — pgvector requires raw SQL for vector columns)
     job.progress = { phase: "inserting prompts", detail: `${data.prompts.length} rows` };
     for (const p of data.prompts) {
       const embeddingValue = p.embedding
         ? `[${p.embedding.join(",")}]`
         : null;
-      if (embeddingValue) {
+      const specEmbeddingValue = p.spec_embedding
+        ? `[${p.spec_embedding.join(",")}]`
+        : null;
+      const constructionSpec = p.construction_spec ?? null;
+      const specEmbeddingModel = p.spec_embedding_model ?? null;
+      if (embeddingValue || specEmbeddingValue) {
+        // Use raw SQL when any vector columns are present
         await tx.$executeRaw`
-          INSERT INTO workbench_example_prompts (id, category_id, index, prompt, embedding, embedding_model, created_at)
-          VALUES (${p.id}::uuid, ${p.category_id}::uuid, ${p.index}, ${p.prompt}, ${embeddingValue}::vector, ${p.embedding_model}, ${new Date(p.created_at)})
+          INSERT INTO workbench_example_prompts (id, category_id, index, prompt, embedding, embedding_model, construction_spec, spec_embedding, spec_embedding_model, created_at)
+          VALUES (${p.id}::uuid, ${p.category_id}::uuid, ${p.index}, ${p.prompt},
+                  ${embeddingValue}::vector, ${p.embedding_model},
+                  ${constructionSpec}, ${specEmbeddingValue}::vector, ${specEmbeddingModel},
+                  ${new Date(p.created_at)})
         `;
       } else {
         await tx.workbenchExamplePrompt.create({
@@ -972,6 +1003,8 @@ async function runJsonImport(job: TransferJob, filePath: string): Promise<void> 
             index: p.index,
             prompt: p.prompt,
             embeddingModel: p.embedding_model,
+            constructionSpec: constructionSpec,
+            specEmbeddingModel: specEmbeddingModel,
             createdAt: new Date(p.created_at),
           },
         });

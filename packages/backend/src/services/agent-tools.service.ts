@@ -91,7 +91,7 @@ export interface AgentToolDeps {
   specInterpretation?: string;
 }
 
-export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: boolean; enableSearch?: boolean }): Record<string, any> {
+export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: boolean; enableSearch?: boolean; ragMaxExamplesOverride?: number }): Record<string, any> {
   const { fs, wrapProjectFiles, baseFileName, signal, onProgress, onRenderSuccess, onSubmit } = deps;
 
   const tools: Record<string, any> = {
@@ -142,7 +142,9 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
       execute: async ({ query }: { query: string }) => {
         try {
           const { getRagMaxExamples, getRagSimilarityThreshold } = await import("./generation-settings.service.js");
-          const [maxEx, simThreshold] = await Promise.all([getRagMaxExamples(), getRagSimilarityThreshold()]);
+          const [globalMaxEx, simThreshold] = await Promise.all([getRagMaxExamples(), getRagSimilarityThreshold()]);
+          const maxEx = options.ragMaxExamplesOverride ?? globalMaxEx;
+          if (maxEx <= 0) return "Example search disabled for this run (few-shot count = 0).";
           const { matches } = await findSimilarExamples(query, maxEx);
           const filtered = matches.filter(m => m.similarity >= simThreshold);
           if (filtered.length === 0) {

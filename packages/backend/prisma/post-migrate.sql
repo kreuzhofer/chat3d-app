@@ -37,3 +37,8 @@ ALTER TABLE curation_candidate_tags ADD CONSTRAINT curation_candidate_tags_sugge
 -- HNSW vector index for cosine similarity search on prompt embeddings
 CREATE INDEX IF NOT EXISTS idx_wb_prompts_embedding
   ON workbench_example_prompts USING hnsw (embedding vector_cosine_ops);
+
+-- HNSW vector index for cosine similarity search on spec embeddings (remix matching)
+CREATE INDEX IF NOT EXISTS idx_wb_prompts_spec_embedding
+  ON workbench_example_prompts USING hnsw (spec_embedding vector_cosine_ops)
+  WHERE spec_embedding IS NOT NULL;

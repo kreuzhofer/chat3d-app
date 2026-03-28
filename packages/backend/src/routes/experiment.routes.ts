@@ -40,7 +40,7 @@ function handleError(err: unknown, res: Response) {
 
 experimentRouter.post("/", async (req: Request, res: Response) => {
   try {
-    const { name, categoryIds, promptCount, promptSeed, testedPurpose, modelIds } = req.body;
+    const { name, categoryIds, promptCount, promptSeed, testedPurpose, modelIds, fewShotCounts } = req.body;
     const experiment = await createExperiment({
       name,
       categoryIds,
@@ -48,6 +48,7 @@ experimentRouter.post("/", async (req: Request, res: Response) => {
       promptSeed,
       testedPurpose,
       modelIds,
+      fewShotCounts,
       createdBy: req.authUser!.id,
     });
     res.status(201).json(experiment);
@@ -101,8 +102,8 @@ experimentRouter.get("/:id", async (req: Request, res: Response) => {
 
 experimentRouter.patch("/:id", async (req: Request, res: Response) => {
   try {
-    const { name, categoryIds, promptCount, promptSeed, modelIds } = req.body;
-    const experiment = await updateExperiment(req.params.id, { name, categoryIds, promptCount, promptSeed, modelIds });
+    const { name, categoryIds, promptCount, promptSeed, modelIds, fewShotCounts } = req.body;
+    const experiment = await updateExperiment(req.params.id, { name, categoryIds, promptCount, promptSeed, modelIds, fewShotCounts });
     res.json(experiment);
   } catch (err) {
     handleError(err, res);

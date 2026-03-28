@@ -25,6 +25,7 @@ export interface ExperimentRun {
   modelLabel: string;
   model?: { id: string; displayName: string | null; modelName: string; provider: string };
   runOrder: number;
+  fewShotCount?: number | null;
   status: string;
   startedAt?: string;
   completedAt?: string;
@@ -45,6 +46,7 @@ export interface Experiment {
   promptCount: number;
   promptSeed: number;
   testedPurpose: string;
+  fewShotCounts?: number[];
   status: string;
   runs: ExperimentRun[];
   promptSelections?: PromptSelection[];
@@ -71,6 +73,7 @@ export interface RunMetrics {
   runId: string;
   modelLabel: string;
   runOrder: number;
+  fewShotCount: number | null;
   totalPrompts: number;
   successCount: number;
   failedCount: number;
@@ -90,6 +93,7 @@ export interface RunMetrics {
 export interface PromptRunResult {
   runId: string;
   modelLabel: string;
+  fewShotCount: number | null;
   exampleId: string | null;
   evalScore: number | null;
   visualScore: number | null;
@@ -118,6 +122,7 @@ export interface ExperimentStatus {
     id: string;
     modelLabel: string;
     runOrder: number;
+    fewShotCount?: number | null;
     status: string;
     completedPrompts: number;
     startedAt?: string;
@@ -146,6 +151,7 @@ export async function createExperiment(token: string, data: {
   promptSeed?: number;
   testedPurpose?: string;
   modelIds: string[];
+  fewShotCounts?: number[];
 }) {
   return request<Experiment>(token, "", { method: "POST", body: JSON.stringify(data) });
 }
@@ -156,6 +162,7 @@ export async function updateExperiment(token: string, id: string, data: {
   promptCount?: number;
   promptSeed?: number;
   modelIds?: string[];
+  fewShotCounts?: number[];
 }) {
   return request<Experiment>(token, `/${id}`, { method: "PATCH", body: JSON.stringify(data) });
 }

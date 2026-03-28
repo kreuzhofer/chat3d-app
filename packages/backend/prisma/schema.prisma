@@ -417,6 +417,9 @@ model WorkbenchExamplePrompt {
   specInterpretation       String?                        @map("spec_interpretation") @db.Text
   detectedOperations       String[]                       @default([]) @map("detected_operations")
   description              String?                        @map("description") @db.Text
+  constructionSpec         String?                        @map("construction_spec") @db.Text
+  specEmbedding            Unsupported("vector(1536)")?   @map("spec_embedding")
+  specEmbeddingModel       String?                        @map("spec_embedding_model") @db.Text
 
   // Relations
   category                   WorkbenchCategory    @relation(fields: [categoryId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -522,6 +525,7 @@ model Experiment {
   promptCount   Int       @map("prompt_count")
   promptSeed    Int       @default(42) @map("prompt_seed")
   testedPurpose String    @default("workbench_codegen") @map("tested_purpose") @db.VarChar(50)
+  fewShotCounts Int[]     @default([]) @map("few_shot_counts")
   status        String    @default("created") @db.VarChar(20)
   createdBy     String?   @map("created_by") @db.Uuid
   startedAt     DateTime? @map("started_at") @db.Timestamptz()
@@ -544,6 +548,7 @@ model ExperimentRun {
   modelId      String    @map("model_id") @db.Uuid
   modelLabel   String    @map("model_label") @db.VarChar(255)
   runOrder     Int       @map("run_order")
+  fewShotCount Int?      @map("few_shot_count")
   status       String    @default("pending") @db.VarChar(20)
   startedAt    DateTime? @map("started_at") @db.Timestamptz()
   completedAt  DateTime? @map("completed_at") @db.Timestamptz()

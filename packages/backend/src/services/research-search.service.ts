@@ -50,6 +50,7 @@ export interface SearchResult {
  */
 export async function searchTechniques(
   techniques: TechniqueEntry[],
+  ragMaxExamplesOverride?: number,
 ): Promise<SearchResult> {
   const [simThreshold, gapThreshold, gapThresholdRef, maxExamples, maxKnowledge] = await Promise.all([
     getRagSimilarityThreshold(),
@@ -58,6 +59,7 @@ export async function searchTechniques(
     getRagMaxExamples(),
     getRagMaxKnowledge(),
   ]);
+  const effectiveMaxExamples = ragMaxExamplesOverride ?? maxExamples;
 
   let totalEmbeddingTokens = 0;
   const gaps: TechniqueGap[] = [];
@@ -70,7 +72,7 @@ export async function searchTechniques(
 
       // Parallel: examples + knowledge for this technique
       const [exResult, knResult] = await Promise.allSettled([
-        findSimilarExamples(t.technique, maxExamples),
+        findSimilarExamples(t.technique, effectiveMaxExamples),
         hybridSearchKnowledge(t.technique, maxKnowledge),
       ]);
 

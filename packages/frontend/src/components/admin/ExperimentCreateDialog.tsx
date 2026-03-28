@@ -30,6 +30,9 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>(
     experiment?.runs.map((r) => r.modelId).filter(Boolean) as string[] ?? [],
   );
+  const [selectedFewShotCounts, setSelectedFewShotCounts] = useState<number[]>(
+    experiment?.fewShotCounts ?? [],
+  );
   const [categories, setCategories] = useState<Array<{ id: string; name: string; promptCount: number; approvedPromptCount: number }>>([]);
   const [models, setModels] = useState<Array<{ id: string; provider: string; modelName: string; displayName: string | null; isActive: boolean }>>([]);
   const [previewedPrompts, setPreviewedPrompts] = useState<Array<{ id: string; prompt: string; index: number }>>([]);
@@ -77,10 +80,19 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
     );
   };
 
+  const toggleFewShotCount = (count: number) => {
+    setSelectedFewShotCounts((prev) =>
+      prev.includes(count) ? prev.filter((c) => c !== count) : [...prev, count].sort((a, b) => a - b),
+    );
+  };
+
+  const hasEnoughComparison = selectedModelIds.length >= 2 || selectedFewShotCounts.length >= 2;
+  const totalRuns = selectedModelIds.length * Math.max(selectedFewShotCounts.length, 1);
+
   const handleSubmit = async () => {
     if (!name.trim()) { setError("Name is required"); return; }
     if (selectedCategoryIds.length === 0) { setError("Select at least one category"); return; }
-    if (selectedModelIds.length < 2) { setError("Select at least 2 models to compare"); return; }
+    if (!hasEnoughComparison) { setError("Select at least 2 models or 2 few-shot counts for comparison"); return; }
 
     setSubmitting(true);
     setError(null);
@@ -92,6 +104,7 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
           promptCount,
           promptSeed,
           modelIds: selectedModelIds,
+          fewShotCounts: selectedFewShotCounts.length > 0 ? selectedFewShotCounts : undefined,
         });
       } else {
         await createExperiment(token, {
@@ -100,6 +113,7 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
           promptCount,
           promptSeed,
           modelIds: selectedModelIds,
+          fewShotCounts: selectedFewShotCounts.length > 0 ? selectedFewShotCounts : undefined,
         });
       }
       onSaved();
@@ -179,6 +193,36 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
           </div>
         </div>
 
+        <div>
+          <Label>Few-Shot Example Counts (optional)</Label>
+          <p className="mb-2 text-xs text-[hsl(var(--muted-foreground))]">
+            Vary how many workbench examples are injected per run. Leave empty to use the global default.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {[0, 1, 2, 3, 5, 6, 10].map((count) => (
+              <button
+                key={count}
+                type="button"
+                className={`rounded-full border px-3 py-1 text-sm transition-colors ${
+                  selectedFewShotCounts.includes(count)
+                    ? "border-[hsl(var(--primary))] bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                    : "border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]"
+                }`}
+                onClick={() => toggleFewShotCount(count)}
+              >
+                {count === 0 ? "0 (none)" : count}
+              </button>
+            ))}
+          </div>
+          {totalRuns > 1 && (
+            <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
+              {totalRuns} runs = {selectedModelIds.length} model{selectedModelIds.length !== 1 ? "s" : ""}
+              {selectedFewShotCounts.length > 0 && ` \u00d7 ${selectedFewShotCounts.length} few-shot count${selectedFewShotCounts.length !== 1 ? "s" : ""}`}
+              {" \u00d7 "}{promptCount} prompts = {totalRuns * promptCount} generations
+            </p>
+          )}
+        </div>
+
         {previewedPrompts.length > 0 && (
           <div>
             <Label>Selected prompts preview ({previewedPrompts.length} approved)</Label>
@@ -195,7 +239,7 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
 
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
-        <Button onClick={handleSubmit} disabled={submitting || selectedModelIds.length < 2}>
+        <Button onClick={handleSubmit} disabled={submitting || !hasEnoughComparison}>
           {submitting ? "Saving..." : isEdit ? "Save Changes" : "Create Experiment"}
         </Button>
       </div>

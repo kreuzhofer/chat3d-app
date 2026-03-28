@@ -15,6 +15,7 @@ import {
   createEmbeddingModel,
   type LlmModelConfig,
 } from "./llm-config.service.js";
+import { isSpecEmbeddingEnabled } from "./generation-settings.service.js";
 
 const logger = createLogger("embeddings");
 
@@ -220,6 +221,7 @@ export async function findSimilarExamples(
   limit = 6,
   boostOperations?: Set<string>,
 ): Promise<FindSimilarResult> {
+  if (limit <= 0) return { matches: [], embeddingTokens: 0 };
   const { embedding: queryEmbedding, tokens: embeddingTokens } = await embedPromptTextWithUsage(promptText);
   const pgVector = `[${queryEmbedding.join(",")}]`;
 
@@ -356,4 +358,41 @@ export async function getEmbeddingStatus(): Promise<EmbeddingStatus> {
     stale: embeddedCount - currentModelCount,
     currentModel,
   };
+}
+
+// ── Spec embedding storage ───────────────────────────────────────────
+
+/**
+ * Store a construction spec and its embedding on a workbench prompt row.
+ * Called after successful generation to build the spec embedding pool.
+ * Respects the global.remix_spec_embedding_enabled setting.
+ */
+export async function storeSpecAndEmbedding(
+  promptId: string,
+  constructionSpec: string,
+): Promise<void> {
+  const enabled = await isSpecEmbeddingEnabled();
+  if (!enabled) {
+    logger.debug("spec embedding disabled, storing text only");
+    await prisma.workbenchExamplePrompt.update({
+      where: { id: promptId },
+      data: { constructionSpec },
+    });
+    return;
+  }
+
+  const { embedding } = await embedPromptTextWithUsage(constructionSpec);
+  const pgVector = `[${embedding.join(",")}]`;
+
+  const cfg = await getModelForPurpose("embedding");
+
+  await prisma.$executeRaw`
+    UPDATE workbench_example_prompts
+    SET construction_spec = ${constructionSpec},
+        spec_embedding = ${pgVector}::vector,
+        spec_embedding_model = ${cfg.modelName}
+    WHERE id = ${promptId}::uuid
+  `;
+
+  logger.debug({ promptId }, "stored spec and embedding");
 }

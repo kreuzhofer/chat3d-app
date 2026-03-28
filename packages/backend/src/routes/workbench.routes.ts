@@ -36,6 +36,7 @@ import {
   backfillDetectedOperations,
   getEmbeddingStatus,
 } from "../services/workbench-embeddings.service.js";
+import { backfillSpecEmbeddings } from "../services/remix-backfill.service.js";
 import {
   setFeaturedExample,
   clearFeaturedExample,
@@ -648,6 +649,18 @@ workbenchRouter.post("/operations/backfill", async (_req, res) => {
   } catch (error) {
     logger.error({ err: error }, "operations backfill failed");
     res.status(500).json({ error: "Operations backfill failed", detail: String(error) });
+  }
+});
+
+workbenchRouter.post("/spec-embeddings/backfill", async (_req, res) => {
+  try {
+    logger.info("spec embeddings backfill requested");
+    const result = await backfillSpecEmbeddings();
+    logger.info(result, "spec embeddings backfill complete");
+    res.status(200).json(result);
+  } catch (error) {
+    logger.error({ err: error }, "spec embeddings backfill failed");
+    res.status(500).json({ error: "Spec embeddings backfill failed", detail: String(error) });
   }
 });
 

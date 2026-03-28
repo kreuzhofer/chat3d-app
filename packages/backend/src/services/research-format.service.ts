@@ -15,13 +15,14 @@ const MAX_KNOWLEDGE_LINES = 30;
 
 /**
  * Format a ResearchPackage into a prompt section for system prompt injection.
- * Prioritizes by similarity, caps at 3 examples + 3 knowledge entries.
+ * Prioritizes by similarity, caps at maxExamples + 3 knowledge entries.
+ * @param maxExamplesOverride — if provided, overrides the default cap of 3 examples.
  */
-export function formatResearchSection(pkg: ResearchPackage): string {
+export function formatResearchSection(pkg: ResearchPackage, maxExamplesOverride?: number): string {
   const parts: string[] = [];
 
   // Examples section
-  const topExamples = pkg.examples.slice(0, 3);
+  const topExamples = pkg.examples.slice(0, maxExamplesOverride ?? 3);
   if (topExamples.length > 0) {
     const exEntries = topExamples.map((m, i) => {
       const code = truncateCode(m.code, MAX_EXAMPLE_LINES);

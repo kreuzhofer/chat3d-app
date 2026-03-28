@@ -60,8 +60,23 @@ async function validateCategories(categoryIds: string[]) {
   return categories;
 }
 
-async function validateModels(modelIds: string[]) {
-  if (modelIds.length < 2) throw new ExperimentError("At least 2 models required for comparison", 400);
+function validateFewShotCounts(counts?: number[]): number[] | null {
+  if (!counts || counts.length === 0) return null;
+  for (const c of counts) {
+    if (!Number.isInteger(c) || c < 0 || c > 20) {
+      throw new ExperimentError(`Invalid few-shot count: ${c} (must be integer 0-20)`, 400);
+    }
+  }
+  const unique = [...new Set(counts)].sort((a, b) => a - b);
+  if (unique.length !== counts.length) throw new ExperimentError("Duplicate few-shot counts not allowed", 400);
+  return unique;
+}
+
+async function validateModels(modelIds: string[], fewShotCounts?: number[] | null) {
+  const hasMultipleFsc = fewShotCounts && fewShotCounts.length >= 2;
+  if (modelIds.length < 2 && !hasMultipleFsc) {
+    throw new ExperimentError("At least 2 models or 2 few-shot counts required for comparison", 400);
+  }
   const uniqueModelIds = [...new Set(modelIds)];
   if (uniqueModelIds.length !== modelIds.length) throw new ExperimentError("Duplicate model IDs not allowed", 400);
   const models = await prisma.llmModel.findMany({
@@ -98,26 +113,36 @@ export interface CreateExperimentInput {
   promptSeed?: number;
   testedPurpose?: string;
   modelIds: string[];
+  fewShotCounts?: number[];
   createdBy: string;
 }
 
 export async function createExperiment(input: CreateExperimentInput) {
   const { name, categoryIds, promptCount, promptSeed = 42, testedPurpose = "workbench_codegen", modelIds, createdBy } = input;
 
+  const validatedFsc = validateFewShotCounts(input.fewShotCounts);
   await validateCategories(categoryIds);
-  const { models, uniqueModelIds } = await validateModels(modelIds);
+  const { models, uniqueModelIds } = await validateModels(modelIds, validatedFsc);
   const selectedIds = await selectApprovedPrompts(categoryIds, promptCount, promptSeed);
 
   const experiment = await prisma.$transaction(async (tx) => {
     const exp = await tx.experiment.create({
-      data: { name, categoryIds, promptCount, promptSeed, testedPurpose, createdBy },
+      data: { name, categoryIds, promptCount, promptSeed, testedPurpose, createdBy, fewShotCounts: validatedFsc ?? [] },
     });
 
-    for (let i = 0; i < uniqueModelIds.length; i++) {
-      const model = models.find((m) => m.id === uniqueModelIds[i])!;
-      await tx.experimentRun.create({
-        data: { experimentId: exp.id, modelId: model.id, modelLabel: `${model.provider}/${model.modelName}`, runOrder: i + 1 },
-      });
+    const effectiveCounts: Array<number | null> = validatedFsc ?? [null];
+    let runOrder = 0;
+    for (const modelId of uniqueModelIds) {
+      const model = models.find((m) => m.id === modelId)!;
+      for (const fsc of effectiveCounts) {
+        runOrder++;
+        const label = fsc != null
+          ? `${model.provider}/${model.modelName} (${fsc} ex)`
+          : `${model.provider}/${model.modelName}`;
+        await tx.experimentRun.create({
+          data: { experimentId: exp.id, modelId: model.id, modelLabel: label, runOrder, fewShotCount: fsc },
+        });
+      }
     }
 
     for (let i = 0; i < selectedIds.length; i++) {
@@ -129,7 +154,8 @@ export async function createExperiment(input: CreateExperimentInput) {
     return exp;
   });
 
-  logger.info({ experimentId: experiment.id, name, promptCount, runCount: uniqueModelIds.length }, "experiment created");
+  const totalRuns = uniqueModelIds.length * (validatedFsc?.length ?? 1);
+  logger.info({ experimentId: experiment.id, name, promptCount, runCount: totalRuns, fewShotCounts: validatedFsc }, "experiment created");
   return getExperiment(experiment.id);
 }
 
@@ -141,12 +167,13 @@ export interface UpdateExperimentInput {
   promptCount?: number;
   promptSeed?: number;
   modelIds?: string[];
+  fewShotCounts?: number[];
 }
 
 export async function updateExperiment(id: string, input: UpdateExperimentInput) {
   const exp = await prisma.experiment.findUnique({
     where: { id },
-    include: { runs: { select: { id: true } } },
+    include: { runs: { select: { id: true, modelId: true, modelLabel: true, fewShotCount: true } } },
   });
   if (!exp) throw new ExperimentError("Experiment not found", 404);
   if (!EDITABLE_STATUSES.includes(exp.status)) {
@@ -156,30 +183,44 @@ export async function updateExperiment(id: string, input: UpdateExperimentInput)
   const categoryIds = input.categoryIds ?? exp.categoryIds;
   const promptCount = input.promptCount ?? exp.promptCount;
   const promptSeed = input.promptSeed ?? exp.promptSeed;
+  const validatedFsc = input.fewShotCounts !== undefined ? validateFewShotCounts(input.fewShotCounts) : null;
+  const effectiveFsc = input.fewShotCounts !== undefined ? validatedFsc : (exp.fewShotCounts.length > 0 ? exp.fewShotCounts : null);
 
   // Validate changed fields
   if (input.categoryIds) await validateCategories(categoryIds);
 
+  const runsChanged = input.modelIds !== undefined || input.fewShotCounts !== undefined;
   let models: Awaited<ReturnType<typeof validateModels>> | null = null;
-  if (input.modelIds) models = await validateModels(input.modelIds);
+  if (runsChanged) {
+    const modelIds = input.modelIds ?? [...new Set(exp.runs.map((r) => r.modelId))];
+    models = await validateModels(modelIds, effectiveFsc);
+  }
 
   // Re-select prompts if categories, count, or seed changed
   const promptsChanged = input.categoryIds || input.promptCount !== undefined || input.promptSeed !== undefined;
   const selectedIds = promptsChanged ? await selectApprovedPrompts(categoryIds, promptCount, promptSeed) : null;
 
   await prisma.$transaction(async (tx) => {
-    // Clean up old runs/examples if models changed
+    // Clean up old runs/examples if runs configuration changed
     if (models) {
       const runIds = exp.runs.map((r) => r.id);
       if (runIds.length > 0) {
         await tx.workbenchExample.deleteMany({ where: { experimentRunId: { in: runIds } } });
         await tx.experimentRun.deleteMany({ where: { id: { in: runIds } } });
       }
-      for (let i = 0; i < models.uniqueModelIds.length; i++) {
-        const model = models.models.find((m) => m.id === models!.uniqueModelIds[i])!;
-        await tx.experimentRun.create({
-          data: { experimentId: id, modelId: model.id, modelLabel: `${model.provider}/${model.modelName}`, runOrder: i + 1 },
-        });
+      const effectiveCounts: Array<number | null> = effectiveFsc ?? [null];
+      let runOrder = 0;
+      for (const modelId of models.uniqueModelIds) {
+        const model = models.models.find((m) => m.id === modelId)!;
+        for (const fsc of effectiveCounts) {
+          runOrder++;
+          const label = fsc != null
+            ? `${model.provider}/${model.modelName} (${fsc} ex)`
+            : `${model.provider}/${model.modelName}`;
+          await tx.experimentRun.create({
+            data: { experimentId: id, modelId: model.id, modelLabel: label, runOrder, fewShotCount: fsc },
+          });
+        }
       }
     }
 
@@ -200,6 +241,7 @@ export async function updateExperiment(id: string, input: UpdateExperimentInput)
         ...(input.categoryIds && { categoryIds }),
         ...(input.promptCount !== undefined && { promptCount }),
         ...(input.promptSeed !== undefined && { promptSeed }),
+        ...(input.fewShotCounts !== undefined && { fewShotCounts: effectiveFsc ?? [] }),
         status: "created",
         startedAt: null,
         completedAt: null,
@@ -286,7 +328,7 @@ export async function deleteExperiment(id: string) {
 export async function rerunExperiment(id: string) {
   const exp = await prisma.experiment.findUnique({
     where: { id },
-    include: { runs: { select: { id: true, modelId: true, modelLabel: true, runOrder: true } } },
+    include: { runs: { select: { id: true, modelId: true, modelLabel: true, runOrder: true, fewShotCount: true } } },
   });
   if (!exp) throw new ExperimentError("Experiment not found", 404);
   if (exp.status === "running") throw new ExperimentError("Cannot re-run a running experiment", 409);
@@ -299,7 +341,7 @@ export async function rerunExperiment(id: string) {
     }
     for (const run of exp.runs) {
       await tx.experimentRun.create({
-        data: { experimentId: id, modelId: run.modelId, modelLabel: run.modelLabel, runOrder: run.runOrder },
+        data: { experimentId: id, modelId: run.modelId, modelLabel: run.modelLabel, runOrder: run.runOrder, fewShotCount: run.fewShotCount },
       });
     }
     await tx.experiment.update({ where: { id }, data: { status: "created", startedAt: null, completedAt: null } });
@@ -335,7 +377,7 @@ export async function getExperimentStatus(id: string) {
       id: true, status: true, promptCount: true,
       runs: {
         orderBy: { runOrder: "asc" },
-        select: { id: true, modelLabel: true, runOrder: true, status: true, startedAt: true, completedAt: true },
+        select: { id: true, modelLabel: true, runOrder: true, fewShotCount: true, status: true, startedAt: true, completedAt: true },
       },
     },
   });
@@ -355,7 +397,7 @@ export async function getExperimentStatus(id: string) {
   return {
     id: exp.id, status: exp.status, promptCount: exp.promptCount,
     runs: exp.runs.map((r) => ({
-      id: r.id, modelLabel: r.modelLabel, runOrder: r.runOrder, status: r.status,
+      id: r.id, modelLabel: r.modelLabel, runOrder: r.runOrder, fewShotCount: r.fewShotCount as number | null, status: r.status,
       completedPrompts: countMap.get(r.id) ?? 0, startedAt: r.startedAt, completedAt: r.completedAt,
     })),
   };
@@ -387,11 +429,11 @@ function mapExperiment(exp: any, categories: Array<{ id: string; name: string; c
   return {
     id: exp.id, name: exp.name, categoryIds: exp.categoryIds, categories,
     promptCount: exp.promptCount, promptSeed: exp.promptSeed, testedPurpose: exp.testedPurpose,
-    status: exp.status, createdBy: exp.createdBy,
+    fewShotCounts: exp.fewShotCounts, status: exp.status, createdBy: exp.createdBy,
     startedAt: exp.startedAt, completedAt: exp.completedAt, createdAt: exp.createdAt,
     runs: exp.runs.map((r: any) => ({  // eslint-disable-line @typescript-eslint/no-explicit-any
       id: r.id, modelId: r.modelId, modelLabel: r.modelLabel, model: r.model,
-      runOrder: r.runOrder, status: r.status, startedAt: r.startedAt, completedAt: r.completedAt,
+      runOrder: r.runOrder, fewShotCount: r.fewShotCount, status: r.status, startedAt: r.startedAt, completedAt: r.completedAt,
     })),
     promptSelections: exp.promptSelections.map((s: any) => ({  // eslint-disable-line @typescript-eslint/no-explicit-any
       promptId: s.promptId, selectionOrder: s.selectionOrder, prompt: s.prompt.prompt, index: s.prompt.index,

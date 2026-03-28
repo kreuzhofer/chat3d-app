@@ -99,7 +99,7 @@ export async function cancelExperiment(experimentId: string): Promise<void> {
 
 interface ExperimentWithRelations {
   id: string;
-  runs: Array<{ id: string; modelId: string; modelLabel: string; runOrder: number; status: string }>;
+  runs: Array<{ id: string; modelId: string; modelLabel: string; runOrder: number; fewShotCount: number | null; status: string }>;
   promptSelections: Array<{ promptId: string; selectionOrder: number }>;
 }
 
@@ -158,6 +158,7 @@ interface RunInfo {
   modelId: string;
   modelLabel: string;
   runOrder: number;
+  fewShotCount: number | null;
   status: string;
 }
 
@@ -215,6 +216,7 @@ async function executeRun(run: RunInfo, promptIds: string[], signal: AbortSignal
         externalSignal: signal,
         codegenModelOverride: modelConfig,
         experimentRunId: run.id,
+        ragMaxExamplesOverride: run.fewShotCount ?? undefined,
       });
 
       if (result.renderStatus === "success") {

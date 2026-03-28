@@ -20,6 +20,7 @@ import {
 import { ExperimentPromptComparisonTable } from "./ExperimentPromptComparisonTable";
 import { ExperimentOutliers } from "./ExperimentOutliers";
 import { ExperimentCreateDialog } from "./ExperimentCreateDialog";
+import { ExperimentFewShotChart } from "./ExperimentFewShotChart";
 
 interface Props {
   token: string;
@@ -104,6 +105,7 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
         <>
           <ComparisonTable runs={comparison} />
           <ComparisonCharts runs={comparison} />
+          <ExperimentFewShotChart runs={comparison} />
           {promptData && <ExperimentOutliers data={promptData} />}
           {promptData && <ExperimentPromptComparisonTable data={promptData} />}
         </>
@@ -180,6 +182,9 @@ function ExperimentHeader({ experiment, status, token, onRefresh, setError, onEd
         <div><strong>Status:</strong> <Badge variant={experiment.status === "running" ? "default" : "secondary"}>{experiment.status}</Badge></div>
         <div><strong>Prompts:</strong> {experiment.promptCount} (seed: {experiment.promptSeed})</div>
         <div><strong>Runs:</strong> {experiment.runs.length}</div>
+        {experiment.fewShotCounts && experiment.fewShotCounts.length > 0 && (
+          <div><strong>Few-Shot Counts:</strong> {experiment.fewShotCounts.join(", ")}</div>
+        )}
         <div><strong>Created:</strong> {new Date(experiment.createdAt).toLocaleDateString()}</div>
       </div>
 

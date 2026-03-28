@@ -2,13 +2,13 @@
 
 **Build 3D models with natural language.**
 
-Chat3D is an AI-powered prompt-to-CAD workspace. Describe a part in plain English, and Chat3D generates production-ready 3D models (STL, STEP, 3MF) using a two-stage LLM pipeline and [Build123d](https://github.com/gumyr/build123d) under the hood. Preview results in-browser, iterate through conversation, and download files when ready.
+Chat3D is an AI-powered prompt-to-CAD workspace. Describe a part in plain English, and Chat3D generates production-ready 3D models (STL, STEP, 3MF) using an agent-based LLM pipeline and [Build123d](https://github.com/gumyr/build123d) under the hood. Preview results in-browser, iterate through conversation, and download files when ready.
 
 ## What It Does
 
 1. **Describe your part** -- Open a chat context and tell Chat3D what you need: "Design a spur gear with 20 teeth and a 5mm bore."
-2. **Generate & review** -- A conversation LLM interprets your intent, then a code-generation LLM produces Build123d Python code. The code is executed by a rendering service that returns solid geometry.
-3. **Preview & iterate** -- View the 3D model directly in the browser (Three.js), download STL/STEP/3MF files, rate results, and regenerate until the part is production-ready.
+2. **Generate & review** -- A conversation LLM interprets your intent, then an agent-based code-generation pipeline produces Build123d Python code via multi-step reasoning with spec generation, technique research, and automated evaluation. The code is executed by a rendering service that returns solid geometry.
+3. **Preview & iterate** -- View the 3D model directly in the browser (Three.js), download STL/STEP/3MF files, rate results, tweak parameters, and regenerate until the part is production-ready.
 
 ## Three-Pane Workspace
 
@@ -20,44 +20,55 @@ The UI is organized into three persistent panes so you never lose context:
 
 ## Key Features
 
-- **Conversational modeling** -- Describe parts in natural language. The LLM pipeline handles intent detection, code generation, and rendering automatically.
+- **Conversational modeling** -- Describe parts in natural language. The agent-based pipeline handles intent detection, spec generation, technique research, code generation, validation, and multi-track evaluation automatically.
 - **Multi-format export** -- Download models as STL, STEP, 3MF, or raw Build123d Python source.
-- **In-browser 3D preview** -- Inspect generated geometry with Three.js without leaving the app.
-- **Multi-provider LLM support** -- Use OpenAI, Anthropic, xAI (Grok), DeepSeek, Amazon Bedrock, or a local Ollama instance. Configure conversation and code-generation models independently via the Admin UI.
+- **In-browser 3D preview** -- Inspect generated geometry with Three.js without leaving the app. Auto-turntable, fullscreen, and camera controls included.
+- **Multi-provider LLM support** -- Use OpenAI, Anthropic, xAI (Grok), DeepSeek, Amazon Bedrock, Minimax, or a local Ollama instance. Configure conversation, code-generation, evaluation, and embedding models independently via the Admin UI.
+- **Public gallery** -- Browse and search approved models by category. Remix gallery models into new chat conversations to use as a starting point.
+- **Workbench** -- Admin tooling for curating a prompt library with automated batch generation, VLM-based evaluation, auto-approval workflows, and training data export (JSONL).
+- **Experiments** -- A/B test different LLM models on curated workbench prompts. Compare eval scores, cost, and generation quality side-by-side.
+- **Knowledge base** -- Crawl and index Build123d documentation, examples, and forums. Semantic search (pgvector) feeds relevant technique examples into the generation pipeline.
+- **Curation pipeline** -- User-rated chat items surface as curation candidates. Admins review, distill prompts, tag, and promote to the workbench library.
+- **Multi-track evaluation** -- Generated models are scored via code assertions, LLM code review, and VLM visual evaluation (with zoom follow-ups for uncertain items). Scores combine adaptively.
+- **Usage analytics** -- Track token consumption, cost, and latency per user, model, provider, and purpose. Pipeline performance dashboards show generation throughput and phase timing.
 - **Self-hosted** -- Runs entirely on your own infrastructure via Docker Compose. No data leaves your network unless you choose a cloud LLM provider.
-- **Admin & governance** -- Waitlist mode, invitation controls, user management, and policy-based administration built in.
-- **Real-time updates** -- Server-Sent Events (SSE) push notifications and model generation progress to the browser.
-- **Dark mode** -- Full light and dark theme support across all pages.
+- **Admin & governance** -- Waitlist mode, invitation controls, user management, audit logging, and policy-based administration built in.
+- **Real-time updates** -- Server-Sent Events (SSE) push generation progress, notifications, and admin events to the browser. Optional Web Push notifications.
+- **Internationalization** -- Multi-language support via i18next.
+- **Dark theme** -- Purpose-built dark UI with emerald accent colors.
 
 ## Architecture
 
 ```
-Browser (React + Three.js)
+Browser (React + Three.js + Tailwind)
     |
     | REST API + SSE
     v
 Express API Server
     |
-    |-- PostgreSQL 16 (users, chat contexts, chat items)
-    |-- Redis 7 (SSE event bus)
-    |-- LLM providers (OpenAI / Anthropic / xAI / Ollama)
+    |-- PostgreSQL 16 + pgvector (users, chats, workbench, knowledge, experiments)
+    |-- Redis 7 (SSE event bus, notifications)
+    |-- LLM providers (OpenAI / Anthropic / xAI / DeepSeek / Bedrock / Minimax / Ollama)
     |
-    v
-Build123d Rendering Service (Python)
+    |-- Build123d Rendering Service (Python, 2 replicas)
+    |       |-> STL / STEP / 3MF files
     |
-    v
-STL / STEP / 3MF files
+    |-- Screenshot Service (Pyrender, 2 replicas)
+            |-> Multi-angle screenshots for VLM evaluation
 ```
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React 18, TypeScript, Vite, Tailwind CSS 4, shadcn/ui, Three.js |
-| Backend | Express, TypeScript, Knex (PostgreSQL) |
-| LLM abstraction | Vercel AI SDK (OpenAI, Anthropic, xAI, DeepSeek, Amazon Bedrock, Ollama) |
-| 3D rendering | Build123d (Python, containerized) |
-| Real-time | Server-Sent Events via Redis pub/sub |
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS 4, shadcn/ui, Three.js, Recharts, i18next |
+| Backend | Express, TypeScript, Prisma (PostgreSQL 16 + pgvector) |
+| LLM abstraction | Vercel AI SDK (OpenAI, Anthropic, xAI, DeepSeek, Amazon Bedrock, Minimax, Ollama) |
+| 3D rendering | Build123d (Python, containerized, 2 replicas) |
+| Screenshots | Pyrender-based STL screenshot service (containerized, 2 replicas) |
+| Vector search | pgvector with HNSW indexes for embeddings |
+| Job queue | pg-boss (knowledge pipeline), in-memory queue (workbench batching) |
+| Real-time | Server-Sent Events via Redis pub/sub + Web Push (VAPID) |
 | Auth | JWT + bcrypt |
 | Infrastructure | Docker Compose |
 
@@ -163,41 +174,81 @@ docker compose build backend && docker compose up -d backend
 ```
 chat3d-app/
   packages/
-    shared/              # Shared TypeScript types
-    backend/             # Express API server
+    shared/              # Shared TypeScript types (events, traces, domain models)
+    backend/             # Express API server (Prisma, 85+ service files)
+      prisma/            # Schema + migrations
+      src/
+        routes/          # 17 route files
+        services/        # Business logic (pipeline, eval, workbench, experiments, ...)
     frontend/            # React SPA (Vite + Tailwind)
+      src/
+        components/      # 70+ components (chat, admin, gallery, workbench, UI primitives)
+        hooks/           # 12 custom hooks (SSE, streaming, scroll, pull-to-refresh)
+        api/             # 14 API client modules
   services/
     build123d/           # Build123d rendering container
     screenshot-service/  # Pyrender STL screenshot container
+  workbench/             # Seed data for workbench categories and prompts
   docker-compose.yml
 ```
 
 ## API
 
-All routes (except auth) require `Authorization: Bearer <token>`.
+All routes (except auth, setup, waitlist, and public) require `Authorization: Bearer <token>`. Admin routes require the `admin` role. 230+ endpoints total across 17 route files.
+
+### Core
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/setup/init` | Initial setup (creates first admin) |
-| `POST` | `/api/auth/register` | Create account |
 | `POST` | `/api/auth/login` | Login (returns JWT) |
+| `POST` | `/api/auth/register` | Create account |
 | `GET` | `/api/auth/me` | Current user profile |
 | `GET` | `/api/chat/contexts` | List chat contexts |
 | `POST` | `/api/chat/contexts` | Create chat context |
-| `PATCH` | `/api/chat/contexts/:id` | Update chat context |
-| `DELETE` | `/api/chat/contexts/:id` | Delete context + items + files |
-| `GET` | `/api/chat/contexts/:id/items` | Get chat items for a context |
+| `GET` | `/api/chat/contexts/:id/items` | Get chat items |
 | `POST` | `/api/query/submit` | Submit a modeling query (async) |
 | `POST` | `/api/query/regenerate` | Regenerate a previous response |
+| `POST` | `/api/query/stop` | Stop a running query |
+| `POST` | `/api/query/re-render` | Re-render with tweaked parameters |
 | `GET` | `/api/events/stream` | SSE event stream (real-time updates) |
-| `GET` | `/api/files/:path` | Download a generated file |
-| `POST` | `/api/files/upload` | Upload a file |
+| `GET/POST` | `/api/files/*` | File upload, download, delete |
 | `POST` | `/api/profile/*` | Account management (password, email, delete, export) |
 | `GET` | `/api/llm/models` | List available LLM models |
-| `GET` | `/api/admin/*` | Admin: users, providers, models, purposes, workbench |
-| `GET` | `/api/public/config` | Public app configuration |
 | `GET` | `/health` | Health check |
 | `GET` | `/ready` | Readiness check |
+
+### Public (no auth required)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/public/config` | Public app configuration |
+| `GET` | `/api/public/gallery/categories` | List gallery categories |
+| `GET` | `/api/public/gallery/categories/:id/models` | List models in category |
+| `GET` | `/api/public/gallery/models/:id` | Model detail |
+| `GET` | `/api/public/gallery/search` | Search gallery models |
+| `GET` | `/api/public/gallery/models/:id/screenshot/:angle` | Model screenshot |
+| `GET` | `/api/public/gallery/models/:id/download/:format` | Download model (stl/3mf/step/b123d) |
+| `POST` | `/api/gallery/remix` | Remix a gallery model into a new chat |
+| `POST` | `/api/waitlist/join` | Join the waitlist |
+
+### Admin (admin role required)
+
+| Group | Endpoints | Description |
+|-------|-----------|-------------|
+| Users | `GET/PATCH/DELETE /api/admin/users/*` | User management, activation, password reset |
+| Waitlist | `GET/PATCH/DELETE /api/admin/waitlist/*` | Waitlist approvals and management |
+| Settings | `GET/PATCH /api/admin/settings` | App-level configuration (waitlist, invitations) |
+| LLM Providers | `CRUD /api/admin/llm-providers/*` | Provider configuration (API keys, endpoints) |
+| LLM Models | `CRUD /api/admin/llm-models/*` | Model registration and capabilities |
+| LLM Purposes | `GET/PATCH /api/admin/llm-purposes/*` | Purpose-to-model assignments |
+| Generation Settings | `GET/PATCH/DELETE /api/admin/generation-settings/*` | Pipeline tuning knobs |
+| Curation | `GET/PATCH/POST /api/admin/curation/*` | Candidate review, distillation, tagging, approval |
+| Usage Analytics | `GET /api/admin/usage/*` | Token/cost analytics (summary, timeseries, export) |
+| Pipeline Analytics | `GET /api/admin/pipeline/*` | Generation performance metrics and breakdowns |
+| Workbench | `CRUD /api/admin/workbench/*` | Categories, prompts, examples, batch generation, embeddings, export/import |
+| Experiments | `CRUD /api/admin/experiments/*` | Create, run, compare LLM model experiments |
+| Backups | `GET/DELETE /api/admin/backups/*` | Database backup management |
 
 ## License
 

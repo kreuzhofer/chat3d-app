@@ -16,6 +16,7 @@ interface RunMetrics {
   runId: string;
   modelLabel: string;
   runOrder: number;
+  fewShotCount: number | null;
   totalPrompts: number;
   successCount: number;
   failedCount: number;
@@ -35,6 +36,7 @@ interface RunMetrics {
 interface PromptRunResult {
   runId: string;
   modelLabel: string;
+  fewShotCount: number | null;
   exampleId: string | null;
   evalScore: number | null;
   visualScore: number | null;
@@ -61,6 +63,7 @@ interface AggRow {
   run_id: string;
   model_label: string;
   run_order: number;
+  few_shot_count: number | null;
   total_prompts: string;
   success_count: string;
   failed_count: string;
@@ -90,6 +93,7 @@ export async function getExperimentComparison(experimentId: string): Promise<{ r
       r.id AS run_id,
       r.model_label,
       r.run_order,
+      r.few_shot_count,
       COUNT(e.id)::text AS total_prompts,
       COUNT(CASE WHEN e.render_status = 'success' THEN 1 END)::text AS success_count,
       COUNT(CASE WHEN e.render_status = 'error' THEN 1 END)::text AS failed_count,
@@ -101,7 +105,7 @@ export async function getExperimentComparison(experimentId: string): Promise<{ r
     FROM experiment_runs r
     LEFT JOIN workbench_examples e ON e.experiment_run_id = r.id
     WHERE r.experiment_id = ${experimentId}::uuid
-    GROUP BY r.id, r.model_label, r.run_order
+    GROUP BY r.id, r.model_label, r.run_order, r.few_shot_count
     ORDER BY r.run_order
   `;
 
@@ -132,6 +136,7 @@ export async function getExperimentComparison(experimentId: string): Promise<{ r
       runId: row.run_id,
       modelLabel: row.model_label,
       runOrder: row.run_order,
+      fewShotCount: row.few_shot_count,
       totalPrompts: total,
       successCount: success,
       failedCount: Number(row.failed_count),
@@ -160,6 +165,7 @@ interface PromptResultRow {
   prompt_index: number;
   run_id: string;
   model_label: string;
+  few_shot_count: number | null;
   example_id: string | null;
   eval_score: number | null;
   visual_score: number | null;
@@ -185,6 +191,7 @@ export async function getPerPromptComparison(experimentId: string): Promise<Prom
       p.index AS prompt_index,
       r.id AS run_id,
       r.model_label,
+      r.few_shot_count,
       e.id AS example_id,
       e.eval_score,
       e.visual_score,
@@ -228,6 +235,7 @@ export async function getPerPromptComparison(experimentId: string): Promise<Prom
     entry.runs.push({
       runId: row.run_id,
       modelLabel: row.model_label,
+      fewShotCount: row.few_shot_count,
       exampleId: row.example_id,
       evalScore: row.eval_score != null ? Number(row.eval_score) : null,
       visualScore: row.visual_score != null ? Number(row.visual_score) : null,

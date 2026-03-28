@@ -208,11 +208,12 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
       getRagSimilarityThreshold(), getRagGapThreshold(), getRagMaxExamples(),
     ]);
     ragGapThreshold = gapThresh;
+    const effectiveMaxExamples = input.ragMaxExamplesOverride ?? ragMaxExamples;
 
     const preRetrievalResults = await Promise.all(
       decomposition.components.map(async (component) => {
         try {
-          const { matches } = await findSimilarExamples(component.description, ragMaxExamples);
+          const { matches } = await findSimilarExamples(component.description, effectiveMaxExamples);
           const filtered = matches.filter(m => m.similarity >= ragSimThreshold);
           return { componentName: component.name, matches: filtered };
         } catch (err) {
@@ -400,7 +401,7 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   // Inject research package into assembly prompt (it uses systemPromptOverride,
   // so the agent-codegen pre-retrieval path is skipped)
   if (input.researchPackage) {
-    const section = formatResearchSection(input.researchPackage);
+    const section = formatResearchSection(input.researchPackage, input.ragMaxExamplesOverride);
     if (section) {
       assemblyPrompt += "\n\n" + section;
       logger.info({ examples: input.researchPackage.examples.length, knowledge: input.researchPackage.knowledge.length }, "injected research into assembly prompt");

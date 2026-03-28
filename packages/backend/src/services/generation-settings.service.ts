@@ -72,6 +72,8 @@ const SETTINGS_REGISTRY = new Map<string, SettingMeta>([
   ["global.zoom_max_followups", { default: 3, label: "Max zoom follow-ups", description: "Maximum number of uncertain items to resolve via 2x zoom per evaluation", pipeline: "global", min: 1, max: 5, step: 1 }],
   ["global.adaptive_weight_enabled", { default: 1, label: "Adaptive eval weight", description: "Shift code/visual eval weight based on feature visibility (1=on, 0=off)", pipeline: "global", min: 0, max: 1, step: 1 }],
   ["global.adaptive_weight_range", { default: 0.2, label: "Adaptive weight range", description: "How far the code eval weight can shift from the base (±range)", pipeline: "global", min: 0.05, max: 0.4, step: 0.05 }],
+  // Spec embedding
+  ["global.spec_embedding_enabled", { default: 1, label: "Spec embedding enabled", description: "Embed construction specs after generation for similarity search (1=on, 0=off)", pipeline: "global", min: 0, max: 1, step: 1 }],
 ]);
 
 // ── In-memory cache ──────────────────────────────────────────────────
@@ -194,6 +196,10 @@ export async function isAdaptiveWeightEnabled(): Promise<boolean> {
 
 export async function getAdaptiveWeightRange(): Promise<number> {
   return getEffective("global.adaptive_weight_range");
+}
+
+export async function isSpecEmbeddingEnabled(): Promise<boolean> {
+  return (await getEffective("global.spec_embedding_enabled")) === 1;
 }
 
 // ── Admin API ────────────────────────────────────────────────────────

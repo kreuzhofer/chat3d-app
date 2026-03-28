@@ -72,6 +72,8 @@ export interface AgentCodegenInput {
   traceId?: string | null;
   /** Pre-compiled research package (replaces legacy preRetrieveReferenceKnowledge) */
   researchPackage?: import("./research-agent.service.js").ResearchPackage | null;
+  /** Override the max workbench examples injected (for few-shot experiments). */
+  ragMaxExamplesOverride?: number;
   /** Enable search tools (search_examples, search_knowledge, lookup_api). Default true. */
   enableSearch?: boolean;
   /** Precise geometric blueprint from spec generation — used as primary codegen instruction. */
@@ -153,13 +155,14 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
   if (!systemPromptOverride) {
     if (input.researchPackage && (input.researchPackage.examples.length > 0 || input.researchPackage.knowledge.length > 0)) {
       const { formatResearchSection } = await import("./research-format.service.js");
-      const researchSection = formatResearchSection(input.researchPackage);
+      const researchSection = formatResearchSection(input.researchPackage, input.ragMaxExamplesOverride);
       if (researchSection) {
         systemPrompt += "\n\n" + researchSection;
         logger.info({ examples: input.researchPackage.examples.length, knowledge: input.researchPackage.knowledge.length, gaps: input.researchPackage.gapWarnings.length }, "injected research package");
       }
-    } else {
+    } else if (input.ragMaxExamplesOverride !== 0) {
       // Fallback: legacy pre-retrieval (for chat pipeline or when research is unavailable)
+      // Skipped when ragMaxExamplesOverride === 0 (zero-example experiment baseline)
       try {
         const { references: refMatches } = await preRetrieveReferenceKnowledge(promptText, interpretation);
         if (refMatches.length > 0) {
@@ -227,7 +230,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       codeAssertions: input.codeAssertions,
       specInterpretation: input.specInterpretation ?? input.interpretation,
     },
-    { disableRender, enableSearch: resolvedEnableSearch },
+    { disableRender, enableSearch: resolvedEnableSearch, ragMaxExamplesOverride: input.ragMaxExamplesOverride },
   );
 
   // Run the agent loop

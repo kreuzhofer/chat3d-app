@@ -1326,6 +1326,7 @@ async function executeQueryPipelineInner(input: {
     let epCodeAssertions: import("./spec-generation.service.js").CodeAssertion[] = [];
     let epSpecInterpretation: string | undefined;
     let epSpecComplexity: "simple" | "medium" | "complex" | undefined;
+    let epConstructionSpec: string | undefined;
     const specEnabled = await isSpecGenerationEnabled("chat");
     if (specEnabled) {
       await persistPhase("Analyzing request...");
@@ -1391,6 +1392,7 @@ async function executeQueryPipelineInner(input: {
       epCodeAssertions = specResult.codeAssertions;
       epSpecInterpretation = specResult.interpretation;
       epSpecComplexity = specResult.complexity;
+      epConstructionSpec = specResult.constructionSpec || undefined;
 
       queryLogger.info({ interpretation: specResult.interpretation.slice(0, 100), checklistCount: epVerificationChecklist.length, complexity: specResult.complexity }, "spec generated");
     }
@@ -1436,6 +1438,7 @@ async function executeQueryPipelineInner(input: {
         evalThreshold: agEvalThreshold,
         codeAssertions: epCodeAssertions,
         specInterpretation: epSpecInterpretation,
+        constructionSpec: epConstructionSpec,
       };
 
       const agResult = useMultiAgent

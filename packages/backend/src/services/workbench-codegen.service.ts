@@ -32,6 +32,7 @@ import {
   getCodeEvalWeight,
   getPipelineTimeoutMs,
 } from "./generation-settings.service.js";
+import { storeSpecAndEmbedding } from "./workbench-embeddings.service.js";
 import { generateSpec, type SpecResult } from "./spec-generation.service.js";
 import { enrichSpec } from "./spec-enrichment.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
@@ -65,6 +66,8 @@ export interface GenerateOptions {
   codegenModelOverride?: LlmModelConfig;
   /** Tag resulting workbench_example with an experiment run. */
   experimentRunId?: string;
+  /** Override the max workbench examples injected (for few-shot experiments). */
+  ragMaxExamplesOverride?: number;
 }
 
 export interface GenerateResult {
@@ -246,15 +249,18 @@ async function _runPipeline(
     try {
       const { detectPromptOperations } = await import("../prompts/system-prompts.js");
       const ops = detectPromptOperations(ctx.prompt, specResult.interpretation);
-      researchPackage = await runResearch({
-        promptText: ctx.prompt,
-        interpretation: specResult.interpretation,
-        semanticContext: specResult.semanticContext,
-        constructionSpec: specResult.constructionSpec,
-        complexity: specResult.complexity,
-        detectedOperations: ops,
-        signal: pipelineSignal,
-      });
+      researchPackage = options?.ragMaxExamplesOverride === 0
+        ? null  // Skip research entirely when zero examples requested
+        : await runResearch({
+            promptText: ctx.prompt,
+            interpretation: specResult.interpretation,
+            semanticContext: specResult.semanticContext,
+            constructionSpec: specResult.constructionSpec,
+            complexity: specResult.complexity,
+            detectedOperations: ops,
+            signal: pipelineSignal,
+            ragMaxExamplesOverride: options?.ragMaxExamplesOverride,
+          });
       // Compute LLM cost for the research phase
       // Research uses spec_generation model — resolve config for cost calculation
       let researchLlmCost = 0;
@@ -328,6 +334,7 @@ async function _runPipeline(
     codeAssertions: specResult?.codeAssertions,
     specInterpretation: specResult?.interpretation,
     researchPackage,
+    ragMaxExamplesOverride: options?.ragMaxExamplesOverride,
     traceId,
     constructionSpec: specResult?.constructionSpec,
   };
@@ -436,6 +443,12 @@ async function _runPipeline(
     assertionPassRate: agFullEval?.assertionPassRate ?? null, evalSource: agFullEval?.source ?? null,
     experimentRunId: options?.experimentRunId,
   });
+
+  // Store construction spec + embedding for future remix candidates (always, regardless of remix_enabled)
+  if (specResult?.constructionSpec) {
+    storeSpecAndEmbedding(ctx.promptId, specResult.constructionSpec)
+      .catch(err => logger.warn({ err: err instanceof Error ? err.message : String(err) }, "failed to store spec embedding (non-fatal)"));
+  }
 
   // Finalize trace
   traceBuilder.endPhase("completed");
