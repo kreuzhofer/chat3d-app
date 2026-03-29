@@ -28,7 +28,7 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
   const [promptCount, setPromptCount] = useState(experiment?.promptCount ?? 10);
   const [promptSeed, setPromptSeed] = useState(experiment?.promptSeed ?? 42);
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>(
-    experiment?.runs.map((r) => r.modelId).filter(Boolean) as string[] ?? [],
+    [...new Set(experiment?.runs.map((r) => r.modelId).filter(Boolean) as string[])] ?? [],
   );
   const [selectedFewShotCounts, setSelectedFewShotCounts] = useState<number[]>(
     experiment?.fewShotCounts ?? [],
