@@ -1,8 +1,9 @@
 /**
  * Agent-based codegen loop (Phase 6).
  *
- * Orchestrates the tool-use loop via Vercel AI SDK's generateText with
- * stopWhen. Tool definitions live in agent-tools.service.ts, multi-agent
+ * Orchestrates the tool-use loop via Vercel AI SDK's streamText with
+ * stopWhen. Uses streaming to keep TCP alive for slow models. Tool
+ * definitions live in agent-tools.service.ts, multi-agent
  * orchestration lives in agent-multi.service.ts.
  *
  * Provider-agnostic: works with any LLM provider (Anthropic, Bedrock,
@@ -10,7 +11,7 @@
  */
 
 import { stepCountIs } from "ai";
-import { trackedGenerateText } from "./tracked-llm.service.js";
+import { trackedStreamText, consumeStreamWithProgress } from "./tracked-llm.service.js";
 import { createLogger } from "../utils/logger.js";
 import { AgentFilesystem } from "./agent-filesystem.service.js";
 import { preRetrieveReferenceKnowledge, formatReferenceSection } from "./knowledge-search.service.js";
@@ -74,6 +75,10 @@ export interface AgentCodegenInput {
   researchPackage?: import("./research-agent.service.js").ResearchPackage | null;
   /** Override the max workbench examples injected (for few-shot experiments). */
   ragMaxExamplesOverride?: number;
+  /** Prompt IDs to exclude from RAG retrieval (experiment contamination prevention). */
+  excludePromptIds?: string[];
+  /** Pipeline timeout in ms — passed to LLM calls so totalMs matches the pipeline wall. */
+  pipelineTimeoutMs?: number;
   /** Enable search tools (search_examples, search_knowledge, lookup_api). Default true. */
   enableSearch?: boolean;
   /** Precise geometric blueprint from spec generation — used as primary codegen instruction. */
@@ -230,7 +235,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       codeAssertions: input.codeAssertions,
       specInterpretation: input.specInterpretation ?? input.interpretation,
     },
-    { disableRender, enableSearch: resolvedEnableSearch, ragMaxExamplesOverride: input.ragMaxExamplesOverride },
+    { disableRender, enableSearch: resolvedEnableSearch, ragMaxExamplesOverride: input.ragMaxExamplesOverride, excludePromptIds: input.excludePromptIds },
   );
 
   // Run the agent loop
@@ -242,7 +247,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
   tb?.setModel(modelConfig.label, modelConfig.provider);
 
   try {
-    const result = await trackedGenerateText({
+    const streamResult = trackedStreamText({
       model,
       system: systemPrompt,
       prompt: userMessage,
@@ -334,11 +339,17 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       modelId: modelConfig.id,
       modelName: modelConfig.modelName,
       modelConfig: { costPer1mInput: modelConfig.costPer1mInput, costPer1mOutput: modelConfig.costPer1mOutput },
+    }, input.pipelineTimeoutMs);
+
+    // Consume stream to drive the tool-use loop + log token progress
+    await consumeStreamWithProgress(streamResult.fullStream, {
+      purpose: "agent_orchestration", modelName: modelConfig.modelName,
     });
 
     const finalCode = fs.getMainCode() ?? "";
     const allFiles = fs.getFiles();
-    const stepCount = result.steps.length;
+    const steps = await streamResult.steps;
+    const stepCount = steps.length;
 
     logger.info(
       {

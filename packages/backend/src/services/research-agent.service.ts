@@ -43,6 +43,8 @@ export interface ResearchInput {
   signal?: AbortSignal;
   /** Override the max workbench examples retrieved per technique (for experiments). */
   ragMaxExamplesOverride?: number;
+  /** Prompt IDs to exclude from RAG retrieval (experiment contamination prevention). */
+  excludePromptIds?: string[];
 }
 
 export interface ResearchPackage {
@@ -113,7 +115,7 @@ export async function runResearch(input: ResearchInput): Promise<ResearchPackage
   }
 
   // Step 2: Parallel search for all techniques + prompt reference
-  const searchResult = await searchTechniques(techniques, input.ragMaxExamplesOverride);
+  const searchResult = await searchTechniques(techniques, input.ragMaxExamplesOverride, input.excludePromptIds);
 
   // Step 3: Deduplicate across techniques
   const examples = deduplicateExamples(searchResult.techniqueResults);

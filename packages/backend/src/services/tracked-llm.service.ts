@@ -2,11 +2,13 @@
  * Tracked LLM Wrappers
  *
  * Thin wrappers around Vercel AI SDK functions that automatically record
- * usage events after each call. For non-streaming calls only — streaming
- * calls have inline recording due to the Bedrock usage bug workaround.
+ * usage events after each call.
+ *
+ * - trackedGenerateText: non-streaming, used by most callers (spec gen, eval, etc.)
+ * - trackedStreamText: streaming, used by agent codegen to keep TCP alive for slow models
  */
 
-import { generateText, embed, embedMany } from "ai";
+import { generateText, streamText, embed, embedMany, type TextStreamPart } from "ai";
 import { calculateCostUsd, type LlmModelConfig } from "./llm-config.service.js";
 import { recordUsageEvent, type LlmPurpose } from "./usage-tracking.service.js";
 import { createLogger } from "../utils/logger.js";
@@ -73,26 +75,36 @@ type GenerateTextParams = Parameters<typeof generateText>[0];
 type GenerateTextResult = Awaited<ReturnType<typeof generateText>>;
 
 /** Default timeouts for LLM calls.
- * Opus on Bedrock can take 5+ min for complex codegen prompts (threads, sweeps, etc.).
- * These are generous to avoid premature aborts — the pipeline timeout is the real safety net. */
-const DEFAULT_TIMEOUT = {
-  totalMs: 900_000,  // 15 min total per generateText call (covers multi-step tool loops)
-  stepMs: 480_000,   // 8 min per individual LLM step (Opus TTFT can be 5+ min on complex prompts)
-  chunkMs: 480_000,  // 8 min between chunks (generateText may use internal streaming)
-};
+ * stepMs/chunkMs are per-step safety nets. totalMs is overridable by callers
+ * (e.g., pipeline timeout) — defaults to 15 min for non-agent callers. */
+const DEFAULT_STEP_TIMEOUT_MS = 480_000;   // 8 min per individual LLM step
+const DEFAULT_CHUNK_TIMEOUT_MS = 480_000;  // 8 min between streaming chunks (stall detection)
+const DEFAULT_TOTAL_TIMEOUT_MS = 900_000;  // 15 min fallback for callers that don't specify
+
+function buildTimeout(totalMs?: number) {
+  return {
+    totalMs: totalMs ?? DEFAULT_TOTAL_TIMEOUT_MS,
+    stepMs: DEFAULT_STEP_TIMEOUT_MS,
+    chunkMs: DEFAULT_CHUNK_TIMEOUT_MS,
+  };
+}
 
 export async function trackedGenerateText(
   options: GenerateTextParams,
   tracking: TrackingMeta,
+  /** Override totalMs (e.g., pass pipeline timeout). stepMs/chunkMs stay at defaults. */
+  totalTimeoutMs?: number,
 ): Promise<GenerateTextResult> {
   const callerSignal = options.abortSignal as AbortSignal | undefined;
+  const effectiveTotal = totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS;
+  const timeout = buildTimeout(effectiveTotal);
 
   // Hard timeout per call via AbortController (safety net if SDK timeout doesn't work)
   const hardTimeoutController = new AbortController();
   const timer = setTimeout(() => {
-    logger.warn({ purpose: tracking.purpose, timeoutMs: DEFAULT_TIMEOUT.totalMs }, "LLM call hard timeout — aborting");
+    logger.warn({ purpose: tracking.purpose, timeoutMs: effectiveTotal }, "LLM call hard timeout — aborting");
     hardTimeoutController.abort();
-  }, DEFAULT_TIMEOUT.totalMs);
+  }, effectiveTotal);
 
   const combinedSignal = callerSignal
     ? AbortSignal.any([callerSignal, hardTimeoutController.signal])
@@ -102,7 +114,7 @@ export async function trackedGenerateText(
     const start = Date.now();
     const result = await generateText({
       ...options,
-      timeout: options.timeout ?? DEFAULT_TIMEOUT,
+      timeout: options.timeout ?? timeout,
       abortSignal: combinedSignal,
     });
 
@@ -130,6 +142,111 @@ export async function trackedGenerateText(
     return result;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// ── trackedStreamText ─────────────────────────────────────────────
+
+type StreamTextParams = Parameters<typeof streamText>[0];
+type StreamTextReturn = ReturnType<typeof streamText>;
+
+/**
+ * Streaming wrapper for LLM calls. Keeps TCP connections alive for slow models
+ * (gpt-oss-120b, Nemotron) by flowing tokens continuously. Use with
+ * consumeStreamWithProgress() to drive the stream and log token progress.
+ *
+ * Usage recording happens in the onFinish callback (after stream completes).
+ * The caller's onFinish is preserved and called after usage is recorded.
+ */
+export function trackedStreamText(
+  options: StreamTextParams,
+  tracking: TrackingMeta,
+  /** Override totalMs (e.g., pass pipeline timeout). stepMs/chunkMs stay at defaults. */
+  totalTimeoutMs?: number,
+): StreamTextReturn {
+  const callerSignal = options.abortSignal as AbortSignal | undefined;
+  const effectiveTotal = totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS;
+  const timeout = buildTimeout(effectiveTotal);
+
+  const hardTimeoutController = new AbortController();
+  const timer = setTimeout(() => {
+    logger.warn({ purpose: tracking.purpose, timeoutMs: effectiveTotal }, "LLM stream hard timeout — aborting");
+    hardTimeoutController.abort();
+  }, effectiveTotal);
+
+  const combinedSignal = callerSignal
+    ? AbortSignal.any([callerSignal, hardTimeoutController.signal])
+    : hardTimeoutController.signal;
+
+  const start = Date.now();
+  const userOnFinish = options.onFinish;
+
+  return streamText({
+    ...options,
+    timeout: options.timeout ?? timeout,
+    abortSignal: combinedSignal,
+    onFinish: async (event) => {
+      clearTimeout(timer);
+      const durationMs = Date.now() - start;
+      const usage = extractUsage(event.totalUsage);
+      const cost = computeCost(tracking, usage);
+
+      recordUsageEvent({
+        providerName: tracking.providerName,
+        modelId: tracking.modelId,
+        modelName: tracking.modelName,
+        purpose: tracking.purpose,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        reasoningTokens: usage.reasoningTokens,
+        cacheReadTokens: usage.cacheReadTokens,
+        cacheWriteTokens: usage.cacheWriteTokens,
+        totalTokens: usage.totalTokens,
+        estimatedCostUsd: cost,
+        durationMs,
+        isEstimated: usage.inputTokens === 0 && usage.outputTokens === 0,
+        generationAttempt: tracking.generationAttempt,
+      });
+
+      await userOnFinish?.(event);
+    },
+  });
+}
+
+/**
+ * Consume a fullStream from streamText, logging token progress at intervals.
+ * Must be called to drive the tool-use loop and stream to completion.
+ */
+export async function consumeStreamWithProgress(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  stream: AsyncIterable<TextStreamPart<any>>,
+  meta: { purpose: string; modelName: string },
+  logIntervalTokens = 500,
+): Promise<void> {
+  let estimatedTokens = 0;
+  let lastLoggedAt = 0;
+  const start = Date.now();
+
+  for await (const part of stream) {
+    if (part.type === "text-delta") {
+      // Rough token estimate: ~4 chars per token (exact counts come via onFinish)
+      const delta = (part as { delta?: string }).delta ?? "";
+      estimatedTokens += Math.ceil(delta.length / 4);
+      if (estimatedTokens - lastLoggedAt >= logIntervalTokens) {
+        lastLoggedAt = estimatedTokens;
+        logger.info(
+          { purpose: meta.purpose, model: meta.modelName, estimatedTokens, elapsedMs: Date.now() - start },
+          "LLM streaming progress",
+        );
+      }
+    }
+  }
+
+  if (estimatedTokens > 0) {
+    logger.debug(
+      { purpose: meta.purpose, model: meta.modelName, estimatedTokens, totalMs: Date.now() - start },
+      "LLM stream completed",
+    );
   }
 }
 

@@ -217,6 +217,7 @@ async function executeRun(run: RunInfo, promptIds: string[], signal: AbortSignal
         codegenModelOverride: modelConfig,
         experimentRunId: run.id,
         ragMaxExamplesOverride: run.fewShotCount ?? undefined,
+        excludePromptIds: promptIds,
       });
 
       if (result.renderStatus === "success") {

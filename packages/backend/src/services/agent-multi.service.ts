@@ -213,7 +213,7 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     const preRetrievalResults = await Promise.all(
       decomposition.components.map(async (component) => {
         try {
-          const { matches } = await findSimilarExamples(component.description, effectiveMaxExamples);
+          const { matches } = await findSimilarExamples(component.description, effectiveMaxExamples, undefined, input.excludePromptIds);
           const filtered = matches.filter(m => m.similarity >= ragSimThreshold);
           return { componentName: component.name, matches: filtered };
         } catch (err) {

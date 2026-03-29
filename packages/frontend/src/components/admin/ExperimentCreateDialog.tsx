@@ -86,13 +86,13 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
     );
   };
 
-  const hasEnoughComparison = selectedModelIds.length >= 2 || selectedFewShotCounts.length >= 2;
+  const hasModels = selectedModelIds.length >= 1;
   const totalRuns = selectedModelIds.length * Math.max(selectedFewShotCounts.length, 1);
 
   const handleSubmit = async () => {
     if (!name.trim()) { setError("Name is required"); return; }
     if (selectedCategoryIds.length === 0) { setError("Select at least one category"); return; }
-    if (!hasEnoughComparison) { setError("Select at least 2 models or 2 few-shot counts for comparison"); return; }
+    if (!hasModels) { setError("Select at least one model"); return; }
 
     setSubmitting(true);
     setError(null);
@@ -130,7 +130,7 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
         <p className="mb-3 text-sm text-[hsl(var(--destructive))]">{error}</p>
       )}
 
-      <div className="grid gap-3">
+      <div className="grid max-h-[70vh] gap-3 overflow-y-auto pr-1">
         <div>
           <Label>Name</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Opus vs Sonnet codegen" />
@@ -174,7 +174,7 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
         </div>
 
         <div>
-          <Label>Models to compare (select 2+)</Label>
+          <Label>Models (select 1+ ; need 2+ models or 2+ few-shot counts for comparison)</Label>
           <div className="max-h-[200px] overflow-auto rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] p-2">
             {models.map((m) => (
               <label key={m.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-[hsl(var(--muted))]">
@@ -239,7 +239,7 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
 
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
-        <Button onClick={handleSubmit} disabled={submitting || !hasEnoughComparison}>
+        <Button onClick={handleSubmit} disabled={submitting || !hasModels}>
           {submitting ? "Saving..." : isEdit ? "Save Changes" : "Create Experiment"}
         </Button>
       </div>

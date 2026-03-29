@@ -68,6 +68,10 @@ export interface GenerateOptions {
   experimentRunId?: string;
   /** Override the max workbench examples injected (for few-shot experiments). */
   ragMaxExamplesOverride?: number;
+  /** Prompt IDs to exclude from RAG retrieval (experiment contamination prevention). */
+  excludePromptIds?: string[];
+  /** Pipeline timeout in ms — passed to LLM calls so they don't have a tighter inner wall. */
+  pipelineTimeoutMs?: number;
 }
 
 export interface GenerateResult {
@@ -101,7 +105,7 @@ export async function generateForPrompt(
     }
 
     try {
-      return await _generateForPromptInner(promptId, pipelineController.signal, options);
+      return await _generateForPromptInner(promptId, pipelineController.signal, { ...options, pipelineTimeoutMs: timeoutMs });
     } finally {
       clearTimeout(pipelineTimeout);
     }
@@ -221,7 +225,8 @@ async function _runPipeline(
     traceBuilder.setModel(specModelCfg.label, specModelCfg.provider);
     specResult = await generateSpec(ctx.prompt);
 
-    if (specResult.disambiguationNeeded) {
+    if (specResult.disambiguationNeeded && !options?.experimentRunId) {
+      // Skip disambiguation gate during experiments — approved prompts are pre-validated
       traceBuilder.endPhase("skipped");
       updateTraceIncremental(traceId, traceBuilder.snapshot());
       await prisma.workbenchExamplePrompt.update({
@@ -260,19 +265,20 @@ async function _runPipeline(
             detectedOperations: ops,
             signal: pipelineSignal,
             ragMaxExamplesOverride: options?.ragMaxExamplesOverride,
+            excludePromptIds: options?.excludePromptIds,
           });
       // Compute LLM cost for the research phase
       // Research uses spec_generation model — resolve config for cost calculation
       let researchLlmCost = 0;
-      if (researchPackage.llmTokens) {
+      if (researchPackage?.llmTokens) {
         try {
           const researchModelCfg = await getModelForPurposeWithFallback("spec_generation");
           researchLlmCost = calculateCostUsd(researchModelCfg, researchPackage.llmTokens.prompt, researchPackage.llmTokens.completion);
         } catch { /* cost tracking is non-critical */ }
       }
       traceBuilder.addUsage({
-        inputTokens: researchPackage.llmTokens?.prompt ?? 0,
-        outputTokens: researchPackage.llmTokens?.completion ?? 0,
+        inputTokens: researchPackage?.llmTokens?.prompt ?? 0,
+        outputTokens: researchPackage?.llmTokens?.completion ?? 0,
         costUsd: researchLlmCost,
       });
       traceBuilder.endPhase("completed");
@@ -335,6 +341,8 @@ async function _runPipeline(
     specInterpretation: specResult?.interpretation,
     researchPackage,
     ragMaxExamplesOverride: options?.ragMaxExamplesOverride,
+    excludePromptIds: options?.excludePromptIds,
+    pipelineTimeoutMs: options?.pipelineTimeoutMs,
     traceId,
     constructionSpec: specResult?.constructionSpec,
   };

@@ -43,7 +43,7 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
     try {
       const exp = await getExperiment(token, experimentId);
       setExperiment(exp);
-      if (exp.status === "completed" || exp.status === "failed") {
+      if (exp.status === "completed" || exp.status === "failed" || exp.status === "cancelled") {
         const [comp, prompts] = await Promise.all([
           getExperimentComparison(token, experimentId),
           getPerPromptComparison(token, experimentId),

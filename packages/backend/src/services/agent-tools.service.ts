@@ -91,7 +91,7 @@ export interface AgentToolDeps {
   specInterpretation?: string;
 }
 
-export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: boolean; enableSearch?: boolean; ragMaxExamplesOverride?: number }): Record<string, any> {
+export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: boolean; enableSearch?: boolean; ragMaxExamplesOverride?: number; excludePromptIds?: string[] }): Record<string, any> {
   const { fs, wrapProjectFiles, baseFileName, signal, onProgress, onRenderSuccess, onSubmit } = deps;
 
   const tools: Record<string, any> = {
@@ -145,7 +145,7 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
           const [globalMaxEx, simThreshold] = await Promise.all([getRagMaxExamples(), getRagSimilarityThreshold()]);
           const maxEx = options.ragMaxExamplesOverride ?? globalMaxEx;
           if (maxEx <= 0) return "Example search disabled for this run (few-shot count = 0).";
-          const { matches } = await findSimilarExamples(query, maxEx);
+          const { matches } = await findSimilarExamples(query, maxEx, undefined, options.excludePromptIds);
           const filtered = matches.filter(m => m.similarity >= simThreshold);
           if (filtered.length === 0) {
             return "No similar examples found in the workbench (above similarity threshold).";

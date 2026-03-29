@@ -220,27 +220,43 @@ export async function findSimilarExamples(
   promptText: string,
   limit = 6,
   boostOperations?: Set<string>,
+  excludePromptIds?: string[],
 ): Promise<FindSimilarResult> {
   if (limit <= 0) return { matches: [], embeddingTokens: 0 };
   const { embedding: queryEmbedding, tokens: embeddingTokens } = await embedPromptTextWithUsage(promptText);
   const pgVector = `[${queryEmbedding.join(",")}]`;
+  const exclusionIds = excludePromptIds && excludePromptIds.length > 0 ? excludePromptIds : null;
 
   if (boostOperations && boostOperations.size > 0) {
     const opsArray = [...boostOperations];
     // Fetch 3x candidates, then re-rank with operation overlap boost
     const candidateLimit = Math.min(limit * 3, 20);
-    const candidates = await prisma.$queryRaw<{ prompt: string; code: string; similarity: number; detected_operations: string[] }[]>`
-      SELECT p.prompt, e.code,
-              1 - (p.embedding <=> ${pgVector}::vector) AS similarity,
-              p.detected_operations
-       FROM workbench_examples e
-       JOIN workbench_example_prompts p ON p.id = e.prompt_id
-       WHERE p.embedding IS NOT NULL
-         AND e.approval_status IN ('auto_approved', 'human_approved')
-       AND e.experiment_run_id IS NULL
-       ORDER BY p.embedding <=> ${pgVector}::vector ASC
-       LIMIT ${candidateLimit}
-    `;
+    const candidates = exclusionIds
+      ? await prisma.$queryRaw<{ prompt: string; code: string; similarity: number; detected_operations: string[] }[]>`
+          SELECT p.prompt, e.code,
+                  1 - (p.embedding <=> ${pgVector}::vector) AS similarity,
+                  p.detected_operations
+           FROM workbench_examples e
+           JOIN workbench_example_prompts p ON p.id = e.prompt_id
+           WHERE p.embedding IS NOT NULL
+             AND e.approval_status IN ('auto_approved', 'human_approved')
+             AND e.experiment_run_id IS NULL
+             AND p.id != ALL(${exclusionIds}::uuid[])
+           ORDER BY p.embedding <=> ${pgVector}::vector ASC
+           LIMIT ${candidateLimit}
+        `
+      : await prisma.$queryRaw<{ prompt: string; code: string; similarity: number; detected_operations: string[] }[]>`
+          SELECT p.prompt, e.code,
+                  1 - (p.embedding <=> ${pgVector}::vector) AS similarity,
+                  p.detected_operations
+           FROM workbench_examples e
+           JOIN workbench_example_prompts p ON p.id = e.prompt_id
+           WHERE p.embedding IS NOT NULL
+             AND e.approval_status IN ('auto_approved', 'human_approved')
+             AND e.experiment_run_id IS NULL
+           ORDER BY p.embedding <=> ${pgVector}::vector ASC
+           LIMIT ${candidateLimit}
+        `;
 
     // Re-rank: semantic similarity (0.7 weight) + operation overlap (0.3 weight)
     const ranked = candidates.map((c: { prompt: string; code: string; similarity: number; detected_operations: string[] }) => {
@@ -254,16 +270,30 @@ export async function findSimilarExamples(
     return { matches: ranked.slice(0, limit), embeddingTokens };
   }
 
-  const rows = await prisma.$queryRaw<{ prompt: string; code: string; similarity: number }[]>`
-    SELECT p.prompt, e.code,
-            1 - (p.embedding <=> ${pgVector}::vector) AS similarity
-     FROM workbench_examples e
-     JOIN workbench_example_prompts p ON p.id = e.prompt_id
-     WHERE p.embedding IS NOT NULL
-       AND e.approval_status IN ('auto_approved', 'human_approved')
-     ORDER BY p.embedding <=> ${pgVector}::vector ASC
-     LIMIT ${limit}
-  `;
+  const rows = exclusionIds
+    ? await prisma.$queryRaw<{ prompt: string; code: string; similarity: number }[]>`
+        SELECT p.prompt, e.code,
+                1 - (p.embedding <=> ${pgVector}::vector) AS similarity
+         FROM workbench_examples e
+         JOIN workbench_example_prompts p ON p.id = e.prompt_id
+         WHERE p.embedding IS NOT NULL
+           AND e.approval_status IN ('auto_approved', 'human_approved')
+           AND e.experiment_run_id IS NULL
+           AND p.id != ALL(${exclusionIds}::uuid[])
+         ORDER BY p.embedding <=> ${pgVector}::vector ASC
+         LIMIT ${limit}
+      `
+    : await prisma.$queryRaw<{ prompt: string; code: string; similarity: number }[]>`
+        SELECT p.prompt, e.code,
+                1 - (p.embedding <=> ${pgVector}::vector) AS similarity
+         FROM workbench_examples e
+         JOIN workbench_example_prompts p ON p.id = e.prompt_id
+         WHERE p.embedding IS NOT NULL
+           AND e.approval_status IN ('auto_approved', 'human_approved')
+           AND e.experiment_run_id IS NULL
+         ORDER BY p.embedding <=> ${pgVector}::vector ASC
+         LIMIT ${limit}
+      `;
 
   return { matches: rows, embeddingTokens };
 }

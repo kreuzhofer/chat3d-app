@@ -72,10 +72,9 @@ function validateFewShotCounts(counts?: number[]): number[] | null {
   return unique;
 }
 
-async function validateModels(modelIds: string[], fewShotCounts?: number[] | null) {
-  const hasMultipleFsc = fewShotCounts && fewShotCounts.length >= 2;
-  if (modelIds.length < 2 && !hasMultipleFsc) {
-    throw new ExperimentError("At least 2 models or 2 few-shot counts required for comparison", 400);
+async function validateModels(modelIds: string[], _fewShotCounts?: number[] | null) {
+  if (modelIds.length < 1) {
+    throw new ExperimentError("At least 1 model is required", 400);
   }
   const uniqueModelIds = [...new Set(modelIds)];
   if (uniqueModelIds.length !== modelIds.length) throw new ExperimentError("Duplicate model IDs not allowed", 400);
