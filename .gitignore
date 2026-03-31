@@ -43,4 +43,4 @@ __pycache__/
 *.pyo
 
 # Claude Code
-.claude/
+.claude/scheduled_tasks.lock
