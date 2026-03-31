@@ -86,7 +86,7 @@ function OutlierTable({ rows, label, color }: { rows: OutlierRow[]; label: strin
                 {row.costUsd != null ? `$${row.costUsd.toFixed(3)}` : "-"}
               </td>
               <td className="p-1.5 text-center">
-                {row.renderStatus === "error" ? (
+                {(row.renderStatus === "error" || row.failureReason) ? (
                   <div>
                     <Badge variant="destructive" className="text-[0.65rem]">Failed</Badge>
                     {row.failureReason && (
@@ -122,8 +122,8 @@ export function ExperimentOutliers({ data, topN = 3 }: Props) {
 
     for (const prompt of data) {
       const run = prompt.runs[runIdx];
-      if (!run?.exampleId) continue;
-      if (run.renderStatus === "error") {
+      if (!run?.exampleId && !run?.failureReason) continue;
+      if (run.renderStatus === "error" || run.failureReason) {
         failed.push(toOutlierRow(prompt, run));
       } else if (run.evalScore != null) {
         scored.push(toOutlierRow(prompt, run));

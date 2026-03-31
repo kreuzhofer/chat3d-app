@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { SectionCard } from "../layout/SectionCard";
 import { InlineAlert } from "../layout/InlineAlert";
 import { Badge } from "../ui/badge";
@@ -16,6 +17,7 @@ import { ExperimentDetailView } from "./ExperimentDetailView";
 
 interface Props {
   token: string;
+  selectedExperimentId?: string;
 }
 
 const STATUS_COLORS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -26,12 +28,12 @@ const STATUS_COLORS: Record<string, "default" | "secondary" | "destructive" | "o
   cancelled: "outline",
 };
 
-export function ExperimentsTab({ token }: Props) {
+export function ExperimentsTab({ token, selectedExperimentId }: Props) {
+  const navigate = useNavigate();
   const [experiments, setExperiments] = useState<ExperimentListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -88,19 +90,19 @@ export function ExperimentsTab({ token }: Props) {
     if (!window.confirm("Delete this experiment and all its results?")) return;
     try {
       await deleteExperiment(token, id);
-      if (selectedId === id) setSelectedId(null);
+      if (selectedExperimentId === id) navigate("/admin/experiments");
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete experiment");
     }
   };
 
-  if (selectedId) {
+  if (selectedExperimentId) {
     return (
       <ExperimentDetailView
         token={token}
-        experimentId={selectedId}
-        onBack={() => { setSelectedId(null); refresh(); }}
+        experimentId={selectedExperimentId}
+        onBack={() => { navigate("/admin/experiments"); refresh(); }}
       />
     );
   }
@@ -137,7 +139,7 @@ export function ExperimentsTab({ token }: Props) {
                 <tr key={exp.id} className="border-b border-[hsl(var(--border)_/_0.4)]">
                   <td className="p-2">
                     <button
-                      onClick={() => setSelectedId(exp.id)}
+                      onClick={() => navigate(`/admin/experiments/${exp.id}`)}
                       className="cursor-pointer border-none bg-transparent p-0 text-[hsl(var(--primary))] underline"
                     >
                       {exp.name}

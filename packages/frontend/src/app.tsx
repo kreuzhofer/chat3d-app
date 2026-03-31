@@ -180,6 +180,7 @@ function AuthenticatedApp() {
             <Route path="costs" element={<AdminCostsPage />} />
             <Route path="pipeline" element={<AdminPipelinePage />} />
             <Route path="experiments" element={<AdminExperimentsPage />} />
+            <Route path="experiments/:experimentId" element={<AdminExperimentsPage />} />
           </Route>
           <Route path="/workbench" element={<AdminRouteGuard><WorkbenchPage /></AdminRouteGuard>} />
           <Route path="/workbench/:categoryId" element={<AdminRouteGuard><WorkbenchCategoryPage /></AdminRouteGuard>} />
