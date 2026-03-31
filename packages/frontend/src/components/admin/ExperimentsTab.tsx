@@ -159,9 +159,9 @@ export function ExperimentsTab({ token, selectedExperimentId }: Props) {
                     <Badge variant={STATUS_COLORS[exp.status] ?? "outline"}>{exp.status}</Badge>
                   </td>
                   <td className="whitespace-nowrap p-2">
-                    {exp.status === "created" && (
+                    {exp.status !== "running" && (exp.status === "created" || exp.runs.some((r) => r.status === "pending")) && (
                       <Button size="sm" variant="default" onClick={() => handleStart(exp.id)} className="mr-1">
-                        Start
+                        {exp.status === "created" ? "Start" : "Continue"}
                       </Button>
                     )}
                     {exp.status === "running" && (

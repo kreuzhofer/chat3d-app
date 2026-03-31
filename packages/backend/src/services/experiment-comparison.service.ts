@@ -31,6 +31,7 @@ interface RunMetrics {
   avgCostUsd: number | null;
   totalCostUsd: number | null;
   avgLlmCalls: number | null;
+  avgOutputTps: number | null;
 }
 
 interface PromptRunResult {
@@ -83,6 +84,11 @@ interface TraceAggRow {
   avg_llm_calls: number | null;
 }
 
+interface TpsAggRow {
+  run_id: string;
+  avg_output_tps: number | null;
+}
+
 export async function getExperimentComparison(experimentId: string): Promise<{ runs: RunMetrics[] }> {
   const exp = await prisma.experiment.findUnique({ where: { id: experimentId }, select: { id: true } });
   if (!exp) throw new ExperimentError("Experiment not found", 404);
@@ -126,11 +132,38 @@ export async function getExperimentComparison(experimentId: string): Promise<{ r
   `;
   const traceMap = new Map(traceRows.map((t) => [t.run_id, t]));
 
+  // Aggregate output TPS per run from usage events
+  // Note: workbench_example_id in usage events stores the prompt_id (not example id),
+  // so we join via prompt_id. We also time-scope events to the run's execution window.
+  // Use stored value if present, otherwise compute from output_tokens / duration_ms.
+  const tpsRows = await prisma.$queryRaw<TpsAggRow[]>`
+    SELECT
+      r.id AS run_id,
+      AVG(
+        COALESCE(
+          u.output_tokens_per_second,
+          CASE WHEN u.duration_ms > 0 AND u.output_tokens > 0
+               THEN (u.output_tokens::numeric / u.duration_ms * 1000)
+               ELSE NULL END
+        )
+      ) AS avg_output_tps
+    FROM experiment_runs r
+    JOIN workbench_examples e ON e.experiment_run_id = r.id
+    JOIN llm_usage_events u ON u.workbench_example_id = e.prompt_id
+      AND u.output_tokens > 0 AND u.duration_ms > 0
+      AND u.created_at >= r.started_at
+      AND u.created_at <= COALESCE(r.completed_at, NOW())
+    WHERE r.experiment_id = ${experimentId}::uuid
+    GROUP BY r.id
+  `;
+  const tpsMap = new Map(tpsRows.map((t) => [t.run_id, t]));
+
   const runs: RunMetrics[] = aggRows.map((row) => {
     const total = Number(row.total_prompts);
     const success = Number(row.success_count);
     const autoApproved = Number(row.auto_approved_count);
     const trace = traceMap.get(row.run_id);
+    const tps = tpsMap.get(row.run_id);
 
     return {
       runId: row.run_id,
@@ -151,6 +184,7 @@ export async function getExperimentComparison(experimentId: string): Promise<{ r
       avgCostUsd: trace?.avg_cost_usd != null ? Number(Number(trace.avg_cost_usd).toFixed(6)) : null,
       totalCostUsd: trace?.total_cost_usd != null ? Number(Number(trace.total_cost_usd).toFixed(6)) : null,
       avgLlmCalls: trace?.avg_llm_calls != null ? Math.round(Number(trace.avg_llm_calls) * 10) / 10 : null,
+      avgOutputTps: tps?.avg_output_tps != null ? Math.round(Number(tps.avg_output_tps) * 100) / 100 : null,
     };
   });
 

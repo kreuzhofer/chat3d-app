@@ -61,6 +61,11 @@ function extractUsage(raw: unknown): ExtractedUsage {
   return { inputTokens, outputTokens, reasoningTokens, cacheReadTokens, cacheWriteTokens, totalTokens };
 }
 
+function computeOutputTps(outputTokens: number, durationMs: number): number | undefined {
+  if (outputTokens <= 0 || durationMs <= 0) return undefined;
+  return Math.round((outputTokens / durationMs) * 1000 * 100) / 100;
+}
+
 function computeCost(meta: TrackingMeta, usage: ExtractedUsage): number {
   const cfg = {
     costPer1mInput: meta.modelConfig.costPer1mInput,
@@ -137,6 +142,7 @@ export async function trackedGenerateText(
       durationMs,
       isEstimated: usage.inputTokens === 0 && usage.outputTokens === 0,
       generationAttempt: tracking.generationAttempt,
+      outputTokensPerSecond: computeOutputTps(usage.outputTokens, durationMs),
     });
 
     return result;
@@ -214,6 +220,7 @@ export function trackedStreamText(
         durationMs,
         isEstimated: usage.inputTokens === 0 && usage.outputTokens === 0,
         generationAttempt: tracking.generationAttempt,
+        outputTokensPerSecond: computeOutputTps(usage.outputTokens, durationMs),
       });
 
       await userOnFinish?.(event);

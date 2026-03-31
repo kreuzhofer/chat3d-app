@@ -32,6 +32,7 @@ export interface UsageSummary {
   avgCostPerRequest: number;
   avgInputTokensPerRequest: number;
   avgOutputTokensPerRequest: number;
+  avgOutputTps: number | null;
 }
 
 export interface TimeseriesPoint {
@@ -115,7 +116,15 @@ export async function getUsageSummary(filters: UsageFilters): Promise<UsageSumma
       COALESCE(SUM(output_tokens), 0)::int AS "totalOutputTokens",
       COALESCE(SUM(reasoning_tokens), 0)::int AS "totalReasoningTokens",
       COALESCE(SUM(cache_read_tokens), 0)::int AS "totalCacheReadTokens",
-      COALESCE(SUM(cache_write_tokens), 0)::int AS "totalCacheWriteTokens"
+      COALESCE(SUM(cache_write_tokens), 0)::int AS "totalCacheWriteTokens",
+      AVG(
+        COALESCE(
+          output_tokens_per_second,
+          CASE WHEN duration_ms > 0 AND output_tokens > 0
+               THEN (output_tokens::numeric / duration_ms * 1000)
+               ELSE NULL END
+        )
+      )::float AS "avgOutputTps"
     FROM llm_usage_events
     ${whereClause}
   `;
@@ -128,6 +137,7 @@ export async function getUsageSummary(filters: UsageFilters): Promise<UsageSumma
     totalReasoningTokens: number;
     totalCacheReadTokens: number;
     totalCacheWriteTokens: number;
+    avgOutputTps: number | null;
   }>>(query, ...params);
 
   const row = rows[0];
@@ -138,6 +148,7 @@ export async function getUsageSummary(filters: UsageFilters): Promise<UsageSumma
     avgCostPerRequest: Number((row.totalCost / reqs).toFixed(8)),
     avgInputTokensPerRequest: Math.round(row.totalInputTokens / reqs),
     avgOutputTokensPerRequest: Math.round(row.totalOutputTokens / reqs),
+    avgOutputTps: row.avgOutputTps != null ? Math.round(row.avgOutputTps * 100) / 100 : null,
   };
 }
 
@@ -287,6 +298,7 @@ export async function exportUsageEvents(
       durationMs: e.durationMs,
       isEstimated: e.isEstimated,
       generationAttempt: e.generationAttempt,
+      outputTokensPerSecond: e.outputTokensPerSecond != null ? Number(e.outputTokensPerSecond) : null,
     }));
   }
 
@@ -297,6 +309,7 @@ export async function exportUsageEvents(
     "input_tokens", "output_tokens", "reasoning_tokens",
     "cache_read_tokens", "cache_write_tokens", "total_tokens",
     "estimated_cost_usd", "duration_ms", "is_estimated", "generation_attempt",
+    "output_tokens_per_second",
   ];
 
   const rows = events.map((e) => [
@@ -305,7 +318,7 @@ export async function exportUsageEvents(
     e.modelName, e.purpose, e.inputTokens, e.outputTokens, e.reasoningTokens,
     e.cacheReadTokens, e.cacheWriteTokens, e.totalTokens,
     Number(e.estimatedCostUsd), e.durationMs ?? "", e.isEstimated ?? false,
-    e.generationAttempt ?? 1,
+    e.generationAttempt ?? 1, e.outputTokensPerSecond != null ? Number(e.outputTokensPerSecond) : "",
   ].join(","));
 
   return [headers.join(","), ...rows].join("\n");

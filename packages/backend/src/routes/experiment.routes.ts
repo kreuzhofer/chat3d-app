@@ -14,6 +14,9 @@ import {
   listExperiments,
   previewPromptSelection,
   rerunExperiment,
+  deleteExperimentRun,
+  retryExperimentRun,
+  retryFailedRuns,
   ExperimentError,
 } from "../services/experiment.service.js";
 import { startExperiment, cancelExperiment } from "../services/experiment-execution.service.js";
@@ -181,6 +184,35 @@ experimentRouter.get("/:id/runs/:runId/examples", async (req: Request, res: Resp
   try {
     const examples = await getRunExamples(req.params.id, req.params.runId);
     res.json(examples);
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+// ── Run management endpoints ──────────────────────────────────────
+
+experimentRouter.delete("/:id/runs/:runId", async (req: Request, res: Response) => {
+  try {
+    await deleteExperimentRun(req.params.id, req.params.runId);
+    res.json({ ok: true });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+experimentRouter.post("/:id/runs/:runId/retry", async (req: Request, res: Response) => {
+  try {
+    await retryExperimentRun(req.params.id, req.params.runId);
+    res.json({ ok: true });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+experimentRouter.post("/:id/retry-failed", async (req: Request, res: Response) => {
+  try {
+    await retryFailedRuns(req.params.id);
+    res.json({ ok: true });
   } catch (err) {
     handleError(err, res);
   }

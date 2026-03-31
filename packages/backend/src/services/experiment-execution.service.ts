@@ -68,7 +68,9 @@ export async function startExperiment(experimentId: string, userId: string): Pro
     },
   });
   if (!exp) throw new ExperimentError("Experiment not found", 404);
-  if (exp.status !== "created") throw new ExperimentError(`Experiment is in '${exp.status}' status, expected 'created'`, 409);
+  if (exp.status === "running") throw new ExperimentError("Experiment is already running", 409);
+  const hasPendingRuns = exp.runs.some((r) => r.status === "pending");
+  if (!hasPendingRuns) throw new ExperimentError("No pending runs to execute", 409);
 
   // Set experiment to running
   await prisma.experiment.update({

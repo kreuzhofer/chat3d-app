@@ -75,6 +75,7 @@ export interface UsageEventParams {
   durationMs?: number;
   isEstimated?: boolean;
   generationAttempt?: number;
+  outputTokensPerSecond?: number;
 }
 
 /**
@@ -113,6 +114,7 @@ export function recordUsageEvent(params: UsageEventParams): void {
         durationMs: params.durationMs ?? null,
         isEstimated: params.isEstimated ?? false,
         generationAttempt: params.generationAttempt ?? 1,
+        outputTokensPerSecond: params.outputTokensPerSecond ?? null,
       },
     })
     .catch((err: unknown) => {

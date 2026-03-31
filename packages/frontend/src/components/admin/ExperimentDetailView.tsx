@@ -12,6 +12,7 @@ import {
   startExperiment,
   cancelExperiment,
   rerunExperiment,
+  retryFailedRuns,
   type Experiment,
   type RunMetrics,
   type ExperimentStatus,
@@ -172,7 +173,9 @@ function ExperimentHeader({ experiment, status, token, onRefresh, setError, onEd
   onEdit: () => void;
 }) {
   const canRerun = ["completed", "failed", "cancelled"].includes(experiment.status);
-  const canEdit = ["created", "cancelled"].includes(experiment.status);
+  const canEdit = experiment.status !== "running";
+  const hasPendingRuns = experiment.runs.some((r) => r.status === "pending");
+  const hasFailedRuns = experiment.runs.some((r) => r.status === "failed");
 
   return (
     <SectionCard title={experiment.name}>
@@ -201,9 +204,9 @@ function ExperimentHeader({ experiment, status, token, onRefresh, setError, onEd
         {canEdit && (
           <Button size="sm" variant="outline" onClick={onEdit}>Edit</Button>
         )}
-        {experiment.status === "created" && (
+        {hasPendingRuns && experiment.status !== "running" && (
           <Button size="sm" onClick={async () => { try { await startExperiment(token, experiment.id); onRefresh(); } catch (e) { setError((e as Error).message); } }}>
-            Start Experiment
+            {experiment.status === "created" ? "Start Experiment" : "Continue"}
           </Button>
         )}
         {experiment.status === "running" && (
@@ -211,12 +214,20 @@ function ExperimentHeader({ experiment, status, token, onRefresh, setError, onEd
             Cancel
           </Button>
         )}
+        {hasFailedRuns && experiment.status !== "running" && (
+          <Button size="sm" variant="outline" onClick={async () => {
+            if (!window.confirm("Retry all failed runs? Their partial results will be deleted.")) return;
+            try { await retryFailedRuns(token, experiment.id); onRefresh(); } catch (e) { setError((e as Error).message); }
+          }}>
+            Retry Failed
+          </Button>
+        )}
         {canRerun && (
           <Button size="sm" variant="outline" onClick={async () => {
             if (!window.confirm("Re-run this experiment? This will delete all existing results and start fresh.")) return;
             try { await rerunExperiment(token, experiment.id); onRefresh(); } catch (e) { setError((e as Error).message); }
           }}>
-            Re-run
+            Re-run All
           </Button>
         )}
       </div>
@@ -238,6 +249,7 @@ function ComparisonTable({ runs }: { runs: RunMetrics[] }) {
     { label: "Avg Cost", key: "avgCostUsd", format: (v) => v != null ? `$${v.toFixed(4)}` : "-", higherBetter: false },
     { label: "Total Cost", key: "totalCostUsd", format: (v) => v != null ? `$${v.toFixed(4)}` : "-", higherBetter: false },
     { label: "Avg LLM Calls", key: "avgLlmCalls", format: (v) => v != null ? v.toFixed(1) : "-", higherBetter: false },
+    { label: "Avg Output TPS", key: "avgOutputTps", format: (v) => v != null ? v.toFixed(1) : "-", higherBetter: true },
   ];
 
   const findBest = (key: keyof RunMetrics, higherBetter: boolean): string | null => {

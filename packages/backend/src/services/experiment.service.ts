@@ -42,7 +42,7 @@ const APPROVED_PROMPT_FILTER = {
   },
 } as const;
 
-const EDITABLE_STATUSES = ["created", "cancelled"];
+const EDITABLE_STATUSES = ["created", "cancelled", "completed", "failed"];
 
 // ── Shared validation helpers ───────────────────────────────────────
 
@@ -200,24 +200,41 @@ export async function updateExperiment(id: string, input: UpdateExperimentInput)
   const selectedIds = promptsChanged ? await selectApprovedPrompts(categoryIds, promptCount, promptSeed) : null;
 
   await prisma.$transaction(async (tx) => {
-    // Clean up old runs/examples if runs configuration changed
+    // Diff-based run management: keep matching runs, delete removed, add new
     if (models) {
-      const runIds = exp.runs.map((r) => r.id);
-      if (runIds.length > 0) {
-        await tx.workbenchExample.deleteMany({ where: { experimentRunId: { in: runIds } } });
-        await tx.experimentRun.deleteMany({ where: { id: { in: runIds } } });
-      }
       const effectiveCounts: Array<number | null> = effectiveFsc ?? [null];
-      let runOrder = 0;
+
+      // Build desired run set
+      const desiredRuns: Array<{ modelId: string; fsc: number | null; label: string }> = [];
       for (const modelId of models.uniqueModelIds) {
         const model = models.models.find((m) => m.id === modelId)!;
         for (const fsc of effectiveCounts) {
-          runOrder++;
           const label = fsc != null
             ? `${model.provider}/${model.modelName} (${fsc} ex)`
             : `${model.provider}/${model.modelName}`;
+          desiredRuns.push({ modelId: model.id, fsc, label });
+        }
+      }
+
+      // Delete runs no longer in config
+      const toDelete = exp.runs.filter((r) =>
+        !desiredRuns.some((d) => d.modelId === r.modelId && d.fsc === r.fewShotCount),
+      );
+      if (toDelete.length > 0) {
+        const deleteIds = toDelete.map((r) => r.id);
+        await tx.workbenchExample.deleteMany({ where: { experimentRunId: { in: deleteIds } } });
+        await tx.experimentRun.deleteMany({ where: { id: { in: deleteIds } } });
+      }
+
+      // Add new runs not yet existing
+      const maxOrder = exp.runs.length > 0 ? Math.max(...exp.runs.map((r) => r.runOrder ?? 0)) : 0;
+      let nextOrder = maxOrder;
+      for (const desired of desiredRuns) {
+        const exists = exp.runs.some((r) => r.modelId === desired.modelId && r.fewShotCount === desired.fsc);
+        if (!exists) {
+          nextOrder++;
           await tx.experimentRun.create({
-            data: { experimentId: id, modelId: model.id, modelLabel: label, runOrder, fewShotCount: fsc },
+            data: { experimentId: id, modelId: desired.modelId, modelLabel: desired.label, runOrder: nextOrder, fewShotCount: desired.fsc },
           });
         }
       }
@@ -347,6 +364,66 @@ export async function rerunExperiment(id: string) {
   });
 
   logger.info({ experimentId: id }, "experiment reset for re-run");
+}
+
+// ── Run management ──────────────────────────────────────────────────
+
+export async function deleteExperimentRun(experimentId: string, runId: string) {
+  const exp = await prisma.experiment.findUnique({ where: { id: experimentId }, select: { status: true } });
+  if (!exp) throw new ExperimentError("Experiment not found", 404);
+  if (exp.status === "running") throw new ExperimentError("Cannot modify runs of a running experiment", 409);
+
+  const run = await prisma.experimentRun.findFirst({ where: { id: runId, experimentId } });
+  if (!run) throw new ExperimentError("Run not found", 404);
+
+  // Cascade deletes examples automatically
+  await prisma.experimentRun.delete({ where: { id: runId } });
+  logger.info({ experimentId, runId, modelLabel: run.modelLabel }, "experiment run deleted");
+}
+
+export async function retryExperimentRun(experimentId: string, runId: string) {
+  const exp = await prisma.experiment.findUnique({ where: { id: experimentId }, select: { status: true } });
+  if (!exp) throw new ExperimentError("Experiment not found", 404);
+  if (exp.status === "running") throw new ExperimentError("Cannot modify runs of a running experiment", 409);
+
+  const run = await prisma.experimentRun.findFirst({ where: { id: runId, experimentId } });
+  if (!run) throw new ExperimentError("Run not found", 404);
+  if (run.status !== "failed") throw new ExperimentError(`Run is '${run.status}', only failed runs can be retried`, 409);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.workbenchExample.deleteMany({ where: { experimentRunId: runId } });
+    await tx.experimentRun.update({
+      where: { id: runId },
+      data: { status: "pending", startedAt: null, completedAt: null },
+    });
+  });
+
+  logger.info({ experimentId, runId, modelLabel: run.modelLabel }, "experiment run reset for retry");
+}
+
+export async function retryFailedRuns(experimentId: string) {
+  const exp = await prisma.experiment.findUnique({
+    where: { id: experimentId },
+    include: { runs: { where: { status: "failed" }, select: { id: true, modelLabel: true } } },
+  });
+  if (!exp) throw new ExperimentError("Experiment not found", 404);
+  if (exp.status === "running") throw new ExperimentError("Cannot modify runs of a running experiment", 409);
+  if (exp.runs.length === 0) throw new ExperimentError("No failed runs to retry", 400);
+
+  const failedIds = exp.runs.map((r) => r.id);
+  await prisma.$transaction(async (tx) => {
+    await tx.workbenchExample.deleteMany({ where: { experimentRunId: { in: failedIds } } });
+    await tx.experimentRun.updateMany({
+      where: { id: { in: failedIds } },
+      data: { status: "pending", startedAt: null, completedAt: null },
+    });
+    await tx.experiment.update({
+      where: { id: experimentId },
+      data: { status: "created", startedAt: null, completedAt: null },
+    });
+  });
+
+  logger.info({ experimentId, retriedCount: failedIds.length }, "failed runs reset for retry");
 }
 
 // ── Preview prompt selection ────────────────────────────────────────

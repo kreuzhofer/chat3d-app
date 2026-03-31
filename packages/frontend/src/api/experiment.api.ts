@@ -88,6 +88,7 @@ export interface RunMetrics {
   avgCostUsd: number | null;
   totalCostUsd: number | null;
   avgLlmCalls: number | null;
+  avgOutputTps: number | null;
 }
 
 export interface PromptRunResult {
@@ -181,6 +182,18 @@ export async function cancelExperiment(token: string, id: string) {
 
 export async function rerunExperiment(token: string, id: string) {
   return request<{ ok: boolean }>(token, `/${id}/rerun`, { method: "POST" });
+}
+
+export async function deleteExperimentRun(token: string, experimentId: string, runId: string) {
+  return request<{ ok: boolean }>(token, `/${experimentId}/runs/${runId}`, { method: "DELETE" });
+}
+
+export async function retryExperimentRun(token: string, experimentId: string, runId: string) {
+  return request<{ ok: boolean }>(token, `/${experimentId}/runs/${runId}/retry`, { method: "POST" });
+}
+
+export async function retryFailedRuns(token: string, experimentId: string) {
+  return request<{ ok: boolean }>(token, `/${experimentId}/retry-failed`, { method: "POST" });
 }
 
 export async function getExperimentStatus(token: string, id: string) {

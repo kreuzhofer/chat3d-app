@@ -728,6 +728,7 @@ model LlmUsageEvent {
   durationMs         Int?      @map("duration_ms")
   isEstimated        Boolean?  @default(false) @map("is_estimated")
   generationAttempt  Int?      @default(1) @map("generation_attempt")
+  outputTokensPerSecond Decimal? @map("output_tokens_per_second") @db.Decimal(10, 2)
 
   // Relations
   user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: NoAction)

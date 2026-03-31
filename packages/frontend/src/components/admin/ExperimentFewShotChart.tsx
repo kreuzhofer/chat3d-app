@@ -55,13 +55,22 @@ export function ExperimentFewShotChart({ runs }: Props) {
     return point;
   });
 
+  const tpsData = allCounts.map((count) => {
+    const point: Record<string, number | string | null> = { fewShotCount: count };
+    for (const model of models) {
+      const run = modelMap.get(model)!.find((r) => r.fewShotCount === count);
+      point[model] = run?.avgOutputTps ?? null;
+    }
+    return point;
+  });
+
   const shortLabel = (model: string) => model.split("/").pop() ?? model;
 
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-[hsl(var(--foreground))]">Few-Shot Curves</h3>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] p-3">
           <p className="mb-2 text-xs font-medium text-[hsl(var(--muted-foreground))]">Avg Eval Score</p>
           <ResponsiveContainer width="100%" height={200}>
@@ -98,6 +107,22 @@ export function ExperimentFewShotChart({ runs }: Props) {
           <p className="mb-2 text-xs font-medium text-[hsl(var(--muted-foreground))]">Avg Cost (USD)</p>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={costData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(217 33% 22%)" />
+              <XAxis dataKey="fewShotCount" tick={{ fontSize: 12 }} label={{ value: "Examples", position: "insideBottom", offset: -5, fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 12 }} />
+              <Tooltip />
+              <Legend formatter={shortLabel} />
+              {models.map((model, i) => (
+                <Line key={model} type="monotone" dataKey={model} name={model} stroke={COLORS[i % COLORS.length]} strokeWidth={2} dot={{ r: 4 }} connectNulls />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] p-3">
+          <p className="mb-2 text-xs font-medium text-[hsl(var(--muted-foreground))]">Avg Output TPS</p>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={tpsData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(217 33% 22%)" />
               <XAxis dataKey="fewShotCount" tick={{ fontSize: 12 }} label={{ value: "Examples", position: "insideBottom", offset: -5, fontSize: 11 }} />
               <YAxis tick={{ fontSize: 12 }} />

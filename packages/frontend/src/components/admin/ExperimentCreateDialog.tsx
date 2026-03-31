@@ -3,9 +3,12 @@ import { Dialog } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { Badge } from "../ui/badge";
 import {
   createExperiment,
   updateExperiment,
+  deleteExperimentRun,
+  retryExperimentRun,
   listWorkbenchCategories,
   listLlmModels,
   previewPrompts,
@@ -36,8 +39,29 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
   const [categories, setCategories] = useState<Array<{ id: string; name: string; promptCount: number; approvedPromptCount: number }>>([]);
   const [models, setModels] = useState<Array<{ id: string; provider: string; modelName: string; displayName: string | null; isActive: boolean }>>([]);
   const [previewedPrompts, setPreviewedPrompts] = useState<Array<{ id: string; prompt: string; index: number }>>([]);
+  const [existingRuns, setExistingRuns] = useState(experiment?.runs ?? []);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const handleDeleteRun = async (runId: string) => {
+    if (!experiment || !window.confirm("Delete this run and its results?")) return;
+    try {
+      await deleteExperimentRun(token, experiment.id, runId);
+      setExistingRuns((prev) => prev.filter((r) => r.id !== runId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete run");
+    }
+  };
+
+  const handleRetryRun = async (runId: string) => {
+    if (!experiment) return;
+    try {
+      await retryExperimentRun(token, experiment.id, runId);
+      setExistingRuns((prev) => prev.map((r) => r.id === runId ? { ...r, status: "pending" } : r));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to retry run");
+    }
+  };
 
   useEffect(() => {
     Promise.all([
@@ -192,6 +216,36 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
             ))}
           </div>
         </div>
+
+        {isEdit && existingRuns.length > 0 && (
+          <div>
+            <Label>Existing Runs</Label>
+            <div className="max-h-[200px] overflow-auto rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] p-2">
+              {existingRuns.map((run) => (
+                <div key={run.id} className="flex items-center justify-between rounded px-1 py-1">
+                  <span className="text-sm text-[hsl(var(--foreground))]">{run.modelLabel}</span>
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant={run.status === "completed" ? "secondary" : run.status === "failed" ? "destructive" : "outline"} className="text-[0.65rem]">
+                      {run.status}
+                    </Badge>
+                    {run.status === "failed" && (
+                      <button type="button" onClick={() => handleRetryRun(run.id)}
+                        className="rounded border border-[hsl(var(--border))] px-1.5 py-0.5 text-[0.65rem] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]">
+                        Retry
+                      </button>
+                    )}
+                    {run.status !== "running" && (
+                      <button type="button" onClick={() => handleDeleteRun(run.id)}
+                        className="rounded border border-[hsl(var(--destructive)_/_0.3)] px-1.5 py-0.5 text-[0.65rem] text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive)_/_0.1)]">
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div>
           <Label>Few-Shot Example Counts (optional)</Label>
