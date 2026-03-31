@@ -342,14 +342,33 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
     }, input.pipelineTimeoutMs);
 
     // Consume stream to drive the tool-use loop + log token progress
-    await consumeStreamWithProgress(streamResult.fullStream, {
+    const { streamErrors } = await consumeStreamWithProgress(streamResult.fullStream, {
       purpose: "agent_orchestration", modelName: modelConfig.modelName,
     });
 
     const finalCode = fs.getMainCode() ?? "";
     const allFiles = fs.getFiles();
-    const steps = await streamResult.steps;
-    const stepCount = steps.length;
+    let stepCount: number;
+    try {
+      const steps = await streamResult.steps;
+      stepCount = steps.length;
+    } catch (stepsErr) {
+      // streamText throws NoOutputGeneratedError when zero steps recorded.
+      // Surface the actual stream errors (e.g., API billing rejection) instead of the generic SDK message.
+      const realError = streamErrors.length > 0
+        ? streamErrors.join("; ")
+        : (stepsErr instanceof Error ? stepsErr.message : String(stepsErr));
+      logger.error({ streamErrors, err: stepsErr instanceof Error ? stepsErr.message : String(stepsErr) }, "agent codegen stream failed — no steps produced");
+      tb?.endPhase("failed", {
+        error: realError,
+        errorInfo: { category: "stream_error", message: realError },
+        nodeId: agentNodeId,
+      });
+      if (input.traceId && tb) {
+        updateTraceIncremental(input.traceId, tb.snapshot());
+      }
+      throw new Error(realError);
+    }
 
     logger.info(
       {

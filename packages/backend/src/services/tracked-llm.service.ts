@@ -180,11 +180,19 @@ export function trackedStreamText(
 
   const start = Date.now();
   const userOnFinish = options.onFinish;
+  const userOnError = options.onError;
 
   return streamText({
     ...options,
     timeout: options.timeout ?? timeout,
     abortSignal: combinedSignal,
+    onError: (event) => {
+      // event is { error: unknown } per SDK types
+      const raw = typeof event === "object" && event !== null && "error" in event ? (event as { error: unknown }).error : event;
+      const errMsg = raw instanceof Error ? raw.message : typeof raw === "string" ? raw : JSON.stringify(raw).slice(0, 500);
+      logger.error({ purpose: tracking.purpose, model: tracking.modelName, err: errMsg }, "LLM stream onError");
+      userOnError?.(event);
+    },
     onFinish: async (event) => {
       clearTimeout(timer);
       const durationMs = Date.now() - start;
@@ -216,16 +224,18 @@ export function trackedStreamText(
 /**
  * Consume a fullStream from streamText, logging token progress at intervals.
  * Must be called to drive the tool-use loop and stream to completion.
+ * Returns collected stream errors (if any) so callers can include them in traces.
  */
 export async function consumeStreamWithProgress(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   stream: AsyncIterable<TextStreamPart<any>>,
   meta: { purpose: string; modelName: string },
   logIntervalTokens = 500,
-): Promise<void> {
+): Promise<{ streamErrors: string[] }> {
   let estimatedTokens = 0;
   let lastLoggedAt = 0;
   const start = Date.now();
+  const streamErrors: string[] = [];
 
   for await (const part of stream) {
     if (part.type === "text-delta") {
@@ -239,6 +249,15 @@ export async function consumeStreamWithProgress(
           "LLM streaming progress",
         );
       }
+    } else if (part.type === "error") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const partAny = part as any;
+      const errorText = partAny.errorText ?? partAny.error?.message ?? partAny.error ?? JSON.stringify(part).slice(0, 500);
+      streamErrors.push(String(errorText));
+      logger.error(
+        { purpose: meta.purpose, model: meta.modelName, errorText: String(errorText), partKeys: Object.keys(partAny), elapsedMs: Date.now() - start },
+        "LLM stream error",
+      );
     }
   }
 
@@ -248,6 +267,8 @@ export async function consumeStreamWithProgress(
       "LLM stream completed",
     );
   }
+
+  return { streamErrors };
 }
 
 // ── trackedEmbed ───────────────────────────────────────────────────
