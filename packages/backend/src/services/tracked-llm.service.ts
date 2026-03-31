@@ -203,7 +203,22 @@ export function trackedStreamText(
       clearTimeout(timer);
       const durationMs = Date.now() - start;
       const usage = extractUsage(event.totalUsage);
-      const cost = computeCost(tracking, usage);
+
+      // When provider doesn't report streaming usage (e.g., vllm/OpenAI-compatible),
+      // estimate output tokens from the response text (~4 chars per token).
+      const responseText = typeof event.text === "string" ? event.text : "";
+      let effectiveOutputTokens = usage.outputTokens;
+      let isEstimated = usage.inputTokens === 0 && usage.outputTokens === 0;
+      if (usage.outputTokens === 0 && responseText.length > 0) {
+        effectiveOutputTokens = Math.ceil(responseText.length / 4);
+        isEstimated = true;
+        logger.debug(
+          { purpose: tracking.purpose, model: tracking.modelName, chars: responseText.length, estimatedTokens: effectiveOutputTokens },
+          "estimated output tokens from stream text (provider reported 0)",
+        );
+      }
+
+      const cost = computeCost(tracking, { ...usage, outputTokens: effectiveOutputTokens });
 
       recordUsageEvent({
         providerName: tracking.providerName,
@@ -211,16 +226,16 @@ export function trackedStreamText(
         modelName: tracking.modelName,
         purpose: tracking.purpose,
         inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
+        outputTokens: effectiveOutputTokens,
         reasoningTokens: usage.reasoningTokens,
         cacheReadTokens: usage.cacheReadTokens,
         cacheWriteTokens: usage.cacheWriteTokens,
-        totalTokens: usage.totalTokens,
+        totalTokens: usage.totalTokens || effectiveOutputTokens,
         estimatedCostUsd: cost,
         durationMs,
-        isEstimated: usage.inputTokens === 0 && usage.outputTokens === 0,
+        isEstimated,
         generationAttempt: tracking.generationAttempt,
-        outputTokensPerSecond: computeOutputTps(usage.outputTokens, durationMs),
+        outputTokensPerSecond: computeOutputTps(effectiveOutputTokens, durationMs),
       });
 
       await userOnFinish?.(event);
