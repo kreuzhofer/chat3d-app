@@ -15,6 +15,7 @@ import { Dialog } from "./ui/dialog";
 import { PageHeader } from "./layout/PageHeader";
 import { SectionCard } from "./layout/SectionCard";
 import { EmptyState } from "./layout/EmptyState";
+import { SystemBackupPanel } from "./admin/SystemBackupPanel";
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
@@ -39,9 +40,10 @@ const statusTone: Record<string, "success" | "warning" | "danger" | "neutral"> =
   failed: "danger",
 };
 
-const typeTone: Record<string, "info" | "neutral" | "success"> = {
+const typeTone: Record<string, "info" | "neutral" | "success" | "warning"> = {
   workbench: "info",
   knowledge: "success",
+  system: "warning",
 };
 
 export function BackupsPage() {
@@ -118,7 +120,7 @@ export function BackupsPage() {
       <PageHeader
         title="Backups"
         breadcrumbs={["Admin", "Backups"]}
-        description="Manage exported backup archives. Backups are created when workbench or knowledge data is exported."
+        description="Create full system backups, restore from archives, and manage exported data."
         actions={
           <Button size="sm" variant="outline" onClick={() => void loadBackups()}>
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
@@ -127,10 +129,12 @@ export function BackupsPage() {
         }
       />
 
+      <SystemBackupPanel onBackupCreated={() => void loadBackups()} />
+
       {!loading && backups.length === 0 ? (
         <EmptyState
           title="No backups yet"
-          description="Backups will appear here after you export data from the Workbench or Knowledge pages."
+          description="Backups will appear here after you create a system backup or export data from the Workbench or Knowledge pages."
         />
       ) : (
         <SectionCard title="All Backups" description={`${backups.length} backup${backups.length !== 1 ? "s" : ""}`}>

@@ -22,6 +22,7 @@ import { workbenchRouter } from "./routes/workbench.routes.js";
 import { backupRouter } from "./routes/backup.routes.js";
 import { galleryRouter } from "./routes/gallery.routes.js";
 import { experimentRouter } from "./routes/experiment.routes.js";
+import { systemBackupRouter } from "./routes/system-backup.routes.js";
 
 export function createApp() {
   const app = express();
@@ -63,6 +64,7 @@ export function createApp() {
   app.use("/api/admin/backups", backupRouter);
   app.use("/api/gallery", galleryRouter);
   app.use("/api/admin/experiments", experimentRouter);
+  app.use("/api/admin/system-backup", systemBackupRouter);
 
   app.use((req, res) => {
     res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
