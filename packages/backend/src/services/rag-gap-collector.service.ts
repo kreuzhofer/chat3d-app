@@ -4,9 +4,18 @@
  *
  * Gaps are stored as prompts in the "Missing Examples" workbench category.
  * Deduplicates against in-memory recent set + existing DB entries.
+ *
+ * Technique gaps use an LLM to generate concrete, specific model prompts
+ * instead of storing raw technique search queries (which are too generic
+ * for the workbench to process without disambiguation).
  */
 
 import { createLogger } from "../utils/logger.js";
+import { trackedGenerateText } from "./tracked-llm.service.js";
+import {
+  getModelForPurposeWithFallback,
+  createProviderModel,
+} from "./llm-config.service.js";
 
 const logger = createLogger("rag-gap");
 
@@ -14,6 +23,65 @@ const MISSING_EXAMPLES_CATEGORY = "Missing Examples";
 
 /** In-memory dedup: track recently collected gap descriptions within this process. */
 const recentGaps = new Set<string>();
+
+// ── LLM prompt generation ─────────────────────────────────────────────
+
+const TECHNIQUE_PROMPT_SYSTEM = `You are a 3D CAD prompt writer for Build123d. Given a Build123d technique description, generate a specific, concrete prompt for a simple 3D model that demonstrates this technique.
+
+Rules:
+- Write 1-2 sentences describing a specific physical object
+- Include exact dimensions in millimeters
+- Be completely unambiguous — there should be only one reasonable interpretation
+- Keep the model as simple as possible while clearly demonstrating the technique
+- Do NOT mention Build123d, techniques, or coding — just describe the physical object
+- Do NOT use brackets, tags, or prefixes
+
+Example input technique: "hollow shell with wall thickness using offset"
+Example output: "A 50×30×25mm rectangular box hollowed out with 2mm wall thickness, open on top."
+
+Example input technique: "3D operations extrude cut hole"
+Example output: "A 60×40×20mm rectangular block with a 12mm diameter through-hole centered on the top face and a 15×10mm rectangular pocket cut 5mm deep on the front face."
+
+Return ONLY the prompt text, nothing else.`;
+
+/**
+ * Use LLM to generate a concrete model prompt from a technique description.
+ * Returns null on failure (caller falls back to raw technique string).
+ */
+async function generateConcretePrompt(technique: string, originalPrompt?: string): Promise<string | null> {
+  try {
+    const config = await getModelForPurposeWithFallback("spec_generation");
+    const model = createProviderModel(config);
+
+    const userMessage = originalPrompt
+      ? `Technique: ${technique}\n\nContext (the user was trying to build): ${originalPrompt.slice(0, 200)}`
+      : `Technique: ${technique}`;
+
+    const result = await trackedGenerateText({
+      model,
+      system: TECHNIQUE_PROMPT_SYSTEM,
+      prompt: userMessage,
+      maxOutputTokens: 256,
+    }, {
+      purpose: "gap_prompt_generation",
+      providerName: config.provider,
+      modelId: config.id,
+      modelName: config.modelName,
+      modelConfig: { costPer1mInput: config.costPer1mInput, costPer1mOutput: config.costPer1mOutput },
+    });
+
+    const text = result.text?.trim();
+    if (!text || text.length < 10) return null;
+
+    logger.debug({ technique, generatedPrompt: text }, "generated concrete prompt for technique gap");
+    return text;
+  } catch (err) {
+    logger.debug({ err: err instanceof Error ? err.message : String(err) }, "LLM prompt generation failed");
+    return null;
+  }
+}
+
+// ── Gap collection ────────────────────────────────────────────────────
 
 /**
  * Collect a RAG gap into the "Missing Examples" workbench category.
@@ -55,7 +123,8 @@ export async function collectMissingExample(componentName: string, description: 
       data: {
         categoryId: category.id,
         index: nextIndex,
-        prompt: `[${componentName}] ${description}`,
+        prompt: description,
+        description: `Component: ${componentName}`,
       },
     });
 
@@ -66,10 +135,15 @@ export async function collectMissingExample(componentName: string, description: 
 }
 
 /**
- * Collect a technique-level RAG gap. Records both a concrete prompt
- * (for future generation) and a description (the technique it teaches).
+ * Collect a technique-level RAG gap. Uses LLM to generate a concrete,
+ * specific model prompt from the technique description, falling back
+ * to the raw technique string if the LLM call fails.
  */
-export async function collectMissingTechnique(technique: string, query: string): Promise<void> {
+export async function collectMissingTechnique(
+  technique: string,
+  query: string,
+  originalPrompt?: string,
+): Promise<void> {
   const key = technique.trim().toLowerCase().slice(0, 200);
   if (recentGaps.has(key)) return;
   recentGaps.add(key);
@@ -93,18 +167,22 @@ export async function collectMissingTechnique(technique: string, query: string):
     });
     if (existing) return;
 
+    // Generate a concrete model prompt via LLM (fall back to raw technique)
+    const concretePrompt = await generateConcretePrompt(technique, originalPrompt);
+    const prompt = concretePrompt ?? `[technique] ${technique}`;
+
     const nextIndex = Date.now() % 1_000_000;
 
     await prisma.workbenchExamplePrompt.create({
       data: {
         categoryId: category.id,
         index: nextIndex,
-        prompt: `[technique] ${technique}`,
+        prompt,
         description: `Demonstrates Build123d technique: ${technique}. Search query: ${query}`,
       },
     });
 
-    logger.info({ technique, categoryId: category.id }, "collected missing technique gap");
+    logger.info({ technique, categoryId: category.id, llmGenerated: !!concretePrompt }, "collected missing technique gap");
   } catch (err) {
     logger.debug({ err: err instanceof Error ? err.message : String(err) }, "technique gap collection failed");
   }

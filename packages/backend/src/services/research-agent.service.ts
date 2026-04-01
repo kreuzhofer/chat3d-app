@@ -125,7 +125,7 @@ export async function runResearch(input: ResearchInput): Promise<ResearchPackage
   const gapWarnings: string[] = [];
   for (const gap of searchResult.gaps) {
     gapWarnings.push(gap.technique);
-    collectMissingTechnique(gap.technique, gap.query)
+    collectMissingTechnique(gap.technique, gap.query, promptText)
       .catch(err => logger.debug({ err: err instanceof Error ? err.message : String(err) }, "technique gap collection failed"));
   }
 
