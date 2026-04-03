@@ -52,7 +52,9 @@ export type LlmPurpose =
   | "curation_tags"
   | "prompt_validation"
   | "prompt_improvement"
-  | "knowledge_embedding";
+  | "knowledge_embedding"
+  | "gap_prompt_generation"
+  | "gap_decomposition";
 
 // ── Event recording ────────────────────────────────────────────────
 

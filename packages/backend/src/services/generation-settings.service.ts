@@ -74,6 +74,8 @@ const SETTINGS_REGISTRY = new Map<string, SettingMeta>([
   ["global.adaptive_weight_range", { default: 0.2, label: "Adaptive weight range", description: "How far the code eval weight can shift from the base (±range)", pipeline: "global", min: 0.05, max: 0.4, step: 0.05 }],
   // Spec embedding
   ["global.spec_embedding_enabled", { default: 1, label: "Spec embedding enabled", description: "Embed construction specs after generation for similarity search (1=on, 0=off)", pipeline: "global", min: 0, max: 1, step: 1 }],
+  // Gap decomposition
+  ["global.gap_max_subskills", { default: 4, label: "Gap max sub-skills", description: "Max atomic sub-skills when decomposing a technique gap (2-6). The LLM decides whether to decompose or not.", pipeline: "global", min: 2, max: 6, step: 1 }],
 ]);
 
 // ── In-memory cache ──────────────────────────────────────────────────
@@ -200,6 +202,10 @@ export async function getAdaptiveWeightRange(): Promise<number> {
 
 export async function isSpecEmbeddingEnabled(): Promise<boolean> {
   return (await getEffective("global.spec_embedding_enabled")) === 1;
+}
+
+export async function getGapMaxSubskills(): Promise<number> {
+  return getEffective("global.gap_max_subskills");
 }
 
 // ── Admin API ────────────────────────────────────────────────────────

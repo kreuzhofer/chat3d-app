@@ -5,9 +5,10 @@
  * Gaps are stored as prompts in the "Missing Examples" workbench category.
  * Deduplicates against in-memory recent set + existing DB entries.
  *
- * Technique gaps use an LLM to generate concrete, specific model prompts
- * instead of storing raw technique search queries (which are too generic
- * for the workbench to process without disambiguation).
+ * Technique gaps use intelligent decomposition: the LLM decides whether
+ * a gap is atomic (→ 1 prompt) or can be decomposed into sub-skill
+ * prompts + a composition prompt. Falls back to simple single-prompt
+ * generation if decomposition fails.
  */
 
 import { createLogger } from "../utils/logger.js";
@@ -16,6 +17,7 @@ import {
   getModelForPurposeWithFallback,
   createProviderModel,
 } from "./llm-config.service.js";
+import { decomposeAndCollectGap } from "./rag-gap-decomposer.service.js";
 
 const logger = createLogger("rag-gap");
 
@@ -135,9 +137,10 @@ export async function collectMissingExample(componentName: string, description: 
 }
 
 /**
- * Collect a technique-level RAG gap. Uses LLM to generate a concrete,
- * specific model prompt from the technique description, falling back
- * to the raw technique string if the LLM call fails.
+ * Collect a technique-level RAG gap. Uses intelligent decomposition:
+ * the LLM decides whether the gap is atomic (1 prompt) or decomposable
+ * (N sub-skill prompts + 1 composition prompt). Falls back to simple
+ * single-prompt generation if decomposition fails.
  */
 export async function collectMissingTechnique(
   technique: string,
@@ -157,32 +160,29 @@ export async function collectMissingTechnique(
     });
     if (!category) return;
 
-    // Dedup: check if a similar technique was already recorded
-    const existing = await prisma.workbenchExamplePrompt.findFirst({
-      where: {
-        categoryId: category.id,
-        prompt: { contains: technique.slice(0, 40), mode: "insensitive" },
-      },
-      select: { id: true },
-    });
-    if (existing) return;
+    // Try intelligent decomposition first
+    try {
+      const result = await decomposeAndCollectGap(technique, query, originalPrompt, category.id, recentGaps);
+      logger.info({ technique, ...result }, "gap decomposition completed");
+      return;
+    } catch (err) {
+      logger.debug({ err: err instanceof Error ? err.message : String(err) }, "gap decomposition failed, falling back to single prompt");
+    }
 
-    // Generate a concrete model prompt via LLM (fall back to raw technique)
+    // Fallback: generate a single concrete prompt (old behavior)
     const concretePrompt = await generateConcretePrompt(technique, originalPrompt);
     const prompt = concretePrompt ?? `[technique] ${technique}`;
-
-    const nextIndex = Date.now() % 1_000_000;
 
     await prisma.workbenchExamplePrompt.create({
       data: {
         categoryId: category.id,
-        index: nextIndex,
+        index: Date.now() % 1_000_000,
         prompt,
         description: `Demonstrates Build123d technique: ${technique}. Search query: ${query}`,
       },
     });
 
-    logger.info({ technique, categoryId: category.id, llmGenerated: !!concretePrompt }, "collected missing technique gap");
+    logger.info({ technique, categoryId: category.id, llmGenerated: !!concretePrompt }, "collected missing technique gap (fallback)");
   } catch (err) {
     logger.debug({ err: err instanceof Error ? err.message : String(err) }, "technique gap collection failed");
   }
