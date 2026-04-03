@@ -54,7 +54,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     deploy:
-      replicas: 2
+      replicas: 3
     healthcheck:
       # Health check hits a dedicated lightweight HTTP server on port 8080
       # (separate thread from the main uvicorn worker on port 80).

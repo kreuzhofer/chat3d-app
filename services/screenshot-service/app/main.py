@@ -3,6 +3,8 @@ import traceback
 import logging
 import base64
 import time
+import os
+import signal
 import multiprocessing
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -156,6 +158,20 @@ def render_screenshots_endpoint(request: ScreenshotRequest):
     except Exception as e:
         error_details = f"Screenshot rendering error: {str(e)}\n{traceback.format_exc()}"
         logger.error(error_details)
+
+        # Detect corrupted EGL context — the process can never recover from this,
+        # so terminate to let Docker restart a fresh container.
+        err_str = str(e)
+        if "eglMakeCurrent" in err_str or "GLError" in err_str:
+            logger.critical(
+                "EGL context corrupted (eglMakeCurrent failed). "
+                "Terminating process for Docker restart."
+            )
+            # Return the 500 first, then schedule a fast exit so the client
+            # gets a response before the process dies.
+            import threading
+            threading.Timer(0.5, lambda: os.kill(os.getpid(), signal.SIGTERM)).start()
+
         return JSONResponse(
             content={"error": str(e), "type": "server"},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

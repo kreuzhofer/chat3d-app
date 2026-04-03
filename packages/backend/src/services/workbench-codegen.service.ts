@@ -358,8 +358,9 @@ async function _runPipeline(
 
   const agAllCode = flattenForEval(agResult.files.length > 1 ? agResult.files : [{ path: "main.py", content: agResult.code }]);
 
-  // Always take screenshots (needed for workbench UI display)
+  // Always take screenshots (needed for VLM eval and workbench UI display)
   let agScreenshots: RenderedScreenshot[] = [];
+  let screenshotFailed = false;
   if (agResult.renderSuccess && agResult.renderedFiles.length > 0) {
     traceBuilder.startPhase("screenshots", "screenshots", "Screenshots");
     onProgress?.("evaluating", "Taking screenshots...");
@@ -373,7 +374,8 @@ async function _runPipeline(
       }
       traceBuilder.endPhase("completed");
     } catch (err) {
-      logger.warn({ err: err instanceof Error ? err.message : String(err) }, "screenshot failed (non-fatal)");
+      screenshotFailed = true;
+      logger.error({ err: err instanceof Error ? err.message : String(err) }, "screenshot failed — VLM eval will be skipped, example cannot be auto-approved");
       traceBuilder.endPhase("failed", { error: err instanceof Error ? err.message : String(err) });
     }
     updateTraceIncremental(traceId, traceBuilder.snapshot());
@@ -417,9 +419,16 @@ async function _runPipeline(
   const agTotalPromptTokens = agResult.usage.promptTokens + (agFullEval?.totalPromptTokens ?? 0) + (specResult?.promptTokens ?? 0);
   const agTotalCompletionTokens = agResult.usage.completionTokens + (agFullEval?.totalCompletionTokens ?? 0) + (specResult?.completionTokens ?? 0);
   const agScore = agFullEval?.compositeScore ?? null;
-  const agApproved = agFullEval?.assertionsFailed
+  // VLM is mandatory: if screenshots failed and no agent VLM score, never auto-approve
+  const vlmMissing = screenshotFailed && !(agResult.submitted && agResult.evalResult);
+  const agApproved = vlmMissing
     ? false
-    : shouldAutoApprove(agScore, dynAutoApprove, agFullEval?.checklistResults);
+    : agFullEval?.assertionsFailed
+      ? false
+      : shouldAutoApprove(agScore, dynAutoApprove, agFullEval?.checklistResults, agResult.renderSuccess);
+  if (vlmMissing) {
+    logger.warn({ exampleId: earlyExampleId }, "screenshots failed, VLM eval skipped — blocking auto-approval");
+  }
 
   const storedCode = agAllCode;
   const exampleId = earlyExampleId ?? crypto.randomUUID();

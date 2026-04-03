@@ -15,12 +15,11 @@ export const SCREENSHOT_SIZE = 768;
  *  to allow for cold-start page creation + rendering. */
 const FETCH_TIMEOUT_MS = 90_000;
 
-/** Number of retry attempts for transient failures (timeouts, network errors).
- *  5 attempts allows enough time for container restarts to complete. */
+/** Number of retry attempts for transient failures (timeouts, network errors, server 500s).
+ *  5 attempts with exponential backoff: 2s, 4s, 8s, 16s, then fail = ~30s total wait. */
 const MAX_RETRIES = 5;
 
-/** Base delay between retries (ms). Doubles on each subsequent retry.
- *  5 attempts: 2s, 4s, 8s, 16s, then fail = ~30s total wait. */
+/** Base delay between retries (ms). Doubles on each subsequent retry. */
 const RETRY_BASE_DELAY_MS = 2_000;
 
 export interface RenderedScreenshot {
@@ -94,30 +93,30 @@ async function _renderModelScreenshotsInner(
     "POST to screenshot service",
   );
 
-  let response: Response | undefined;
+  const requestBody = JSON.stringify({
+    modelData: input.modelData,
+    format: input.format,
+    width: input.width ?? SCREENSHOT_SIZE,
+    height: input.height ?? SCREENSHOT_SIZE,
+    angles,
+    ...(input.zoomFactor && input.zoomFactor > 1 ? { zoomFactor: input.zoomFactor } : {}),
+  });
+
+  let body: Record<string, unknown> = {};
   let lastError: StlRenderingError | undefined;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    let response: Response | undefined;
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
       response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          modelData: input.modelData,
-          format: input.format,
-          width: input.width ?? SCREENSHOT_SIZE,
-          height: input.height ?? SCREENSHOT_SIZE,
-          angles,
-          ...(input.zoomFactor && input.zoomFactor > 1 ? { zoomFactor: input.zoomFactor } : {}),
-        }),
+        body: requestBody,
         signal: controller.signal,
       });
       clearTimeout(timer);
-      // Request succeeded (got a response) — break out of retry loop
-      lastError = undefined;
-      break;
     } catch (fetchError) {
       const msg = fetchError instanceof Error ? fetchError.message : String(fetchError);
       const isTimeout = fetchError instanceof Error && fetchError.name === "AbortError";
@@ -127,41 +126,58 @@ async function _renderModelScreenshotsInner(
           : `STL rendering service unreachable: ${msg}`,
         502,
       );
-
       if (attempt < MAX_RETRIES) {
         const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
         logger.warn(
           { url, err: msg, isTimeout, attempt, maxRetries: MAX_RETRIES, retryDelayMs: delay },
-          `STL rendering service failed (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delay}ms`,
+          `screenshot service fetch failed (attempt ${attempt}/${MAX_RETRIES}), retrying`,
         );
         await new Promise((resolve) => setTimeout(resolve, delay));
-      } else {
-        logger.error(
-          { url, err: msg, isTimeout, attempt, maxRetries: MAX_RETRIES },
-          `STL rendering service failed after ${MAX_RETRIES} attempts`,
-        );
+        continue;
       }
+      logger.error(
+        { url, err: msg, isTimeout, attempt, maxRetries: MAX_RETRIES },
+        `screenshot service failed after ${MAX_RETRIES} attempts`,
+      );
+      break;
     }
+
+    logger.info({ status: response.status, statusText: response.statusText }, "screenshot service response received");
+    body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+    // Client errors (400) are not retryable — bad input won't get better
+    if (response.status >= 400 && response.status < 500) {
+      const message = typeof body.error === "string" ? body.error : "STL rendering request failed";
+      throw new StlRenderingError(message, 400);
+    }
+
+    // Server errors (500+) are retryable — the instance may be restarting
+    if (response.status >= 500) {
+      const msg = typeof body.error === "string" ? body.error : `HTTP ${response.status}`;
+      lastError = new StlRenderingError(msg, response.status);
+      if (attempt < MAX_RETRIES) {
+        const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        logger.warn(
+          { url, status: response.status, err: msg, attempt, maxRetries: MAX_RETRIES, retryDelayMs: delay },
+          `screenshot service returned ${response.status} (attempt ${attempt}/${MAX_RETRIES}), retrying`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      logger.error(
+        { url, status: response.status, err: msg, attempt, maxRetries: MAX_RETRIES },
+        `screenshot service returned ${response.status} after ${MAX_RETRIES} attempts`,
+      );
+      break;
+    }
+
+    // Success — clear any prior error and break
+    lastError = undefined;
+    break;
   }
 
-  if (lastError || !response) {
-    throw lastError ?? new StlRenderingError("STL rendering service failed after retries", 502);
-  }
-
-  logger.info({ status: response.status, statusText: response.statusText }, "STL rendering response received");
-
-  const body = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    const message =
-      typeof (body as { error?: unknown }).error === "string"
-        ? (body as { error: string }).error
-        : "STL rendering request failed";
-    const errorType = (body as { type?: unknown }).type;
-    const statusCode =
-      errorType === "client" ? 400 : response.status >= 400 ? response.status : 502;
-    logger.error({ message, errorType: String(errorType), statusCode }, "STL rendering error");
-    throw new StlRenderingError(message, statusCode);
+  if (lastError) {
+    throw lastError;
   }
 
   const images = (body as { images?: unknown[] }).images;

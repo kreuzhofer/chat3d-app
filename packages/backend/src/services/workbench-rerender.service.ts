@@ -31,7 +31,9 @@ function shouldAutoApprove(
   score: number | null,
   threshold: number,
   checklistResults?: Array<{ pass: boolean }> | null,
+  renderSuccess?: boolean,
 ): boolean {
+  if (renderSuccess === false) return false;
   if (score === null || score < threshold) return false;
   if (!checklistResults || checklistResults.length === 0) return true;
   const passCount = checklistResults.filter((r) => r.pass).length;
@@ -118,6 +120,7 @@ export async function reRenderForExample(
   // Screenshots
   onProgress?.("screenshots", "Taking screenshots...");
   let screenshots: RenderedScreenshot[] = [];
+  let screenshotFailed = false;
   const stlFile = findFileByExtension(renderedFiles, ".stl");
   if (stlFile) {
     try {
@@ -126,7 +129,8 @@ export async function reRenderForExample(
       });
       screenshots = ssResult.images;
     } catch (error) {
-      logger.warn({ err: error, exampleId }, "screenshot failed during re-render");
+      screenshotFailed = true;
+      logger.error({ err: error, exampleId }, "screenshot failed during re-render — VLM eval will be skipped");
     }
   }
 
@@ -154,9 +158,15 @@ export async function reRenderForExample(
   });
 
   const score = evalResult?.compositeScore ?? null;
-  const approved = evalResult?.assertionsFailed
+  // VLM is mandatory: if screenshots failed, never auto-approve
+  const approved = screenshotFailed
     ? false
-    : shouldAutoApprove(score, rrAutoApprove, evalResult?.checklistResults);
+    : evalResult?.assertionsFailed
+      ? false
+      : shouldAutoApprove(score, rrAutoApprove, evalResult?.checklistResults);
+  if (screenshotFailed) {
+    logger.warn({ exampleId }, "screenshots failed, VLM eval skipped — blocking auto-approval");
+  }
 
   const rrMergedIssues = [...(evalResult?.vlmIssues ?? []), ...(evalResult?.codeIssues ?? [])];
 
