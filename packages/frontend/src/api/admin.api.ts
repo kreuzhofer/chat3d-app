@@ -967,3 +967,37 @@ export async function getDetailViewAngles(
 ): Promise<{ angles: DetailViewAngleRow[] }> {
   return requestAdminJson(token, `/pipeline/detail-view-angles${buildPipelineQuery(filters)}`);
 }
+
+// ── Data Quality ──────────────────────────────────────────────────────
+
+export interface DataQualityStats {
+  totalPrompts: number;
+  promptsWithExamples: number;
+  evalSourceComposite: number;
+  evalSourceCodeOnly: number;
+  evalSourceLegacy: number;
+  missingScreenshots: number;
+  missingVisualScore: number;
+  missingCodeEvalScore: number;
+  missingSpec: number;
+  missingConstructionSpec: number;
+  missingAssertions: number;
+  missingChecklist: number;
+  missingCriteria: number;
+  assertionsRan: number;
+}
+
+export interface CategoryDataQuality {
+  categoryId: string;
+  categoryName: string;
+  stats: DataQualityStats;
+}
+
+export interface DataQualityReport {
+  overall: DataQualityStats;
+  categories: CategoryDataQuality[];
+}
+
+export async function getDataQualityReport(token: string): Promise<DataQualityReport> {
+  return requestAdminJson(token, "/data-quality");
+}

@@ -53,8 +53,10 @@ import {
   startBatchCleanup,
   startBatchJob,
   startBatchReRender,
+  startBatchReEvaluate,
   startSingleJob,
 } from "../services/workbench-batch.service.js";
+import { startBatchBackfillSpecs } from "../services/workbench-backfill-specs.service.js";
 import {
   deleteTransferJob,
   getExportFilePath,
@@ -526,6 +528,64 @@ workbenchRouter.post("/re-render/batch", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "Batch re-render failed", detail: String(error) });
+  }
+});
+
+// ── Re-Evaluate ──────────────────────────────────────────────────────
+
+workbenchRouter.post("/examples/:id/re-evaluate", async (req, res) => {
+  try {
+    const example = await getExample(req.params.id);
+    const job = await startSingleJob(example.promptId, "re-evaluate", req.params.id, req.authUser!.id);
+    res.status(202).json(job);
+  } catch (error) {
+    if (error instanceof WorkbenchCatalogError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Re-evaluate failed", detail: String(error) });
+  }
+});
+
+workbenchRouter.post("/re-evaluate/batch", async (req, res) => {
+  try {
+    const { categoryId } = req.body as { categoryId?: string };
+    if (!categoryId || typeof categoryId !== "string") {
+      res.status(400).json({ error: "categoryId is required" });
+      return;
+    }
+    const job = await startBatchReEvaluate(categoryId);
+    res.status(202).json(job);
+  } catch (error) {
+    if (error instanceof WorkbenchCatalogError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (statusCode && statusCode >= 400 && statusCode < 600) {
+      res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    res.status(500).json({ error: "Batch re-evaluate failed", detail: String(error) });
+  }
+});
+
+workbenchRouter.post("/backfill-specs/batch", async (req, res) => {
+  try {
+    const { categoryId } = req.body as { categoryId?: string };
+    if (!categoryId || typeof categoryId !== "string") {
+      res.status(400).json({ error: "categoryId is required" });
+      return;
+    }
+    const job = await startBatchBackfillSpecs(categoryId);
+    res.status(202).json(job);
+  } catch (error) {
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (statusCode && statusCode >= 400 && statusCode < 600) {
+      res.status(statusCode).json({ error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    res.status(500).json({ error: "Batch backfill specs failed", detail: String(error) });
   }
 });
 

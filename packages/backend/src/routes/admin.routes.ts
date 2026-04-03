@@ -977,6 +977,18 @@ function parseOptionalDate(value: unknown): Date | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
+// ── Data Quality ──────────────────────────────────────────────────────
+adminRouter.get("/data-quality", async (_req, res) => {
+  try {
+    const { getDataQualityReport } = await import("../services/data-quality.service.js");
+    const report = await getDataQualityReport();
+    res.json(report);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to generate data quality report", detail: String(error) });
+  }
+});
+
+// ── Usage Analytics ───────────────────────────────────────────────────
 adminRouter.get("/usage/summary", async (req, res) => {
   try {
     const summary = await getUsageSummary({

@@ -11,6 +11,8 @@ import {
   startBatchCleanup,
   startBatchJob,
   startBatchReRender,
+  startBatchReEvaluate,
+  startBatchBackfillSpecs,
   startGenerate,
   type BatchJobSummary,
   type WorkbenchCategory,
@@ -70,6 +72,19 @@ function approvalLabel(status: string | null): string {
   if (status === "pending") return "pending";
   if (status === "rejected") return "rejected";
   return "none";
+}
+
+function DataQualityPill({ label, ok, warn, tooltip }: { label: string; ok: boolean; warn?: boolean; tooltip: string }) {
+  const bg = ok
+    ? "bg-[hsl(var(--success)_/_0.15)] text-[hsl(var(--success))]"
+    : warn
+      ? "bg-[hsl(var(--warning)_/_0.15)] text-[hsl(var(--warning))]"
+      : "bg-[hsl(var(--muted)_/_0.4)] text-[hsl(var(--muted-foreground)_/_0.5)]";
+  return (
+    <span className={`inline-block rounded px-1 py-0.5 text-[9px] font-medium leading-none ${bg}`} title={tooltip}>
+      {label}
+    </span>
+  );
 }
 
 export function WorkbenchCategoryPage() {
@@ -133,7 +148,7 @@ export function WorkbenchCategoryPage() {
       if (!silent && runningJobs && runningJobs.length > 0) {
         for (const job of runningJobs) {
           if (job.status !== "running") continue;
-          if (job.type === "batch" || job.type === "batch-re-render") {
+          if (job.type === "batch" || job.type === "batch-re-render" || job.type === "batch-re-evaluate" || job.type === "batch-backfill-specs") {
             setBatchJob(job);
           } else if (job.currentPromptId) {
             // Single-prompt job (generate/retry/re-render) — add to singleJobs map
@@ -263,6 +278,44 @@ export function WorkbenchCategoryPage() {
     [categoryId, pushToast, token],
   );
 
+  const handleBatchReEvaluate = useCallback(
+    async () => {
+      if (!token || !categoryId) return;
+      setError(null);
+      try {
+        const job = await startBatchReEvaluate(token, categoryId);
+        setBatchJob(job);
+        pushToast({
+          tone: "info",
+          title: "Batch re-evaluate started",
+          description: `Re-evaluating ${job.total} examples...`,
+        });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [categoryId, pushToast, token],
+  );
+
+  const handleBatchBackfillSpecs = useCallback(
+    async () => {
+      if (!token || !categoryId) return;
+      setError(null);
+      try {
+        const job = await startBatchBackfillSpecs(token, categoryId);
+        setBatchJob(job);
+        pushToast({
+          tone: "info",
+          title: "Backfill specs started",
+          description: `Generating specs for ${job.total} prompts...`,
+        });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [categoryId, pushToast, token],
+  );
+
   const handleCancelBatch = useCallback(async () => {
     if (!token || !batchJob) return;
     try {
@@ -384,6 +437,22 @@ export function WorkbenchCategoryPage() {
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={() => void handleBatchReEvaluate()}
+                  disabled={anySingleRunning}
+                >
+                  Re-Evaluate All
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleBatchBackfillSpecs()}
+                  disabled={anySingleRunning}
+                >
+                  Backfill Specs
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   iconLeft={<Scissors className="h-3.5 w-3.5" />}
                   disabled={anySingleRunning}
                   onClick={() => setConfirmCleanup(true)}
@@ -424,7 +493,7 @@ export function WorkbenchCategoryPage() {
           <div className="flex items-center gap-2 text-sm">
             <Loader2 className="h-4 w-4 animate-spin text-[hsl(var(--primary))]" />
             <span className="font-medium">
-              {batchJob.type === "batch-re-render" ? "Re-Render" : batchJob.type === "batch-cleanup" ? "Cleanup" : "Batch"}: {batchJob.completed + batchJob.failed} / {batchJob.total}
+              {batchJob.type === "batch-re-render" ? "Re-Render" : batchJob.type === "batch-re-evaluate" ? "Re-Evaluate" : batchJob.type === "batch-cleanup" ? "Cleanup" : batchJob.type === "batch-backfill-specs" ? "Backfill Specs" : "Batch"}: {batchJob.completed + batchJob.failed} / {batchJob.total}
             </span>
             {batchJob.failed > 0 ? (
               <Badge tone="danger">{batchJob.failed} failed</Badge>
@@ -520,6 +589,20 @@ export function WorkbenchCategoryPage() {
                       {prompt.bestScore}/10
                     </span>
                   ) : null}
+
+                  {prompt.exampleCount > 0 && (
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <DataQualityPill
+                        label="VLM"
+                        ok={prompt.bestEvalSource === "composite" || prompt.bestEvalSource === "visual_only"}
+                        warn={prompt.bestEvalSource === "code_only"}
+                        tooltip={prompt.bestEvalSource ? `Eval: ${prompt.bestEvalSource}` : "VLM: not run (legacy)"}
+                      />
+                      <DataQualityPill label="Spec" ok={prompt.hasSpec} tooltip={prompt.hasSpec ? "Spec: present" : "Spec: missing"} />
+                      <DataQualityPill label="Assert" ok={prompt.bestHasAssertions} tooltip={prompt.bestHasAssertions ? "Assertions: ran" : "Assertions: not run"} />
+                      <DataQualityPill label="Imgs" ok={prompt.bestHasScreenshots} tooltip={prompt.bestHasScreenshots ? "Screenshots: present" : "Screenshots: missing"} />
+                    </div>
+                  )}
 
                   <Badge tone={approvalTone(prompt.bestApproval)}>
                     {approvalLabel(prompt.bestApproval)}

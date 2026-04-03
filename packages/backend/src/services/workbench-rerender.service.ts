@@ -13,6 +13,7 @@ import { createLogger } from "../utils/logger.js";
 import { prisma } from "../db/prisma.js";
 import { renderBuild123d, type RenderedFile } from "./rendering.service.js";
 import { renderModelScreenshots, type RenderedScreenshot } from "./stl-rendering-client.service.js";
+import type { CodeAssertion, AnnotatedCriterion } from "./spec-generation.service.js";
 import { runFullEvaluation, type FullEvalResult } from "./eval-orchestrator.service.js";
 import { persistTrace } from "./trace-persistence.service.js";
 import { TraceBuilder, runWithTrace } from "./trace-builder.service.js";
@@ -55,6 +56,11 @@ async function loadPromptContext(promptId: string) {
     categoryId: row.categoryId,
     categoryName: row.category.name,
     complexity: row.category.complexity,
+    constructionSpec: row.constructionSpec ?? undefined,
+    specInterpretation: row.specInterpretation ?? undefined,
+    codeAssertions: (row.codeAssertions as unknown[] | null) ?? undefined,
+    verificationChecklist: (row.verificationChecklist as string[] | null) ?? undefined,
+    verificationCriteria: (row.verificationCriteria as unknown[] | null) ?? undefined,
   };
 }
 
@@ -134,7 +140,7 @@ export async function reRenderForExample(
     }
   }
 
-  // Full evaluation — VLM + code eval (no assertions for re-renders)
+  // Full evaluation — VLM + code eval + assertions (uses stored spec from prompt)
   onProgress?.("evaluating", "Evaluating quality...");
 
   // Create a trace builder for re-render pipeline
@@ -152,6 +158,11 @@ export async function reRenderForExample(
         categoryName: ctx.categoryName, complexity: ctx.complexity,
         stlBase64: stlFile?.contentBase64, modelFormat: "stl",
         codeEvalWeight: rrCodeEvalWeight,
+        constructionSpec: ctx.constructionSpec,
+        specInterpretation: ctx.specInterpretation,
+        codeAssertions: ctx.codeAssertions as CodeAssertion[] | undefined,
+        verificationChecklist: ctx.verificationChecklist,
+        annotatedCriteria: ctx.verificationCriteria as AnnotatedCriterion[] | undefined,
       });
     }
     return rrFullEval;

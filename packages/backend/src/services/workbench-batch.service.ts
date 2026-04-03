@@ -21,7 +21,7 @@ const logger = createLogger("workbench-batch");
 
 // ── Types ────────────────────────────────────────────────────────────
 
-export type JobType = "batch" | "batch-re-render" | "batch-cleanup" | "generate" | "retry" | "re-render";
+export type JobType = "batch" | "batch-re-render" | "batch-re-evaluate" | "batch-cleanup" | "batch-backfill-specs" | "generate" | "retry" | "re-render" | "re-evaluate";
 
 export interface BatchJob {
   jobId: string;
@@ -79,11 +79,11 @@ export interface BatchJobSummary {
 
 // ── In-memory job store ──────────────────────────────────────────────
 
-const jobs = new Map<string, BatchJob>();
+export const jobs = new Map<string, BatchJob>();
 
 let jobCounter = 0;
 
-function generateJobId(type: JobType): string {
+export function generateJobId(type: JobType): string {
   jobCounter += 1;
   const prefix = type === "batch" ? "batch" : "job";
   return `${prefix}-${Date.now()}-${jobCounter}`;
@@ -108,7 +108,7 @@ function evictStaleJobs(): void {
  */
 export function getRunningJobForCategory(categoryId: string): BatchJobSummary | null {
   for (const job of jobs.values()) {
-    if (job.categoryId === categoryId && job.status === "running" && (job.type === "batch" || job.type === "batch-re-render" || job.type === "batch-cleanup")) {
+    if (job.categoryId === categoryId && job.status === "running" && (job.type === "batch" || job.type === "batch-re-render" || job.type === "batch-re-evaluate" || job.type === "batch-cleanup" || job.type === "batch-backfill-specs")) {
       return toSummary(job);
     }
   }
@@ -356,13 +356,82 @@ export async function startBatchReRender(categoryId: string): Promise<BatchJobSu
 }
 
 /**
- * Start a single-prompt job (generate, retry, or re-render).
+ * Start a batch re-evaluate job for a category.
+ * Re-runs the eval pipeline (assertions + code review + VLM) on all
+ * successfully rendered examples with screenshots, updating them in place.
+ */
+export async function startBatchReEvaluate(categoryId: string): Promise<BatchJobSummary> {
+  const existing = getRunningJobForCategory(categoryId);
+  if (existing) {
+    const err = new Error("A batch job is already running for this category");
+    (err as Error & { statusCode: number }).statusCode = 409;
+    throw err;
+  }
+
+  const cat = await prisma.workbenchCategory.findUnique({
+    where: { id: categoryId },
+    select: { name: true },
+  });
+  if (!cat) throw new Error("Category not found");
+
+  const exampleRows = await prisma.workbenchExample.findMany({
+    where: {
+      promptRef: { categoryId },
+      renderStatus: "success",
+      screenshotFront: { not: null },
+      experimentRunId: null,
+    },
+    select: {
+      id: true,
+      promptId: true,
+      promptRef: { select: { prompt: true, index: true } },
+    },
+    orderBy: [{ promptRef: { index: "asc" } }, { createdAt: "asc" }],
+  });
+
+  if (exampleRows.length === 0) {
+    throw new Error("No evaluatable examples found for this category");
+  }
+
+  const jobId = generateJobId("batch-re-evaluate");
+  const job: BatchJob = {
+    jobId,
+    type: "batch-re-evaluate",
+    categoryId,
+    categoryName: cat.name,
+    status: "running",
+    total: exampleRows.length,
+    completed: 0,
+    failed: 0,
+    skipped: 0,
+    currentPromptId: null,
+    currentPromptText: null,
+    exampleId: null,
+    results: [],
+    error: null,
+    createdAt: new Date().toISOString(),
+    finishedAt: null,
+    pendingPromptIds: new Set(),
+    userId: null,
+    abortController: new AbortController(),
+  };
+
+  jobs.set(jobId, job);
+
+  void runBatchReEvaluate(job, exampleRows);
+
+  logger.info({ jobId, categoryId, total: exampleRows.length }, "batch re-evaluate started");
+  return toSummary(job);
+}
+
+/**
+ * Start a single-prompt job (generate, retry, re-render, or re-evaluate).
  * Creates a "batch of 1" in the unified job store so the same polling
  * and status APIs work for both batch and single operations.
  */
 export async function startSingleJob(
   promptId: string,
-  type: "generate" | "retry" | "re-render",
+  type: "generate" | "retry" | "re-render" | "re-evaluate",
   exampleId?: string,
   userId?: string,
 ): Promise<BatchJobSummary> {
@@ -495,7 +564,7 @@ function buildTracePublisher(job: BatchJob, promptId: string): TracePublisher | 
   };
 }
 
-function toSummary(job: BatchJob): BatchJobSummary {
+export function toSummary(job: BatchJob): BatchJobSummary {
   return {
     jobId: job.jobId,
     type: job.type,
@@ -651,10 +720,25 @@ async function runSingleJob(
   job: BatchJob,
   promptId: string,
   promptText: string,
-  type: "generate" | "retry" | "re-render",
+  type: "generate" | "retry" | "re-render" | "re-evaluate",
   exampleId?: string,
 ): Promise<void> {
   try {
+    // Re-evaluate: run eval pipeline on existing example, update in place
+    if (type === "re-evaluate" && exampleId) {
+      const { reEvaluateExample } = await import("./workbench-reeval.service.js");
+      const evalResult = await reEvaluateExample(exampleId);
+      job.completed = 1;
+      job.results.push({
+        promptId, promptText, status: "success",
+        exampleId: evalResult.exampleId, evalScore: evalResult.evalScore,
+        approvalStatus: evalResult.approvalStatus, error: null,
+      });
+      job.status = "completed";
+      job.finishedAt = new Date().toISOString();
+      return;
+    }
+
     let result: GenerateResult;
     const onProgress = buildProgressCallback(job, promptId);
 
@@ -821,6 +905,60 @@ async function runBatchReRender(
   logger.info(
     { jobId: job.jobId, status: job.status, completed: job.completed, failed: job.failed, deletedOriginals: originalIdsToDelete.length },
     "batch re-render finished",
+  );
+}
+
+// ── Batch Re-Evaluate ────────────────────────────────────────────────
+
+async function runBatchReEvaluate(
+  job: BatchJob,
+  examples: Array<{ id: string; promptId: string; promptRef: { prompt: string } }>,
+): Promise<void> {
+  const { reEvaluateExample } = await import("./workbench-reeval.service.js");
+
+  for (const example of examples) {
+    if (job.status === "cancelled") break;
+
+    job.currentPromptId = example.promptId;
+    job.currentPromptText = example.promptRef.prompt;
+    job.exampleId = example.id;
+
+    try {
+      const result = await reEvaluateExample(example.id);
+      job.completed += 1;
+      job.results.push({
+        promptId: example.promptId,
+        promptText: example.promptRef.prompt,
+        status: "success",
+        exampleId: result.exampleId,
+        evalScore: result.evalScore,
+        approvalStatus: result.approvalStatus,
+        error: null,
+      });
+    } catch (error) {
+      job.failed += 1;
+      job.results.push({
+        promptId: example.promptId,
+        promptText: example.promptRef.prompt,
+        status: "error",
+        exampleId: null,
+        evalScore: null,
+        approvalStatus: null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      logger.error({ err: error, exampleId: example.id }, "batch re-evaluate failed for example");
+    }
+  }
+
+  job.currentPromptId = null;
+  job.currentPromptText = null;
+  job.exampleId = null;
+  if (job.status === "running") job.status = "completed";
+  job.finishedAt = new Date().toISOString();
+
+  logger.info(
+    { jobId: job.jobId, status: job.status, completed: job.completed, failed: job.failed },
+    "batch re-evaluate finished",
   );
 }
 

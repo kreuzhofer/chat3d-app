@@ -461,10 +461,24 @@ async function _runPipeline(
     experimentRunId: options?.experimentRunId,
   });
 
-  // Store construction spec + embedding for future remix candidates (always, regardless of remix_enabled)
-  if (specResult?.constructionSpec) {
-    storeSpecAndEmbedding(ctx.promptId, specResult.constructionSpec)
-      .catch(err => logger.warn({ err: err instanceof Error ? err.message : String(err) }, "failed to store spec embedding (non-fatal)"));
+  // Persist all spec outputs on the prompt for future re-render/re-eval use
+  if (specResult) {
+    const specUpdate = prisma.workbenchExamplePrompt.update({
+      where: { id: ctx.promptId },
+      data: {
+        specInterpretation: specResult.interpretation,
+        codeAssertions: specResult.codeAssertions as unknown as undefined,
+        verificationChecklist: specResult.verificationChecklist,
+        verificationCriteria: specResult.verificationCriteria as unknown as undefined,
+      },
+    });
+    specUpdate.catch(err => logger.warn({ err: err instanceof Error ? err.message : String(err) }, "failed to persist spec fields (non-fatal)"));
+
+    // Store construction spec + embedding for future remix candidates
+    if (specResult.constructionSpec) {
+      storeSpecAndEmbedding(ctx.promptId, specResult.constructionSpec)
+        .catch(err => logger.warn({ err: err instanceof Error ? err.message : String(err) }, "failed to store spec embedding (non-fatal)"));
+    }
   }
 
   // Finalize trace

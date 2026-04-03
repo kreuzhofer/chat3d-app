@@ -82,10 +82,15 @@ interface PromptRow {
   category_id: string;
   index: number;
   prompt: string;
+  description: string | null;
   example_count: string;
   best_score: number | null;
   best_approval: string | null;
   best_example_id: string | null;
+  best_eval_source: string | null;
+  best_has_assertions: boolean | null;
+  best_has_screenshots: boolean | null;
+  has_spec: boolean;
   created_at: Date;
 }
 
@@ -132,6 +137,46 @@ export async function listPromptsForCategory(categoryId: string) {
          e3.eval_score DESC NULLS LAST
        LIMIT 1
       ) AS best_example_id,
+      (SELECT e4.eval_source
+       FROM workbench_examples e4
+       WHERE e4.prompt_id = p.id AND e4.experiment_run_id IS NULL
+       ORDER BY
+         CASE e4.approval_status
+           WHEN 'human_approved' THEN 1
+           WHEN 'auto_approved' THEN 2
+           WHEN 'pending' THEN 3
+           WHEN 'rejected' THEN 4
+         END,
+         e4.eval_score DESC NULLS LAST
+       LIMIT 1
+      ) AS best_eval_source,
+      (SELECT e5.assertion_pass_rate IS NOT NULL
+       FROM workbench_examples e5
+       WHERE e5.prompt_id = p.id AND e5.experiment_run_id IS NULL
+       ORDER BY
+         CASE e5.approval_status
+           WHEN 'human_approved' THEN 1
+           WHEN 'auto_approved' THEN 2
+           WHEN 'pending' THEN 3
+           WHEN 'rejected' THEN 4
+         END,
+         e5.eval_score DESC NULLS LAST
+       LIMIT 1
+      ) AS best_has_assertions,
+      (SELECT e6.screenshot_front IS NOT NULL
+       FROM workbench_examples e6
+       WHERE e6.prompt_id = p.id AND e6.experiment_run_id IS NULL
+       ORDER BY
+         CASE e6.approval_status
+           WHEN 'human_approved' THEN 1
+           WHEN 'auto_approved' THEN 2
+           WHEN 'pending' THEN 3
+           WHEN 'rejected' THEN 4
+         END,
+         e6.eval_score DESC NULLS LAST
+       LIMIT 1
+      ) AS best_has_screenshots,
+      p.spec_interpretation IS NOT NULL AS has_spec,
       p.created_at
     FROM workbench_example_prompts p
     LEFT JOIN workbench_examples e ON e.prompt_id = p.id AND e.experiment_run_id IS NULL
@@ -150,6 +195,10 @@ export async function listPromptsForCategory(categoryId: string) {
     bestScore: row.best_score,
     bestApproval: row.best_approval,
     bestExampleId: row.best_example_id,
+    bestEvalSource: row.best_eval_source,
+    bestHasAssertions: row.best_has_assertions ?? false,
+    bestHasScreenshots: row.best_has_screenshots ?? false,
+    hasSpec: row.has_spec,
     createdAt: row.created_at,
   }));
 }

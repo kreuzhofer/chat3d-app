@@ -51,6 +51,10 @@ export interface WorkbenchPrompt {
   bestScore: number | null;
   bestApproval: string | null;
   bestExampleId: string | null;
+  bestEvalSource: string | null;
+  bestHasAssertions: boolean;
+  bestHasScreenshots: boolean;
+  hasSpec: boolean;
   createdAt: string;
 }
 
@@ -113,7 +117,7 @@ export interface ExportStats {
   };
 }
 
-export type JobType = "batch" | "batch-re-render" | "generate" | "retry" | "re-render";
+export type JobType = "batch" | "batch-re-render" | "batch-re-evaluate" | "generate" | "retry" | "re-render" | "re-evaluate";
 
 export interface BatchJobSummary {
   jobId: string;
@@ -235,6 +239,36 @@ export function startBatchReRender(
   categoryId: string,
 ): Promise<BatchJobSummary> {
   return requestJson<BatchJobSummary>(token, "/re-render/batch", {
+    method: "POST",
+    body: JSON.stringify({ categoryId }),
+  });
+}
+
+/**
+ * Start a re-evaluate job for an existing example.
+ * Re-runs eval pipeline (assertions + code review + VLM) on existing screenshots.
+ */
+export function startReEvaluate(token: string, exampleId: string): Promise<BatchJobSummary> {
+  return requestJson<BatchJobSummary>(token, `/examples/${encodeURIComponent(exampleId)}/re-evaluate`, {
+    method: "POST",
+  });
+}
+
+export function startBatchReEvaluate(
+  token: string,
+  categoryId: string,
+): Promise<BatchJobSummary> {
+  return requestJson<BatchJobSummary>(token, "/re-evaluate/batch", {
+    method: "POST",
+    body: JSON.stringify({ categoryId }),
+  });
+}
+
+export function startBatchBackfillSpecs(
+  token: string,
+  categoryId: string,
+): Promise<BatchJobSummary> {
+  return requestJson<BatchJobSummary>(token, "/backfill-specs/batch", {
     method: "POST",
     body: JSON.stringify({ categoryId }),
   });

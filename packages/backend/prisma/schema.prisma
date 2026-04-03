@@ -420,6 +420,9 @@ model WorkbenchExamplePrompt {
   constructionSpec         String?                        @map("construction_spec") @db.Text
   specEmbedding            Unsupported("vector(1536)")?   @map("spec_embedding")
   specEmbeddingModel       String?                        @map("spec_embedding_model") @db.Text
+  codeAssertions           Json?                          @map("code_assertions") @db.JsonB
+  verificationChecklist    Json?                          @map("verification_checklist") @db.JsonB
+  verificationCriteria     Json?                          @map("verification_criteria") @db.JsonB
 
   // Relations
   category                   WorkbenchCategory    @relation(fields: [categoryId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -475,10 +478,12 @@ model WorkbenchExample {
   experimentRunId       String?  @map("experiment_run_id") @db.Uuid
 
   // Relations
-  promptRef           WorkbenchExamplePrompt @relation(fields: [promptId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  curationCandidates  CurationCandidate[]
-  generationTrace     GenerationTrace?
-  experimentRun       ExperimentRun?         @relation(fields: [experimentRunId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  promptRef              WorkbenchExamplePrompt          @relation(fields: [promptId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  curationCandidates     CurationCandidate[]
+  generationTrace        GenerationTrace?
+  experimentRun          ExperimentRun?                  @relation(fields: [experimentRunId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  vlmExampleSelections   VlmExperimentExampleSelection[]
+  vlmExperimentResults   VlmExperimentResult[]
 
   @@index([promptId], map: "idx_wb_examples_prompt")
   @@index([approvalStatus], map: "idx_wb_examples_approval")
@@ -521,6 +526,7 @@ model GenerationTrace {
 model Experiment {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name          String    @db.VarChar(255)
+  type          String    @default("codegen") @db.VarChar(30)
   categoryIds   String[]  @default([]) @map("category_ids")
   promptCount   Int       @map("prompt_count")
   promptSeed    Int       @default(42) @map("prompt_seed")
@@ -534,9 +540,10 @@ model Experiment {
   updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz()
 
   // Relations
-  createdByUser   User?                      @relation(fields: [createdBy], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  runs            ExperimentRun[]
-  promptSelections ExperimentPromptSelection[]
+  createdByUser        User?                            @relation(fields: [createdBy], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  runs                 ExperimentRun[]
+  promptSelections     ExperimentPromptSelection[]
+  vlmExampleSelections VlmExperimentExampleSelection[]
 
   @@index([status], map: "idx_experiments_status")
   @@map("experiment_experiments")
@@ -556,9 +563,10 @@ model ExperimentRun {
   updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz()
 
   // Relations
-  experiment Experiment         @relation(fields: [experimentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  model      LlmModel           @relation(fields: [modelId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  experiment Experiment              @relation(fields: [experimentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  model      LlmModel               @relation(fields: [modelId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   examples   WorkbenchExample[]
+  vlmResults VlmExperimentResult[]
 
   @@index([experimentId], map: "idx_exp_runs_experiment")
   @@map("experiment_runs")
@@ -575,6 +583,43 @@ model ExperimentPromptSelection {
 
   @@id([experimentId, promptId])
   @@map("experiment_prompt_selections")
+}
+
+model VlmExperimentExampleSelection {
+  experimentId   String @map("experiment_id") @db.Uuid
+  exampleId      String @map("example_id") @db.Uuid
+  selectionOrder Int    @map("selection_order")
+
+  // Relations
+  experiment Experiment       @relation(fields: [experimentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  example    WorkbenchExample @relation(fields: [exampleId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([experimentId, exampleId])
+  @@map("vlm_experiment_example_selections")
+}
+
+model VlmExperimentResult {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  runId            String   @map("run_id") @db.Uuid
+  exampleId        String   @map("example_id") @db.Uuid
+  visualScore      Decimal? @map("visual_score") @db.Decimal(3, 1)
+  issues           Json?    @default("[]") @db.JsonB
+  suggestions      Json?    @default("[]") @db.JsonB
+  checklistResults Json?    @map("checklist_results") @db.JsonB
+  promptTokens     Int?     @map("prompt_tokens")
+  completionTokens Int?     @map("completion_tokens")
+  durationMs       Int?     @map("duration_ms")
+  error            String?  @db.Text
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  run     ExperimentRun    @relation(fields: [runId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  example WorkbenchExample @relation(fields: [exampleId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([runId, exampleId])
+  @@index([runId], map: "idx_vlm_res_run")
+  @@index([exampleId], map: "idx_vlm_res_example")
+  @@map("vlm_experiment_results")
 }
 
 model WorkbenchPromptTag {
