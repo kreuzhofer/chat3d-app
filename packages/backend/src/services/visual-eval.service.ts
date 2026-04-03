@@ -13,6 +13,7 @@ import { createLogger } from "../utils/logger.js";
 import {
   getModelForPurpose,
   createProviderModel as createProviderModelFromConfig,
+  type LlmModelConfig,
 } from "./llm-config.service.js";
 import {
   parseEvaluationResponse,
@@ -93,17 +94,10 @@ function buildImageUserContent(images: LabeledImage[]): ContentPart[] {
   return parts;
 }
 
-// ── Main evaluation function ─────────────────────────────────────────
+// ── Main evaluation function (uses default VLM from purpose map) ─────
 
 export async function evaluateModel(input: EvaluateModelInput): Promise<EvaluationResult> {
-  const { userPrompt, categoryName, complexity, images } = input;
-
-  logger.info(
-    { category: categoryName, complexity, imageCount: images.length },
-    "starting evaluation",
-  );
-
-  if (!images || images.length === 0) {
+  if (!input.images || input.images.length === 0) {
     logger.warn("no labeled images provided, returning score 1");
     return {
       score: 1, issues: ["No images provided for evaluation"], suggestions: [],
@@ -112,9 +106,31 @@ export async function evaluateModel(input: EvaluateModelInput): Promise<Evaluati
   }
 
   const vlmConfig = await getModelForPurpose("vlm_eval");
-  const vlmModelLabel = vlmConfig.label;
-  logger.info({ model: vlmModelLabel }, "using VLM model");
+  return evaluateModelWithConfig(input, vlmConfig);
+}
 
+// ── Evaluation with explicit model config (for experiments) ─────────
+
+export async function evaluateModelWithConfig(
+  input: EvaluateModelInput,
+  vlmConfig: LlmModelConfig,
+): Promise<EvaluationResult> {
+  const { userPrompt, categoryName, complexity, images } = input;
+
+  logger.info(
+    { category: categoryName, complexity, imageCount: images.length, model: vlmConfig.label },
+    "starting evaluation",
+  );
+
+  if (!images || images.length === 0) {
+    logger.warn("no labeled images provided, returning score 1");
+    return {
+      score: 1, issues: ["No images provided for evaluation"], suggestions: [],
+      vlmModel: vlmConfig.label, promptTokens: 0, completionTokens: 0,
+    };
+  }
+
+  const vlmModelLabel = vlmConfig.label;
   const providedAngles = images.map(img => img.angle);
   const systemPrompt = buildEvaluationSystemPrompt(
     userPrompt, categoryName, complexity, input.verificationChecklist,

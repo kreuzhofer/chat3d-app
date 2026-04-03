@@ -62,7 +62,9 @@ export function shouldAutoApprove(
   score: number | null,
   threshold: number,
   checklistResults?: Array<{ pass: boolean | null }> | null,
+  renderSuccess?: boolean,
 ): boolean {
+  if (renderSuccess === false) return false;
   if (score === null || score < threshold) return false;
   if (!checklistResults || checklistResults.length === 0) return true;
   // Uncertain (null) counts as not-passing for approval purposes

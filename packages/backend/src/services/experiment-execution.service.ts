@@ -9,17 +9,14 @@ import { createLogger } from "../utils/logger.js";
 import { ExperimentError } from "./experiment.service.js";
 import { resolveModelConfigById, createProviderModel } from "./llm-config.service.js";
 import { generateForPrompt, type GenerateResult } from "./workbench-codegen.service.js";
+import {
+  acquireExperimentLock,
+  releaseExperimentLock,
+  isExperimentRunning,
+  cancelRunningExperiment,
+} from "./experiment-lock.service.js";
 
 const logger = createLogger("experiment-exec");
-
-// ── In-memory state for running experiments ─────────────────────────
-
-interface RunningExperiment {
-  experimentId: string;
-  abortController: AbortController;
-}
-
-let runningExperiment: RunningExperiment | null = null;
 
 // ── Startup recovery ────────────────────────────────────────────────
 
@@ -29,7 +26,7 @@ let runningExperiment: RunningExperiment | null = null;
  */
 export async function recoverStuckExperiments(): Promise<void> {
   const stuck = await prisma.experiment.findMany({
-    where: { status: "running" },
+    where: { status: "running", type: "codegen" },
     include: {
       runs: { orderBy: { runOrder: "asc" } },
       promptSelections: { orderBy: { selectionOrder: "asc" } },
@@ -41,8 +38,7 @@ export async function recoverStuckExperiments(): Promise<void> {
 
   // Resume experiments one at a time (normally only one can be running)
   for (const exp of stuck) {
-    const abortController = new AbortController();
-    runningExperiment = { experimentId: exp.id, abortController };
+    const abortController = acquireExperimentLock(exp.id);
 
     try {
       await executeExperiment(exp, abortController);
@@ -55,8 +51,7 @@ export async function recoverStuckExperiments(): Promise<void> {
 // ── Start experiment ────────────────────────────────────────────────
 
 export async function startExperiment(experimentId: string, userId: string): Promise<void> {
-  // Check no other experiment is running
-  if (runningExperiment) {
+  if (isExperimentRunning()) {
     throw new ExperimentError("Another experiment is already running", 409);
   }
 
@@ -72,14 +67,12 @@ export async function startExperiment(experimentId: string, userId: string): Pro
   const hasPendingRuns = exp.runs.some((r) => r.status === "pending");
   if (!hasPendingRuns) throw new ExperimentError("No pending runs to execute", 409);
 
-  // Set experiment to running
   await prisma.experiment.update({
     where: { id: experimentId },
     data: { status: "running", startedAt: new Date() },
   });
 
-  const abortController = new AbortController();
-  runningExperiment = { experimentId, abortController };
+  const abortController = acquireExperimentLock(experimentId);
 
   // Fire-and-forget: run all runs sequentially in background
   executeExperiment(exp, abortController).catch((err) => {
@@ -90,11 +83,9 @@ export async function startExperiment(experimentId: string, userId: string): Pro
 // ── Cancel experiment ───────────────────────────────────────────────
 
 export async function cancelExperiment(experimentId: string): Promise<void> {
-  if (!runningExperiment || runningExperiment.experimentId !== experimentId) {
+  if (!cancelRunningExperiment(experimentId)) {
     throw new ExperimentError("Experiment is not running", 409);
   }
-  runningExperiment.abortController.abort();
-  logger.info({ experimentId }, "experiment cancellation requested");
 }
 
 // ── Internal execution ──────────────────────────────────────────────
@@ -151,7 +142,7 @@ async function executeExperiment(exp: ExperimentWithRelations, abortController: 
       data: { status: "failed", completedAt: new Date() },
     }).catch(() => {});
   } finally {
-    runningExperiment = null;
+    releaseExperimentLock(exp.id);
   }
 }
 

@@ -8,6 +8,7 @@ import { emailService } from "./services/email.service.js";
 import { initializeEmailTemplates } from "./services/email-template.service.js";
 import { startJobQueue, stopJobQueue } from "./services/job-queue.service.js";
 import { recoverStuckExperiments } from "./services/experiment-execution.service.js";
+import { recoverStuckVlmExperiments } from "./services/vlm-experiment-execution.service.js";
 const logger = createLogger("backend");
 
 await initializeI18n();
@@ -36,6 +37,9 @@ const server = app.listen(config.port, () => {
   // Resume experiments that were running when the server last shut down
   void recoverStuckExperiments().catch((err) => {
     logger.error({ err }, "failed to resume stuck experiments on startup");
+  });
+  void recoverStuckVlmExperiments().catch((err) => {
+    logger.error({ err }, "failed to resume stuck VLM experiments on startup");
   });
 
   // Start persistent job queue for knowledge pipeline

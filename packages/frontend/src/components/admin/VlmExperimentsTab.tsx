@@ -1,0 +1,180 @@
+/**
+ * VLM Experiments Tab — List and manage VLM comparison experiments.
+ */
+
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { SectionCard } from "../layout/SectionCard";
+import { InlineAlert } from "../layout/InlineAlert";
+import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
+import {
+  listVlmExperiments,
+  deleteVlmExperiment,
+  startVlmExperiment,
+  cancelVlmExperiment,
+  rerunVlmExperiment,
+  type VlmExperimentListItem,
+} from "../../api/vlm-experiment.api";
+import { VlmExperimentCreateDialog } from "./VlmExperimentCreateDialog";
+import { VlmExperimentDetailView } from "./VlmExperimentDetailView";
+
+interface Props {
+  token: string;
+  selectedExperimentId?: string;
+}
+
+const STATUS_COLORS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+  created: "outline",
+  running: "default",
+  completed: "secondary",
+  failed: "destructive",
+  cancelled: "outline",
+};
+
+export function VlmExperimentsTab({ token, selectedExperimentId }: Props) {
+  const navigate = useNavigate();
+  const [experiments, setExperiments] = useState<VlmExperimentListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      setLoading(true);
+      const result = await listVlmExperiments(token);
+      setExperiments(result.items);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load VLM experiments");
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  useEffect(() => {
+    const hasRunning = experiments.some((e) => e.status === "running");
+    if (!hasRunning) return;
+    const interval = setInterval(refresh, 5000);
+    return () => clearInterval(interval);
+  }, [experiments, refresh]);
+
+  const handleStart = async (id: string) => {
+    try { await startVlmExperiment(token, id); refresh(); }
+    catch (err) { setError(err instanceof Error ? err.message : "Failed to start"); }
+  };
+
+  const handleCancel = async (id: string) => {
+    try { await cancelVlmExperiment(token, id); refresh(); }
+    catch (err) { setError(err instanceof Error ? err.message : "Failed to cancel"); }
+  };
+
+  const handleRerun = async (id: string) => {
+    if (!window.confirm("Re-run this experiment? All results will be deleted.")) return;
+    try { await rerunVlmExperiment(token, id); refresh(); }
+    catch (err) { setError(err instanceof Error ? err.message : "Failed to re-run"); }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("Delete this VLM experiment and all results?")) return;
+    try {
+      await deleteVlmExperiment(token, id);
+      if (selectedExperimentId === id) navigate("/admin/experiments");
+      refresh();
+    } catch (err) { setError(err instanceof Error ? err.message : "Failed to delete"); }
+  };
+
+  if (selectedExperimentId) {
+    return (
+      <VlmExperimentDetailView
+        token={token}
+        experimentId={selectedExperimentId}
+        onBack={() => { navigate("/admin/experiments"); refresh(); }}
+      />
+    );
+  }
+
+  return (
+    <>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-[hsl(var(--foreground))]">VLM Comparison Experiments</h2>
+        <Button onClick={() => setShowCreate(true)}>New VLM Experiment</Button>
+      </div>
+
+      {error && <InlineAlert variant="error" message={error} />}
+
+      <SectionCard title="VLM Experiments">
+        {loading && experiments.length === 0 ? (
+          <p className="p-4 text-[hsl(var(--muted-foreground))]">Loading...</p>
+        ) : experiments.length === 0 ? (
+          <p className="p-4 text-[hsl(var(--muted-foreground))]">No VLM experiments yet. Create one to compare VLM evaluators.</p>
+        ) : (
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-[hsl(var(--border))] text-left text-[hsl(var(--muted-foreground))]">
+                <th className="p-2">Name</th>
+                <th className="p-2">Category</th>
+                <th className="p-2">Examples</th>
+                <th className="p-2">VLM Models</th>
+                <th className="p-2">Status</th>
+                <th className="p-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {experiments.map((exp) => (
+                <tr key={exp.id} className="border-b border-[hsl(var(--border)_/_0.4)]">
+                  <td className="p-2">
+                    <button
+                      onClick={() => navigate(`/admin/experiments/${exp.id}`)}
+                      className="cursor-pointer border-none bg-transparent p-0 text-[hsl(var(--primary))] underline"
+                    >
+                      {exp.name}
+                    </button>
+                  </td>
+                  <td className="p-2">{exp.categoryNames.join(", ")}</td>
+                  <td className="p-2">{exp.promptCount}</td>
+                  <td className="p-2">
+                    {exp.runs.map((r) => (
+                      <Badge key={r.id} variant={STATUS_COLORS[r.status] ?? "outline"} className="mr-1 text-[0.7rem]">
+                        {r.modelLabel.split("/").pop()}
+                      </Badge>
+                    ))}
+                  </td>
+                  <td className="p-2">
+                    <Badge variant={STATUS_COLORS[exp.status] ?? "outline"}>{exp.status}</Badge>
+                  </td>
+                  <td className="whitespace-nowrap p-2">
+                    {exp.status !== "running" && (exp.status === "created" || exp.runs.some((r) => r.status === "pending")) && (
+                      <Button size="sm" variant="default" onClick={() => handleStart(exp.id)} className="mr-1">
+                        {exp.status === "created" ? "Start" : "Continue"}
+                      </Button>
+                    )}
+                    {exp.status === "running" && (
+                      <Button size="sm" variant="outline" onClick={() => handleCancel(exp.id)} className="mr-1">Cancel</Button>
+                    )}
+                    {["completed", "failed", "cancelled"].includes(exp.status) && (
+                      <Button size="sm" variant="outline" onClick={() => handleRerun(exp.id)} className="mr-1">Re-run</Button>
+                    )}
+                    {exp.status !== "running" && (
+                      <Button size="sm" variant="destructive" onClick={() => handleDelete(exp.id)}>Delete</Button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </SectionCard>
+
+      {showCreate && (
+        <VlmExperimentCreateDialog
+          token={token}
+          onClose={() => setShowCreate(false)}
+          onSaved={() => { setShowCreate(false); refresh(); }}
+        />
+      )}
+    </>
+  );
+}

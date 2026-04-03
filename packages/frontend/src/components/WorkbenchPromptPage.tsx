@@ -18,6 +18,7 @@ import {
   rejectExample,
   startGenerate,
   startReRender,
+  startReEvaluate,
   startRetry,
   updateExampleCode,
   updatePromptText,
@@ -192,6 +193,7 @@ export function WorkbenchPromptPage() {
                   title: result.status === "error" ? "Generation failed"
                     : result.approvalStatus === "auto_approved" ? "Auto-approved!"
                     : status.type === "re-render" ? "Re-render complete"
+                    : status.type === "re-evaluate" ? "Re-evaluate complete"
                     : status.type === "retry" ? "Retry complete"
                     : "Generation complete",
                   description: result.status === "error"
@@ -334,6 +336,17 @@ export function WorkbenchPromptPage() {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [codeEditValue, editingCode, selectedExample, token]);
+
+  const handleReEvaluate = useCallback(async () => {
+    if (!token || !selectedExample) return;
+    setError(null);
+    try {
+      const job = await startReEvaluate(token, selectedExample.id);
+      setActiveJob(job);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [selectedExample, token]);
 
   const handleSavePrompt = useCallback(async () => {
     if (!token || !promptId) return;
@@ -558,6 +571,7 @@ export function WorkbenchPromptPage() {
           detail={jobProgressDetail ?? (
             activeJob.type === "batch" ? "Batch processing this prompt..." :
             activeJob.type === "re-render" ? "Re-rendering..." :
+            activeJob.type === "re-evaluate" ? "Re-evaluating..." :
             activeJob.type === "retry" ? "Retrying generation..." :
             "Starting..."
           )}
@@ -860,6 +874,9 @@ export function WorkbenchPromptPage() {
                 <div className="flex gap-2">
                   <Button size="sm" variant="outline" iconLeft={<RefreshCw className="h-3 w-3" />} loading={busy} onClick={() => void handleReRender()}>
                     Re-Render
+                  </Button>
+                  <Button size="sm" variant="outline" loading={busy} onClick={() => void handleReEvaluate()}>
+                    Re-Evaluate
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => { setCodeEditValue(selectedExample.code); setEditingCode(true); }}>
                     Edit

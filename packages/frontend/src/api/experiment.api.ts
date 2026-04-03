@@ -41,6 +41,7 @@ export interface PromptSelection {
 export interface Experiment {
   id: string;
   name: string;
+  type?: string;
   categoryIds: string[];
   categories: Array<{ id: string; name: string; complexity?: number }>;
   promptCount: number;
@@ -229,6 +230,7 @@ export async function listLlmModels(token: string) {
     modelName: (m.model_name ?? m.modelName) as string,
     displayName: (m.display_name ?? m.displayName ?? null) as string | null,
     isActive: (m.is_active ?? m.isActive ?? true) as boolean,
+    supportsVision: (m.supports_vision ?? m.supportsVision ?? false) as boolean,
   }));
 }
 

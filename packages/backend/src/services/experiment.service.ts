@@ -292,7 +292,7 @@ export async function getExperiment(id: string) {
 }
 
 export async function listExperiments(filters?: { status?: string; categoryId?: string; limit?: number; offset?: number }) {
-  const where: Record<string, unknown> = {};
+  const where: Record<string, unknown> = { type: "codegen" };
   if (filters?.status) where.status = filters.status;
   if (filters?.categoryId) where.categoryIds = { has: filters.categoryId };
 
