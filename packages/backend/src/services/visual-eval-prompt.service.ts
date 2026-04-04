@@ -168,11 +168,13 @@ ${verificationChecklist.map((q, i) => `${i + 1}. ${q}`).join("\n")}
 For each item, set "pass" to:
 - true — feature is clearly present/correct in the images
 - false — feature is clearly absent or wrong
-- null — you CANNOT resolve this feature at the current image resolution (too small, too subtle, or occluded in all views)
+- null — you CANNOT resolve this feature at the current image resolution (too small, too subtle, or occluded in ALL views)
 
-Mark "uncertain" (null) ONLY when you literally cannot resolve the feature at this resolution.
-If you can see the feature at all, even subtly, call it pass or fail. Uncertain is a last resort
-for features that are physically below the visible resolution threshold.
+CRITICAL — cross-view evidence:
+If a feature is clearly visible in ANY single view, mark it pass — even if other views cannot
+show it due to angle or occlusion. A through-hole visible from top and bottom is confirmed present
+even if the front view cannot show it. Do NOT let one ambiguous angle override clear evidence from
+another. Only mark uncertain (null) when NO view provides clear evidence either way.
 
 Include in your JSON response:
 "checklist": [
