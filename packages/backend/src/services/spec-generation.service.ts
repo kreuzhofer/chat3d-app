@@ -100,7 +100,9 @@ Given a user's prompt describing a 3D model, produce:
 6. **semanticContext**: 1-2 sentences identifying the object and its domain. No dimensions or construction details. This is used as a search query to find reference material and similar examples.
    Example: "Raspberry Pi 4 Model B enclosure with removable lid"
 
-7. **constructionSpec**: A bulleted list describing the final geometry — dimensions, shapes, positions, and spatial relationships. Focus on WHAT the geometry IS, not HOW to construct it in CAD. Do not reference specific CAD operations (extrude, revolve, sweep, loft, boolean subtract, fillet, chamfer as verbs) — instead describe the resulting geometric features. Each bullet should describe one geometric feature or region with its dimensions. Include ALL dimensions from the prompt. If exact dimensions are not stated, derive reasonable defaults and note them. Example:
+7. **constructionSpec**: A bulleted list describing the final geometry — dimensions, shapes, positions, and spatial relationships. Focus on WHAT the geometry IS, not HOW to construct it in CAD. Do not reference specific CAD operations (extrude, revolve, sweep, loft, boolean subtract, fillet, chamfer as verbs) — instead describe the resulting geometric features. Each bullet should describe one geometric feature or region with its dimensions.
+   CRITICAL: NEVER override or recompute a dimension the prompt explicitly states. If the prompt says "65mm height", the spec MUST say 65mm — do not substitute your own calculation. Only fill in defaults for values the prompt truly omits. Do not invent features (sills, offsets, clearances) the prompt does not mention.
+   Include ALL dimensions from the prompt verbatim. For truly unspecified values only, derive reasonable defaults and mark them as "(default)". Example:
    - Rectangular box: 90×62×30mm, wall thickness 2mm, open top
    - Port openings (short side): USB-C 9×3.5mm at offset 7mm from corner
    - 4× cylindrical standoff posts at corner insets, 3mm tall
