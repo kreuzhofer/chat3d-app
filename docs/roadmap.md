@@ -196,26 +196,96 @@ Major UX evolution since initial phases.
 
 ## Roadmap — What's Next
 
-### Near-Term: Fine-Tuning & Dataset Expansion
-> Priority: **High** — the core quality improvement path
+### Near-Term: Foundation & Data Quality (in progress)
+> Priority: **Critical** — prerequisite for all expansion work
+
+| Item | Description | Effort | Status |
+|------|-------------|--------|--------|
+| **100% example generation** | All existing prompts (incl. Hinges, Gridfinity) have generated, evaluated examples | Medium | In progress |
+| **Spec backfill categories 5-12** | Full spec_interpretation + code_assertions for all categories (currently near-zero for 5+) | Medium | In progress |
+| **Resolve pending approvals** | Clear ~597 pending examples — re-generate or approve/reject | Medium | In progress |
+| **Quality benchmark** | Define ~50 representative prompts across difficulty levels for evaluation | Small | — |
+
+### Near-Term: Dataset Expansion to 10K
+> Priority: **High** — the core quality improvement path. See [`dataset-expansion-plan.md`](dataset-expansion-plan.md) for full category details.
+
+The current library has ~1,164 prompts across 16 categories. The target is ~3,500 unique prompts across ~33 categories, yielding ~10K examples via multiple seeds (3 per prompt). New categories are organized in three layers.
+
+#### Layer 1: Technique Mastery (750 new prompts)
+
+Fill the composition gap between individual operations (categories 1-6) and complex domain objects (categories 7-12). These teach the model *how to combine* operations reliably.
+
+| Category | Complexity | Prompts | Description |
+|----------|-----------|---------|-------------|
+| **Sweeps & Helices** | 5-6 | 150 | Sweep along paths, springs, coils, rails, handles, custom profile extrusions along curves |
+| **Lofts & Transitions** | 5-6 | 150 | Varying cross-sections, adapters, funnels, aerodynamic shapes, smooth shape transitions |
+| **Shell & Hollow Bodies** | 5-6 | 100 | Offset/shell operations, wall thickness control, selective face removal, nested shells |
+| **Secondary Features (Sketch-on-Face)** | 6-7 | 150 | Pockets, bosses, counterbores, ribs, gussets, mounting tabs — features that make objects functional |
+| **Text, Engraving & Surface Detail** | 5-6 | 100 | Embossed/debossed text, labels, knurling, surface patterns. Build123d `Text` is undertrained |
+| **BuildLine & Complex Profiles** | 4-5 | 100 | Spline paths, multi-segment wires, tangent-continuous profiles — foundation for sweeps and lofts |
+
+#### Layer 2: Application Domains (1,100 new prompts)
+
+Real-world use cases that combine techniques. High user demand, clear success criteria.
+
+| Category | Complexity | Prompts | Description |
+|----------|-----------|---------|-------------|
+| **Brackets, Mounts & Adapters** | 6-7 | 200 | Wall mounts, sensor brackets, camera/phone mounts, shelf supports — #1 desktop 3D printing use case |
+| **Snap-Fits, Joints & Jointery** | 7-8 | 150 | Living hinges, cantilever snaps, dovetails, press-fits, ball-and-socket — mechanical joining with tolerances |
+| **Pipe Fittings & Fluid Components** | 7-8 | 150 | Elbows, tees, reducers, manifolds, nozzles, flanges — exercises sweeps + revolutions + booleans + threading |
+| **Containers & Custom Organizers** | 6-7 | 150 | Desk organizers, toolbox inserts, battery holders, parts trays — non-Gridfinity containers with dimensional reasoning |
+| **Furniture Hardware & Home** | 6-7 | 150 | Knobs, handles, drawer pulls, hooks, cable clips, curtain brackets — high demand, moderate complexity |
+| **Structural Profiles & Beams** | 5-6 | 100 | I-beams, T-slots, C-channels, custom extrusion profiles. Aligns with planned `bd_beams_and_bars` integration |
+| **Gears & Power Transmission** | 8-9 | 100 | Helical/bevel/worm gears, pulleys, sprockets, cams. Aligns with planned `py_gearworks` integration |
+| **Robotics & Sensor Mounts** | 7-8 | 100 | Servo brackets, wheel hubs, sensor housings, chassis plates — combines enclosures + brackets + fasteners |
+
+#### Layer 3: Intelligence Amplifiers (450 new prompts)
+
+Not object domains — training signal types that improve the model's reasoning across all categories.
+
+| Category | Complexity | Prompts | Description |
+|----------|-----------|---------|-------------|
+| **Compound Multi-Technique Objects** | 7-9 | 200 | Prompts requiring 4-6 named techniques composed in order — forces operation sequencing and planning |
+| **Dimensional & Tolerance-Aware Design** | 7-8 | 100 | Sliding fits, press-fits, nesting parts, stackable designs — teaches 0.2mm clearance reasoning |
+| **Modification & Iteration Prompts** | 6-8 | 150 | "Take this base shape and add X / change Y" — trains geometry modification reasoning for conversation use case |
+
+#### Expansion Math
+
+| | Categories | Unique Prompts | × 3 seeds | Examples |
+|-|-----------|---------------|-----------|---------|
+| Existing library | 16 | ~1,164 | 3,492 | ~3,500 |
+| Layer 1: Technique mastery | 6 | 750 | 2,250 | ~2,250 |
+| Layer 2: Application domains | 8 | 1,100 | 3,300 | ~3,300 |
+| Layer 3: Intelligence amplifiers | 3 | 450 | 1,350 | ~1,350 |
+| **Total** | **33** | **~3,464** | | **~10,400** |
+
+#### Sequencing
+
+Recommended order (each wave builds on the previous):
+
+1. **Wave 1** — Technique mastery (Layer 1). Do this first because all later categories depend on the model being strong at these operations. Priority: Secondary Features → Sweeps → Shell → Lofts → BuildLine → Text.
+2. **Wave 2** — High-demand domains: Brackets, Containers, Furniture Hardware. Moderate complexity, high user value, good training signal.
+3. **Wave 3** — Complex domains: Snap-Fits, Pipe Fittings, Gears, Robotics. These require Layer 1 competence.
+4. **Wave 4** — Intelligence amplifiers (Layer 3). Run after Waves 1-3 so the compound/iteration prompts can reference the full technique vocabulary.
+5. **Wave 5** — Multiple seeds. Re-run all ~3,464 prompts with 2 additional seeds to reach 10K.
+
+#### Library Integrations (prerequisites for specific categories)
+
+| Library | Enables | Effort |
+|---------|---------|--------|
+| **py_gearworks** | Gears & Power Transmission category | Small |
+| **bd_beams_and_bars** | Structural Profiles & Beams category | Small |
+| **Additional knowledge sources** | gridfinity specs, FreeCAD FastenersWB CSVs, BOLTS YAML, community repos | Medium |
+
+### Near-Term: Fine-Tuning
+> Priority: **High** — starts after Wave 2 dataset is generated
 
 | Item | Description | Effort |
 |------|-------------|--------|
-| **Multiple seeds for dataset expansion** | Re-run each prompt with varied temperature/seeds (1K → 10K examples) | Medium |
 | **Fine-tune Qwen3-Coder-Next** | LoRA fine-tune on curated dataset using Unsloth on DGX Spark | Large |
+| **Multiple seeds for dataset expansion** | Re-run all prompts with varied temperature/seeds (Wave 5) | Medium |
 | **Tool use training data mix** | Mix ~230K public function-calling examples into domain data ([research](tool-use-training-datasets.md)) | Medium |
 | **Shadow testing** | Run fine-tuned model in parallel, compare against commercial API on benchmark set | Medium |
-| **Quality benchmark** | Define ~50 representative prompts across difficulty levels for evaluation | Small |
-
-### Near-Term: Library Integrations
-> Priority: **High** — quick wins that improve generation quality
-
-| Item | Description | Effort |
-|------|-------------|--------|
-| **py_gearworks** | Advanced gear library (spur, helical, meshing, backlash) — pip install + prompt section | Small |
-| ~~**Fusion360 Gallery Dataset**~~ | ~~Index 7,683 Build123d scripts~~ — **dropped**: non-commercial license, sketch-and-extrude only, raw OCP bindings not idiomatic | — |
-| **bd_beams_and_bars** | Structural profiles (UPN, IPN, flat bars) | Small |
-| **Additional knowledge sources** | gridfinity specs, FreeCAD FastenersWB CSVs, BOLTS YAML, community repos | Medium |
 
 ### Medium-Term: Product Features
 > Priority: **Medium** — significant features for user experience
@@ -267,6 +337,7 @@ Major UX evolution since initial phases.
 | [`step-file-reverse-engineering-ideas.md`](step-file-reverse-engineering-ideas.md) | STEP → Build123d code reconstruction approaches |
 | [`3rd-party-build123d-libraries.md`](3rd-party-build123d-libraries.md) | Build123d ecosystem survey and integration candidates |
 | [`pricing-and-llm-quality-considerations.md`](pricing-and-llm-quality-considerations.md) | Pricing tiers, DGX Spark economics, traffic splitting strategies |
+| [`dataset-expansion-plan.md`](dataset-expansion-plan.md) | Workbench expansion plan: 17 new categories, 3 layers, path to 10K examples |
 | [`tool-use-training-datasets.md`](tool-use-training-datasets.md) | Public datasets for fine-tuning tool use capabilities |
 | [`operations-runbook.md`](operations-runbook.md) | Deployment, health checks, recovery procedures |
 
