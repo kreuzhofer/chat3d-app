@@ -1,6 +1,6 @@
 # Code Generation Pipeline & LLM Workbench
 
-> **Last updated:** 2026-03-10
+> **Last updated:** 2026-04-05
 > **Supersedes:** `build123d-llm-workbench.md`, `agentic-codegen-analysis.md`
 
 ---
@@ -34,7 +34,7 @@ graph TD
     User["User Browser\n/chat"] -->|JWT| Backend["Backend :3001"]
     Admin["Admin Browser\n/workbench"] -->|JWT, admin role| Backend
 
-    Backend -->|Agent tool loop| LLM_Agent["Agent LLM\n(Anthropic text_editor)"]
+    Backend -->|Agent tool loop| LLM_Agent["Agent LLM\n(custom text_editor)"]
     Backend -->|Spec generation| LLM_Spec["Spec LLM"]
     Backend -->|VLM evaluate| LLM_VLM["VLM Provider"]
     Backend -->|Code review| LLM_Review["Code Review LLM"]
@@ -51,10 +51,12 @@ graph TD
 | Service | Port | Purpose |
 |---------|------|---------|
 | postgres | 5432 | PostgreSQL 16 + pgvector |
+| redis | 6379 | Event bus for notifications (SSE fanout) |
 | backend | 3001 (internal) | Express API, agent orchestration |
 | frontend | 80 | React SPA via nginx |
 | build123d | 30222 | Build123d Python rendering + validation |
-| screenshot-service | 80 | STL/3MF → PNG (Puppeteer + Three.js) |
+| screenshot-service | 80 (×3 replicas) | STL/3MF → PNG (Puppeteer + Three.js) |
+| account-deletion-worker | — | Background sweep for expired account deactivations |
 
 ### LLM Purposes (configured via Admin UI)
 
@@ -101,7 +103,7 @@ Toggleable via `spec_generation_enabled` generation setting. Fail-open: LLM erro
 
 `agent-codegen.service.ts`
 
-The core engine uses Vercel AI SDK `generateText()` with Anthropic's `text_editor_20250728` built-in tool. The agent runs an autonomous tool-use loop:
+The core engine uses Vercel AI SDK `generateText()` with a custom provider-agnostic `text_editor` tool (replaced Anthropic's built-in `text_editor_20250728` to work with any LLM provider). The agent runs an autonomous tool-use loop:
 
 ```
 Agent Loop (max N steps, configurable via generation_settings)
@@ -123,7 +125,7 @@ The agent decides the workflow: create code → validate → fix issues → rend
 
 **Infrastructure retry**: Exponential backoff (2s, 4s, 8s, 16s) with 5 max attempts for Build123d service timeouts/errors. Infrastructure errors (network, timeout) are distinguished from code errors and don't consume agent steps.
 
-**Provider requirement**: Requires direct Anthropic provider (not Bedrock) for `text_editor_20250728` tool support.
+**Provider compatibility**: The custom text_editor tool works with any LLM provider (Anthropic, Bedrock, OpenAI, etc.) — no provider-specific tool requirements.
 
 ### 3.4 Multi-Agent Decomposition
 
@@ -137,7 +139,31 @@ For `complex` prompts (6+ detected operations):
 
 Automatic fallback to single-agent if decomposition fails. Progress updates flow to frontend: decomposing → component [N/M] → assembling.
 
-### 3.5 System Prompt Architecture
+### 3.5 Research Agent & Spec Enrichment
+
+`research-agent.service.ts`, `spec-enrichment.service.ts`
+
+Added after the initial pipeline was built to improve knowledge retrieval precision:
+
+1. **Technique decomposition** (`research-technique-decomp.service.ts`): LLM extracts specific Build123d techniques needed for a prompt (e.g., "loft between two sketches", "polar pattern of holes")
+2. **Parallel technique-level search** (`research-search.service.ts`): Searches knowledge base and workbench examples per-technique rather than per-prompt — more targeted results
+3. **Spec enrichment** (`spec-enrichment.service.ts`): Second-pass spec generation using retrieved knowledge to resolve exact dimensions (e.g., RPi 4 mounting hole positions from reference datasheets)
+4. **RAG gap collection** (`rag-gap-collector.service.ts`): Records when technique searches return no results, identifying coverage gaps in the knowledge base
+5. **RAG gap decomposition** (`rag-gap-decomposer.service.ts`): Intelligently splits technique gaps into sub-skill + composition prompts for workbench dataset expansion
+
+### 3.6 Execution Tracing
+
+`trace-builder.service.ts`, `trace-persistence.service.ts`
+
+Every agent run produces a structured execution trace stored in the `generation_traces` table:
+
+- DAG of agent steps (tool calls, LLM decisions, eval results)
+- Live visualization in admin UI during generation
+- Incremental persistence — trace survives backend restarts
+- Cost attribution per eval phase (spec, codegen, VLM, code review)
+- Output TPS tracking with streaming token estimation
+
+### 3.7 System Prompt Architecture
 
 `prompts/system-prompts.ts` — 25 composable sections
 
@@ -154,7 +180,7 @@ Three-tier knowledge loading:
 
 Operation detection: keyword matching on user prompt + spec interpretation determines which Tier 2 sections to include.
 
-### 3.6 Pre-Render Validation
+### 3.8 Pre-Render Validation
 
 Build123d `/validate/` and `/validate-project/` endpoints. 10 AST-based lint rules:
 
@@ -173,7 +199,7 @@ Build123d `/validate/` and `/validate-project/` endpoints. 10 AST-based lint rul
 
 Errors (severity=`error`) prevent rendering. Warnings are informational.
 
-### 3.7 Error Classification
+### 3.9 Error Classification
 
 `utils/render-errors.ts` — 7 categories with domain-specific fix guidance:
 
@@ -308,15 +334,15 @@ Generate a high-quality dataset of Build123d prompt→code examples for fine-tun
 
 | Milestone | Prompts | Runs/prompt | Target examples |
 |-----------|---------|-------------|----------------|
-| v1 | 1,100 (100 × 11 categories) | 1 | ~900–1,000 |
-| v2 | 1,100 | 5 | ~4,500–5,000 |
-| Final | 1,100 | 10 | ~9,000–10,000 |
+| v1 | 1,200 (100 × 12 categories) | 1 | ~900–1,100 |
+| v2 | 1,200 | 5 | ~5,000–5,500 |
+| Final | 1,200 | 10 | ~10,000–11,000 |
 
-Scaling from 1,000 to 10,000 is done by re-running each prompt with varied temperature/seeds, not writing more prompts.
+Scaling from ~1,000 to ~10,000 is done by re-running each prompt with varied temperature/seeds, not writing more prompts. Additionally, RAG gap analysis identifies missing technique coverage and generates targeted expansion prompts.
 
-### 7.2 Complexity Curriculum (11 Categories)
+### 7.2 Complexity Curriculum (12 Categories)
 
-Category files in `workbench/categories/`:
+Managed via admin UI (category CRUD + seeding from catalog):
 
 | Rank | Category | Complexity |
 |------|----------|-----------|
@@ -331,6 +357,7 @@ Category files in `workbench/categories/`:
 | 9 | Electronic Components | 8 |
 | 10 | Generic Enclosures | 9 |
 | 11 | PCB Cases | 10 |
+| 12 | Hinges | 6 |
 
 100 user-facing natural language prompts per category. Prompts describe what to build from a user's perspective (no code hints, no API references).
 
@@ -339,8 +366,9 @@ Category files in `workbench/categories/`:
 - `workbench_categories` — id, rank, name, complexity, description
 - `workbench_example_prompts` — id, category_id, index (1–100), prompt, detected_operations[], embedding
 - `workbench_examples` — id, prompt_id, iteration, code, render_status, eval_score, eval_checklist_results, approval_status, llm_model, usage stats
-- `workbench_system_prompts` — versioned system prompts with active toggle
 - `workbench_prompt_tags` — tagging for discovery
+- `generation_traces` — execution trace DAGs per generation run
+- `generation_settings_overrides` — admin-configurable pipeline parameters
 
 ### 7.4 Automated Pipeline
 
@@ -400,6 +428,54 @@ Runner-up: `Qwen2.5-Coder-32B` (64 GB BF16, mature toolchain).
 - `/workbench/:categoryId` — Prompt list, batch controls, filters
 - `/workbench/:categoryId/:promptId` — Example attempts, screenshots, eval scores, manual review
 
+### 7.9 Additional Workbench Features
+
+**Prompt improvement** (`workbench-prompt-improve.service.ts`): LLM-assisted prompt refinement to improve clarity and specificity. Batch optimization across categories.
+
+**Re-evaluation** (`workbench-reeval.service.ts`): Re-run VLM + code eval on existing examples with updated settings or models without regenerating code.
+
+**Re-rendering** (`workbench-rerender.service.ts`): Re-render existing examples with updated Build123d service without re-evaluating.
+
+**Spec backfill** (`workbench-backfill-specs.service.ts`): Batch operation to generate spec data (interpretation, checklist, assertions) for examples that predate the spec generation feature.
+
+**Data quality report** (`data-quality.service.ts`): Identifies issues across the dataset — missing specs, failed renders, low scores, orphaned files.
+
+**RAG gap analysis** (`rag-gap-collector.service.ts`, `rag-gap-decomposer.service.ts`): Records missing technique coverage during generation runs, then intelligently decomposes gaps into sub-skill + composition prompts for targeted dataset expansion.
+
+### 7.10 Experiment Framework
+
+`experiment.service.ts`, `experiment-execution.service.ts`, `experiment-comparison.service.ts`
+
+Admin tools for systematic model comparison and pipeline tuning:
+
+- **Variable matrix**: Define experiments with variable models, few-shot counts, and other parameters
+- **Multi-category selection**: Run experiments across selected workbench categories (approved prompts only)
+- **Execution**: Streaming LLM calls with RAG exclusion to avoid contamination, configurable timeouts
+- **Comparison**: Side-by-side results, outlier detection, delta columns, failure reason visibility
+- **Run management**: Edit finished experiments, retry failed runs, URL-based deep-linking to detail views
+- **Resume on restart**: Stuck experiments automatically resume instead of being marked failed
+
+### 7.11 VLM Experiment Comparison
+
+`vlm-experiment.service.ts`, `vlm-experiment-execution.service.ts`, `vlm-experiment-comparison.service.ts`
+
+Compare VLM evaluation models/settings against the same workbench examples:
+
+- Re-evaluate existing examples with different VLM providers or prompts
+- Inter-rater agreement analysis
+- Per-example score tables showing model disagreement
+
+### 7.12 Pipeline Analytics
+
+`pipeline-analytics.service.ts`
+
+Admin dashboard charts for monitoring pipeline health:
+
+- Detail views vs. submissions timeseries
+- Detail view angle breakdown (which screenshot angles VLM requests most)
+- Average cost per generation over time
+- Output TPS (tokens per second) tracking
+
 ---
 
 ## 8. Curation Pipeline (Chat → Workbench)
@@ -413,8 +489,9 @@ Promotes high-quality user chat results into workbench examples:
 3. **Tag suggestion**: LLM suggests category tags
 4. **Similarity check**: Compare against existing workbench entries (prevents duplicates)
 5. **Promotion**: Approved candidate → workbench example with code, renders, evaluation
+6. **Approve as improvement**: Remix candidates (with `remixedFromPromptId`) can be promoted as new iterations on existing workbench examples instead of new entries
 
-Admin UI under `/api/admin/curation/`.
+Admin UI under `/api/admin/curation/`. All 4 phases complete. See also `curation-promote.service.ts` for the promotion and improvement workflows.
 
 ---
 
@@ -431,30 +508,30 @@ Admin UI under `/api/admin/curation/`.
 | **Export preview** | Preview JSONL export before downloading | Low |
 | **Rate limiting on batch endpoint** | Throttle `/generate/batch` requests | Low |
 
-### 9.2 Parts Knowledge Library
+### 9.2 Parts Knowledge Library — ✅ Done
 
-Structured datasheets for real-world hardware (Raspberry Pi, Arduino, ESP32, etc.) with precise dimensions, port positions, mounting holes. Auto-injected into codegen prompt when a known part is referenced.
+Implemented as reference knowledge entries in the Build123d knowledge base (not a separate `workbench_part_datasheets` table as originally planned). See [`knowledge-sources.md`](knowledge-sources.md) for details.
 
-**Why**: Higher-complexity categories (8–11) need precise dimensional knowledge for port cutouts, standoff patterns, PCB footprints. Users shouldn't need to specify that USB-A ports are 17.4mm × 15.0mm.
+- Dev board datasheets: RPi 4, RPi Zero 2W, RPi Pico, Arduino Uno R3, Arduino Nano, ESP32-DevKitC V4
+- Connector dimensions: USB-C, USB-A, HDMI, HDMI Micro, barrel jack, RJ45, audio jack, pin header
+- Fastener specs: ISO metric M2–M8 socket cap screws
+- Keyword-based pre-retrieval auto-injects matching specs into codegen prompt
 
-**Approach**: Curated Markdown/YAML files in `workbench/parts/`, seeded into a `workbench_part_datasheets` table, keyword-matched to user prompts. Small enough (< 2K tokens each) to include in full.
+### 9.3 3D Printing Design Guidelines — ✅ Done
 
-Becomes critical for niche boards and sub-millimeter accuracy. Initial training relies on LLM's existing knowledge of popular boards.
+Implemented as reference knowledge entries (not a system prompt toggle as originally planned). FDM tolerances, wall thickness, overhang angles, snap-fit clearances, hole compensation, bridge spans. Sourced from Formlabs, JLC3DP, Prusa KB, 3DChimera, Hubs.
 
-### 9.3 3D Printing Design Guidelines
-
-Optional guidelines appended to system prompt to bias toward print-friendly designs: overhang limits (45°), minimum wall thickness (1.2mm), snap fits, tolerances (±0.2mm FDM), elephant's foot compensation, heat-set insert bosses, bridging limits, etc.
-
-Controlled via toggle for A/B testing. Could be a separate LoRA adapter or merged fine-tune. Initial training focuses on geometric correctness.
+Could still be a separate LoRA adapter for fine-tuning — the reference entries provide the knowledge for training data generation.
 
 ### 9.4 Fine-Tuning Decisions
 
 | Decision | Status |
 |----------|--------|
-| Framework (LLaMA-Factory vs Axolotl vs Unsloth) | Deferred |
-| Training data format | Targeting LLaMA-Factory JSONL |
-| Parts library: keyword matching vs embedding retrieval | Start with keywords |
+| Framework (LLaMA-Factory vs Axolotl vs Unsloth) | Targeting Unsloth on DGX Spark |
+| Training data format | LLaMA-Factory JSONL (implemented) |
+| Parts library: keyword matching vs embedding retrieval | Keyword pre-retrieval (implemented) |
 | Print guidelines: v1 training or separate LoRA | Separate |
+| Tool use training data | Research complete ([`tool-use-training-datasets.md`](tool-use-training-datasets.md)), mixing deferred |
 
 ### 9.5 Build123d Service Enhancements
 

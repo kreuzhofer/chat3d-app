@@ -16,9 +16,13 @@ docker compose ps
 > ```
 
 Expected long-running services include:
-- `backend`
-- `frontend`
-- `account-deletion-worker`
+- `postgres` — PostgreSQL 16 + pgvector
+- `redis` — Event bus for SSE notification fanout
+- `backend` — Express API, agent orchestration
+- `frontend` — React SPA via nginx
+- `build123d` — Python rendering + validation service
+- `screenshot-service` (×3 replicas) — STL/3MF → PNG screenshots (Puppeteer + Three.js)
+- `account-deletion-worker` — Background sweep for expired deactivations
 
 ## Database Bootstrap
 
@@ -77,6 +81,14 @@ docker compose logs backend --tail=200
 - Build123d logs:
 ```bash
 docker compose logs build123d --tail=200
+```
+- Screenshot service logs:
+```bash
+docker compose logs screenshot-service --tail=200
+```
+- Redis logs:
+```bash
+docker compose logs redis --tail=200
 ```
 - Account deletion worker logs:
 ```bash

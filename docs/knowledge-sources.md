@@ -1,6 +1,6 @@
 # Knowledge Base — External Sources
 
-> **Status:** Living document — updated 2026-03-09
+> **Status:** Living document — updated 2026-04-05
 
 This document tracks all external sources used (or planned) for the Chat3D knowledge base. The knowledge base provides RAG context to improve Build123d code generation quality.
 
@@ -88,7 +88,7 @@ Reference knowledge is **not** passively searched via RAG. Instead, a **keyword-
 
 | Source | URL | Description | Priority |
 |--------|-----|-------------|----------|
-| **gridfinity_build123d** | [github.com/Ruudjhuu/gridfinity_build123d](https://github.com/Ruudjhuu/gridfinity_build123d) | Gridfinity bins, baseplates (42mm grid standard) — **library integrated, knowledge entries planned** | High |
+| **gridfinity_build123d** | [github.com/Ruudjhuu/gridfinity_build123d](https://github.com/Ruudjhuu/gridfinity_build123d) | Gridfinity bins, baseplates (42mm grid standard) — **library integrated** (in `requirements.txt` + `gridfinity-prompts.ts`), knowledge entries still planned | Medium |
 | **capistry** | [github.com/larssont/capistry](https://github.com/larssont/capistry) | Parametric keyboard keycap modeling | Low |
 | **py_gearworks** | [github.com/GarryBGoode/py_gearworks](https://github.com/GarryBGoode/py_gearworks) | Involute gear generators | Low |
 | **gflabel** | [github.com/ndevenish/gflabel](https://github.com/ndevenish/gflabel) | 3D-printable gridfinity labels | Low |
@@ -316,16 +316,12 @@ To support a new source type (e.g., CSV files, YAML specs, PDF docs), the follow
 
 **1. `knowledge-source.service.ts`** — Add to `SourceStrategy` type union, add config interface, add validation rules:
 ```typescript
-// Add to SourceStrategy union:
-export type SourceStrategy = "github_file" | "github_test_functions" | "readthedocs" | "manual" | "reference_upload" | "reference_url" | "csv_specs";
+// Current SourceStrategy union:
+export type SourceStrategy = "github_file" | "github_test_functions" | "readthedocs" | "manual" | "reference_upload" | "reference_url";
 
-// Add config interface:
-export interface CsvSpecsConfig {
-  repo: string;
-  branch: string;
-  directory: string;
-  fileExtension: string;      // ".csv"
-  codeColumnTemplate: string; // Template to generate code from CSV rows
+// Add your new strategy to this union, then add a config interface:
+export interface MyNewConfig {
+  // ... strategy-specific configuration
 }
 
 // Add validation case in validateSourceConfig()
@@ -334,15 +330,15 @@ export interface CsvSpecsConfig {
 **2. `knowledge-crawl.service.ts`** — Add crawl function and dispatch case:
 ```typescript
 // Add to STRATEGY_SOURCE_TYPE:
-csv_specs: "specs",
+my_new_strategy: "my_source_type",
 
 // Add dispatch case in crawlSource():
-case "csv_specs":
-  entries = await crawlCsvSpecs(config as unknown as CsvSpecsConfig);
+case "my_new_strategy":
+  entries = await crawlMyNewSource(config as unknown as MyNewConfig);
   break;
 
 // Implement crawl function:
-async function crawlCsvSpecs(cfg: CsvSpecsConfig): Promise<RawEntry[]> { ... }
+async function crawlMyNewSource(cfg: MyNewConfig): Promise<RawEntry[]> { ... }
 ```
 
 **3. Prisma schema** — Update the `strategy` column `@db.VarChar(30)` constraint if needed (current 30 chars is sufficient for most names).
@@ -593,7 +589,7 @@ All initially planned reference sources have been added:
 | ISO metric fastener table | M2–M8 socket cap screw dimensions | Done (`reference_upload`) |
 | USB-C connector dimensions | Receptacle opening, depth, tolerances | Done (`reference_upload`) |
 | FDM 3D printing guidelines | Wall thickness, overhangs, tolerances | Done (`reference_upload` + `reference_url` via Prusa KB) |
-| Gridfinity specification | Grid size (42mm), height units (7mm), wall dimensions, magnet/screw dims | Planned — add after library integration |
+| Gridfinity specification | Grid size (42mm), height units (7mm), wall dimensions, magnet/screw dims | Planned — library is integrated, reference entry still needed |
 
 Additional connectors also added: USB-A, HDMI, HDMI Micro, barrel jack, RJ45, audio jack, pin header.
 

@@ -1,6 +1,6 @@
 # Chat3D — Product Vision & Roadmap
 
-> **Status:** Living document. Replaces `design_upgrade_plan.md`.
+> **Status:** Living document. Last updated 2026-04-05.
 
 ---
 
@@ -8,7 +8,7 @@
 
 Chat3D is a **prompt-to-CAD workspace**: users describe 3D parts in natural language and receive production-ready geometry (STL, STEP, 3MF) through an interactive conversation. The app should feel like talking to a CAD engineer — you describe what you need, see the result immediately, give feedback, and iterate until the part is right.
 
-The conversational UX is complete. The next frontier is **code generation quality** — fine-tuning an open-weight LLM on a curated Build123d dataset so the underlying model reliably produces correct geometry without hallucinations. The [Build123d LLM Workbench](build123d-llm-workbench.md) is the sub-project driving this effort.
+The conversational UX is complete. The current focus is **code generation quality** — an agentic pipeline with tool use, multi-angle VLM evaluation, a curated Build123d knowledge base, and a workbench for generating fine-tuning data. The next milestone is training an open-weight LLM on this curated dataset. See [`codegen-pipeline-and-workbench.md`](codegen-pipeline-and-workbench.md) for the full architecture.
 
 ### Core Experience
 
@@ -31,189 +31,244 @@ If the result isn't right, the user says "make the teeth wider" or "add a chamfe
 
 ---
 
-## Current State
+## What's Done
 
-### What's Done
+### Conversational UX (Phases 1–4) — ✅ Complete
 
-The app is functionally complete through milestones M1–M15, design upgrades DQ1–DQ6, and UX conversational experience (spec 002):
+The foundation: streaming chat, inline 3D preview, iterative refinement, and polished design.
 
 - Full chat-to-model pipeline (two-stage LLM: conversation + codegen)
 - Streaming assistant responses via SSE with typing indicators
 - Inline 3D preview with turntable animation in chat thread
 - Progressive disclosure — code/files collapsed by default, download pills inline
-- Build123d API reference enrichment in codegen prompt with example snippets
+- Iterative refinement — conversation history passed to LLM, follow-up modifications work naturally
+- Model version history with sequence numbers and prompt summaries
 - Error recovery loop — rendering failures auto-retried with LLM correction
-- Conversational error display — errors shown as messages with follow-up suggestions
-- Iterative refinement — conversation history (5 exchange pairs) passed to LLM
-- Model version history in workbench with sequence numbers and prompt summaries
-- Example prompts and "What can I build?" capability hints in empty state
+- Conversational error display with follow-up suggestions
 - Camera controls toolbar (reset, zoom to fit, fullscreen) on ModelViewer
+- Example prompts and capability hints in empty state
 - Mobile auto-switch to workbench on new model generation
-- Chat-first navigation — no sidebar on chat routes, admin items in header dropdown
-- Admin route guards with redirect for non-admin users
-- Three-pane workspace layout (contexts, thread, 3D workbench)
 - Multi-format export (STL, STEP, 3MF, Build123d source)
 - In-browser 3D preview (Three.js with ThreeMFLoader)
-- Multi-provider LLM support (OpenAI, Anthropic, xAI, Ollama)
-- JWT auth, user management, admin panel
-- Waitlist mode with email verification and invitation controls
-- SSE real-time updates and notification center
-- Design token system, dark mode, lucide-react icons
-- Responsive layout with mobile pane switching
-- Docker Compose deployment (PostgreSQL, Redis, Build123d, backend, frontend)
-- Build123d LLM Workbench design complete — complexity curriculum (11 categories, 1,100 prompts), automated generation/evaluation pipeline, STL rendering service, and VLM scoring architecture specified ([design doc](build123d-llm-workbench.md))
-- Backup management system — workbench exports tracked in DB as persistent backups, admin page for listing/downloading/deleting backups
+- Design token system, dark-only theme (Space Mono font), lucide-react icons
+- Design upgrades DQ1–DQ6 all complete (tokens, icons, animations, dark mode)
+- Component architecture — ChatPage and AdminPanel decomposed into sub-components
 
-### Design Upgrade Status (DQ1–DQ6)
+### Agentic Code Generation Pipeline — ✅ Complete
 
-| Phase | Description | Status |
-|-------|-------------|--------|
-| DQ1 | Design tokens, icons, animation primitives, skeleton/spinner/code-block components | **Complete** |
-| DQ2 | Dialog/drawer/toast transitions, badge tokens, avatar, select, button upgrades | **Complete** |
-| DQ3 | Chat page icons, rating icons, ModelViewer responsive + ResizeObserver, custom Select, ChatPage component extraction | **Complete** |
-| DQ4 | Public pages icons, login/register branding, password toggle/strength, waitlist visual stepper | **Complete** |
-| DQ5 | Admin KPI indicators, avatar in user list, AdminPanel component extraction | **Complete** |
-| DQ6 | Dark mode, theme toggle | **Complete** |
+Replaced the simple prompt-response codegen with a full agent loop. See [`codegen-pipeline-and-workbench.md`](codegen-pipeline-and-workbench.md) for details.
 
-### Resolved Design Debt (spec 001-design-debt-resolution)
+- **Agent codegen** — Vercel AI SDK `generateText()` with tool-use loop (validate, render, search examples/knowledge, text editor, submit)
+- **Custom text_editor tool** — Provider-agnostic replacement for Anthropic's built-in tool, works with any LLM provider
+- **Multi-agent decomposition** — Complex prompts (6+ operations) split into 2–6 sub-agents with isolated filesystems, then assembled
+- **Spec generation** — Pre-codegen LLM analysis: interpretation, verification checklist, code assertions, disambiguation questions
+- **Tiered system prompt** — 25 composable sections with operation-aware loading (Tier 1 core always, Tier 2 task-relevant, Tier 3 on-demand via tools)
+- **Pre-render validation** — Build123d `/validate/` endpoint with 10 AST-based lint rules
+- **Error classification** — 7 categories with domain-specific fix guidance (infrastructure, API misuse, geometry, kernel, syntax, type, unknown)
+- **Infrastructure retry** — Exponential backoff for Build123d service timeouts (distinct from code errors)
+- **Agent-only mode** — Non-agent iteration loops removed; agent pipeline is the only codegen path
+- **Execution tracing** — Live DAG visualization of agent steps with incremental persistence
+- **Configurable pipeline settings** — Max steps, timeouts, temperature, code eval weight, multi-agent toggle — all via admin UI
 
-All three open design debts have been resolved:
+### Evaluation System — ✅ Complete
 
-- [x] **ChatPage component extraction** — ChatPage.tsx decomposed into ContextSidebar, MessageBubble, PromptComposer, WorkbenchPane under `components/chat/`, with shared utilities in `chat/utils.ts`. ChatPage now composes these sub-components and is under 200 lines.
-- [x] **AdminPanel component extraction** — AdminPanel.tsx decomposed into DashboardTab, UsersTab, WaitlistTab, SettingsTab under `components/admin/`, with shared utilities in `admin/utils.ts`. AdminPanel now composes these tab sub-components and is under 150 lines.
-- [x] **Waitlist visual stepper** — WaitlistStepper component renders a three-step progress indicator (Join → Confirm Email → Approved) with status-driven step states, Design_Token colors, lucide-react icons, ARIA accessibility attributes, and responsive layout. Integrated into WaitlistPanel above the existing flow content.
+Multi-modal evaluation: visual (VLM) + code review + deterministic assertions.
+
+- **VLM evaluation** — 9-angle screenshots (front, back, left, right, top, bottom, isometric, ortho_45, ortho_45_bottom) scored 1–10
+- **Verification checklist** — Spec-generated binary yes/no questions evaluated by VLM
+- **VLM-guided zoom** — VLM can request high-res re-renders of specific regions (max 5 per eval)
+- **Code evaluation** — Assertion checker (regex-based, deterministic) + code review LLM scoring
+- **Composite scoring** — Configurable visual/code weight blend with assertion penalty and disagreement handling
+- **Auto-approval** — Score ≥ threshold AND ≥ 80% checklist pass → approved for training dataset
+- **VLM eval in chat** — User-facing generations also evaluated (not just workbench)
+
+### Build123d Knowledge Base — ✅ Complete
+
+~630 entries from multiple sources, powering RAG context for code generation. See [`knowledge-sources.md`](knowledge-sources.md).
+
+- **Crawl pipeline** — GitHub files, test functions, ReadTheDocs pages, manual entries, reference uploads, reference URLs
+- **~630 entries** — Build123d examples (65), tests (230), docs Python files (48), ReadTheDocs (209), bd_warehouse (13), community tutorials (27), reference specs (~38)
+- **Validation pipeline** — Build123d marker check + Python syntax check via `/validate/` endpoint
+- **Embeddings** — OpenAI `text-embedding-3-large` at 1536 dims, pgvector HNSW index
+- **Hybrid search** — Semantic (cosine similarity) + lexical (PostgreSQL full-text search) merged via Reciprocal Rank Fusion
+- **Few-shot retrieval** — Operation-aware re-ranking (70% semantic + 30% operation overlap), up to 6 examples per generation
+- **Reference knowledge** — Non-code content (connector dimensions, fastener specs, dev board datasheets, 3D printing guidelines) stored as Markdown
+- **Keyword-based pre-retrieval** — ~20 tag groups auto-inject matching reference entries into codegen prompt (USB-C, HDMI, RPi, Arduino, etc.)
+- **Knowledge admin UI** — Source management, crawl triggers, validation, entry CRUD, search, Markdown rendering
+- **Knowledge export/import** — Backup system integration
+
+### Third-Party Library Integrations — ✅ Complete
+
+- **bd_warehouse** — Parametric mechanical components (fasteners, bearings, gears) with system prompt guidance
+- **gridfinity_build123d** — Parametric Gridfinity storage bins
+
+### LLM Workbench (Training Data Generation) — ✅ Complete
+
+Fully implemented admin-only sub-project for generating fine-tuning data. All WB phases done.
+
+- **Complexity curriculum** — 12 categories (Primitives → PCB Cases + Hinges), 100 prompts each
+- **Category/prompt CRUD** — Admin management, seeding from catalog
+- **Automated pipeline** — Spec → agent codegen → screenshot → VLM + code eval → auto-approve/flag
+- **Batch generation** — Job queue with progress tracking, "Generate Missing" button per category
+- **Workbench embeddings** — All approved examples embedded for few-shot retrieval
+- **Operation detection** — `detected_operations` TEXT[] on prompts with GIN index
+- **Training dataset export** — LLaMA-Factory JSONL format
+- **Prompt improvement** — LLM-assisted prompt optimization (126 prompts improved)
+- **Re-evaluation** — Re-run VLM eval on existing examples with new settings
+- **Re-rendering** — Re-render existing examples with updated pipeline
+- **Spec backfill** — Batch backfill specs for existing examples
+- **Data quality report** — Identify issues across the dataset
+- **RAG gap analysis** — Intelligent decomposition to find missing technique coverage
+
+### User Content Curation Pipeline — ✅ Complete
+
+Promotes high-quality user chat results into workbench examples. See [`user-content-curation.md`](user-content-curation.md). All 4 phases done.
+
+- **Signal tracking** — `download_count` on chat items, rating signals
+- **Admin review queue** — Candidates with ≥ 1 like or ≥ 1 download
+- **LLM prompt distillation** — Multi-turn conversations summarized into single prompts
+- **Tag suggestion** — LLM suggests tags, matching existing tags when possible
+- **Approval workflow** — Promote to workbench with file copy, embedding generation, tag attachment
+- **Similarity check** — Embed distilled prompt, compare against workbench to prevent duplicates
+- **Remix roundtrip** — Lineage tracking, approve-as-improvement workflow for gallery models
+
+### Experiment Framework — ✅ Complete
+
+Admin tools for systematic model comparison and pipeline tuning.
+
+- **Model comparison experiments** — Define variable matrix (models, few-shot counts), run against approved prompts
+- **Multi-category selection** — Run experiments across selected workbench categories
+- **Few-shot count as variable** — Test impact of 0/2/4/6 examples
+- **Experiment execution** — Streaming LLM calls, RAG exclusion, timeout handling
+- **Comparison views** — Side-by-side results, outlier detection, delta columns, failure reasons
+- **VLM experiments** — Compare VLM evaluation models/settings with re-evaluation support
+- **Run management** — Edit finished experiments, retry failed runs
+- **URL-based navigation** — Deep-linkable experiment detail views
+
+### Frontend & UX — ✅ Complete
+
+Major UX evolution since initial phases.
+
+- **ChatGPT-style sidebar** — Unified navigation with chat list, admin sub-menu in scrollable area
+- **Admin separate pages** — Tabs converted to distinct routes with sidebar sub-menu
+- **Public model gallery** — Carousel with deep-links, category previews, featured models
+- **Gallery starter prompts** — Gallery-sourced example prompts + onboarding tracking
+- **Learn More page** — In-depth pipeline explanation
+- **Remix from gallery** — Users can remix gallery models into their own chats
+- **Staged reveal animations** — Chat and gallery page transitions
+- **Pull-to-refresh** — PWA standalone mode support
+- **Lazy 3D viewers** — Deferred loading for performance
+- **i18n** — English and German language support
+- **Responsive improvements** — Mobile chat overflow fixes, auto-resize textarea, iOS auto-zoom prevention
+
+### User Management & Auth — ✅ Complete
+
+- **Email confirmation** — Required for all registrations when enabled
+- **Password reset flow** — Token-based email reset
+- **HTML email templates** — Handlebars + i18n (waitlist confirmation, password reset, invitation)
+- **Legal pages** — Terms, privacy, imprint + cookie consent banner
+- **Admin user deletion** — Permanent deletion for deactivated accounts
+- **Account deletion worker** — Background sweep for expired deactivation windows
+- **Pre-filled registration** — Email from waitlist approval and invitation links
+
+### Operations & Observability — ✅ Complete
+
+- **LLM usage tracking** — Per-call cost attribution with provider/model/purpose breakdown
+- **Cost explorer** — Charts with expanded color palette, per-context cost tracking
+- **Pipeline analytics** — Detail views vs. submissions timeseries, angle breakdown, avg cost charts
+- **Output TPS tracking** — Tokens per second with streaming estimation
+- **System backup/restore** — Full backup shell scripts + admin UI, ZIP export with model files + chunked import
+- **Provider model fetching** — Auto-discover models from provider APIs, provider type configuration
+- **Generation settings admin** — Key-value overrides for pipeline parameters with defaults
+
+### Infrastructure — ✅ Complete
+
+- **Multi-provider LLM support** — OpenAI, Anthropic, xAI, Ollama, Amazon Bedrock
+- **Prompt caching** — Vercel AI SDK v6 `cache_control` with 4,096 token minimum handling
+- **JWT auth** with bcrypt, admin roles, route guards
+- **Waitlist mode** with email verification and invitation controls
+- **SSE real-time updates** and notification center
+- **Docker Compose deployment** — PostgreSQL, Build123d, screenshot service, backend, frontend
+- **Code projects** — Per-context project tracking (`code_projects` + `code_project_versions` tables), version history
+- **File storage restructure** — `chat/{contextId}/code/` + `artifacts/` layout, data migration runner
 
 ---
 
-## UX Gaps — Conversational Experience (spec 002) — ✅ Complete
+## Roadmap — What's Next
 
-All five UX gaps plus navigation cleanup have been resolved via spec 002-ux-gaps-conversational-experience. The app now feels like a polished conversational workspace. 29 property-based tests validate the implementation (20 backend, 34 frontend test files total).
+### Near-Term: Fine-Tuning & Dataset Expansion
+> Priority: **High** — the core quality improvement path
 
-### 1. The Conversation Feels Interactive — ✅ Complete
+| Item | Description | Effort |
+|------|-------------|--------|
+| **Multiple seeds for dataset expansion** | Re-run each prompt with varied temperature/seeds (1K → 10K examples) | Medium |
+| **Fine-tune Qwen3-Coder-Next** | LoRA fine-tune on curated dataset using Unsloth on DGX Spark | Large |
+| **Tool use training data mix** | Mix ~230K public function-calling examples into domain data ([research](tool-use-training-datasets.md)) | Medium |
+| **Shadow testing** | Run fine-tuned model in parallel, compare against commercial API on benchmark set | Medium |
+| **Quality benchmark** | Define ~50 representative prompts across difficulty levels for evaluation | Small |
 
-- [x] Stream assistant responses token-by-token via SSE (provider-native streaming, not Vercel AI SDK)
-- [x] Typing indicator with query-state-aware labels ("Thinking...", "Generating code...", "Rendering model...")
-- [x] Inline 3D preview with turntable animation in message thread (`InlineModelViewer`)
-- [x] Progressive disclosure — code/file details collapsed by default (`CollapsibleSection`)
-- [x] Compact inline download pills replacing the download bar (`DownloadPill`)
-- [x] Clickable example prompts in empty chat state (`ExamplePrompts`)
+### Near-Term: Library Integrations
+> Priority: **High** — quick wins that improve generation quality
 
-### 2. The LLM Knows Build123d — ✅ Complete
+| Item | Description | Effort |
+|------|-------------|--------|
+| **py_gearworks** | Advanced gear library (spur, helical, meshing, backlash) — pip install + prompt section | Small |
+| ~~**Fusion360 Gallery Dataset**~~ | ~~Index 7,683 Build123d scripts~~ — **dropped**: non-commercial license, sketch-and-extrude only, raw OCP bindings not idiomatic | — |
+| **bd_beams_and_bars** | Structural profiles (UPN, IPN, flat bars) | Small |
+| **Additional knowledge sources** | gridfinity specs, FreeCAD FastenersWB CSVs, BOLTS YAML, community repos | Medium |
 
-- [x] Codegen system prompt enriched with Build123d API reference (classes, constructors, patterns)
-- [x] Example code snippets for extrude, revolve, boolean, loft operations
-- [x] Hot-reloadable API reference data file (`build123d-api-reference.ts`)
+### Medium-Term: Product Features
+> Priority: **Medium** — significant features for user experience
 
-### 3. Iterative Refinement Works — ✅ Complete
+| Item | Description | Effort | Design Doc |
+|------|-------------|--------|------------|
+| **Mobile app** | Capacitor WebView shell + FCM push notifications for iOS/Android | Large | [`mobile-app-implementation.md`](mobile-app-implementation.md) |
+| **STEP file reverse engineering** | Upload STEP → VLM + parsing → Build123d code (editable starting point) | Large | [`step-file-reverse-engineering-ideas.md`](step-file-reverse-engineering-ideas.md) |
+| **Pricing & monetization** | Starter (EUR 20) / Pro (EUR 49) tiers, generation caps, trial limits | Large | [`pricing-and-llm-quality-considerations.md`](pricing-and-llm-quality-considerations.md) |
+| **Local inference (DGX Spark)** | Deploy fine-tuned model on-prem, traffic splitting by tier/complexity | Large | [`pricing-and-llm-quality-considerations.md`](pricing-and-llm-quality-considerations.md) |
+| **Reference image grounding** | Fetch real-world images (Bing/Google) for VLM evaluation grounding | Medium | — |
+| **FreeCAD addon** | Chat panel inside FreeCAD, STEP auto-import | Medium | [`freecad-integration-ideas.md`](freecad-integration-ideas.md) |
 
-- [x] Conversation history (last 5 exchange pairs) passed to LLM for context
-- [x] Follow-up prompts modify existing models — "make the teeth wider" works naturally
-- [x] Most recent code referenced as baseline for modification in codegen prompt
-- [x] Model version history in WorkbenchPane with sequence numbers and prompt summaries
-- [x] Immutable chat history — each response is a separate item, previous items never modified
+### Long-Term: Platform Evolution
+> Priority: **Low** — significant architecture changes, explore when foundation is solid
 
-### 4. Empty State Guides the User — ✅ Complete
+| Item | Description | Effort | Design Doc |
+|------|-------------|--------|------------|
+| **Parametric history / timeline** | Fusion360-like operation tree: timeline scrubbing, selective undo, edit-in-place, branching | Very Large | [`parametric-history-vision.md`](parametric-history-vision.md) |
+| **Topology-preserving viewer** | STEP in browser (occt-import-js or server-side tessellation) for face/edge selection | Large | [`parametric-history-vision.md`](parametric-history-vision.md) |
+| **Interactive UI operations** | Click-to-fillet, click-to-chamfer — requires topology-preserving viewer | Very Large | [`parametric-history-vision.md`](parametric-history-vision.md) |
+| **CadQuery codegen target** | Alternative engine, works in FreeCAD CadQuery workbench | Medium | [`freecad-integration-ideas.md`](freecad-integration-ideas.md) |
+| **Native FreeCAD scripting** | Full parametric models with feature trees | Large | [`freecad-integration-ideas.md`](freecad-integration-ideas.md) |
 
-- [x] Four clickable example prompts covering gears, enclosures, brackets, adapters
-- [x] "What can I build?" capability hints popover accessible from prompt area
-- [x] Brief capability description in empty chat state
+### Deferred / Low Priority
 
-### 5. 3D Preview Is Prominent — ✅ Complete
-
-- [x] Camera controls toolbar (Reset View, Zoom to Fit, Fullscreen) overlaid on ModelViewer
-- [x] Fullscreen toggle — expand to viewport overlay, exit via button or Escape
-- [x] Mobile auto-switch to workbench pane when new model generates (below desktop breakpoint)
-
-### 6. Error Recovery — ✅ Complete
-
-- [x] Error recovery loop: rendering failures fed back to codegen LLM for one corrective retry
-- [x] Conversational error display — errors shown as messages in the thread with plain-language explanation and follow-up suggestion
-
-### 7. Navigation Cleanup — ✅ Complete
-
-- [x] Chat routes render without AppShell sidebar — ChatPage occupies full viewport width
-- [x] Admin-only items (Admin, Query Workbench) in header dropdown, visible only for admin users
-- [x] Notification bell conditionally rendered for admin users only
-- [x] Query Workbench and Notifications removed from sidebar for all users
-- [x] `AdminRouteGuard` wraps `/query`, `/notifications`, `/admin` — non-admin users redirected to `/chat`
-
-### 8. Component Architecture (Technical Debt) — ✅ Resolved
-
-Resolved via spec 001-design-debt-resolution. ChatPage is now composed of ContextSidebar, MessageBubble, PromptComposer, WorkbenchPane. AdminPanel is composed of DashboardTab, UsersTab, WaitlistTab, SettingsTab. Each sub-component is independently testable with property-based tests.
+| Item | Description |
+|------|-------------|
+| Color in examples | ~5% of prompts; 3MF color export + VLM color eval |
+| JSONL export preview | Preview training data export before downloading |
+| Batch endpoint rate limiting | Throttle `/generate/batch` requests |
+| PDF → Markdown converter | Requires `pdf-parse` dependency for knowledge base |
+| Two-stage retrieval with LLM planning | Keyword pre-retrieval is sufficient for now |
+| Build123d /analyze endpoint | Code structure analysis (AST info, dependency graph) |
+| Build123d /execute-partial | Partial execution for debugging intermediate geometry |
 
 ---
 
-## Roadmap
+## Related Design Documents
 
-### Phase 1: Make the Conversation Feel Real — ✅ Complete
-> Priority: **High** — this is the core product experience
-
-- ~~Stream assistant responses (provider-native SSE streaming)~~ ✅
-- ~~Inline 3D preview with turntable animation~~ ✅
-- ~~Progressive disclosure for code/files (collapsed by default)~~ ✅
-- ~~Compact inline download pills~~ ✅
-- ~~Typing indicator during generation~~ ✅
-- ~~Clickable example prompts in empty state~~ ✅
-
-### Phase 2: Improve Model Generation Quality — ✅ Complete
-> Priority: **High** — broken generations kill trust
-
-- ~~Enrich codegen prompt with Build123d API reference~~ ✅
-- ~~Add example code patterns to prompt~~ ✅
-- ~~Error recovery loop (feed errors back to LLM)~~ ✅
-- ~~Conversational error display~~ ✅
-
-### Phase 3: Enable Iterative Refinement — ✅ Complete
-> Priority: **High** — this is what makes it a conversation, not a form
-
-- ~~Pass conversation history to LLM (including previous code and results)~~ ✅
-- ~~Support follow-up modification prompts~~ ✅
-- ~~Model version history in workbench~~ ✅
-
-### Phase 4: Polish and Architecture — ✅ Complete
-> Priority: **Medium** — improves maintainability and completeness
-
-- ~~Extract ChatPage into sub-components~~ ✅
-- ~~Extract AdminPanel into sub-components~~ ✅
-- ~~Waitlist visual stepper~~ ✅
-- ~~ModelViewer fullscreen toggle and camera controls~~ ✅
-- ~~Mobile auto-switch to preview on generation~~ ✅
-- ~~Capability hints and "What can I build?" help~~ ✅
-
-### Navigation Cleanup — ✅ Complete
-> Priority: **Medium** — streamlines the chat-first experience
-
-- ~~Remove AppShell sidebar from chat routes~~ ✅
-- ~~Consolidate navigation into header dropdown~~ ✅
-- ~~Admin-only route guards~~ ✅
-- ~~Notification bell restricted to admin users~~ ✅
-
-### Phase 5: Build123d LLM Workbench — Design Complete, Implementation Pending
-> Priority: **High** — directly improves core model generation quality
-
-The chat experience is only as good as the LLM's ability to produce correct Build123d code. Today, no available LLM generates reliable Build123d code out of the box — models hallucinate class names, wrong argument order, and invalid geometry. The Build123d LLM Workbench is an admin-only sub-project to generate, validate, and curate a high-quality training dataset for fine-tuning an open-weight LLM specifically for Build123d code generation.
-
-**Design document:** [`docs/build123d-llm-workbench.md`](build123d-llm-workbench.md)
-
-**Key components:**
-
-- **Complexity curriculum** — 11 categories (Primitives → PCB Cases), 100 natural-language prompts each (1,100 total). Prompt files live in `workbench/categories/`.
-- **Automated pipeline** — Generate code → Render via Build123d → Screenshot via STL rendering service → VLM evaluate → auto-approve (score ≥ 7) or auto-fix with VLM feedback (up to 5 retries).
-- **STL rendering service** — New Docker service (`services/stl-rendering-service/`) using Puppeteer + Three.js to render STL/3MF to PNG screenshots for VLM evaluation.
-- **VLM evaluation** — Anthropic Claude or OpenAI GPT-4o scores rendered screenshots against the original prompt on shape accuracy, proportions, and feature completeness.
-- **Training dataset export** — LLaMA-Factory JSONL format. Scale targets: v1 ~1,000 examples → Final ~10,000 via re-running prompts with varied temperature/seeds.
-
-**Implementation phases:**
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| WB-1 | Database schema, category/prompt CRUD, seeding from curriculum files | Planned |
-| WB-2 | STL rendering service, screenshot pipeline | Planned |
-| WB-3 | Code generation + VLM evaluation loop | Planned |
-| WB-4 | Admin UI — browse categories, review examples, trigger generation | Planned |
-| WB-5 | Dataset export, batch generation orchestration | Planned |
-
-**Future extensions:** Parts knowledge library (hardware datasheets for accurate dimensions) and 3D-printing design guidelines (FDM constraints, wall thickness, overhang rules).
+| Document | Description |
+|----------|-------------|
+| [`codegen-pipeline-and-workbench.md`](codegen-pipeline-and-workbench.md) | Architecture deep-dive: agent pipeline, eval system, knowledge, workbench |
+| [`knowledge-sources.md`](knowledge-sources.md) | External knowledge base sources, crawl strategies, reference pipeline |
+| [`parametric-history-vision.md`](parametric-history-vision.md) | Future vision: Fusion360-like feature timeline from Build123d operations |
+| [`mobile-app-implementation.md`](mobile-app-implementation.md) | Capacitor mobile app + FCM push notifications |
+| ~~`user-content-curation.md`~~ | Removed — all 4 phases complete, summarized in this roadmap |
+| [`freecad-integration-ideas.md`](freecad-integration-ideas.md) | FreeCAD integration paths (STEP exchange, addon, codegen target) |
+| [`step-file-reverse-engineering-ideas.md`](step-file-reverse-engineering-ideas.md) | STEP → Build123d code reconstruction approaches |
+| [`3rd-party-build123d-libraries.md`](3rd-party-build123d-libraries.md) | Build123d ecosystem survey and integration candidates |
+| [`pricing-and-llm-quality-considerations.md`](pricing-and-llm-quality-considerations.md) | Pricing tiers, DGX Spark economics, traffic splitting strategies |
+| [`tool-use-training-datasets.md`](tool-use-training-datasets.md) | Public datasets for fine-tuning tool use capabilities |
+| [`operations-runbook.md`](operations-runbook.md) | Deployment, health checks, recovery procedures |
 
 ---
 

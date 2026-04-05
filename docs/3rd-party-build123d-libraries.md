@@ -2,8 +2,8 @@
 
 Research into the Build123d ecosystem to identify libraries that could simplify LLM-generated 3D model code in Chat3D's pipeline.
 
-**Date:** 2026-03-10
-**Context:** bd_warehouse was recently integrated. This document surveys the full ecosystem for additional candidates.
+**Date:** 2026-03-10 (updated 2026-04-05)
+**Context:** bd_warehouse and gridfinity_build123d are integrated. This document surveys the full ecosystem for additional candidates.
 
 ---
 
@@ -38,18 +38,18 @@ Generates 2D cross-sections (`FLSection`) and 3D beams (`FLBeam`) for standard s
 
 ---
 
-### gridfinity_build123d — Gridfinity Storage System
+### gridfinity_build123d — Gridfinity Storage System — ✅ Integrated
 
 - **GitHub:** [Ruudjhuu/gridfinity_build123d](https://github.com/Ruudjhuu/gridfinity_build123d)
 - **Docs:** [gridfinity-build123d.readthedocs.io](https://gridfinity-build123d.readthedocs.io/)
 - **Install:** `pip install git+https://github.com/Ruudjhuu/gridfinity_build123d`
-- **Status:** Active
+- **Status:** Active, **integrated into Chat3D**
 
 The most modular Gridfinity tool available — supports arbitrary shapes via grid definitions, not just rectangles.
 
 **Why it fits:** Gridfinity is hugely popular in the 3D printing community. "Make me a Gridfinity bin for my screwdrivers" is a very natural prompt.
 
-**Integration effort:** Low — pip install from git.
+**Integration:** Done — installed in Build123d service `requirements.txt`, system prompt guidance in `prompts/gridfinity-prompts.ts`.
 
 ---
 
@@ -95,12 +95,16 @@ Adds a `Builder` class that mutates CAD objects in-place rather than creating ne
 
 ## Tier 3: Useful for the Pipeline (Not for Code Generation)
 
-### Fusion360GalleryDataset-build123d — 7,683 Build123d Scripts
+### ~~Fusion360GalleryDataset-build123d~~ — Not Usable
 
 - **GitHub:** [zalo/Fusion360GalleryDataset-build123d](https://github.com/zalo/Fusion360GalleryDataset-build123d)
-- **Status:** Updated Feb 2026
+- **Status:** Evaluated and **rejected**
 
-Fusion 360 models auto-converted to executable build123d scripts. Massive dataset for RAG embeddings, knowledge base indexing, or fine-tuning.
+7,683 Fusion 360 models auto-converted to Build123d scripts. **Not usable for Chat3D:**
+- **Non-commercial license** (Autodesk Fusion 360 Gallery Dataset terms) — prohibits use in commercial products
+- **Sketch-and-extrude only** — no fillets, chamfers, revolves, sweeps, lofts, mirrors, or patterns
+- **Raw OCP bindings** — many models use `Geom_BSplineCurve` / `BRepBuilderAPI_MakeEdge` directly, not idiomatic Build123d
+- **Fixed dimensions** — hardcoded values, not parametric
 
 ---
 
@@ -168,20 +172,20 @@ Several projects are doing similar AI + build123d work:
 
 ## Recommendations
 
-### Quick Wins (Integrate Now)
+### Already Integrated
 
-1. **py_gearworks** — Fills gaps where bd_warehouse's gear support is limited
-2. **gridfinity_build123d** — Taps into massive 3D printing community demand
+- ~~**bd_warehouse**~~ ✅ Parametric mechanical components (fasteners, bearings, gears)
+- ~~**gridfinity_build123d**~~ ✅ Gridfinity storage bins
 
-### Medium-Term
+### Next Up
 
-3. **bd_beams_and_bars** — Structural engineering use cases
-4. **Fusion360GalleryDataset** — Index 7,683 scripts into knowledge base for RAG
+1. **py_gearworks** — Fills gaps where bd_warehouse's gear support is limited (small effort)
+2. **bd_beams_and_bars** — Structural engineering use cases (small effort)
 
 ### Evaluate Further
 
-5. **bd_vslot** — Worth adding if frame/rail requests are common
-6. **build123d_draft** — Evaluate if LLM sketch construction errors remain a pain point
+4. **bd_vslot** — Worth adding if frame/rail requests are common
+5. **build123d_draft** — Evaluate if LLM sketch construction errors remain a pain point
 
 ### Integration Pattern
 
