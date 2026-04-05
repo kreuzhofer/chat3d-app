@@ -159,6 +159,7 @@ export async function evaluateModelWithConfig(
           system: systemPrompt,
           messages: [{ role: "user" as const, content: userContent }],
           maxOutputTokens: 1024,
+          temperature: 0,
         }, trackingMeta);
 
         const promptTokens = result.usage?.inputTokens ?? 0;

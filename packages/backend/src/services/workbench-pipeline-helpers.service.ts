@@ -9,8 +9,17 @@ import { prisma } from "../db/prisma.js";
 import { getModelForPurposeWithFallback, type LlmModelConfig } from "./llm-config.service.js";
 import { WorkbenchCatalogError } from "./workbench-catalog.service.js";
 import type { GenerateResult } from "./workbench-codegen.service.js";
+import type { CodeAssertion, AnnotatedCriterion } from "./spec-generation.service.js";
 
 // ── Types ────────────────────────────────────────────────────────────
+
+export interface CachedSpec {
+  specInterpretation: string | null;
+  constructionSpec: string | null;
+  codeAssertions: CodeAssertion[] | null;
+  verificationChecklist: string[] | null;
+  verificationCriteria: AnnotatedCriterion[] | null;
+}
 
 export interface PromptContext {
   promptId: string;
@@ -18,6 +27,8 @@ export interface PromptContext {
   categoryId: string;
   categoryName: string;
   complexity: number;
+  /** Cached spec fields from previous generation (null values if never generated). */
+  cachedSpec: CachedSpec;
 }
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -43,6 +54,13 @@ export async function loadPromptContext(promptId: string): Promise<PromptContext
     categoryId: row.categoryId,
     categoryName: row.category.name,
     complexity: row.category.complexity,
+    cachedSpec: {
+      specInterpretation: row.specInterpretation,
+      constructionSpec: row.constructionSpec,
+      codeAssertions: row.codeAssertions as CodeAssertion[] | null,
+      verificationChecklist: row.verificationChecklist as string[] | null,
+      verificationCriteria: row.verificationCriteria as AnnotatedCriterion[] | null,
+    },
   };
 }
 

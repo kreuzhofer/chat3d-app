@@ -85,6 +85,10 @@ Given a user's 3D model request and the generated Build123d Python code, verify:
    ("centered", "equally spaced", "offset by 5mm", "flush with", etc.)
 4. **Logical correctness**: Does the code logic produce the described geometry?
    (correct boolean operations, proper sketch-to-3D workflow, etc.)
+5. **Construction approach flexibility**: Do NOT penalize for using a different construction
+   method than what the specification implies. For example: boolean subtraction vs. shell offset,
+   BuildLine+revolve vs. separate shapes+union, ThreePointArc vs. RadiusArc, Spline vs. Bezier —
+   these are all valid implementation choices. Only flag if the resulting GEOMETRY would be different.
 
 Do NOT evaluate: code style, naming conventions, comments, rendering quality, or visual appearance.
 Do NOT flag issues for aspects the prompt does not specify — if the prompt doesn't mention a dimension,
@@ -277,6 +281,7 @@ export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResu
           system: systemPrompt,
           messages: [{ role: "user", content: userContent }],
           maxOutputTokens: 1024,
+          temperature: 0,
         }, {
           purpose: "code_evaluation",
           providerName: config.provider,

@@ -100,10 +100,10 @@ Given a user's prompt describing a 3D model, produce:
 6. **semanticContext**: 1-2 sentences identifying the object and its domain. No dimensions or construction details. This is used as a search query to find reference material and similar examples.
    Example: "Raspberry Pi 4 Model B enclosure with removable lid"
 
-7. **constructionSpec**: A bulleted list of geometric operations with dimensions, positions, and relationships — a machinist's blueprint. Each bullet should be one discrete construction step. Include ALL dimensions from the prompt. If exact dimensions are not stated, derive reasonable defaults and note them. Example:
-   - Base box: 90×62×30mm, wall thickness 2mm
-   - Port cutouts (short side): USB-C 9×3.5mm at offset 7mm from corner
-   - 4× M2.5 standoffs at corner insets, height 3mm
+7. **constructionSpec**: A bulleted list describing the final geometry — dimensions, shapes, positions, and spatial relationships. Focus on WHAT the geometry IS, not HOW to construct it in CAD. Do not reference specific CAD operations (extrude, revolve, sweep, loft, boolean subtract, fillet, chamfer as verbs) — instead describe the resulting geometric features. Each bullet should describe one geometric feature or region with its dimensions. Include ALL dimensions from the prompt. If exact dimensions are not stated, derive reasonable defaults and note them. Example:
+   - Rectangular box: 90×62×30mm, wall thickness 2mm, open top
+   - Port openings (short side): USB-C 9×3.5mm at offset 7mm from corner
+   - 4× cylindrical standoff posts at corner insets, 3mm tall
 
 8. **verificationCriteria**: 3-6 objective structural checks, each annotated with a visibility category. Each item has:
    - "text": the check itself, referencing ONLY geometry (not the object's name/identity)

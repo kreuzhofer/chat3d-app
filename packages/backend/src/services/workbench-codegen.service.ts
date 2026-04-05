@@ -33,7 +33,7 @@ import {
   getPipelineTimeoutMs,
 } from "./generation-settings.service.js";
 import { storeSpecAndEmbedding } from "./workbench-embeddings.service.js";
-import { generateSpec, type SpecResult } from "./spec-generation.service.js";
+import { generateSpec, deriveComplexity, type SpecResult } from "./spec-generation.service.js";
 import { enrichSpec } from "./spec-enrichment.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
 import { insertExample, persistWorkbenchFiles } from "./workbench-persist.service.js";
@@ -215,35 +215,59 @@ async function _runPipeline(
     return persistRejectedPrompt(ctx, validation, llmModelLabel, traceBuilder, traceId, onProgress, options?.experimentRunId);
   }
 
-  // 2b. Spec generation
+  // 2b. Spec generation — reuse cached spec if available to save tokens
   let specResult: SpecResult | null = null;
   const specEnabled = await isSpecGenerationEnabled("workbench");
   if (specEnabled) {
-    traceBuilder.startPhase("spec", "spec_generation", "Spec Generation");
-    onProgress?.("analyzing", "Analyzing prompt specification...");
-    const specModelCfg = await getModelForPurposeWithFallback("spec_generation", "conversation");
-    traceBuilder.setModel(specModelCfg.label, specModelCfg.provider);
-    specResult = await generateSpec(ctx.prompt);
+    const hasCachedSpec = ctx.cachedSpec.constructionSpec && ctx.cachedSpec.specInterpretation;
 
-    if (specResult.disambiguationNeeded && !options?.experimentRunId) {
-      // Skip disambiguation gate during experiments — approved prompts are pre-validated
-      traceBuilder.endPhase("skipped");
+    if (hasCachedSpec) {
+      // Reuse cached spec — skip LLM call
+      traceBuilder.startPhase("spec", "spec_generation", "Spec Generation (cached)");
+      specResult = {
+        interpretation: ctx.cachedSpec.specInterpretation!,
+        constructionSpec: ctx.cachedSpec.constructionSpec!,
+        codeAssertions: ctx.cachedSpec.codeAssertions ?? [],
+        verificationChecklist: ctx.cachedSpec.verificationChecklist ?? [],
+        verificationCriteria: ctx.cachedSpec.verificationCriteria ?? [],
+        disambiguationNeeded: false,
+        disambiguationQuestions: [],
+        complexity: deriveComplexity(ctx.prompt, ctx.cachedSpec.specInterpretation!),
+        semanticContext: "",
+        promptTokens: 0,
+        completionTokens: 0,
+      };
+      logger.info({ promptId: ctx.promptId }, "reusing cached spec — skipping spec LLM call");
+      traceBuilder.endPhase("completed");
       updateTraceIncremental(traceId, traceBuilder.snapshot());
-      await prisma.workbenchExamplePrompt.update({
-        where: { id: ctx.promptId },
-        data: { disambiguationQuestions: specResult.disambiguationQuestions, disambiguationStatus: "needs_review", specInterpretation: specResult.interpretation },
+    } else {
+      // No cached spec — generate fresh
+      traceBuilder.startPhase("spec", "spec_generation", "Spec Generation");
+      onProgress?.("analyzing", "Analyzing prompt specification...");
+      const specModelCfg = await getModelForPurposeWithFallback("spec_generation", "conversation");
+      traceBuilder.setModel(specModelCfg.label, specModelCfg.provider);
+      specResult = await generateSpec(ctx.prompt);
+
+      if (specResult.disambiguationNeeded && !options?.experimentRunId) {
+        // Skip disambiguation gate during experiments — approved prompts are pre-validated
+        traceBuilder.endPhase("skipped");
+        updateTraceIncremental(traceId, traceBuilder.snapshot());
+        await prisma.workbenchExamplePrompt.update({
+          where: { id: ctx.promptId },
+          data: { disambiguationQuestions: specResult.disambiguationQuestions, disambiguationStatus: "needs_review", specInterpretation: specResult.interpretation },
+        });
+        traceBuilder.endPhase("completed");
+        updateTraceIncremental(traceId, traceBuilder.build(), traceBuilder.computeSummary());
+        return earlyExitResult({ exampleId: null, promptId: ctx.promptId, iteration: 0, code: "", renderError: null, approvalStatus: "pending", llmModel: llmModelLabel, disambiguationNeeded: true, disambiguationQuestions: specResult.disambiguationQuestions });
+      }
+
+      traceBuilder.addUsage({
+        inputTokens: specResult.promptTokens, outputTokens: specResult.completionTokens,
+        costUsd: calculateCostUsd(specModelCfg, specResult.promptTokens, specResult.completionTokens),
       });
       traceBuilder.endPhase("completed");
-      updateTraceIncremental(traceId, traceBuilder.build(), traceBuilder.computeSummary());
-      return earlyExitResult({ exampleId: null, promptId: ctx.promptId, iteration: 0, code: "", renderError: null, approvalStatus: "pending", llmModel: llmModelLabel, disambiguationNeeded: true, disambiguationQuestions: specResult.disambiguationQuestions });
+      updateTraceIncremental(traceId, traceBuilder.snapshot());
     }
-
-    traceBuilder.addUsage({
-      inputTokens: specResult.promptTokens, outputTokens: specResult.completionTokens,
-      costUsd: calculateCostUsd(specModelCfg, specResult.promptTokens, specResult.completionTokens),
-    });
-    traceBuilder.endPhase("completed");
-    updateTraceIncremental(traceId, traceBuilder.snapshot());
   }
 
   // 3. Research phase — identify techniques and find relevant examples/knowledge
