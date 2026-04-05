@@ -19,6 +19,8 @@ export interface AgentEvalResult {
   vlmModel: string;
   issues: string[];
   suggestions: string[];
+  /** Screenshots taken during this evaluation (base64 PNGs). */
+  screenshots: import("./stl-rendering-client.service.js").RenderedScreenshot[];
 }
 
 const logger = createLogger("agent-render");
@@ -139,6 +141,7 @@ export async function runVlmEval(deps: VlmEvalDeps): Promise<string> {
     deps.onEvalComplete?.({
       score: evalResult.score, vlmModel: evalResult.vlmModel,
       issues: evalResult.issues, suggestions: evalResult.suggestions,
+      screenshots: ssResult.images,
     });
     const issueText = evalResult.issues.length > 0
       ? `\nIssues:\n${evalResult.issues.map(i => `- ${i}`).join("\n")}\n` : "";

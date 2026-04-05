@@ -382,10 +382,15 @@ async function _runPipeline(
 
   const agAllCode = flattenForEval(agResult.files.length > 1 ? agResult.files : [{ path: "main.py", content: agResult.code }]);
 
-  // Always take screenshots (needed for VLM eval and workbench UI display)
+  // Reuse agent screenshots if available (from evaluate_model/submit_result), otherwise take new ones
   let agScreenshots: RenderedScreenshot[] = [];
   let screenshotFailed = false;
-  if (agResult.renderSuccess && agResult.renderedFiles.length > 0) {
+  if (agResult.screenshots.length > 0) {
+    // Agent already took screenshots during its loop — reuse them (saves ~10s + avoids screenshot service failures)
+    agScreenshots = agResult.screenshots;
+    logger.info({ count: agScreenshots.length }, "reusing agent screenshots — skipping redundant screenshot call");
+  } else if (agResult.renderSuccess && agResult.renderedFiles.length > 0) {
+    // Fallback: agent didn't take screenshots (e.g., never called evaluate_model) — take them now
     traceBuilder.startPhase("screenshots", "screenshots", "Screenshots");
     onProgress?.("evaluating", "Taking screenshots...");
     try {
@@ -440,35 +445,122 @@ async function _runPipeline(
     updateTraceIncremental(traceId, traceBuilder.snapshot());
   }
 
-  const agTotalPromptTokens = agResult.usage.promptTokens + (agFullEval?.totalPromptTokens ?? 0) + (specResult?.promptTokens ?? 0);
-  const agTotalCompletionTokens = agResult.usage.completionTokens + (agFullEval?.totalCompletionTokens ?? 0) + (specResult?.completionTokens ?? 0);
-  const agScore = agFullEval?.compositeScore ?? null;
+  let totalPipelinePromptTokens = agResult.usage.promptTokens + (agFullEval?.totalPromptTokens ?? 0) + (specResult?.promptTokens ?? 0);
+  let totalPipelineCompletionTokens = agResult.usage.completionTokens + (agFullEval?.totalCompletionTokens ?? 0) + (specResult?.completionTokens ?? 0);
+  let finalScore = agFullEval?.compositeScore ?? null;
   // VLM is mandatory: if screenshots failed and no agent VLM score, never auto-approve
   const vlmMissing = screenshotFailed && !(agResult.submitted && agResult.evalResult);
-  const agApproved = vlmMissing
+  let finalApproved = vlmMissing
     ? false
     : agFullEval?.assertionsFailed
       ? false
-      : shouldAutoApprove(agScore, dynAutoApprove, agFullEval?.checklistResults, agResult.renderSuccess);
+      : shouldAutoApprove(finalScore, dynAutoApprove, agFullEval?.checklistResults, agResult.renderSuccess);
   if (vlmMissing) {
     logger.warn({ exampleId: earlyExampleId }, "screenshots failed, VLM eval skipped — blocking auto-approval");
   }
 
-  const storedCode = agAllCode;
+  // ── Fix loop: feed eval failures back to a lightweight fix agent ──
+  const MAX_FIX_ATTEMPTS = 2;
+  let currentResult = agResult;
+  let currentEval = agFullEval;
+  let currentScreenshots = agScreenshots;
+  let currentCode = agAllCode;
+
+  if (!finalApproved && finalScore !== null && finalScore >= 4 && !pipelineSignal.aborted && !vlmMissing) {
+    for (let fixAttempt = 1; fixAttempt <= MAX_FIX_ATTEMPTS; fixAttempt++) {
+      const issues = [...(currentEval?.vlmIssues ?? []), ...(currentEval?.codeIssues ?? [])];
+      if (issues.length === 0) break;
+
+      logger.info({ fixAttempt, score: finalScore, issueCount: issues.length, promptId: ctx.promptId }, "starting fix attempt — feeding eval issues back to agent");
+      onProgress?.("fixing", `Fix attempt ${fixAttempt}/${MAX_FIX_ATTEMPTS}: addressing ${issues.length} eval issues...`);
+      traceBuilder.startPhase(`fix-${fixAttempt}`, "fix_agent", `Fix Attempt ${fixAttempt}`);
+
+      const fixFiles = new Map(currentResult.files.map(f => [f.path, f.content]));
+      const issueList = issues.map(i => `- ${i}`).join("\n");
+      const fixMessage = `Your previous code scored ${finalScore}/10 (need ${dynAutoApprove} to pass). Fix these issues:\n${issueList}\n\nView the existing code, make targeted fixes for the issues above, then validate, render, and resubmit.`;
+
+      try {
+        const fixResult = await runAgentCodegen({
+          ...wbAgInput,
+          isModification: true,
+          initialFiles: fixFiles,
+          maxSteps: 5,
+          userMessageOverride: fixMessage,
+          traceNodeId: `fix-agent-${fixAttempt}`,
+          traceLabel: `Fix Agent ${fixAttempt}`,
+          traceSkipAutoEdge: true,
+        });
+
+        if (pipelineSignal.aborted) {
+          traceBuilder.endPhase("failed", { error: "aborted" });
+          break;
+        }
+
+        // Re-evaluate with fixed code
+        const fixCode = flattenForEval(fixResult.files.length > 1 ? fixResult.files : [{ path: "main.py", content: fixResult.code }]);
+        const fixScreenshots = fixResult.screenshots.length > 0 ? fixResult.screenshots : currentScreenshots;
+        const fixStl = fixResult.renderedFiles.find(f => f.filename.toLowerCase().endsWith(".stl"));
+        const fixVlmImages = fixScreenshots.filter(s => s.angle !== "isometric").map(s => ({ angle: s.angle, base64: s.base64 }));
+        const fixCodeEvalWeight = await getCodeEvalWeight("workbench");
+
+        const fixEval = await runFullEvaluation({
+          code: fixCode, userPrompt: ctx.prompt,
+          specInterpretation: specResult?.interpretation,
+          codeAssertions: specResult?.codeAssertions,
+          images: fixVlmImages, categoryName: ctx.categoryName, complexity: ctx.complexity,
+          verificationChecklist: specResult?.verificationChecklist,
+          constructionSpec: specResult?.constructionSpec,
+          annotatedCriteria: specResult?.verificationCriteria,
+          stlBase64: fixStl?.contentBase64, modelFormat: "stl",
+          codeEvalWeight: fixCodeEvalWeight,
+        });
+
+        totalPipelinePromptTokens += fixResult.usage.promptTokens + (fixEval?.totalPromptTokens ?? 0);
+        totalPipelineCompletionTokens += fixResult.usage.completionTokens + (fixEval?.totalCompletionTokens ?? 0);
+        finalScore = fixEval?.compositeScore ?? finalScore;
+
+        const fixApproved = fixEval?.assertionsFailed
+          ? false
+          : shouldAutoApprove(finalScore, dynAutoApprove, fixEval?.checklistResults, fixResult.renderSuccess);
+
+        logger.info({ fixAttempt, newScore: finalScore, approved: fixApproved, promptId: ctx.promptId }, "fix attempt completed");
+        traceBuilder.endPhase("completed");
+        updateTraceIncremental(traceId, traceBuilder.snapshot());
+
+        if (fixApproved || (finalScore !== null && finalScore > (currentEval?.compositeScore ?? 0))) {
+          // Improved or approved — use fix result
+          currentResult = fixResult;
+          currentEval = fixEval;
+          currentScreenshots = fixScreenshots;
+          currentCode = fixCode;
+          agFullEval = fixEval;
+          finalApproved = fixApproved;
+        }
+        if (fixApproved) break;
+      } catch (err) {
+        logger.warn({ fixAttempt, err: err instanceof Error ? err.message : String(err) }, "fix attempt failed");
+        traceBuilder.endPhase("failed", { error: err instanceof Error ? err.message : String(err) });
+        updateTraceIncremental(traceId, traceBuilder.snapshot());
+        break;
+      }
+    }
+  }
+
+  const storedCode = currentCode;
   const exampleId = earlyExampleId ?? crypto.randomUUID();
   const filePaths = await persistWorkbenchFiles({
     categoryId: ctx.categoryId, exampleId,
-    renderedFiles: agResult.renderedFiles, code: storedCode, screenshots: agScreenshots,
+    renderedFiles: currentResult.renderedFiles, code: storedCode, screenshots: currentScreenshots,
   });
 
-  const agMergedIssues = [...(agFullEval?.vlmIssues ?? []), ...(agFullEval?.codeIssues ?? [])];
-  const renderStatus = agResult.renderSuccess ? "success" as const : "error" as const;
-  const renderError = agResult.renderSuccess ? null : "Agent codegen failed to render";
-  const approvalStatus = agApproved ? "auto_approved" as const : "pending" as const;
-  const evalIssues = agMergedIssues.length > 0 ? agMergedIssues : null;
+  const mergedIssues = [...(agFullEval?.vlmIssues ?? []), ...(agFullEval?.codeIssues ?? [])];
+  const renderStatus = currentResult.renderSuccess ? "success" as const : "error" as const;
+  const renderError = currentResult.renderSuccess ? null : "Agent codegen failed to render";
+  const approvalStatus = finalApproved ? "auto_approved" as const : "pending" as const;
+  const evalIssues = mergedIssues.length > 0 ? mergedIssues : null;
 
   await insertExample({
-    id: exampleId, promptId: ctx.promptId, iteration: agResult.stepCount, code: storedCode,
+    id: exampleId, promptId: ctx.promptId, iteration: currentResult.stepCount, code: storedCode,
     renderStatus, renderError,
     stlPath: filePaths.stlPath, stepPath: filePaths.stepPath, threemfPath: filePaths.threemfPath,
     screenshotFront: filePaths.screenshotFrontPath, screenshotBack: filePaths.screenshotBackPath,
@@ -476,10 +568,10 @@ async function _runPipeline(
     screenshotTop: filePaths.screenshotTopPath, screenshotBottom: filePaths.screenshotBottomPath,
     screenshotOrtho45: filePaths.screenshotOrtho45Path, screenshotOrtho45Bottom: filePaths.screenshotOrtho45BottomPath,
     screenshotIso: filePaths.screenshotIsoPath, screenshotIsoBack: filePaths.screenshotIsoBackPath,
-    evalScore: agScore, evalIssues, evalSuggestions: agFullEval?.vlmSuggestions ?? null,
+    evalScore: finalScore, evalIssues, evalSuggestions: agFullEval?.vlmSuggestions ?? null,
     evalChecklistResults: agFullEval?.checklistResults ?? null, approvalStatus,
     llmModel: wbAgentModelConfig.label, vlmModel: agFullEval?.vlmModel ?? null,
-    promptTokens: agTotalPromptTokens, completionTokens: agTotalCompletionTokens,
+    promptTokens: totalPipelinePromptTokens, completionTokens: totalPipelineCompletionTokens,
     visualScore: agFullEval?.visualScore ?? null, codeEvalScore: agFullEval?.codeScore ?? null,
     assertionPassRate: agFullEval?.assertionPassRate ?? null, evalSource: agFullEval?.source ?? null,
     experimentRunId: options?.experimentRunId,
@@ -510,8 +602,8 @@ async function _runPipeline(
   await finalizeTrace(traceId, { workbenchExampleId: exampleId, trace: traceBuilder.build(), summary: traceBuilder.computeSummary() });
 
   return {
-    exampleId, promptId: ctx.promptId, iteration: agResult.stepCount, code: storedCode,
-    renderStatus, renderError, evalScore: agScore, evalIssues,
+    exampleId, promptId: ctx.promptId, iteration: currentResult.stepCount, code: storedCode,
+    renderStatus, renderError, evalScore: finalScore, evalIssues,
     evalSuggestions: agFullEval?.vlmSuggestions ?? null, evalChecklistResults: agFullEval?.checklistResults ?? null,
     approvalStatus, llmModel: wbAgentModelConfig.label, vlmModel: agFullEval?.vlmModel ?? null,
   };

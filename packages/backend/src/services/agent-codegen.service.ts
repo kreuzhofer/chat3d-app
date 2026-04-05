@@ -107,6 +107,8 @@ export interface AgentCodegenResult {
   submitted: boolean;
   /** VLM evaluation result (if the agent ran evaluate_model) */
   evalResult: AgentEvalResult | null;
+  /** Screenshots from the last evaluate_model/submit_result call (reusable by post-loop). */
+  screenshots: import("./stl-rendering-client.service.js").RenderedScreenshot[];
 }
 
 // Re-export multi-agent orchestration so consumers don't need to change imports
@@ -189,6 +191,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
   let lastRenderedFiles: RenderedFile[] = [];
   let renderSuccess = false;
   let evalResult: AgentEvalResult | null = null;
+  let lastScreenshots: import("./stl-rendering-client.service.js").RenderedScreenshot[] = [];
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
   let totalReasoningTokens = 0;
@@ -230,7 +233,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       getLastRenderedFiles: () => lastRenderedFiles,
       userPrompt: promptText,
       evalThreshold,
-      onEvalComplete: (result) => { evalResult = result; },
+      onEvalComplete: (result) => { evalResult = result; lastScreenshots = result.screenshots; },
       getLastEvalResult: () => evalResult,
       codeAssertions: input.codeAssertions,
       specInterpretation: input.specInterpretation ?? input.interpretation,
@@ -403,7 +406,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
         reasoningTokens: totalReasoningTokens,
         totalCostUsd: calculateCostUsd(modelConfig, totalPromptTokens, totalCompletionTokens),
       },
-      stepCount, submitted, evalResult,
+      stepCount, submitted, evalResult, screenshots: lastScreenshots,
     };
   } catch (err) {
     // Add a phantom step node when aborted before any step completed
@@ -433,7 +436,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
           reasoningTokens: totalReasoningTokens,
           totalCostUsd: calculateCostUsd(modelConfig, totalPromptTokens, totalCompletionTokens),
         },
-        stepCount: 0, submitted: false, evalResult,
+        stepCount: 0, submitted: false, evalResult, screenshots: lastScreenshots,
       };
     }
     throw err;
