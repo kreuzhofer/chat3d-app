@@ -48,6 +48,7 @@ export interface LlmModelRow {
   default_thinking_effort: string | null;
   supports_vision: boolean;
   supports_embeddings: boolean;
+  streaming_enabled: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -81,6 +82,8 @@ export interface LlmModelConfig {
   thinkingEffort: string | null;
   supportsVision: boolean;
   supportsEmbeddings: boolean;
+  /** Whether the model supports streaming responses. Default true. */
+  streamingEnabled: boolean;
   endpointUrl: string | null;
   apiKey: string | null;
   /** Per-provider concurrency limit from DB (null = use global default). */
@@ -205,6 +208,7 @@ function toModelRow(m: PrismaModelShape): LlmModelRow {
     default_thinking_effort: m.defaultThinkingEffort,
     supports_vision: m.supportsVision,
     supports_embeddings: m.supportsEmbeddings,
+    streaming_enabled: m.streamingEnabled,
     is_active: m.isActive,
     created_at: m.createdAt.toISOString(),
     updated_at: m.updatedAt.toISOString(),
@@ -259,6 +263,7 @@ export async function getModelForPurpose(purpose: string): Promise<LlmModelConfi
     thinkingEffort: purposeMap.overrideThinkingEffort ?? model.defaultThinkingEffort,
     supportsVision: model.supportsVision,
     supportsEmbeddings: model.supportsEmbeddings,
+    streamingEnabled: model.streamingEnabled,
     endpointUrl: provider.endpointUrl,
     apiKey,
     maxConcurrent: provider.maxConcurrent ?? null,
@@ -309,6 +314,7 @@ export async function resolveModelConfigById(modelId: string): Promise<LlmModelC
     thinkingEffort: model.defaultThinkingEffort,
     supportsVision: model.supportsVision,
     supportsEmbeddings: model.supportsEmbeddings,
+    streamingEnabled: model.streamingEnabled,
     endpointUrl: provider.endpointUrl,
     apiKey,
     maxConcurrent: provider.maxConcurrent ?? null,
@@ -759,6 +765,7 @@ export async function createModel(input: {
   defaultThinkingEffort?: string | null;
   supportsVision?: boolean;
   supportsEmbeddings?: boolean;
+  streamingEnabled?: boolean;
 }): Promise<LlmModelRow> {
   const row = await prisma.llmModel.create({
     data: {
@@ -773,6 +780,7 @@ export async function createModel(input: {
       defaultThinkingEffort: input.defaultThinkingEffort ?? null,
       supportsVision: input.supportsVision ?? false,
       supportsEmbeddings: input.supportsEmbeddings ?? false,
+      streamingEnabled: input.streamingEnabled ?? true,
     },
   });
   return toModelRow(row);
@@ -794,6 +802,7 @@ export async function updateModel(
     defaultThinkingEffort: "defaultThinkingEffort",
     supportsVision: "supportsVision",
     supportsEmbeddings: "supportsEmbeddings",
+    streamingEnabled: "streamingEnabled",
     isActive: "isActive",
   };
 

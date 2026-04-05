@@ -491,6 +491,7 @@ adminRouter.post("/llm-models", async (req, res) => {
       defaultThinkingEffort: typeof body.defaultThinkingEffort === "string" ? body.defaultThinkingEffort : (body.defaultThinkingEffort === null ? null : undefined),
       supportsVision: typeof body.supportsVision === "boolean" ? body.supportsVision : undefined,
       supportsEmbeddings: typeof body.supportsEmbeddings === "boolean" ? body.supportsEmbeddings : undefined,
+      streamingEnabled: typeof body.streamingEnabled === "boolean" ? body.streamingEnabled : undefined,
     });
     res.status(201).json(model);
   } catch (error) {

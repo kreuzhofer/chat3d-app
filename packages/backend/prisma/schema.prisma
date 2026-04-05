@@ -682,6 +682,7 @@ model LlmModel {
   defaultThinkingEffort String?  @map("default_thinking_effort") @db.VarChar(20)
   supportsVision        Boolean  @default(false) @map("supports_vision")
   supportsEmbeddings    Boolean  @default(false) @map("supports_embeddings")
+  streamingEnabled      Boolean  @default(true) @map("streaming_enabled")
   isActive              Boolean  @default(true) @map("is_active")
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz()

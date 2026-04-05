@@ -273,6 +273,7 @@ export interface LlmModelRow {
   default_thinking_effort: string | null;
   supports_vision: boolean;
   supports_embeddings: boolean;
+  streaming_enabled: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -301,6 +302,7 @@ export interface CreateLlmModelInput {
   defaultThinkingEffort?: string | null;
   supportsVision?: boolean;
   supportsEmbeddings?: boolean;
+  streamingEnabled?: boolean;
 }
 
 export async function listAdminLlmModels(token: string): Promise<LlmModelRow[]> {

@@ -1,4 +1,4 @@
-import { NoOutputGeneratedError, streamText } from "ai";
+import { NoOutputGeneratedError, streamText, generateText } from "ai";
 import { trackedGenerateText } from "./tracked-llm.service.js";
 import { recordUsageEvent, type LlmPurpose } from "./usage-tracking.service.js";
 import { asQuotaError } from "../utils/llm-errors.js";
@@ -583,6 +583,35 @@ async function streamWithMessages(
   const semaphore = getLlmSemaphore(cfg.provider, cfg.maxConcurrent);
   return semaphore.run(async () => {
     try {
+      // Non-streaming fallback for models that don't support streaming
+      if (cfg.streamingEnabled === false) {
+        logger.info({ provider: cfg.provider, model: cfg.modelName }, "using non-streaming generateText (streaming disabled)");
+        const genResult = await generateText({
+          model: providerModel,
+          system: cacheableSystem,
+          messages,
+          abortSignal,
+          ...extraOpts,
+        });
+        const text = genResult.text ?? "";
+        onToken(text); // emit full text at once
+        const effectiveUsage = genResult.usage;
+        const cacheUsage = extractTokenUsage(effectiveUsage);
+        if (purpose) {
+          recordUsageEvent({
+            providerName: cfg.provider, modelId: cfg.id, modelName: cfg.modelName, purpose,
+            inputTokens: cacheUsage.inputTokens ?? 0, outputTokens: cacheUsage.outputTokens ?? 0,
+            reasoningTokens: cacheUsage.reasoningTokens ?? 0, cacheReadTokens: cacheUsage.cacheReadTokens ?? 0,
+            cacheWriteTokens: cacheUsage.cacheWriteTokens ?? 0, totalTokens: cacheUsage.totalTokens ?? 0,
+            estimatedCostUsd: calculateCostUsd(cfg, cacheUsage.inputTokens ?? 0, cacheUsage.outputTokens ?? 0, cacheUsage.reasoningTokens ?? 0, cacheUsage.cacheReadTokens ?? 0, cacheUsage.cacheWriteTokens ?? 0),
+          });
+        }
+        const cleanedText = stripThinkingBlocks(text);
+        if (cleanedText === "") throw new LlmServiceError("LLM returned empty output", 502);
+        return { text: cleanedText, usageRaw: effectiveUsage };
+      }
+
+      // Streaming path
       const result = streamText({
         model: providerModel,
         system: cacheableSystem,
@@ -593,7 +622,6 @@ async function streamWithMessages(
 
       let fullText = "";
       const thinkFilter = new ThinkingBlockFilter(onToken);
-      // Capture usage from finish-step event (Bedrock streaming doesn't propagate usage to resolved promise — SDK v6.0.111 bug)
       let streamStepUsage: unknown;
       for await (const part of result.fullStream) {
         if (part.type === "text-delta") {
@@ -615,7 +643,6 @@ async function streamWithMessages(
         throw awaitError;
       }
 
-      // Workaround: use finish-step usage when resolved promise usage is empty
       const resolvedUsage = await finalResult.usage;
       const hasResolvedUsage = resolvedUsage && Object.keys(resolvedUsage).length > 0 && (resolvedUsage as Record<string, unknown>).inputTokens != null;
       const effectiveUsage = hasResolvedUsage ? resolvedUsage : (streamStepUsage ?? resolvedUsage);
@@ -695,6 +722,35 @@ async function streamWithConfig(
   const semaphore = getLlmSemaphore(cfg.provider, cfg.maxConcurrent);
   return semaphore.run(async () => {
     try {
+      // Non-streaming fallback for models that don't support streaming
+      if (cfg.streamingEnabled === false) {
+        logger.info({ provider: cfg.provider, model: cfg.modelName }, "using non-streaming generateText (streaming disabled)");
+        const genResult = await generateText({
+          model: providerModel,
+          prompt,
+          abortSignal,
+          ...(cacheableSystem ? { system: cacheableSystem } : {}),
+          ...extraOpts,
+        });
+        const text = genResult.text ?? "";
+        onToken(text);
+        const effectiveUsage = genResult.usage;
+        const cacheUsage = extractTokenUsage(effectiveUsage);
+        if (purpose) {
+          recordUsageEvent({
+            providerName: cfg.provider, modelId: cfg.id, modelName: cfg.modelName, purpose,
+            inputTokens: cacheUsage.inputTokens ?? 0, outputTokens: cacheUsage.outputTokens ?? 0,
+            reasoningTokens: cacheUsage.reasoningTokens ?? 0, cacheReadTokens: cacheUsage.cacheReadTokens ?? 0,
+            cacheWriteTokens: cacheUsage.cacheWriteTokens ?? 0, totalTokens: cacheUsage.totalTokens ?? 0,
+            estimatedCostUsd: calculateCostUsd(cfg, cacheUsage.inputTokens ?? 0, cacheUsage.outputTokens ?? 0, cacheUsage.reasoningTokens ?? 0, cacheUsage.cacheReadTokens ?? 0, cacheUsage.cacheWriteTokens ?? 0),
+          });
+        }
+        const cleanedText = stripThinkingBlocks(text);
+        if (cleanedText === "") throw new LlmServiceError("LLM returned empty output", 502);
+        return { text: cleanedText, usageRaw: effectiveUsage, reasoningText: genResult.reasoningText };
+      }
+
+      // Streaming path
       const result = streamText({
         model: providerModel,
         prompt,
@@ -705,7 +761,6 @@ async function streamWithConfig(
 
       let fullText = "";
       const thinkFilter = new ThinkingBlockFilter(onToken);
-      // Capture usage from finish-step event (Bedrock streaming doesn't propagate usage to resolved promise — SDK v6.0.111 bug)
       let streamStepUsage: unknown;
       for await (const part of result.fullStream) {
         if (part.type === "text-delta") {

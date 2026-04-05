@@ -20,6 +20,7 @@ export interface ModelFormData {
   defaultThinkingEffort: string | null;
   supportsVision: boolean;
   supportsEmbeddings: boolean;
+  streamingEnabled: boolean;
 }
 
 const THINKING_EFFORT_OPTIONS = [
@@ -42,6 +43,7 @@ function emptyForm(defaultProvider: string): ModelFormData {
     defaultThinkingEffort: null,
     supportsVision: false,
     supportsEmbeddings: false,
+    streamingEnabled: true,
   };
 }
 
@@ -58,6 +60,7 @@ function modelToForm(model: LlmModelRow): ModelFormData {
     defaultThinkingEffort: model.default_thinking_effort,
     supportsVision: model.supports_vision,
     supportsEmbeddings: model.supports_embeddings,
+    streamingEnabled: model.streaming_enabled,
   };
 }
 
@@ -256,6 +259,16 @@ export function ModelFormDialog({ model, providers, token, saving, onSave, onClo
                 onCheckedChange={(checked) => patch({ supportsEmbeddings: checked })}
               />
               Embeddings
+            </label>
+          </div>
+
+          <div className="rounded-md border border-[hsl(var(--border))] p-3">
+            <label className="flex items-center gap-2 text-sm">
+              <Switch
+                checked={form.streamingEnabled}
+                onCheckedChange={(checked) => patch({ streamingEnabled: checked })}
+              />
+              Streaming
             </label>
           </div>
         </div>

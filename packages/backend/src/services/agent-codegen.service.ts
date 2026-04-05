@@ -11,7 +11,7 @@
  */
 
 import { stepCountIs } from "ai";
-import { trackedStreamText, consumeStreamWithProgress } from "./tracked-llm.service.js";
+import { trackedStreamText, trackedGenerateText, consumeStreamWithProgress } from "./tracked-llm.service.js";
 import { createLogger } from "../utils/logger.js";
 import { AgentFilesystem } from "./agent-filesystem.service.js";
 import { preRetrieveReferenceKnowledge, formatReferenceSection } from "./knowledge-search.service.js";
@@ -249,21 +249,8 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
   tb?.startPhase(agentNodeId, agentNodeType, agentLabel, undefined, input.traceSkipAutoEdge);
   tb?.setModel(modelConfig.label, modelConfig.provider);
 
-  try {
-    const streamResult = trackedStreamText({
-      model,
-      system: systemPrompt,
-      prompt: userMessage,
-      tools: agentTools,
-      stopWhen: [
-        stepCountIs(maxSteps),
-        // Stop only when submit_result is accepted (onSubmit called).
-        // hasToolCall("submit_result") would stop on rejected submissions too,
-        // preventing the agent from retrying after threshold rejection.
-        (_opts: { steps: unknown[] }) => submitted,
-      ],
-      abortSignal: signal,
-      onStepFinish: (event) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const commonOnStepFinish = (event: any) => {
         const stepNum = event.stepNumber + 1;
         completedStepCount = stepNum;
         const usage = event.usage;
@@ -334,44 +321,76 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
           "agent step completed",
         );
         onProgress?.("agent", `Agent step ${stepNum}/${maxSteps}: ${toolNames.join(", ") || "thinking"}`);
-      },
-      ...extraOpts,
-    }, {
-      purpose: "agent_orchestration",
-      providerName: modelConfig.provider,
-      modelId: modelConfig.id,
-      modelName: modelConfig.modelName,
-      modelConfig: { costPer1mInput: modelConfig.costPer1mInput, costPer1mOutput: modelConfig.costPer1mOutput },
-    }, input.pipelineTimeoutMs);
+  };
 
-    // Consume stream to drive the tool-use loop + log token progress
-    const { streamErrors } = await consumeStreamWithProgress(streamResult.fullStream, {
-      purpose: "agent_orchestration", modelName: modelConfig.modelName,
-    });
+  const trackingMeta = {
+    purpose: "agent_orchestration" as const,
+    providerName: modelConfig.provider,
+    modelId: modelConfig.id,
+    modelName: modelConfig.modelName,
+    modelConfig: { costPer1mInput: modelConfig.costPer1mInput, costPer1mOutput: modelConfig.costPer1mOutput },
+  };
+
+  try {
+    let stepCount: number;
+
+    if (modelConfig.streamingEnabled === false) {
+      // Non-streaming path: use generateText with maxSteps for tool-use loop
+      logger.info({ model: modelConfig.label }, "using non-streaming agent loop (streaming disabled for this model)");
+      const genResult = await trackedGenerateText({
+        model,
+        system: systemPrompt,
+        prompt: userMessage,
+        tools: agentTools,
+        maxSteps,
+        abortSignal: signal,
+        onStepFinish: commonOnStepFinish,
+        ...extraOpts,
+      }, trackingMeta, input.pipelineTimeoutMs);
+
+      stepCount = genResult.steps?.length ?? completedStepCount;
+    } else {
+      // Streaming path: use streamText to keep TCP alive for slow models
+      const streamResult = trackedStreamText({
+        model,
+        system: systemPrompt,
+        prompt: userMessage,
+        tools: agentTools,
+        stopWhen: [
+          stepCountIs(maxSteps),
+          (_opts: { steps: unknown[] }) => submitted,
+        ],
+        abortSignal: signal,
+        onStepFinish: commonOnStepFinish,
+        ...extraOpts,
+      }, trackingMeta, input.pipelineTimeoutMs);
+
+      const { streamErrors } = await consumeStreamWithProgress(streamResult.fullStream, {
+        purpose: "agent_orchestration", modelName: modelConfig.modelName,
+      });
+
+      try {
+        const steps = await streamResult.steps;
+        stepCount = steps.length;
+      } catch (stepsErr) {
+        const realError = streamErrors.length > 0
+          ? streamErrors.join("; ")
+          : (stepsErr instanceof Error ? stepsErr.message : String(stepsErr));
+        logger.error({ streamErrors, err: stepsErr instanceof Error ? stepsErr.message : String(stepsErr) }, "agent codegen stream failed — no steps produced");
+        tb?.endPhase("failed", {
+          error: realError,
+          errorInfo: { category: "stream_error", message: realError },
+          nodeId: agentNodeId,
+        });
+        if (input.traceId && tb) {
+          updateTraceIncremental(input.traceId, tb.snapshot());
+        }
+        throw new Error(realError);
+      }
+    }
 
     const finalCode = fs.getMainCode() ?? "";
     const allFiles = fs.getFiles();
-    let stepCount: number;
-    try {
-      const steps = await streamResult.steps;
-      stepCount = steps.length;
-    } catch (stepsErr) {
-      // streamText throws NoOutputGeneratedError when zero steps recorded.
-      // Surface the actual stream errors (e.g., API billing rejection) instead of the generic SDK message.
-      const realError = streamErrors.length > 0
-        ? streamErrors.join("; ")
-        : (stepsErr instanceof Error ? stepsErr.message : String(stepsErr));
-      logger.error({ streamErrors, err: stepsErr instanceof Error ? stepsErr.message : String(stepsErr) }, "agent codegen stream failed — no steps produced");
-      tb?.endPhase("failed", {
-        error: realError,
-        errorInfo: { category: "stream_error", message: realError },
-        nodeId: agentNodeId,
-      });
-      if (input.traceId && tb) {
-        updateTraceIncremental(input.traceId, tb.snapshot());
-      }
-      throw new Error(realError);
-    }
 
     logger.info(
       {
