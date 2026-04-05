@@ -321,7 +321,7 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
         system: SPEC_SYSTEM_PROMPT,
         messages: [{ role: "user", content: promptText }],
         maxOutputTokens: 1536,
-        temperature: 0.5,
+        temperature: 1.0,
       }, {
         purpose: "spec_generation",
         providerName: config.provider,
