@@ -58,6 +58,26 @@ cd packages/frontend && npm run dev
 cd packages/backend && npx knex migrate:latest
 ```
 
+### Docker Hub Pull Failures
+
+If `docker pull` fails with `failed to fetch anonymous token` (Docker Hub auth/TLS issue with Colima), use Google's mirror:
+
+```bash
+# Pull base images from Google mirror and re-tag
+docker pull mirror.gcr.io/library/node:20-alpine && docker tag mirror.gcr.io/library/node:20-alpine node:20-alpine
+docker pull mirror.gcr.io/library/nginx:1.27-alpine && docker tag mirror.gcr.io/library/nginx:1.27-alpine nginx:1.27-alpine
+docker pull --platform linux/amd64 mirror.gcr.io/library/python:3.11 && docker tag mirror.gcr.io/library/python:3.11 python:3.11
+docker pull mirror.gcr.io/library/redis:7-alpine && docker tag mirror.gcr.io/library/redis:7-alpine redis:7-alpine
+docker pull mirror.gcr.io/pgvector/pgvector:pg16 && docker tag mirror.gcr.io/pgvector/pgvector:pg16 pgvector/pgvector:pg16
+
+# Build services that need amd64 platform (screenshot-service, build123d) with legacy builder
+DOCKER_BUILDKIT=0 docker build --platform linux/amd64 -t chat3d-screenshot-service:local ./services/screenshot-service/
+DOCKER_BUILDKIT=0 docker build --platform linux/amd64 -t chat3d-build123d:local ./services/build123d/
+
+# Then start without pulling
+docker compose up -d --no-build
+```
+
 ## Environment Variables
 
 Copy `example.env` to `.env` and configure:
