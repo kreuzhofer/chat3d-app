@@ -150,6 +150,7 @@ export function ModelsTab({ token }: ModelsTabProps) {
           defaultThinkingEffort: data.supportsThinking ? data.defaultThinkingEffort : null,
           supportsVision: data.supportsVision,
           supportsEmbeddings: data.supportsEmbeddings,
+          streamingEnabled: data.streamingEnabled,
         };
         await updateLlmModel(token, editingModel.id, patch);
       } else {
@@ -165,6 +166,7 @@ export function ModelsTab({ token }: ModelsTabProps) {
           defaultThinkingEffort: data.supportsThinking ? data.defaultThinkingEffort : null,
           supportsVision: data.supportsVision,
           supportsEmbeddings: data.supportsEmbeddings,
+          streamingEnabled: data.streamingEnabled,
         };
         await createLlmModel(token, input);
       }
