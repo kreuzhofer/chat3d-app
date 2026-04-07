@@ -52,6 +52,7 @@ const PURPOSE_LABELS: Record<string, string> = {
   prompt_distill: "Prompt Distillation",
   tag_suggest: "Tag Suggestion",
   spec_generation: "Spec Generation",
+  spec_enrichment: "Spec Enrichment",
   code_review: "Code Review",
 };
 
@@ -59,6 +60,7 @@ const PURPOSE_LABELS: Record<string, string> = {
 const PURPOSE_FALLBACKS: Record<string, string> = {
   workbench_codegen: "Falls back to: agent_codegen",
   spec_generation: "Falls back to: conversation",
+  spec_enrichment: "Falls back to: spec_generation → conversation",
   code_review: "Falls back to: spec_generation → conversation",
 };
 

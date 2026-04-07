@@ -60,11 +60,14 @@ export async function enrichSpec(
   researchPackage: ResearchPackage,
 ): Promise<EnrichmentResult> {
   let config: LlmModelConfig;
-  try {
-    config = await getModelForPurpose("spec_generation");
-  } catch {
-    config = await getModelForPurpose("conversation");
+  for (const purpose of ["spec_enrichment", "spec_generation", "conversation"] as const) {
+    try {
+      config = await getModelForPurpose(purpose);
+      break;
+    } catch { continue; }
   }
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  if (!config!) throw new Error("No LLM model configured for spec enrichment");
 
   const model = createProviderModelFromConfig(config);
 
@@ -115,10 +118,21 @@ export async function enrichSpec(
     const promptTokens = result.usage?.inputTokens ?? 0;
     const completionTokens = result.usage?.outputTokens ?? 0;
 
-    // Parse response
+    // Parse response — strip thinking content and code fences
     let jsonStr = result.text;
-    const fenceMatch = result.text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    // Strip Gemma 4 thinking prefix (appears when reasoning leaks into content)
+    jsonStr = jsonStr.replace(/^thought\n[\s\S]*?\n(?=```|\{)/i, "");
+    // Strip code fences
+    const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (fenceMatch) jsonStr = fenceMatch[1].trim();
+    // Last resort: find first { to last }
+    if (!jsonStr.startsWith("{")) {
+      const firstBrace = jsonStr.indexOf("{");
+      const lastBrace = jsonStr.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
+      }
+    }
 
     const parsed = JSON.parse(jsonStr) as {
       constructionSpec?: string;

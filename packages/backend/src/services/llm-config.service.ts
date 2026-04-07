@@ -113,6 +113,7 @@ export const LLM_PURPOSES = [
   "prompt_distill",
   "tag_suggest",
   "spec_generation",
+  "spec_enrichment",
   "code_review",
 ] as const;
 
