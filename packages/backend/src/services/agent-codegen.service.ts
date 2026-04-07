@@ -417,11 +417,68 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       }
     }
 
-    const finalCode = fs.getMainCode() ?? "";
-    const allFiles = fs.getFiles();
+    let finalCode = fs.getMainCode() ?? "";
+    let allFiles = fs.getFiles();
 
     // Build conversation history for continuation (fix loop / retry)
-    const conversationHistory = stepsToMessages(agentMessages, resolvedSteps);
+    let conversationHistory = stepsToMessages(agentMessages, resolvedSteps);
+
+    // ── Nudge loop: if agent stopped early without submitting, push it to continue ──
+    const MAX_NUDGES = 2;
+    const hasCode = finalCode.trim().length > 0;
+    const hitLimit = stepCount >= maxSteps;
+
+    if (!submitted && hasCode && !hitLimit && !signal?.aborted && !disableRender) {
+      for (let nudge = 1; nudge <= MAX_NUDGES; nudge++) {
+        const remainingSteps = maxSteps - stepCount;
+        if (remainingSteps <= 0) break;
+
+        const nudgeMessage = nudge === 1
+          ? "You wrote code but did not submit. Your task is NOT complete. Call validate_and_render now to render your code, then call submit_result. Do not stop until you have submitted."
+          : "You still have not submitted. Call submit_result NOW with your rendered model. If render failed, fix the code and try validate_and_render again.";
+
+        logger.info({ nudge, stepCount, remainingSteps }, "nudging agent to continue — has code but no submission");
+
+        // Continue the conversation with nudge message
+        const nudgeMessages: CoreMessage[] = [...conversationHistory, { role: "user" as const, content: nudgeMessage }];
+
+        let nudgeStepCount = 0;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let nudgeSteps: any[] = [];
+
+        if (modelConfig.streamingEnabled === false) {
+          const genResult = await trackedGenerateText({
+            model, system: systemPrompt, messages: nudgeMessages, tools: agentTools,
+            maxSteps: Math.min(remainingSteps, 10), abortSignal: signal,
+            onStepFinish: commonOnStepFinish, ...extraOpts,
+          }, trackingMeta, input.pipelineTimeoutMs);
+          nudgeSteps = genResult.steps ?? [];
+          nudgeStepCount = nudgeSteps.length;
+        } else {
+          const streamResult = trackedStreamText({
+            model, system: systemPrompt, messages: nudgeMessages, tools: agentTools,
+            stopWhen: [stepCountIs(Math.min(remainingSteps, 10)), () => submitted],
+            abortSignal: signal, onStepFinish: commonOnStepFinish, ...extraOpts,
+          }, trackingMeta, input.pipelineTimeoutMs);
+          await consumeStreamWithProgress(streamResult.fullStream, {
+            purpose: "agent_orchestration", modelName: modelConfig.modelName,
+          });
+          try {
+            nudgeSteps = await streamResult.steps;
+            nudgeStepCount = nudgeSteps.length;
+          } catch { nudgeStepCount = 0; }
+        }
+
+        stepCount += nudgeStepCount;
+        resolvedSteps = [...resolvedSteps, ...nudgeSteps];
+        finalCode = fs.getMainCode() ?? "";
+        allFiles = fs.getFiles();
+        conversationHistory = stepsToMessages(agentMessages, resolvedSteps);
+
+        logger.info({ nudge, nudgeStepCount, submitted, totalSteps: stepCount }, "nudge completed");
+        if (submitted) break;
+      }
+    }
 
     logger.info(
       {
@@ -436,15 +493,14 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
     if (submitted) {
       tb?.endPhase("completed", { nodeId: agentNodeId });
     } else {
-      // Distinguish between step limit vs. other reasons for not submitting
-      const hitLimit = stepCount >= maxSteps;
-      const msg = hitLimit
+      const finalHitLimit = stepCount >= maxSteps;
+      const msg = finalHitLimit
         ? `Agent reached maximum step limit (${maxSteps}) without submitting a result`
         : `Agent stopped after ${stepCount} steps without a successful submission (render or eval may have failed)`;
-      logger.warn({ stepCount, maxSteps, hitLimit }, msg);
+      logger.warn({ stepCount, maxSteps, hitLimit: finalHitLimit }, msg);
       tb?.endPhase("failed", {
         error: msg,
-        errorInfo: { category: hitLimit ? "step_limit" : "no_submission", message: msg },
+        errorInfo: { category: finalHitLimit ? "step_limit" : "no_submission", message: msg },
         nodeId: agentNodeId,
       });
     }
