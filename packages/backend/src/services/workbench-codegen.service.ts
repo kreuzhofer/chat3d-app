@@ -417,24 +417,36 @@ async function _runPipeline(
     updateTraceIncremental(traceId, traceBuilder.snapshot());
   }
 
-  // Always run the full eval pipeline (assertions + code review + composite with adaptive weight).
-  // When the agent already submitted (has VLM score), skip the expensive VLM call by passing
-  // the agent's score through. This gives us code review + assertions + adaptive weighting
-  // without the redundant VLM call.
+  // When the agent submitted successfully, it already ran the full eval pipeline
+  // (assertions + code review + VLM + composite) inside submit_result. Trust that result
+  // instead of re-running — eliminates the dual-judge problem and saves tokens.
+  // Only run post-loop eval when the agent didn't submit (step limit, abort, etc.).
   let agFullEval: FullEvalResult | null = null;
 
-  if (agScreenshots.length > 0 || agAllCode.trim()) {
+  if (agResult.submitted && agResult.evalResult) {
+    // Reuse agent's in-loop full eval result — same pipeline, same score
+    logger.info({ score: agResult.evalResult.score }, "reusing agent in-loop eval result — skipping post-loop eval");
+    agFullEval = {
+      compositeScore: agResult.evalResult.score,
+      visualScore: null, // individual scores not tracked in AgentEvalResult
+      codeScore: null,
+      assertionPassRate: null,
+      assertionsFailed: false, // agent wouldn't have submitted if assertions failed
+      source: "agent_submitted",
+      vlmIssues: agResult.evalResult.issues.filter(i => !i.startsWith("[CODE]")),
+      vlmSuggestions: agResult.evalResult.suggestions,
+      codeIssues: agResult.evalResult.issues.filter(i => i.startsWith("[CODE]")),
+      checklistResults: undefined,
+      vlmModel: agResult.evalResult.vlmModel,
+      codeReviewModel: null,
+      totalPromptTokens: 0,
+      totalCompletionTokens: 0,
+    };
+  } else if (agScreenshots.length > 0 || agAllCode.trim()) {
+    // Agent didn't submit — run full eval post-loop
     onProgress?.("evaluating", "Evaluating quality...");
     const agStlFile = agResult.renderedFiles.find(f => f.filename.toLowerCase().endsWith(".stl"));
     const vlmImages = agScreenshots.filter(s => s.angle !== "isometric").map(s => ({ angle: s.angle, base64: s.base64 }));
-
-    // Pass agent's VLM score to skip re-calling VLM when agent already submitted
-    const agentVlmScore = (agResult.submitted && agResult.evalResult)
-      ? { score: agResult.evalResult.score, issues: agResult.evalResult.issues, suggestions: agResult.evalResult.suggestions, vlmModel: agResult.evalResult.vlmModel }
-      : undefined;
-    if (agentVlmScore) {
-      logger.info({ agentScore: agentVlmScore.score }, "running full eval with agent VLM score (skipping VLM call)");
-    }
 
     agFullEval = await runFullEvaluation({
       code: agAllCode, userPrompt: ctx.prompt,
@@ -446,7 +458,6 @@ async function _runPipeline(
       annotatedCriteria: specResult?.verificationCriteria,
       stlBase64: agStlFile?.contentBase64, modelFormat: "stl",
       codeEvalWeight: agCodeEvalWeight,
-      agentVlmScore,
     });
     updateTraceIncremental(traceId, traceBuilder.snapshot());
   }
