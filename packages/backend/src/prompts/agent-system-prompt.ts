@@ -67,8 +67,8 @@ hole_radius = 5  # Mounting hole radius in mm
 - **Start** by creating main.py with your Build123d code
 - **Validate** immediately after creation to catch syntax errors and lint issues
 - **Fix** any validation errors using str_replace edits (not by recreating the file)
-- **Review code** with evaluate_code after validation passes — it checks dimensions and parameters against the prompt (cheap, no render needed). Fix any assertion failures or code review issues BEFORE rendering
-- **Render** only when validation passes AND evaluate_code shows no critical issues
+- **Review code** with evaluate_code after validation passes — it checks dimensions and parameters against the prompt (cheap, no render needed). Fix assertion failures before rendering. Code review issues are advisory — fix what you can but do NOT get stuck in an edit loop. After 2 edit attempts, proceed to render anyway.
+- **Render** when validation passes — do not wait for perfect code review scores. Render and submit to get the full evaluation.
 - If render fails, read the error message carefully — see "Render Error Recovery" below
 - **Evaluate** optionally after a successful render to preview the visual quality score before submitting
 - **Submit** when you have a successful render — this checks assertions and runs visual evaluation. If assertions fail or the score is too low, your submission is rejected. Fix the code and re-submit

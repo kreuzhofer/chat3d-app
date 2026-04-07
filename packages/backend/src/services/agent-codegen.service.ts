@@ -434,8 +434,8 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
         if (remainingSteps <= 0) break;
 
         const nudgeMessage = nudge === 1
-          ? "You wrote code but did not submit. Your task is NOT complete. Call validate_and_render now to render your code, then call submit_result. Do not stop until you have submitted."
-          : "You still have not submitted. Call submit_result NOW with your rendered model. If render failed, fix the code and try validate_and_render again.";
+          ? "You wrote code but did not submit. Your task is NOT complete. Do not try to fix more code review issues — call validate_and_render RIGHT NOW to render your code. After render succeeds, call submit_result immediately. You MUST call a tool on this turn."
+          : "You STILL have not submitted. Call validate_and_render on this turn. Do not produce text — call a tool. If render already succeeded, call submit_result. If it failed, simplify your geometry and try validate_and_render again.";
 
         logger.info({ nudge, stepCount, remainingSteps }, "nudging agent to continue — has code but no submission");
 
