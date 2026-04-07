@@ -486,6 +486,7 @@ async function _runPipeline(
           initialFiles: fixFiles,
           maxSteps: 5,
           userMessageOverride: fixMessage,
+          previousMessages: currentResult.conversationHistory,
           traceNodeId: `fix-agent-${fixAttempt}`,
           traceLabel: `Fix Agent ${fixAttempt}`,
           traceSkipAutoEdge: true,

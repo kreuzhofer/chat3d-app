@@ -10,7 +10,7 @@
  * OpenAI, etc.) via the standard createProviderModel() path.
  */
 
-import { stepCountIs } from "ai";
+import { stepCountIs, type CoreMessage } from "ai";
 import { trackedStreamText, trackedGenerateText, consumeStreamWithProgress } from "./tracked-llm.service.js";
 import { createLogger } from "../utils/logger.js";
 import { AgentFilesystem } from "./agent-filesystem.service.js";
@@ -83,6 +83,8 @@ export interface AgentCodegenInput {
   enableSearch?: boolean;
   /** Precise geometric blueprint from spec generation — used as primary codegen instruction. */
   constructionSpec?: string;
+  /** Previous conversation messages for continuation (fix loop, retry). */
+  previousMessages?: CoreMessage[];
 }
 
 export interface AgentCodegenResult {
@@ -109,6 +111,8 @@ export interface AgentCodegenResult {
   evalResult: AgentEvalResult | null;
   /** Screenshots from the last evaluate_model/submit_result call (reusable by post-loop). */
   screenshots: import("./stl-rendering-client.service.js").RenderedScreenshot[];
+  /** Full conversation history from this run (for continuation in fix loop). */
+  conversationHistory: CoreMessage[];
 }
 
 // Re-export multi-agent orchestration so consumers don't need to change imports
@@ -201,6 +205,11 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
   const evalThreshold = inputEvalThreshold ?? await getAutoApproveThreshold("chat");
 
   const userMessage = userMessageOverride ?? buildAgentUserMessage(promptText, isModification, baselineCode, input.constructionSpec);
+
+  // Build messages array — supports conversation continuation from previous agent runs
+  const agentMessages: CoreMessage[] = input.previousMessages
+    ? [...input.previousMessages, { role: "user" as const, content: userMessage }]
+    : [{ role: "user" as const, content: userMessage }];
 
   // Helper: wrap files for rendering/validation
   const wrapProjectFiles = (): ProjectFile[] => {
@@ -333,6 +342,8 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
 
   try {
     let stepCount: number;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let resolvedSteps: any[] = [];
 
     if (modelConfig.streamingEnabled === false) {
       // Non-streaming path: use generateText with maxSteps for tool-use loop
@@ -340,7 +351,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       const genResult = await trackedGenerateText({
         model,
         system: systemPrompt,
-        prompt: userMessage,
+        messages: agentMessages,
         tools: agentTools,
         maxSteps,
         abortSignal: signal,
@@ -348,13 +359,14 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
         ...extraOpts,
       }, trackingMeta, input.pipelineTimeoutMs);
 
-      stepCount = genResult.steps?.length ?? completedStepCount;
+      resolvedSteps = genResult.steps ?? [];
+      stepCount = resolvedSteps.length || completedStepCount;
     } else {
       // Streaming path: use streamText to keep TCP alive for slow models
       const streamResult = trackedStreamText({
         model,
         system: systemPrompt,
-        prompt: userMessage,
+        messages: agentMessages,
         tools: agentTools,
         stopWhen: [
           stepCountIs(maxSteps),
@@ -370,8 +382,8 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       });
 
       try {
-        const steps = await streamResult.steps;
-        stepCount = steps.length;
+        resolvedSteps = await streamResult.steps;
+        stepCount = resolvedSteps.length;
       } catch (stepsErr) {
         const realError = streamErrors.length > 0
           ? streamErrors.join("; ")
@@ -391,6 +403,9 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
 
     const finalCode = fs.getMainCode() ?? "";
     const allFiles = fs.getFiles();
+
+    // Build conversation history for continuation (fix loop / retry)
+    const conversationHistory = stepsToMessages(agentMessages, resolvedSteps);
 
     logger.info(
       {
@@ -425,7 +440,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
         reasoningTokens: totalReasoningTokens,
         totalCostUsd: calculateCostUsd(modelConfig, totalPromptTokens, totalCompletionTokens),
       },
-      stepCount, submitted, evalResult, screenshots: lastScreenshots,
+      stepCount, submitted, evalResult, screenshots: lastScreenshots, conversationHistory,
     };
   } catch (err) {
     // Add a phantom step node when aborted before any step completed
@@ -455,7 +470,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
           reasoningTokens: totalReasoningTokens,
           totalCostUsd: calculateCostUsd(modelConfig, totalPromptTokens, totalCompletionTokens),
         },
-        stepCount: 0, submitted: false, evalResult, screenshots: lastScreenshots,
+        stepCount: 0, submitted: false, evalResult, screenshots: lastScreenshots, conversationHistory: agentMessages,
       };
     }
     throw err;
@@ -495,4 +510,49 @@ function buildAgentUserMessage(
   }
 
   return parts.join("\n");
+}
+
+/**
+ * Convert initial messages + SDK step results into a CoreMessage[] array
+ * suitable for passing to the next streamText/generateText call as conversation history.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function stepsToMessages(initialMessages: CoreMessage[], steps: any[]): CoreMessage[] {
+  const history = [...initialMessages];
+  for (const step of steps) {
+    // Assistant message: text + tool calls
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const assistantContent: any[] = [];
+    if (step.text) {
+      assistantContent.push({ type: "text", text: step.text });
+    }
+    if (step.toolCalls && Array.isArray(step.toolCalls)) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const tc of step.toolCalls as any[]) {
+        assistantContent.push({
+          type: "tool-call",
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          args: tc.args,
+        });
+      }
+    }
+    if (assistantContent.length > 0) {
+      history.push({ role: "assistant", content: assistantContent });
+    }
+    // Tool results
+    if (step.toolResults && Array.isArray(step.toolResults)) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const toolContent = (step.toolResults as any[]).map((tr: any) => ({
+        type: "tool-result" as const,
+        toolCallId: tr.toolCallId,
+        toolName: tr.toolName,
+        result: typeof tr.result === "string" ? tr.result : JSON.stringify(tr.result),
+      }));
+      if (toolContent.length > 0) {
+        history.push({ role: "tool", content: toolContent });
+      }
+    }
+  }
+  return history;
 }

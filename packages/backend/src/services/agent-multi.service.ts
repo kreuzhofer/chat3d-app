@@ -465,6 +465,7 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     submitted: assemblyResult.submitted,
     evalResult: assemblyResult.evalResult,
     screenshots: assemblyResult.screenshots,
+    conversationHistory: assemblyResult.conversationHistory,
   };
 }
 
