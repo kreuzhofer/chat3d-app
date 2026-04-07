@@ -109,11 +109,18 @@ export interface PromptRunResult {
   failureReason: string | null;
 }
 
+export interface PromptBaseline {
+  evalScore: number;
+  visualScore: number | null;
+  codeEvalScore: number | null;
+}
+
 export interface PromptComparison {
   promptId: string;
   promptText: string;
   promptIndex: number;
   runs: PromptRunResult[];
+  baseline?: PromptBaseline;
 }
 
 export interface ExperimentStatus {

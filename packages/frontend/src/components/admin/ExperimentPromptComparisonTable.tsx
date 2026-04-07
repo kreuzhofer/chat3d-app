@@ -5,7 +5,7 @@
 
 import { SectionCard } from "../layout/SectionCard";
 import { Badge } from "../ui/badge";
-import type { PromptComparison, PromptRunResult } from "../../api/experiment.api";
+import type { PromptComparison, PromptRunResult, PromptBaseline } from "../../api/experiment.api";
 
 interface Props {
   data: PromptComparison[];
@@ -58,6 +58,37 @@ function ScoreCell({ run, isWinner }: { run: PromptRunResult; isWinner: boolean 
   );
 }
 
+function BaselineCell({ baseline }: { baseline?: PromptBaseline }) {
+  if (!baseline) return <td className="p-2 text-center text-[hsl(var(--muted-foreground))]">—</td>;
+  return (
+    <td className="p-2 text-center">
+      <span style={{ color: scoreColor(baseline.evalScore) }} className="text-[0.9rem] font-semibold">
+        {baseline.evalScore.toFixed(1)}
+      </span>
+      <div className="flex justify-center gap-2 text-[0.65rem] text-[hsl(var(--muted-foreground))]">
+        {baseline.visualScore != null && <span>vis:{baseline.visualScore.toFixed(1)}</span>}
+        {baseline.codeEvalScore != null && <span>code:{baseline.codeEvalScore.toFixed(1)}</span>}
+      </div>
+    </td>
+  );
+}
+
+/** Delta vs baseline: green if experiment scored higher, red if lower. */
+function BaselineDeltaCell({ row }: { row: PromptComparison }) {
+  if (!row.baseline) return null;
+  // Compare best run score against baseline
+  const bestRunScore = Math.max(...row.runs.map(r => r.evalScore ?? 0));
+  if (bestRunScore === 0) return <td className="p-2 text-center text-[hsl(var(--muted-foreground))]">-</td>;
+  const delta = bestRunScore - row.baseline.evalScore;
+  if (Math.abs(delta) < 0.05) return <td className="p-2 text-center text-[hsl(var(--muted-foreground))]">=</td>;
+  const positive = delta > 0;
+  return (
+    <td className="p-2 text-center text-xs" style={{ color: positive ? "hsl(var(--success))" : "hsl(var(--destructive))" }}>
+      {positive ? "+" : ""}{delta.toFixed(1)}
+    </td>
+  );
+}
+
 /** Delta badge: green if this model scored higher, red if lower. */
 function DeltaCell({ row }: { row: PromptComparison }) {
   if (row.runs.length !== 2) return null;
@@ -78,6 +109,7 @@ export function ExperimentPromptComparisonTable({ data }: Props) {
 
   const runLabels = data[0]?.runs.map((r) => r.modelLabel) ?? [];
   const showDelta = runLabels.length === 2;
+  const hasBaseline = data.some((row) => row.baseline != null);
 
   // Compute win counts
   const winCounts = runLabels.map((_, runIdx) =>
@@ -98,6 +130,9 @@ export function ExperimentPromptComparisonTable({ data }: Props) {
             <tr className="border-b-2 border-[hsl(var(--border))]">
               <th className="p-2 text-left text-[hsl(var(--muted-foreground))]" style={{ width: 40 }}>#</th>
               <th className="p-2 text-left text-[hsl(var(--muted-foreground))]" style={{ minWidth: 200 }}>Prompt</th>
+              {hasBaseline && (
+                <th className="p-2 text-center text-[hsl(var(--muted-foreground))]" style={{ minWidth: 80 }}>Baseline</th>
+              )}
               {runLabels.map((label, i) => (
                 <th key={label} className="p-2 text-center" style={{ color: COLORS[i % COLORS.length], minWidth: 120 }}>
                   {label.split("/").pop()}
@@ -105,6 +140,9 @@ export function ExperimentPromptComparisonTable({ data }: Props) {
               ))}
               {showDelta && (
                 <th className="p-2 text-center text-[hsl(var(--muted-foreground))]" style={{ width: 60 }}>Delta</th>
+              )}
+              {hasBaseline && (
+                <th className="p-2 text-center text-[hsl(var(--muted-foreground))]" style={{ width: 60 }}>vs BL</th>
               )}
             </tr>
           </thead>
@@ -124,6 +162,7 @@ export function ExperimentPromptComparisonTable({ data }: Props) {
                       {row.promptText.slice(0, 60)}{row.promptText.length > 60 ? "..." : ""}
                     </span>
                   </td>
+                  {hasBaseline && <BaselineCell baseline={row.baseline} />}
                   {row.runs.map((run) => (
                     <ScoreCell
                       key={run.runId}
@@ -132,6 +171,7 @@ export function ExperimentPromptComparisonTable({ data }: Props) {
                     />
                   ))}
                   {showDelta && <DeltaCell row={row} />}
+                  {hasBaseline && <BaselineDeltaCell row={row} />}
                 </tr>
               );
             })}

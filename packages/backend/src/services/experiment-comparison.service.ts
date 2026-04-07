@@ -284,6 +284,40 @@ export async function getPerPromptComparison(experimentId: string): Promise<Prom
     });
   }
 
+  // Fetch baseline scores: best non-experiment approved example per prompt
+  const promptIds = [...byPrompt.keys()];
+  if (promptIds.length > 0) {
+    const baselines = await prisma.$queryRaw<Array<{
+      prompt_id: string;
+      eval_score: number;
+      visual_score: number | null;
+      code_eval_score: number | null;
+    }>>`
+      SELECT DISTINCT ON (e.prompt_id)
+        e.prompt_id,
+        e.eval_score,
+        e.visual_score,
+        e.code_eval_score
+      FROM workbench_examples e
+      WHERE e.prompt_id = ANY(${promptIds}::uuid[])
+        AND e.experiment_run_id IS NULL
+        AND e.eval_score IS NOT NULL
+        AND e.approval_status = 'auto_approved'
+      ORDER BY e.prompt_id, e.eval_score DESC
+    `;
+    const baselineMap = new Map(baselines.map(b => [b.prompt_id, b]));
+    for (const [promptId, entry] of byPrompt) {
+      const bl = baselineMap.get(promptId);
+      if (bl) {
+        entry.baseline = {
+          evalScore: Number(bl.eval_score),
+          visualScore: bl.visual_score != null ? Number(bl.visual_score) : null,
+          codeEvalScore: bl.code_eval_score != null ? Number(bl.code_eval_score) : null,
+        };
+      }
+    }
+  }
+
   return [...byPrompt.values()];
 }
 
