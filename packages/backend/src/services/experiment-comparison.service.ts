@@ -292,13 +292,18 @@ export async function getPerPromptComparison(experimentId: string): Promise<Prom
       eval_score: number;
       visual_score: number | null;
       code_eval_score: number | null;
+      total_steps: number | null;
+      llm_model: string | null;
     }>>`
       SELECT DISTINCT ON (e.prompt_id)
         e.prompt_id,
         e.eval_score,
         e.visual_score,
-        e.code_eval_score
+        e.code_eval_score,
+        t.total_steps,
+        e.llm_model
       FROM workbench_examples e
+      LEFT JOIN generation_traces t ON t.workbench_example_id = e.id
       WHERE e.prompt_id = ANY(${promptIds}::uuid[])
         AND e.experiment_run_id IS NULL
         AND e.eval_score IS NOT NULL
@@ -313,6 +318,8 @@ export async function getPerPromptComparison(experimentId: string): Promise<Prom
           evalScore: Number(bl.eval_score),
           visualScore: bl.visual_score != null ? Number(bl.visual_score) : null,
           codeEvalScore: bl.code_eval_score != null ? Number(bl.code_eval_score) : null,
+          totalSteps: bl.total_steps != null ? Number(bl.total_steps) : null,
+          llmModel: bl.llm_model,
         };
       }
     }

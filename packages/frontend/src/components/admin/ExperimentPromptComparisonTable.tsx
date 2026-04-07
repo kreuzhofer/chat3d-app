@@ -69,6 +69,10 @@ function BaselineCell({ baseline }: { baseline?: PromptBaseline }) {
         {baseline.visualScore != null && <span>vis:{baseline.visualScore.toFixed(1)}</span>}
         {baseline.codeEvalScore != null && <span>code:{baseline.codeEvalScore.toFixed(1)}</span>}
       </div>
+      <div className="text-[0.65rem] text-[hsl(var(--muted-foreground))]">
+        {baseline.totalSteps != null && <span>{baseline.totalSteps}st</span>}
+        {baseline.llmModel && <span> {baseline.llmModel.split("/").pop()}</span>}
+      </div>
     </td>
   );
 }

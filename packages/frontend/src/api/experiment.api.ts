@@ -113,6 +113,8 @@ export interface PromptBaseline {
   evalScore: number;
   visualScore: number | null;
   codeEvalScore: number | null;
+  totalSteps: number | null;
+  llmModel: string | null;
 }
 
 export interface PromptComparison {
