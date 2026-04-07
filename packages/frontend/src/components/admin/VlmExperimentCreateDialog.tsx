@@ -5,16 +5,20 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import {
   createVlmExperiment,
+  updateVlmExperiment,
   previewVlmExamples,
   listLlmModels,
   listWorkbenchCategories,
   type PreviewExample,
+  type VlmExperiment,
 } from "../../api/vlm-experiment.api";
 
 interface Props {
   token: string;
   onClose: () => void;
   onSaved: () => void;
+  /** When provided, dialog is in edit mode with pre-populated values. */
+  experiment?: VlmExperiment;
 }
 
 interface VlmModel {
@@ -32,12 +36,15 @@ interface Category {
   approvedPromptCount: number;
 }
 
-export function VlmExperimentCreateDialog({ token, onClose, onSaved }: Props) {
-  const [name, setName] = useState("");
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
-  const [exampleCount, setExampleCount] = useState(10);
-  const [exampleSeed, setExampleSeed] = useState(42);
-  const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
+export function VlmExperimentCreateDialog({ token, onClose, onSaved, experiment }: Props) {
+  const isEdit = !!experiment;
+  const [name, setName] = useState(experiment?.name ?? "");
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>(experiment?.categoryIds ?? []);
+  const [exampleCount, setExampleCount] = useState(experiment?.promptCount ?? 10);
+  const [exampleSeed, setExampleSeed] = useState(experiment?.promptSeed ?? 42);
+  const [selectedModelIds, setSelectedModelIds] = useState<string[]>(
+    experiment?.runs.map((r) => r.modelId).filter(Boolean) as string[] ?? [],
+  );
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [vlmModels, setVlmModels] = useState<VlmModel[]>([]);
@@ -100,23 +107,33 @@ export function VlmExperimentCreateDialog({ token, onClose, onSaved }: Props) {
     setSubmitting(true);
     setError(null);
     try {
-      await createVlmExperiment(token, {
-        name: name.trim(),
-        categoryIds: selectedCategoryIds,
-        exampleCount,
-        exampleSeed,
-        modelIds: selectedModelIds,
-      });
+      if (isEdit) {
+        await updateVlmExperiment(token, experiment.id, {
+          name: name.trim(),
+          categoryIds: selectedCategoryIds,
+          exampleCount,
+          exampleSeed,
+          modelIds: selectedModelIds,
+        });
+      } else {
+        await createVlmExperiment(token, {
+          name: name.trim(),
+          categoryIds: selectedCategoryIds,
+          exampleCount,
+          exampleSeed,
+          modelIds: selectedModelIds,
+        });
+      }
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create experiment");
+      setError(err instanceof Error ? err.message : isEdit ? "Failed to update experiment" : "Failed to create experiment");
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <Dialog open title="New VLM Experiment" onClose={onClose}>
+    <Dialog open title={isEdit ? "Edit VLM Experiment" : "New VLM Experiment"} onClose={onClose}>
       {error && (
         <p className="mb-3 text-sm text-[hsl(var(--destructive))]">{error}</p>
       )}
@@ -271,7 +288,7 @@ export function VlmExperimentCreateDialog({ token, onClose, onSaved }: Props) {
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
         <Button onClick={handleSubmit} disabled={submitting || !hasModels}>
-          {submitting ? "Creating..." : "Create Experiment"}
+          {submitting ? (isEdit ? "Saving..." : "Creating...") : (isEdit ? "Save Changes" : "Create Experiment")}
         </Button>
       </div>
     </Dialog>

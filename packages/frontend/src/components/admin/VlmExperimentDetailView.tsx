@@ -22,6 +22,7 @@ import {
 import { VlmCorrelationSummary } from "./VlmCorrelationSummary";
 import { VlmInterRaterTable } from "./VlmInterRaterTable";
 import { VlmPerExampleTable } from "./VlmPerExampleTable";
+import { VlmExperimentCreateDialog } from "./VlmExperimentCreateDialog";
 
 interface Props {
   token: string;
@@ -177,6 +178,8 @@ function VlmExperimentHeader({ experiment, status, token, onRefresh, setError, o
   setError: (e: string | null) => void;
   onBack: () => void;
 }) {
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const canEdit = experiment.status !== "running";
   const canStart = experiment.status === "created";
   const canCancel = experiment.status === "running";
   const canRerun = ["completed", "failed", "cancelled"].includes(experiment.status);
@@ -219,6 +222,11 @@ function VlmExperimentHeader({ experiment, status, token, onRefresh, setError, o
       </div>
 
       <div className="flex gap-2">
+        {canEdit && (
+          <Button size="sm" variant="outline" onClick={() => setShowEditDialog(true)}>
+            Edit
+          </Button>
+        )}
         {canStart && (
           <Button size="sm" onClick={async () => {
             try { await startVlmExperiment(token, experiment.id); onRefresh(); }
@@ -254,6 +262,15 @@ function VlmExperimentHeader({ experiment, status, token, onRefresh, setError, o
           </Button>
         )}
       </div>
+
+      {showEditDialog && (
+        <VlmExperimentCreateDialog
+          token={token}
+          experiment={experiment}
+          onClose={() => setShowEditDialog(false)}
+          onSaved={() => { setShowEditDialog(false); onRefresh(); }}
+        />
+      )}
     </SectionCard>
   );
 }
