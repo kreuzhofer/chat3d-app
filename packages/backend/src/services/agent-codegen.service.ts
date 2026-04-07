@@ -545,11 +545,13 @@ function stepsToMessages(initialMessages: CoreMessage[], steps: any[]): CoreMess
     if (step.toolCalls && Array.isArray(step.toolCalls)) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for (const tc of step.toolCalls as any[]) {
+        // Sanitize: skip malformed tool calls (vLLM can produce calls without args)
+        if (!tc.toolCallId || !tc.toolName) continue;
         assistantContent.push({
           type: "tool-call",
           toolCallId: tc.toolCallId,
           toolName: tc.toolName,
-          args: tc.args,
+          args: tc.args ?? {},
         });
       }
     }
@@ -559,16 +561,18 @@ function stepsToMessages(initialMessages: CoreMessage[], steps: any[]): CoreMess
     // Tool results
     if (step.toolResults && Array.isArray(step.toolResults)) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const toolContent = (step.toolResults as any[]).map((tr: any) => {
-        const rawOutput = tr.result ?? tr.output;
-        const textValue = typeof rawOutput === "string" ? rawOutput : JSON.stringify(rawOutput);
-        return {
-          type: "tool-result" as const,
-          toolCallId: tr.toolCallId,
-          toolName: tr.toolName,
-          output: { type: "text" as const, value: textValue },
-        };
-      });
+      const toolContent = (step.toolResults as any[])
+        .filter((tr: any) => tr.toolCallId) // skip malformed results
+        .map((tr: any) => {
+          const rawOutput = tr.result ?? tr.output ?? "";
+          const textValue = typeof rawOutput === "string" ? rawOutput : JSON.stringify(rawOutput);
+          return {
+            type: "tool-result" as const,
+            toolCallId: tr.toolCallId,
+            toolName: tr.toolName ?? "unknown",
+            output: { type: "text" as const, value: textValue },
+          };
+        });
       if (toolContent.length > 0) {
         history.push({ role: "tool", content: toolContent });
       }
