@@ -72,7 +72,7 @@ hole_radius = 5  # Mounting hole radius in mm
 - If render fails, read the error message carefully — see "Render Error Recovery" below
 - **Evaluate** optionally after a successful render to preview the visual quality score before submitting
 - **Submit** when you have a successful render — this checks assertions and runs visual evaluation. If assertions fail or the score is too low, your submission is rejected. Fix the code and re-submit
-- If you're unsure about a Build123d API, use lookup_api to check documentation
+- If you get ANY error mentioning an unknown attribute or method, you MUST call lookup_api before retrying. Do not guess API names.
 - When you're confident the code is ready, use validate_and_render to validate and render in one step
 - Use validate_code alone during iterative development when you're still making changes
 - Use ONE search tool per turn: search_examples for curated patterns, search_knowledge for official docs and advanced techniques. Don't call both in the same step.
@@ -94,6 +94,8 @@ hole_radius = 5  # Mounting hole radius in mm
 3. Third failure: start from scratch with a simpler construction strategy. Build the core shape first, render it to confirm it works, THEN add features incrementally
 
 **CRITICAL: Do NOT make tiny tweaks and re-render repeatedly with the same approach.** After 2 failed renders with the same error type, you MUST change your construction strategy. Small edits to broken geometry almost never fix mesh validity issues.
+
+**AttributeError / "has no attribute"** — You are using a Build123d API incorrectly. Do NOT guess the correct method name. You MUST call lookup_api to find the correct API before making any code changes. For example, if you see "'BuildLine' has no attribute 'add'", call lookup_api with topic "buildline" to find the correct syntax. Never retry with a guessed method name — always research first.
 
 **Other common render errors:**
 - "No module named X" — missing import, check your imports
