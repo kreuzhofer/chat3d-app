@@ -8,7 +8,7 @@
  * Design: fail-open — if enrichment fails, the original rough spec is used.
  */
 
-import { trackedGenerateText } from "./tracked-llm.service.js";
+import { trackedStreamText } from "./tracked-llm.service.js";
 import { isProviderQuotaError } from "../utils/llm-errors.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import {
@@ -99,8 +99,8 @@ export async function enrichSpec(
 
   try {
     const semaphore = getLlmSemaphore(config.provider, config.maxConcurrent);
-    const result = await semaphore.run(async () =>
-      trackedGenerateText({
+    const streamResult = await semaphore.run(async () => {
+      const stream = trackedStreamText({
         model,
         system: ENRICHMENT_SYSTEM_PROMPT,
         messages: [{ role: "user", content: userMessage }],
@@ -112,21 +112,28 @@ export async function enrichSpec(
         modelId: config.id,
         modelName: config.modelName,
         modelConfig: { costPer1mInput: config.costPer1mInput, costPer1mOutput: config.costPer1mOutput },
-      }),
-    );
+      });
+      // Consume stream to get full text (reasoning goes to separate channel, not content)
+      let text = "";
+      for await (const part of stream.fullStream) {
+        if (part.type === "text-delta") text += part.text;
+      }
+      const resolved = await stream;
+      return { text, usage: resolved.usage };
+    });
 
-    const promptTokens = result.usage?.inputTokens ?? 0;
-    const completionTokens = result.usage?.outputTokens ?? 0;
+    const promptTokens = streamResult.usage?.inputTokens ?? 0;
+    const completionTokens = streamResult.usage?.outputTokens ?? 0;
 
-    // Parse response — strip thinking content and code fences
-    let jsonStr = result.text;
-    // Strip Gemma 4 thinking prefix (appears when reasoning leaks into content)
-    jsonStr = jsonStr.replace(/^thought\n[\s\S]*?\n(?=```|\{)/i, "");
-    // Strip code fences
+    // Parse response — extract JSON robustly from LLM output that may contain
+    // thinking content, code fences, or other non-JSON text
+    let jsonStr = streamResult.text;
+    // Strategy: find JSON by code fence first, then brace extraction
     const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenceMatch) jsonStr = fenceMatch[1].trim();
-    // Last resort: find first { to last }
-    if (!jsonStr.startsWith("{")) {
+    if (fenceMatch) {
+      jsonStr = fenceMatch[1].trim();
+    } else {
+      // No code fence — extract from first { to last }
       const firstBrace = jsonStr.indexOf("{");
       const lastBrace = jsonStr.lastIndexOf("}");
       if (firstBrace !== -1 && lastBrace > firstBrace) {
