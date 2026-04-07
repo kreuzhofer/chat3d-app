@@ -559,12 +559,16 @@ function stepsToMessages(initialMessages: CoreMessage[], steps: any[]): CoreMess
     // Tool results
     if (step.toolResults && Array.isArray(step.toolResults)) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const toolContent = (step.toolResults as any[]).map((tr: any) => ({
-        type: "tool-result" as const,
-        toolCallId: tr.toolCallId,
-        toolName: tr.toolName,
-        output: typeof tr.result === "string" ? tr.result : JSON.stringify(tr.result),
-      }));
+      const toolContent = (step.toolResults as any[]).map((tr: any) => {
+        const rawOutput = tr.result ?? tr.output;
+        const textValue = typeof rawOutput === "string" ? rawOutput : JSON.stringify(rawOutput);
+        return {
+          type: "tool-result" as const,
+          toolCallId: tr.toolCallId,
+          toolName: tr.toolName,
+          output: { type: "text" as const, value: textValue },
+        };
+      });
       if (toolContent.length > 0) {
         history.push({ role: "tool", content: toolContent });
       }
