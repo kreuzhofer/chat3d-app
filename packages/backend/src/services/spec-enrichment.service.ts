@@ -104,7 +104,7 @@ export async function enrichSpec(
         model,
         system: ENRICHMENT_SYSTEM_PROMPT,
         messages: [{ role: "user", content: userMessage }],
-        maxOutputTokens: 1024,
+        maxOutputTokens: 4096,
         temperature: 0.5,
       }, {
         purpose: "spec_generation",
