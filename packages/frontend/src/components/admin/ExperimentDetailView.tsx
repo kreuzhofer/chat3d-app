@@ -44,7 +44,8 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
     try {
       const exp = await getExperiment(token, experimentId);
       setExperiment(exp);
-      if (exp.status === "completed" || exp.status === "failed" || exp.status === "cancelled") {
+      // Load comparison data for any non-created status (including running)
+      if (exp.status !== "created") {
         const [comp, prompts] = await Promise.all([
           getExperimentComparison(token, experimentId),
           getPerPromptComparison(token, experimentId),
@@ -70,8 +71,14 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
     if (experiment?.status !== "running") return;
     const interval = setInterval(async () => {
       try {
-        const st = await getExperimentStatus(token, experimentId);
+        const [st, comp, prompts] = await Promise.all([
+          getExperimentStatus(token, experimentId),
+          getExperimentComparison(token, experimentId),
+          getPerPromptComparison(token, experimentId),
+        ]);
         setStatus(st);
+        setComparison(comp.runs);
+        setPromptData(prompts);
         if (st.status !== "running") load();
       } catch { /* ignore polling errors */ }
     }, 5000);

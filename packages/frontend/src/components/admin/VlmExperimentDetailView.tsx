@@ -45,7 +45,8 @@ export function VlmExperimentDetailView({ token, experimentId, onBack }: Props) 
     try {
       const exp = await getVlmExperiment(token, experimentId);
       setExperiment(exp);
-      if (exp.status === "completed" || exp.status === "failed" || exp.status === "cancelled") {
+      // Load comparison data for any non-created status (including running)
+      if (exp.status !== "created") {
         const [comp, examples, rater] = await Promise.all([
           getVlmComparison(token, experimentId),
           getVlmPerExampleComparison(token, experimentId),
@@ -73,8 +74,16 @@ export function VlmExperimentDetailView({ token, experimentId, onBack }: Props) 
     if (experiment?.status !== "running") return;
     const interval = setInterval(async () => {
       try {
-        const st = await getVlmExperimentStatus(token, experimentId);
+        const [st, comp, examples, rater] = await Promise.all([
+          getVlmExperimentStatus(token, experimentId),
+          getVlmComparison(token, experimentId),
+          getVlmPerExampleComparison(token, experimentId),
+          getVlmInterRaterAgreement(token, experimentId),
+        ]);
         setStatus(st);
+        setComparison(comp.runs);
+        setExampleData(examples);
+        setInterRater(rater.pairs);
         if (st.status !== "running") load();
       } catch { /* ignore polling errors */ }
     }, 5000);
