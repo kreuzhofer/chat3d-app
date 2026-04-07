@@ -253,21 +253,25 @@ export async function consumeStreamWithProgress(
   stream: AsyncIterable<TextStreamPart<any>>,
   meta: { purpose: string; modelName: string },
   logIntervalTokens = 500,
-): Promise<{ streamErrors: string[] }> {
+): Promise<{ streamErrors: string[]; estimatedReasoningTokens: number }> {
   let estimatedTokens = 0;
+  let estimatedReasoningTokens = 0;
   let lastLoggedAt = 0;
   const start = Date.now();
   const streamErrors: string[] = [];
 
   for await (const part of stream) {
-    if (part.type === "text-delta") {
+    if (part.type === "reasoning-delta" || part.type === "reasoning") {
+      const delta = (part as { text?: string }).text ?? "";
+      estimatedReasoningTokens += Math.ceil(delta.length / 4);
+    } else if (part.type === "text-delta") {
       // Rough token estimate: ~4 chars per token (exact counts come via onFinish)
       const delta = (part as { delta?: string }).delta ?? "";
       estimatedTokens += Math.ceil(delta.length / 4);
       if (estimatedTokens - lastLoggedAt >= logIntervalTokens) {
         lastLoggedAt = estimatedTokens;
         logger.info(
-          { purpose: meta.purpose, model: meta.modelName, estimatedTokens, elapsedMs: Date.now() - start },
+          { purpose: meta.purpose, model: meta.modelName, estimatedTokens, estimatedReasoningTokens, elapsedMs: Date.now() - start },
           "LLM streaming progress",
         );
       }
@@ -290,7 +294,14 @@ export async function consumeStreamWithProgress(
     );
   }
 
-  return { streamErrors };
+  if (estimatedReasoningTokens > 0) {
+    logger.info(
+      { purpose: meta.purpose, model: meta.modelName, estimatedReasoningTokens, elapsedMs: Date.now() - start },
+      "reasoning tokens detected in stream",
+    );
+  }
+
+  return { streamErrors, estimatedReasoningTokens };
 }
 
 // ── trackedEmbed ───────────────────────────────────────────────────
