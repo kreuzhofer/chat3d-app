@@ -111,7 +111,7 @@ export async function reRenderForExample(
       screenshotIso: null, screenshotIsoBack: null,
       evalScore: null, evalIssues: null, evalSuggestions: null,
       evalChecklistResults: null, approvalStatus: "pending",
-      llmModel: "manual", vlmModel: null, promptTokens: 0, completionTokens: 0,
+      llmModel: existingExample.llmModel ?? "unknown", vlmModel: null, promptTokens: 0, completionTokens: 0,
     });
 
     return {
@@ -119,7 +119,7 @@ export async function reRenderForExample(
       renderStatus: "error", renderError,
       evalScore: null, evalIssues: null, evalSuggestions: null,
       evalChecklistResults: null, approvalStatus: "pending",
-      llmModel: "manual", vlmModel: null,
+      llmModel: existingExample.llmModel ?? "unknown", vlmModel: null,
     };
   }
 
@@ -207,7 +207,7 @@ export async function reRenderForExample(
     evalSuggestions: evalResult?.vlmSuggestions ?? null,
     evalChecklistResults: evalResult?.checklistResults ?? null,
     approvalStatus: approved ? "auto_approved" : "pending",
-    llmModel: "manual", vlmModel: evalResult?.vlmModel ?? null,
+    llmModel: existingExample.llmModel ?? "unknown", vlmModel: evalResult?.vlmModel ?? null,
     promptTokens: evalResult?.totalPromptTokens ?? 0,
     completionTokens: evalResult?.totalCompletionTokens ?? 0,
     visualScore: evalResult?.visualScore ?? null,
@@ -235,6 +235,6 @@ export async function reRenderForExample(
     evalSuggestions: evalResult?.vlmSuggestions ?? null,
     evalChecklistResults: evalResult?.checklistResults ?? null,
     approvalStatus: approved ? "auto_approved" : "pending",
-    llmModel: "manual", vlmModel: evalResult?.vlmModel ?? null,
+    llmModel: existingExample.llmModel ?? "unknown", vlmModel: evalResult?.vlmModel ?? null,
   };
 }
