@@ -13,6 +13,8 @@ import type { ProjectFile, RenderedFile } from "./rendering.service.js";
 import { doValidate, doRender, runVlmEval, type AgentEvalResult } from "./agent-render-helpers.service.js";
 import { checkAssertions } from "./code-eval-assertions.service.js";
 import { evaluateCode } from "./code-eval.service.js";
+import { runFullEvaluation } from "./eval-orchestrator.service.js";
+import { renderModelScreenshots } from "./stl-rendering-client.service.js";
 import { flattenForEval } from "../utils/code-flatten.js";
 import type { CodeAssertion } from "./spec-generation.service.js";
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
@@ -89,6 +91,18 @@ export interface AgentToolDeps {
   codeAssertions?: CodeAssertion[];
   /** Spec interpretation (for code review context) */
   specInterpretation?: string;
+  /** Construction spec (for full eval code review + VLM context) */
+  constructionSpec?: string;
+  /** Verification checklist (for VLM eval) */
+  verificationChecklist?: string[];
+  /** Annotated criteria with visibility routing (for eval routing) */
+  annotatedCriteria?: import("./spec-generation.service.js").AnnotatedCriterion[];
+  /** Category name (for VLM context — avoids hardcoded "User Generated") */
+  categoryName?: string;
+  /** Prompt complexity (for VLM context — avoids hardcoded 5) */
+  complexity?: number;
+  /** Code eval weight for composite scoring */
+  codeEvalWeight?: number;
 }
 
 export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: boolean; enableSearch?: boolean; ragMaxExamplesOverride?: number; excludePromptIds?: string[] }): Record<string, any> {
@@ -275,29 +289,85 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
           }
         }
 
-        // Run mandatory VLM evaluation
-        const evalText = await runVlmEval({
-          getLastRenderedFiles: deps.getLastRenderedFiles,
-          userPrompt: deps.userPrompt,
-          onEvalComplete: deps.onEvalComplete,
-          onProgress,
-        });
-        if (evalText.startsWith("ERROR:")) {
-          // VLM eval failed — accept submission anyway (best-effort)
-          logger.warn({ summary }, "VLM eval failed during submit — accepting without score");
+        // Run full evaluation pipeline (assertions + code review + VLM + composite)
+        // This is the SAME pipeline as post-loop eval — no dual-judge disagreement
+        onProgress?.("evaluating", "Running full evaluation (code review + visual)...");
+        const submitCode = flattenForEval(fs.getFiles());
+        const stlFile = renderedFiles.find(f => f.filename.toLowerCase().endsWith(".stl"));
+        const threemfFile = renderedFiles.find(f => f.filename.toLowerCase().endsWith(".3mf"));
+        const modelSource = stlFile ?? threemfFile;
+
+        let screenshots: import("./stl-rendering-client.service.js").RenderedScreenshot[] = [];
+        if (modelSource) {
+          try {
+            const ssResult = await renderModelScreenshots({
+              modelData: modelSource.contentBase64,
+              format: stlFile ? "stl" : "3mf",
+            });
+            screenshots = ssResult.images;
+          } catch (err) {
+            logger.warn({ err: err instanceof Error ? err.message : String(err) }, "screenshot failed during submit");
+          }
+        }
+
+        if (screenshots.length === 0 && !submitCode.trim()) {
+          logger.warn({ summary }, "no screenshots and no code — accepting without eval");
           onSubmit();
-          return `Result submitted (VLM eval unavailable): ${summary}`;
+          return `Result submitted (eval unavailable): ${summary}`;
         }
 
-        const lastEval = deps.getLastEvalResult?.();
-        if (lastEval && lastEval.score < deps.evalThreshold) {
-          logger.info({ score: lastEval.score, threshold: deps.evalThreshold, summary }, "submission rejected — score below threshold");
-          return `SUBMISSION REJECTED — visual evaluation score ${lastEval.score}/10 is below the acceptance threshold of ${deps.evalThreshold}/10. You must improve the model before submitting again.\n\n${evalText}\n\nPlease address the issues above, then validate, render, and submit again.`;
-        }
+        try {
+          const vlmImages = screenshots.filter(s => s.angle !== "isometric").map(s => ({ angle: s.angle, base64: s.base64 }));
+          const fullEval = await runFullEvaluation({
+            code: submitCode,
+            userPrompt: deps.userPrompt,
+            specInterpretation: deps.specInterpretation,
+            codeAssertions: deps.codeAssertions,
+            images: vlmImages,
+            categoryName: deps.categoryName ?? "User Generated",
+            complexity: deps.complexity ?? 5,
+            verificationChecklist: deps.verificationChecklist,
+            constructionSpec: deps.constructionSpec,
+            annotatedCriteria: deps.annotatedCriteria,
+            stlBase64: stlFile?.contentBase64,
+            modelFormat: "stl",
+            codeEvalWeight: deps.codeEvalWeight ?? 0.5,
+          });
 
-        onSubmit();
-        logger.info({ summary, score: lastEval?.score }, "agent submitted result");
-        return `Result submitted (score: ${lastEval?.score ?? "?"}/${10}): ${summary}`;
+          const compositeScore = fullEval.compositeScore;
+          const allIssues = [...fullEval.codeIssues, ...fullEval.vlmIssues];
+
+          // Store eval result for pipeline reuse (screenshots + scores)
+          deps.onEvalComplete?.({
+            score: compositeScore,
+            vlmModel: fullEval.vlmModel ?? "unknown",
+            issues: allIssues,
+            suggestions: fullEval.vlmSuggestions,
+            screenshots,
+          });
+
+          if (fullEval.assertionsFailed) {
+            logger.info({ compositeScore, summary }, "submission rejected — assertion failures");
+            const failText = allIssues.map(i => `- ${i}`).join("\n");
+            return `SUBMISSION REJECTED — assertion failures detected (score: ${compositeScore}/10).\n\nIssues:\n${failText}\n\nFix the parameter errors and try again.`;
+          }
+
+          if (compositeScore < deps.evalThreshold) {
+            logger.info({ compositeScore, threshold: deps.evalThreshold, codeScore: fullEval.codeScore, visualScore: fullEval.visualScore, summary }, "submission rejected — composite score below threshold");
+            const issueText = allIssues.length > 0 ? `\n\nIssues:\n${allIssues.map(i => `- ${i}`).join("\n")}` : "";
+            const suggText = fullEval.vlmSuggestions.length > 0 ? `\n\nSuggestions:\n${fullEval.vlmSuggestions.map(s => `- ${s}`).join("\n")}` : "";
+            return `SUBMISSION REJECTED — composite score ${compositeScore}/10 (code: ${fullEval.codeScore ?? "?"}, visual: ${fullEval.visualScore ?? "?"}) is below the acceptance threshold of ${deps.evalThreshold}/10.${issueText}${suggText}\n\nAddress the issues above, then validate, render, and submit again.`;
+          }
+
+          onSubmit();
+          logger.info({ summary, compositeScore, codeScore: fullEval.codeScore, visualScore: fullEval.visualScore }, "agent submitted result (full eval)");
+          return `Result submitted (composite: ${compositeScore}/10, code: ${fullEval.codeScore ?? "?"}, visual: ${fullEval.visualScore ?? "?"}): ${summary}`;
+        } catch (err) {
+          // Full eval failed — fall back to accepting without score
+          logger.warn({ err: err instanceof Error ? err.message : String(err), summary }, "full eval failed during submit — accepting without score");
+          onSubmit();
+          return `Result submitted (eval failed, accepted best-effort): ${summary}`;
+        }
       },
     };
 

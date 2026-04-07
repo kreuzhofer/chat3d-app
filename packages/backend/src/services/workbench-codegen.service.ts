@@ -346,6 +346,8 @@ async function _runPipeline(
   const wbUseMultiAgent = specResult?.complexity === "complex";
   if (wbUseMultiAgent) traceBuilder.setPipelineType("multi_agent");
 
+  const agCodeEvalWeight = await getCodeEvalWeight("workbench");
+
   onProgress?.("codegen", wbUseMultiAgent
     ? "Orchestrating multi-agent build for complex model..."
     : "Agent is working on your model...");
@@ -369,6 +371,11 @@ async function _runPipeline(
     pipelineTimeoutMs: options?.pipelineTimeoutMs,
     traceId,
     constructionSpec: specResult?.constructionSpec,
+    verificationChecklist: specResult?.verificationChecklist,
+    annotatedCriteria: specResult?.verificationCriteria,
+    categoryName: ctx.categoryName,
+    promptComplexity: ctx.complexity,
+    codeEvalWeight: agCodeEvalWeight,
   };
 
   const agResult = wbUseMultiAgent
@@ -419,7 +426,6 @@ async function _runPipeline(
   if (agScreenshots.length > 0 || agAllCode.trim()) {
     onProgress?.("evaluating", "Evaluating quality...");
     const agStlFile = agResult.renderedFiles.find(f => f.filename.toLowerCase().endsWith(".stl"));
-    const agCodeEvalWeight = await getCodeEvalWeight("workbench");
     const vlmImages = agScreenshots.filter(s => s.angle !== "isometric").map(s => ({ angle: s.angle, base64: s.base64 }));
 
     // Pass agent's VLM score to skip re-calling VLM when agent already submitted

@@ -83,6 +83,16 @@ export interface AgentCodegenInput {
   enableSearch?: boolean;
   /** Precise geometric blueprint from spec generation — used as primary codegen instruction. */
   constructionSpec?: string;
+  /** Verification checklist from spec generation (for full eval in submit_result). */
+  verificationChecklist?: string[];
+  /** Annotated criteria with visibility routing (for full eval in submit_result). */
+  annotatedCriteria?: import("./spec-generation.service.js").AnnotatedCriterion[];
+  /** Category name (for eval context). */
+  categoryName?: string;
+  /** Prompt complexity (for eval context). */
+  promptComplexity?: number;
+  /** Code eval weight for composite scoring. */
+  codeEvalWeight?: number;
   /** Previous conversation messages for continuation (fix loop, retry). */
   previousMessages?: CoreMessage[];
 }
@@ -246,6 +256,12 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       getLastEvalResult: () => evalResult,
       codeAssertions: input.codeAssertions,
       specInterpretation: input.specInterpretation ?? input.interpretation,
+      constructionSpec: input.constructionSpec,
+      verificationChecklist: input.verificationChecklist,
+      annotatedCriteria: input.annotatedCriteria,
+      categoryName: input.categoryName,
+      complexity: input.promptComplexity,
+      codeEvalWeight: input.codeEvalWeight,
     },
     { disableRender, enableSearch: resolvedEnableSearch, ragMaxExamplesOverride: input.ragMaxExamplesOverride, excludePromptIds: input.excludePromptIds },
   );
