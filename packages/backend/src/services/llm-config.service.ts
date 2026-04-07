@@ -405,10 +405,28 @@ export function createProviderModel(cfg: LlmModelConfig): any {
     const baseUrlWithVersion = normalizedBaseUrl.endsWith("/v1")
       ? normalizedBaseUrl
       : `${normalizedBaseUrl}/v1`;
+
+    // For models with thinking enabled on vLLM, inject chat_template_kwargs
+    // into the request body so the chat template activates reasoning mode.
+    const needsThinkingKwargs = cfg.supportsThinking && cfg.thinkingEffort;
+    const customFetch = needsThinkingKwargs
+      ? async (url: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.body && typeof init.body === "string") {
+            try {
+              const body = JSON.parse(init.body);
+              body.chat_template_kwargs = { enable_thinking: true };
+              return globalThis.fetch(url, { ...init, body: JSON.stringify(body) });
+            } catch { /* fall through to unmodified fetch */ }
+          }
+          return globalThis.fetch(url, init);
+        }
+      : undefined;
+
     const compat = createOpenAICompatible({
       name: cfg.provider,
       baseURL: baseUrlWithVersion,
       apiKey: apiKey?.trim() || undefined,
+      ...(customFetch ? { fetch: customFetch } : {}),
     });
     return compat.chatModel(modelName);
   }
