@@ -547,7 +547,7 @@ function stepsToMessages(initialMessages: CoreMessage[], steps: any[]): CoreMess
         type: "tool-result" as const,
         toolCallId: tr.toolCallId,
         toolName: tr.toolName,
-        result: typeof tr.result === "string" ? tr.result : JSON.stringify(tr.result),
+        output: typeof tr.result === "string" ? tr.result : JSON.stringify(tr.result),
       }));
       if (toolContent.length > 0) {
         history.push({ role: "tool", content: toolContent });
