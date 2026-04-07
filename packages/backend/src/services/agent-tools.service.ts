@@ -310,10 +310,9 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
           }
         }
 
-        if (screenshots.length === 0 && !submitCode.trim()) {
-          logger.warn({ summary }, "no screenshots and no code — accepting without eval");
-          onSubmit();
-          return `Result submitted (eval unavailable): ${summary}`;
+        if (screenshots.length === 0) {
+          logger.info({ summary }, "screenshots failed — rejecting submission, agent must fix render");
+          return `SUBMISSION REJECTED — could not take screenshots of the rendered model. This usually means the geometry is invalid even though the render appeared to succeed. Try simplifying the geometry or using a different construction approach, then render and submit again.`;
         }
 
         try {
@@ -363,10 +362,10 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
           logger.info({ summary, compositeScore, codeScore: fullEval.codeScore, visualScore: fullEval.visualScore }, "agent submitted result (full eval)");
           return `Result submitted (composite: ${compositeScore}/10, code: ${fullEval.codeScore ?? "?"}, visual: ${fullEval.visualScore ?? "?"}): ${summary}`;
         } catch (err) {
-          // Full eval failed — fall back to accepting without score
-          logger.warn({ err: err instanceof Error ? err.message : String(err), summary }, "full eval failed during submit — accepting without score");
-          onSubmit();
-          return `Result submitted (eval failed, accepted best-effort): ${summary}`;
+          // Full eval failed — reject so agent can retry
+          const errMsg = err instanceof Error ? err.message : String(err);
+          logger.warn({ err: errMsg, summary }, "full eval failed during submit — rejecting");
+          return `SUBMISSION REJECTED — evaluation failed: ${errMsg}. Try rendering again and resubmit.`;
         }
       },
     };
