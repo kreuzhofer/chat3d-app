@@ -483,6 +483,10 @@ export function WorkbenchCategoryPage() {
           {category.pendingCount > 0 ? (
             <Badge tone="warning">{category.pendingCount} pending</Badge>
           ) : null}
+          {(() => {
+            const missingSpecs = prompts.filter(p => !p.hasSpec).length;
+            return missingSpecs > 0 ? <Badge tone="danger">{missingSpecs} missing specs</Badge> : null;
+          })()}
         </div>
       ) : null}
 
