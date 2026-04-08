@@ -529,7 +529,7 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
   ], [sources]);
 
   const pendingCount = stats?.byValidation.pending ?? 0;
-  const validNotEmbedded = stats ? stats.notEmbedded : 0;
+  const validNotEmbedded = stats ? stats.notEmbedded + (stats.stale ?? 0) : 0;
   const totalEntries = stats?.total ?? 0;
 
   const pageStart = offset + 1;
@@ -695,7 +695,10 @@ export function KnowledgeTab({ token }: KnowledgeTabProps) {
           <div className="flex flex-1 flex-col items-center gap-2 rounded-md border border-[hsl(var(--border))] p-3 min-w-[140px]">
             <p className="text-xs font-medium uppercase tracking-wide text-[hsl(var(--muted-foreground))]">Embed</p>
             <p className="text-xl font-bold">{validNotEmbedded}</p>
-            <p className="text-xs text-[hsl(var(--muted-foreground))]">pending</p>
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">
+              {stats?.stale ? `${stats.stale} stale` : ""}{stats?.stale && stats?.notEmbedded ? " + " : ""}{stats?.notEmbedded ? `${stats.notEmbedded} missing` : ""}
+              {!stats?.stale && !stats?.notEmbedded ? "up to date" : ""}
+            </p>
             <Button
               variant="default"
               size="sm"

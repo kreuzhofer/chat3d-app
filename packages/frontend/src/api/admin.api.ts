@@ -683,6 +683,8 @@ export interface KnowledgeStats {
   byValidation: Record<string, number>;
   embedded: number;
   notEmbedded: number;
+  stale: number;
+  currentEmbeddingModel: string;
 }
 
 export async function getKnowledgeStats(token: string): Promise<KnowledgeStats> {
