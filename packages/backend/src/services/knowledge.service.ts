@@ -51,6 +51,8 @@ export interface KnowledgeStats {
   byValidation: Record<string, number>;
   embedded: number;
   notEmbedded: number;
+  stale: number;
+  currentEmbeddingModel: string;
 }
 
 // ── CRUD ─────────────────────────────────────────────────────────────
@@ -194,7 +196,13 @@ export async function updateKnowledgeEntry(
 }
 
 export async function getKnowledgeStats(): Promise<KnowledgeStats> {
-  const [total, bySource, byValidation, embedded] = await Promise.all([
+  let currentModel = "unknown";
+  try {
+    const embeddingCfg = await getModelForPurpose("embedding");
+    currentModel = embeddingCfg.modelName;
+  } catch { /* no embedding model configured */ }
+
+  const [total, bySource, byValidation, embeddingStats] = await Promise.all([
     prisma.build123dKnowledge.count(),
     prisma.build123dKnowledge.groupBy({
       by: ["sourceType"],
@@ -204,17 +212,26 @@ export async function getKnowledgeStats(): Promise<KnowledgeStats> {
       by: ["validationStatus"],
       _count: true,
     }),
-    prisma.$queryRaw<[{ count: bigint }]>`
-      SELECT COUNT(*) as count FROM build123d_knowledge WHERE embedding IS NOT NULL
+    prisma.$queryRaw<[{ embedded: bigint; current_model: bigint }]>`
+      SELECT
+        COUNT(CASE WHEN embedding IS NOT NULL THEN 1 END) as embedded,
+        COUNT(CASE WHEN embedding IS NOT NULL AND embedding_model = ${currentModel} THEN 1 END) as current_model
+      FROM build123d_knowledge
+      WHERE validation_status = 'valid'
     `,
   ]);
+
+  const embeddedCount = Number(embeddingStats[0]?.embedded ?? 0);
+  const currentModelCount = Number(embeddingStats[0]?.current_model ?? 0);
 
   return {
     total,
     bySourceType: Object.fromEntries(bySource.map(r => [r.sourceType, r._count])),
     byValidation: Object.fromEntries(byValidation.map(r => [r.validationStatus, r._count])),
-    embedded: Number(embedded[0]?.count ?? 0),
-    notEmbedded: total - Number(embedded[0]?.count ?? 0),
+    embedded: currentModelCount,
+    notEmbedded: total - embeddedCount,
+    stale: embeddedCount - currentModelCount,
+    currentEmbeddingModel: currentModel,
   };
 }
 

@@ -391,8 +391,13 @@ export function getEmbeddingStatus(token: string): Promise<EmbeddingStatus> {
   return requestJson<EmbeddingStatus>(token, "/embeddings/status", { method: "GET" });
 }
 
-export function backfillEmbeddings(token: string): Promise<BackfillResult> {
-  return requestJson<BackfillResult>(token, "/embeddings/backfill", { method: "POST" });
+export async function backfillEmbeddings(token: string): Promise<BackfillResult> {
+  // Backfill both prompt embeddings and spec embeddings in one click
+  const [promptResult, specResult] = await Promise.all([
+    requestJson<BackfillResult>(token, "/embeddings/backfill", { method: "POST" }),
+    requestJson<BackfillResult>(token, "/spec-embeddings/backfill", { method: "POST" }),
+  ]);
+  return { embedded: promptResult.embedded + specResult.embedded, skipped: promptResult.skipped + specResult.skipped };
 }
 
 // ── Export ────────────────────────────────────────────────────────────

@@ -367,25 +367,37 @@ export async function checkSimilarity(
 export async function getEmbeddingStatus(): Promise<EmbeddingStatus> {
   const { config: embeddingCfg } = await resolveEmbeddingConfig();
   const currentModel = embeddingCfg.modelName;
-  const rows = await prisma.$queryRaw<{ total: string; embedded: string; current_model: string }[]>`
+
+  // Query both prompt and spec embedding stats in one go
+  const rows = await prisma.$queryRaw<{
+    prompt_total: string; prompt_embedded: string; prompt_current: string;
+    spec_total: string; spec_embedded: string; spec_current: string;
+  }[]>`
     SELECT
-      COUNT(DISTINCT p.id)::text AS total,
-      COUNT(DISTINCT CASE WHEN p.embedding IS NOT NULL THEN p.id END)::text AS embedded,
-      COUNT(DISTINCT CASE WHEN p.embedding IS NOT NULL AND p.embedding_model = ${currentModel} THEN p.id END)::text AS current_model
+      COUNT(DISTINCT p.id)::text AS prompt_total,
+      COUNT(DISTINCT CASE WHEN p.embedding IS NOT NULL THEN p.id END)::text AS prompt_embedded,
+      COUNT(DISTINCT CASE WHEN p.embedding IS NOT NULL AND p.embedding_model = ${currentModel} THEN p.id END)::text AS prompt_current,
+      COUNT(DISTINCT CASE WHEN p.construction_spec IS NOT NULL THEN p.id END)::text AS spec_total,
+      COUNT(DISTINCT CASE WHEN p.spec_embedding IS NOT NULL THEN p.id END)::text AS spec_embedded,
+      COUNT(DISTINCT CASE WHEN p.spec_embedding IS NOT NULL AND p.spec_embedding_model = ${currentModel} THEN p.id END)::text AS spec_current
     FROM workbench_example_prompts p
     JOIN workbench_examples e ON e.prompt_id = p.id
     WHERE e.approval_status IN ('auto_approved', 'human_approved')
       AND e.experiment_run_id IS NULL
   `;
   const row = rows[0];
-  const total = Number(row.total);
-  const embeddedCount = Number(row.embedded);
-  const currentModelCount = Number(row.current_model);
+  const promptTotal = Number(row.prompt_total);
+  const promptEmbedded = Number(row.prompt_embedded);
+  const promptCurrent = Number(row.prompt_current);
+  const specTotal = Number(row.spec_total);
+  const specEmbedded = Number(row.spec_embedded);
+  const specCurrent = Number(row.spec_current);
+
   return {
-    total,
-    embedded: currentModelCount,
-    missing: total - embeddedCount,
-    stale: embeddedCount - currentModelCount,
+    total: promptTotal,
+    embedded: promptCurrent,
+    missing: (promptTotal - promptEmbedded) + (specTotal - specEmbedded),
+    stale: (promptEmbedded - promptCurrent) + (specEmbedded - specCurrent),
     currentModel,
   };
 }
