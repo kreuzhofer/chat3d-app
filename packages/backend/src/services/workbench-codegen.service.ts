@@ -305,7 +305,11 @@ async function _runPipeline(
         outputTokens: researchPackage?.llmTokens?.completion ?? 0,
         costUsd: researchLlmCost,
       });
-      traceBuilder.endPhase("completed");
+      traceBuilder.endPhase("completed", {
+        researchExamples: researchPackage?.examples.length ?? 0,
+        researchKnowledge: researchPackage?.knowledge.length ?? 0,
+        researchGaps: researchPackage?.gapWarnings.length ?? 0,
+      });
     } catch (err) {
       logger.warn({ err: err instanceof Error ? err.message : String(err) }, "research phase failed (continuing without)");
       traceBuilder.endPhase("failed", { error: err instanceof Error ? err.message : String(err) });
