@@ -76,7 +76,7 @@ export async function embedPromptTextWithUsage(text: string): Promise<{ embeddin
     const result = await trackedEmbed({
       model,
       value: text,
-      providerOptions: { openai: { dimensions: EMBEDDING_DIMENSIONS } },
+      providerOptions: { openai: { dimensions: EMBEDDING_DIMENSIONS }, openaiCompatible: { dimensions: EMBEDDING_DIMENSIONS } },
     }, {
       purpose: "embeddings",
       providerName: cfg.provider,
@@ -156,7 +156,7 @@ export async function backfillEmbeddings(): Promise<BackfillResult> {
       embedResult = await trackedEmbedMany({
         model,
         values: texts,
-        providerOptions: { openai: { dimensions: EMBEDDING_DIMENSIONS } },
+        providerOptions: { openai: { dimensions: EMBEDDING_DIMENSIONS }, openaiCompatible: { dimensions: EMBEDDING_DIMENSIONS } },
       }, {
         purpose: "embeddings",
         providerName: embeddingCfg.provider,

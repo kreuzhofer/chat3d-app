@@ -305,7 +305,7 @@ export async function backfillKnowledgeEmbeddings(): Promise<{ embedded: number;
       const embedResult = await trackedEmbedMany({
         model,
         values: texts,
-        providerOptions: { openai: { dimensions: 1536 } },
+        providerOptions: { openai: { dimensions: 1536 }, openaiCompatible: { dimensions: 1536 } },
       }, {
         purpose: "knowledge_embedding",
         providerName: embeddingCfg.provider,
