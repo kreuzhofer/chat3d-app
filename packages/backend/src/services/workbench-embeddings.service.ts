@@ -51,7 +51,7 @@ const EMBEDDING_DIMENSIONS = 1536;
  * Resolve the embedding model from the DB-driven llm_purpose_map.
  * Returns the Vercel AI SDK embedding model instance and config.
  */
-async function resolveEmbeddingConfig(): Promise<{ model: ReturnType<typeof createEmbeddingModel>; config: LlmModelConfig }> {
+export async function resolveEmbeddingConfig(): Promise<{ model: ReturnType<typeof createEmbeddingModel>; config: LlmModelConfig }> {
   const cfg = await getModelForPurpose("embedding");
   const model = createEmbeddingModel(cfg);
   return { model, config: cfg };
