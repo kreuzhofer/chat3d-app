@@ -7,7 +7,7 @@
  * Re-exports from split modules for backward compatibility.
  */
 
-import { trackedGenerateText } from "./tracked-llm.service.js";
+import { trackedStreamText } from "./tracked-llm.service.js";
 import { isQuotaExhaustion, asQuotaError, isRateLimitError } from "../utils/llm-errors.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import { createLogger } from "../utils/logger.js";
@@ -45,6 +45,9 @@ export interface CodeReviewResult {
   promptTokens: number;
   completionTokens: number;
   assertionSummary: AssertionCheckSummary | null;
+  rawResponse?: string;
+  reasoning?: string;
+  systemPrompt?: string;
 }
 
 // ── Code Review System Prompt ─────────────────────────────────────────
@@ -93,6 +96,8 @@ Given a user's 3D model request and the generated Build123d Python code, verify:
 Do NOT evaluate: code style, naming conventions, comments, rendering quality, or visual appearance.
 Do NOT flag issues for aspects the prompt does not specify — if the prompt doesn't mention a dimension,
 any reasonable value is correct.
+For flat profiles/sketches: if the prompt does not specify an extrusion thickness, ANY small nonzero
+thickness is acceptable. Do NOT penalize thickness differences (e.g., 1mm vs 4mm) for flat shapes.
 
 The user requested: "${userPrompt}"
 ${constructionSpec ? `\n## Construction Specification\n${constructionSpec}\n\nVerify the code implements each item in the specification above.\n` : (specInterpretation ? `\nInterpreted as: ${specInterpretation}\n` : "")}
@@ -276,7 +281,7 @@ export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResu
         const providerModel = createProviderModelFromConfig(config);
 
         logger.info({ attempt: attempt + 1, maxAttempts: CODE_EVAL_MAX_RETRIES + 1, model: label }, "calling code review LLM");
-        const result = await trackedGenerateText({
+        const stream = trackedStreamText({
           model: providerModel,
           system: systemPrompt,
           messages: [{ role: "user", content: userContent }],
@@ -290,14 +295,23 @@ export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResu
           modelConfig: { costPer1mInput: config.costPer1mInput, costPer1mOutput: config.costPer1mOutput },
         });
 
-        const responseText = result.text;
-        if (!responseText) {
+        let text = "";
+        let reasoning = "";
+        for await (const part of stream.fullStream) {
+          if (part.type === "text-delta") text += part.text;
+          else if (part.type === "reasoning-delta" || part.type === "reasoning") {
+            reasoning += (part as { text?: string }).text ?? "";
+          }
+        }
+        const resolved = await stream;
+
+        if (!text) {
           throw new Error("Empty response from code review LLM");
         }
 
-        logger.info({ response: responseText }, "raw code review response");
+        logger.info({ response: text }, "raw code review response");
 
-        const parsed = parseCodeReviewResponse(responseText);
+        const parsed = parseCodeReviewResponse(text);
 
         const allIssues = [
           ...(assertionSummary?.issues ?? []),
@@ -309,15 +323,21 @@ export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResu
           "code evaluation completed",
         );
 
-        return {
+        const reviewResult: CodeReviewResult = {
           score: parsed.score,
           issues: allIssues,
           criticalAngles: parsed.criticalAngles,
           codeReviewModel: label,
-          promptTokens: result.usage?.inputTokens ?? 0,
-          completionTokens: result.usage?.outputTokens ?? 0,
+          promptTokens: resolved.usage?.inputTokens ?? 0,
+          completionTokens: resolved.usage?.outputTokens ?? 0,
           assertionSummary,
         };
+
+        reviewResult.rawResponse = text;
+        reviewResult.reasoning = reasoning || undefined;
+        reviewResult.systemPrompt = systemPrompt;
+
+        return reviewResult;
       } catch (error) {
         if (isQuotaExhaustion(error)) {
           throw asQuotaError(error, config.provider) ?? error;

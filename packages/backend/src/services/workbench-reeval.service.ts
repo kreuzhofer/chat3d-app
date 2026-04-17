@@ -9,6 +9,7 @@
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import { runFullEvaluation, type FullEvalResult } from "./eval-orchestrator.service.js";
+import { runWithUsageContext } from "./usage-tracking.service.js";
 import { readStorageFile, storageFileExists } from "./file-storage.service.js";
 import { getAutoApproveThreshold, getCodeEvalWeight } from "./generation-settings.service.js";
 import { flattenStoredCode } from "../utils/code-flatten.js";
@@ -107,7 +108,9 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
 
   let evalResult: FullEvalResult | null = null;
   try {
-    evalResult = await runFullEvaluation({
+    evalResult = await runWithUsageContext(
+      { workbenchExampleId: exampleId, source: "workbench", sourceLabel: `Re-eval: ${example.promptRef.prompt.slice(0, 60)}` },
+      () => runFullEvaluation({
       code,
       userPrompt: example.promptRef.prompt,
       images,
@@ -119,7 +122,8 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
       codeAssertions: (example.promptRef.codeAssertions as CodeAssertion[] | null) ?? undefined,
       verificationChecklist: (example.promptRef.verificationChecklist as string[] | null) ?? undefined,
       annotatedCriteria: (example.promptRef.verificationCriteria as AnnotatedCriterion[] | null) ?? undefined,
-    });
+    }),
+    );
   } catch (err) {
     logger.error({ err, exampleId }, "re-evaluation failed");
     throw err;
@@ -144,6 +148,12 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
       evalSuggestions: evalResult.vlmSuggestions.length > 0 ? evalResult.vlmSuggestions : undefined,
       evalChecklistResults: evalResult.checklistResults ?? undefined,
       vlmModel: evalResult.vlmModel,
+      vlmRawResponse: evalResult.vlmRawResponse ?? null,
+      vlmReasoning: evalResult.vlmReasoning ?? null,
+      vlmSystemPrompt: evalResult.vlmSystemPrompt ?? null,
+      codeReviewRawResponse: evalResult.codeReviewRawResponse ?? null,
+      codeReviewReasoning: evalResult.codeReviewReasoning ?? null,
+      codeReviewSystemPrompt: evalResult.codeReviewSystemPrompt ?? null,
       approvalStatus: approved ? "auto_approved" : "pending",
     },
   });

@@ -492,6 +492,7 @@ adminRouter.post("/llm-models", async (req, res) => {
       supportsVision: typeof body.supportsVision === "boolean" ? body.supportsVision : undefined,
       supportsEmbeddings: typeof body.supportsEmbeddings === "boolean" ? body.supportsEmbeddings : undefined,
       streamingEnabled: typeof body.streamingEnabled === "boolean" ? body.streamingEnabled : undefined,
+      vlmEvalPreamble: typeof body.vlmEvalPreamble === "string" ? body.vlmEvalPreamble : (body.vlmEvalPreamble === null ? null : undefined),
     });
     res.status(201).json(model);
   } catch (error) {
@@ -999,6 +1000,7 @@ adminRouter.get("/usage/summary", async (req, res) => {
       modelName: typeof req.query.modelName === "string" ? req.query.modelName : undefined,
       providerName: typeof req.query.providerName === "string" ? req.query.providerName : undefined,
       purpose: typeof req.query.purpose === "string" ? req.query.purpose : undefined,
+      source: typeof req.query.source === "string" ? req.query.source : undefined,
     });
     res.status(200).json(summary);
   } catch (error) {
@@ -1019,6 +1021,7 @@ adminRouter.get("/usage/timeseries", async (req, res) => {
         modelName: typeof req.query.modelName === "string" ? req.query.modelName : undefined,
         providerName: typeof req.query.providerName === "string" ? req.query.providerName : undefined,
         purpose: typeof req.query.purpose === "string" ? req.query.purpose : undefined,
+      source: typeof req.query.source === "string" ? req.query.source : undefined,
       },
       granularity,
       groupBy,
@@ -1040,6 +1043,7 @@ adminRouter.get("/usage/export", async (req, res) => {
         modelName: typeof req.query.modelName === "string" ? req.query.modelName : undefined,
         providerName: typeof req.query.providerName === "string" ? req.query.providerName : undefined,
         purpose: typeof req.query.purpose === "string" ? req.query.purpose : undefined,
+      source: typeof req.query.source === "string" ? req.query.source : undefined,
       },
       format,
     );

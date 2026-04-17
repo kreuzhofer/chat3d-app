@@ -21,7 +21,7 @@ import {
 
 const logger = createLogger("workbench-backfill-specs");
 
-export async function startBatchBackfillSpecs(categoryId: string): Promise<BatchJobSummary> {
+export async function startBatchBackfillSpecs(categoryId: string, regenerate?: boolean): Promise<BatchJobSummary> {
   const existing = getRunningJobForCategory(categoryId);
   if (existing) {
     const err = new Error("A batch job is already running for this category");
@@ -35,18 +35,20 @@ export async function startBatchBackfillSpecs(categoryId: string): Promise<Batch
   });
   if (!cat) throw new Error("Category not found");
 
-  // Find prompts missing spec data
+  // Find prompts: all (regenerate) or only those missing spec data
   const promptRows = await prisma.workbenchExamplePrompt.findMany({
     where: {
       categoryId,
-      specInterpretation: null,
+      ...(regenerate ? {} : { specInterpretation: null }),
     },
     select: { id: true, prompt: true, index: true },
     orderBy: { index: "asc" },
   });
 
   if (promptRows.length === 0) {
-    throw new Error("All prompts in this category already have spec data");
+    throw new Error(regenerate
+      ? "No prompts found in this category"
+      : "All prompts in this category already have spec data");
   }
 
   const jobId = generateJobId("batch-backfill-specs");
@@ -93,7 +95,7 @@ async function runBatchBackfillSpecs(
     try {
       const specResult = await generateSpec(prompt.prompt);
 
-      // Persist all spec fields on the prompt
+      // Persist all spec fields + training data on the prompt
       await prisma.workbenchExamplePrompt.update({
         where: { id: prompt.id },
         data: {
@@ -102,6 +104,8 @@ async function runBatchBackfillSpecs(
           codeAssertions: specResult.codeAssertions as unknown as undefined,
           verificationChecklist: specResult.verificationChecklist,
           verificationCriteria: specResult.verificationCriteria as unknown as undefined,
+          specRawResponse: specResult.rawResponse ?? null,
+          specSystemPrompt: specResult.systemPrompt ?? null,
         },
       });
 

@@ -88,7 +88,10 @@ export async function generateForPrompt(
   promptId: string,
   options?: GenerateOptions,
 ): Promise<GenerateResult> {
-  return runWithUsageContext({ workbenchExampleId: promptId }, async () => {
+  return runWithUsageContext({
+    workbenchExampleId: promptId,
+    source: "workbench",
+  }, async () => {
     logger.info({ promptId }, "starting generation for prompt");
 
     const timeoutMs = await getPipelineTimeoutMs("workbench");
@@ -217,6 +220,7 @@ async function _runPipeline(
 
   // 2b. Spec generation — reuse cached spec if available to save tokens
   let specResult: SpecResult | null = null;
+  let enrichmentResult: import("./spec-enrichment.service.js").EnrichmentResult | null = null;
   const specEnabled = await isSpecGenerationEnabled("workbench");
   if (specEnabled) {
     const hasCachedSpec = ctx.cachedSpec.constructionSpec && ctx.cachedSpec.specInterpretation;
@@ -326,6 +330,7 @@ async function _runPipeline(
       try {
         const enrichModelCfg = await getModelForPurposeWithFallback("spec_generation", "conversation");
         const enriched = await enrichSpec(specResult, researchPackage);
+        enrichmentResult = enriched;
         if (enriched.constructionSpec) {
           specResult = { ...specResult, constructionSpec: enriched.constructionSpec, verificationCriteria: enriched.verificationCriteria };
         }
@@ -597,6 +602,14 @@ async function _runPipeline(
     visualScore: agFullEval?.visualScore ?? null, codeEvalScore: agFullEval?.codeScore ?? null,
     assertionPassRate: agFullEval?.assertionPassRate ?? null, evalSource: agFullEval?.source ?? null,
     experimentRunId: options?.experimentRunId,
+    vlmRawResponse: agFullEval?.vlmRawResponse ?? null,
+    vlmReasoning: agFullEval?.vlmReasoning ?? null,
+    vlmSystemPrompt: agFullEval?.vlmSystemPrompt ?? null,
+    codeReviewRawResponse: agFullEval?.codeReviewRawResponse ?? null,
+    codeReviewReasoning: agFullEval?.codeReviewReasoning ?? null,
+    codeReviewSystemPrompt: agFullEval?.codeReviewSystemPrompt ?? null,
+    agentConversation: agResult?.conversationHistory ?? null,
+    agentSystemPrompt: agResult?.systemPrompt ?? null,
   });
 
   // Persist all spec outputs on the prompt for future re-render/re-eval use
@@ -608,6 +621,13 @@ async function _runPipeline(
         codeAssertions: specResult.codeAssertions as unknown as undefined,
         verificationChecklist: specResult.verificationChecklist,
         verificationCriteria: specResult.verificationCriteria as unknown as undefined,
+        specRawResponse: specResult.rawResponse ?? null,
+        specSystemPrompt: specResult.systemPrompt ?? null,
+        ...(enrichmentResult ? {
+          enrichmentRawResponse: enrichmentResult.rawResponse ?? null,
+          enrichmentSystemPrompt: enrichmentResult.systemPrompt ?? null,
+          enrichmentUserMessage: enrichmentResult.userMessage ?? null,
+        } : {}),
       },
     });
     specUpdate.catch(err => logger.warn({ err: err instanceof Error ? err.message : String(err) }, "failed to persist spec fields (non-fatal)"));

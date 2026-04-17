@@ -12,6 +12,7 @@ import {
   startVlmExperiment,
   cancelVlmExperiment,
   rerunVlmExperiment,
+  resetVlmExperimentRun,
   deleteVlmExperiment,
   type VlmExperiment,
   type VlmExperimentStatus,
@@ -215,18 +216,32 @@ function VlmExperimentHeader({ experiment, status, token, onRefresh, setError, o
         )}
       </div>
 
-      <div className="mb-2 flex flex-wrap gap-2 text-sm">
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
         <strong>Models:</strong>
         {experiment.runs.map((r, i) => (
-          <Badge
-            key={r.id}
-            style={{
-              backgroundColor: COLORS[i % COLORS.length] + "22",
-              color: COLORS[i % COLORS.length],
-            }}
-          >
-            {r.modelLabel}
-          </Badge>
+          <span key={r.id} className="inline-flex items-center gap-1">
+            <Badge
+              style={{
+                backgroundColor: COLORS[i % COLORS.length] + "22",
+                color: COLORS[i % COLORS.length],
+              }}
+            >
+              {r.modelLabel} ({r.status})
+            </Badge>
+            {canEdit && r.status === "completed" && (
+              <button
+                className="cursor-pointer rounded border-none bg-transparent px-1 text-[0.6rem] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))]"
+                title="Reset this run's results"
+                onClick={async () => {
+                  if (!window.confirm(`Reset results for ${r.modelLabel}? This will delete its results and allow re-running.`)) return;
+                  try { await resetVlmExperimentRun(token, experiment.id, r.id); onRefresh(); }
+                  catch (e) { setError((e as Error).message); }
+                }}
+              >
+                reset
+              </button>
+            )}
+          </span>
         ))}
       </div>
 

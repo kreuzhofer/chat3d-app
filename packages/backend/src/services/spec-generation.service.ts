@@ -10,7 +10,7 @@
  * failures never block the codegen pipeline.
  */
 
-import { trackedGenerateText } from "./tracked-llm.service.js";
+import { trackedStreamText } from "./tracked-llm.service.js";
 import { isProviderQuotaError } from "../utils/llm-errors.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import {
@@ -62,6 +62,9 @@ export interface SpecResult {
   constructionSpec: string;
   /** Objective structural checks with visibility annotations for eval routing. */
   verificationCriteria: AnnotatedCriterion[];
+  rawResponse?: string;
+  reasoning?: string;
+  systemPrompt?: string;
 }
 
 // ── System prompt ───────────────────────────────────────────────────
@@ -96,12 +99,14 @@ Given a user's prompt describing a 3D model, produce:
    ]
 
    If the prompt has no explicit numeric values, return an empty array.
+   IMPORTANT: NEVER create assertions for default values you inferred — only for values the prompt EXPLICITLY states. In particular, do NOT create thickness/extrusion assertions for flat profiles or sketches unless the prompt explicitly specifies a thickness value.
 
 6. **semanticContext**: 1-2 sentences identifying the object and its domain. No dimensions or construction details. This is used as a search query to find reference material and similar examples.
    Example: "Raspberry Pi 4 Model B enclosure with removable lid"
 
 7. **constructionSpec**: A bulleted list describing the final geometry — dimensions, shapes, positions, and spatial relationships. Focus on WHAT the geometry IS, not HOW to construct it in CAD. Do not reference specific CAD operations (extrude, revolve, sweep, loft, boolean subtract, fillet, chamfer as verbs) — instead describe the resulting geometric features. Each bullet should describe one geometric feature or region with its dimensions.
    CRITICAL: NEVER override or recompute a dimension the prompt explicitly states. If the prompt says "65mm height", the spec MUST say 65mm — do not substitute your own calculation. Only fill in defaults for values the prompt truly omits. Do not invent features (sills, offsets, clearances) the prompt does not mention.
+   CRITICAL: This is a 3D CAD pipeline — every model MUST be a 3D solid with nonzero thickness. NEVER specify "no extrusion", "zero thickness", "2D only", or "sketch geometry only". If the prompt describes a flat 2D shape, profile, or sketch without mentioning thickness, specify that it should be extruded to a small thickness (e.g., 1-5mm) to create a valid 3D solid. A "flat" or "sketch" shape is a thin 3D solid, not a 2D wireframe. The exact thickness is unimportant — any small nonzero value is acceptable.
    Include ALL dimensions from the prompt verbatim. For truly unspecified values only, derive reasonable defaults and mark them as "(default)". Example:
    - Rectangular box: 90×62×30mm, wall thickness 2mm, open top
    - Port openings (short side): USB-C 9×3.5mm at offset 7mm from corner
@@ -315,8 +320,8 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
     logger.debug({ prompt: promptText, model: label }, "generating spec");
 
     const semaphore = getLlmSemaphore(config.provider, config.maxConcurrent);
-    const result = await semaphore.run(async () =>
-      trackedGenerateText({
+    const { responseText, reasoning, resolved } = await semaphore.run(async () => {
+      const stream = trackedStreamText({
         model,
         system: SPEC_SYSTEM_PROMPT,
         messages: [{ role: "user", content: promptText }],
@@ -328,12 +333,23 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
         modelId: config.id,
         modelName: config.modelName,
         modelConfig: { costPer1mInput: config.costPer1mInput, costPer1mOutput: config.costPer1mOutput },
-      }),
-    );
+      });
 
-    const parsed = parseSpecResponse(result.text);
-    const promptTokens = result.usage?.inputTokens ?? 0;
-    const completionTokens = result.usage?.outputTokens ?? 0;
+      let text = "";
+      let reasoningText = "";
+      for await (const part of stream.fullStream) {
+        if (part.type === "text-delta") text += part.text;
+        else if (part.type === "reasoning" || part.type === "reasoning-delta") {
+          reasoningText += (part as { text?: string }).text ?? "";
+        }
+      }
+      const res = await stream;
+      return { responseText: text, reasoning: reasoningText, resolved: res };
+    });
+
+    const parsed = parseSpecResponse(responseText);
+    const promptTokens = resolved.usage?.inputTokens ?? 0;
+    const completionTokens = resolved.usage?.outputTokens ?? 0;
     const complexity = deriveComplexity(promptText, parsed.interpretation);
 
     logger.info(
@@ -357,12 +373,17 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
       );
     }
 
-    return {
+    const specResult: SpecResult = {
       ...parsed,
       complexity,
       promptTokens,
       completionTokens,
     };
+    specResult.rawResponse = responseText;
+    specResult.reasoning = reasoning || undefined;
+    specResult.systemPrompt = SPEC_SYSTEM_PROMPT;
+
+    return specResult;
   } catch (error) {
     // Quota exhaustion is NOT transient — abort the pipeline
     if (isProviderQuotaError(error)) {

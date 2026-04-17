@@ -153,6 +153,7 @@ export function ModelsTab({ token }: ModelsTabProps) {
           supportsVision: data.supportsVision,
           supportsEmbeddings: data.supportsEmbeddings,
           streamingEnabled: data.streamingEnabled,
+          vlmEvalPreamble: data.vlmEvalPreamble || null,
         };
         await updateLlmModel(token, editingModel.id, patch);
       } else {
@@ -169,6 +170,7 @@ export function ModelsTab({ token }: ModelsTabProps) {
           supportsVision: data.supportsVision,
           supportsEmbeddings: data.supportsEmbeddings,
           streamingEnabled: data.streamingEnabled,
+          vlmEvalPreamble: data.vlmEvalPreamble || null,
         };
         await createLlmModel(token, input);
       }

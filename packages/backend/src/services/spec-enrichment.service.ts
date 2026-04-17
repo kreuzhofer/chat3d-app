@@ -29,6 +29,12 @@ export interface EnrichmentResult {
   constructionSpec: string;
   verificationCriteria: string[];
   promptTokens: number;
+  /** Raw LLM response for training data. */
+  rawResponse?: string;
+  /** System prompt used for training data. */
+  systemPrompt?: string;
+  /** Full user message (includes research context) for training data. */
+  userMessage?: string;
   completionTokens: number;
 }
 
@@ -159,7 +165,11 @@ export async function enrichSpec(
       "spec enriched with research data",
     );
 
-    return { constructionSpec: enrichedSpec, verificationCriteria: enrichedCriteria, promptTokens, completionTokens };
+    return {
+      constructionSpec: enrichedSpec, verificationCriteria: enrichedCriteria,
+      promptTokens, completionTokens,
+      rawResponse: streamResult.text, systemPrompt: ENRICHMENT_SYSTEM_PROMPT, userMessage,
+    };
   } catch (error) {
     if (isProviderQuotaError(error)) throw error;
 

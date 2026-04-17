@@ -549,12 +549,13 @@ workbenchRouter.post("/examples/:id/re-evaluate", async (req, res) => {
 
 workbenchRouter.post("/re-evaluate/batch", async (req, res) => {
   try {
-    const { categoryId } = req.body as { categoryId?: string };
+    const { categoryId, mode } = req.body as { categoryId?: string; mode?: string };
     if (!categoryId || typeof categoryId !== "string") {
       res.status(400).json({ error: "categoryId is required" });
       return;
     }
-    const job = await startBatchReEvaluate(categoryId);
+    const reEvalMode = mode === "missing" ? "missing" : "all";
+    const job = await startBatchReEvaluate(categoryId, reEvalMode);
     res.status(202).json(job);
   } catch (error) {
     if (error instanceof WorkbenchCatalogError) {
@@ -572,12 +573,12 @@ workbenchRouter.post("/re-evaluate/batch", async (req, res) => {
 
 workbenchRouter.post("/backfill-specs/batch", async (req, res) => {
   try {
-    const { categoryId } = req.body as { categoryId?: string };
+    const { categoryId, regenerate } = req.body as { categoryId?: string; regenerate?: boolean };
     if (!categoryId || typeof categoryId !== "string") {
       res.status(400).json({ error: "categoryId is required" });
       return;
     }
-    const job = await startBatchBackfillSpecs(categoryId);
+    const job = await startBatchBackfillSpecs(categoryId, regenerate);
     res.status(202).json(job);
   } catch (error) {
     const statusCode = (error as { statusCode?: number }).statusCode;

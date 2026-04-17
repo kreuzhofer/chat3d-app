@@ -65,6 +65,18 @@ export interface FullEvalResult {
   codeReviewModel: string | null;
   totalPromptTokens: number;
   totalCompletionTokens: number;
+  /** Raw VLM response text for training data capture. */
+  vlmRawResponse?: string;
+  /** VLM reasoning/thinking tokens for training data capture. */
+  vlmReasoning?: string;
+  /** System prompt used for VLM evaluation, for training data capture. */
+  vlmSystemPrompt?: string;
+  /** Raw code review response for training data capture. */
+  codeReviewRawResponse?: string;
+  /** Code review reasoning/thinking tokens for training data capture. */
+  codeReviewReasoning?: string;
+  /** System prompt used for code review, for training data capture. */
+  codeReviewSystemPrompt?: string;
 }
 
 // ── Helper: build result ──────────────────────────────────────────────
@@ -85,6 +97,12 @@ function buildResult(opts: {
   totalCompletionTokens: number;
   annotatedCriteria?: import("./spec-generation.service.js").AnnotatedCriterion[];
   adaptiveWeightRange?: number;
+  vlmRawResponse?: string;
+  vlmReasoning?: string;
+  vlmSystemPrompt?: string;
+  codeReviewRawResponse?: string;
+  codeReviewReasoning?: string;
+  codeReviewSystemPrompt?: string;
 }): FullEvalResult {
   const composite = computeCompositeScore(
     opts.visualScore, opts.codeScore, opts.assertionPassRate, opts.codeEvalWeight,
@@ -105,6 +123,12 @@ function buildResult(opts: {
     codeReviewModel: opts.codeReviewModel,
     totalPromptTokens: opts.totalPromptTokens,
     totalCompletionTokens: opts.totalCompletionTokens,
+    vlmRawResponse: opts.vlmRawResponse,
+    vlmReasoning: opts.vlmReasoning,
+    vlmSystemPrompt: opts.vlmSystemPrompt,
+    codeReviewRawResponse: opts.codeReviewRawResponse,
+    codeReviewReasoning: opts.codeReviewReasoning,
+    codeReviewSystemPrompt: opts.codeReviewSystemPrompt,
   };
 }
 
@@ -181,6 +205,9 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
   let codeReviewModel: string | null = null;
   let codePromptTokens = 0;
   let codeCompletionTokens = 0;
+  let codeReviewRawResponse: string | undefined;
+  let codeReviewReasoning: string | undefined;
+  let codeReviewSystemPrompt: string | undefined;
 
   tb?.startPhase("eval-code", "eval_code_review", "Code Review LLM", "eval");
   try {
@@ -202,6 +229,9 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
     codeReviewModel = codeResult.codeReviewModel;
     codePromptTokens = codeResult.promptTokens;
     codeCompletionTokens = codeResult.completionTokens;
+    codeReviewRawResponse = codeResult.rawResponse;
+    codeReviewReasoning = codeResult.reasoning;
+    codeReviewSystemPrompt = codeResult.systemPrompt;
 
     {
       let codeReviewCost = 0;
@@ -260,6 +290,9 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
   let vlmPromptTokens = 0;
   let vlmCompletionTokens = 0;
   let checklistResults: ChecklistResult[] | undefined;
+  let vlmRawResponse: string | undefined;
+  let vlmReasoning: string | undefined;
+  let vlmSystemPrompt: string | undefined;
 
   // If agent already provided a VLM score, reuse it instead of calling VLM again
   if (input.agentVlmScore) {
@@ -320,6 +353,9 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
       vlmPromptTokens = vlmResult.promptTokens;
       vlmCompletionTokens = vlmResult.completionTokens;
       checklistResults = vlmResult.checklistResults;
+      vlmRawResponse = vlmResult.rawResponse;
+      vlmReasoning = vlmResult.reasoning;
+      vlmSystemPrompt = vlmResult.systemPrompt;
 
       // Zoom follow-up for uncertain checklist items
       const hasUncertain = checklistResults?.some(c => isUncertain(c));
@@ -392,6 +428,8 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
     totalCompletionTokens: vlmCompletionTokens + codeCompletionTokens,
     annotatedCriteria: input.annotatedCriteria,
     adaptiveWeightRange: adaptiveRange,
+    vlmRawResponse, vlmReasoning, vlmSystemPrompt,
+    codeReviewRawResponse, codeReviewReasoning, codeReviewSystemPrompt,
   });
 
   logger.info(

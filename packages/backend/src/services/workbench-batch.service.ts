@@ -360,7 +360,7 @@ export async function startBatchReRender(categoryId: string): Promise<BatchJobSu
  * Re-runs the eval pipeline (assertions + code review + VLM) on all
  * successfully rendered examples with screenshots, updating them in place.
  */
-export async function startBatchReEvaluate(categoryId: string): Promise<BatchJobSummary> {
+export async function startBatchReEvaluate(categoryId: string, mode: "all" | "missing" = "all"): Promise<BatchJobSummary> {
   const existing = getRunningJobForCategory(categoryId);
   if (existing) {
     const err = new Error("A batch job is already running for this category");
@@ -374,12 +374,23 @@ export async function startBatchReEvaluate(categoryId: string): Promise<BatchJob
   });
   if (!cat) throw new Error("Category not found");
 
+  // In "missing" mode, only target examples with gaps: no VLM score, code_only eval, or missing training data
+  const missingFilter = mode === "missing" ? {
+    OR: [
+      { visualScore: null },
+      { evalSource: "code_only" },
+      { vlmRawResponse: null },
+      { codeReviewRawResponse: null },
+    ],
+  } : {};
+
   const exampleRows = await prisma.workbenchExample.findMany({
     where: {
       promptRef: { categoryId },
       renderStatus: "success",
       screenshotFront: { not: null },
       experimentRunId: null,
+      ...missingFilter,
     },
     select: {
       id: true,
@@ -390,7 +401,9 @@ export async function startBatchReEvaluate(categoryId: string): Promise<BatchJob
   });
 
   if (exampleRows.length === 0) {
-    throw new Error("No evaluatable examples found for this category");
+    throw new Error(mode === "missing"
+      ? "All examples in this category already have complete evaluation data"
+      : "No evaluatable examples found for this category");
   }
 
   const jobId = generateJobId("batch-re-evaluate");

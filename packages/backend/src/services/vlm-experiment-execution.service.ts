@@ -16,6 +16,7 @@ import {
   isExperimentRunning,
   cancelRunningExperiment,
 } from "./experiment-lock.service.js";
+import { runWithUsageContext } from "./usage-tracking.service.js";
 
 const logger = createLogger("vlm-experiment-exec");
 
@@ -190,7 +191,10 @@ async function executeVlmRun(run: RunInfo, exampleIds: string[], signal: AbortSi
 
     const startMs = Date.now();
     try {
-      const result = await evaluateExample(exampleId, modelConfig);
+      const result = await runWithUsageContext(
+        { source: "experiment", experimentId: run.id, experimentRunId: run.id, sourceLabel: `VLM Experiment: ${run.modelLabel}` },
+        () => evaluateExample(exampleId, modelConfig),
+      );
       const durationMs = Date.now() - startMs;
 
       await prisma.vlmExperimentResult.create({
@@ -204,6 +208,9 @@ async function executeVlmRun(run: RunInfo, exampleIds: string[], signal: AbortSi
           promptTokens: result.promptTokens,
           completionTokens: result.completionTokens,
           durationMs,
+          rawResponse: result.rawResponse ?? null,
+          reasoning: result.reasoning ?? null,
+          systemPrompt: result.systemPrompt ?? null,
         },
       });
 

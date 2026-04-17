@@ -1,6 +1,6 @@
 # Chat3D — Product Vision & Roadmap
 
-> **Status:** Living document. Last updated 2026-04-05.
+> **Status:** Living document. Last updated 2026-04-11.
 
 ---
 
@@ -67,6 +67,8 @@ Replaced the simple prompt-response codegen with a full agent loop. See [`codege
 - **Error classification** — 7 categories with domain-specific fix guidance (infrastructure, API misuse, geometry, kernel, syntax, type, unknown)
 - **Infrastructure retry** — Exponential backoff for Build123d service timeouts (distinct from code errors)
 - **Agent-only mode** — Non-agent iteration loops removed; agent pipeline is the only codegen path
+- **Agent nudge loop** — Detects stalled agents and pushes them to continue instead of timing out silently
+- **Conversation continuation fixes** — Full message history carried through loops, correct tool-result format, vLLM malformed tool call sanitization
 - **Execution tracing** — Live DAG visualization of agent steps with incremental persistence
 - **Configurable pipeline settings** — Max steps, timeouts, temperature, code eval weight, multi-agent toggle — all via admin UI
 
@@ -81,6 +83,8 @@ Multi-modal evaluation: visual (VLM) + code review + deterministic assertions.
 - **Composite scoring** — Configurable visual/code weight blend with assertion penalty and disagreement handling
 - **Auto-approval** — Score ≥ threshold AND ≥ 80% checklist pass → approved for training dataset
 - **VLM eval in chat** — User-facing generations also evaluated (not just workbench)
+- **Per-model VLM preamble** — `vlm_eval_preamble` field on model config for scoring calibration per VLM model
+- **Training data capture** — Full raw responses, reasoning tokens, and system prompts saved for all pipeline stages (VLM eval, code review, spec generation, spec enrichment, agent codegen conversation history). Enables fine-tuning dataset construction from production runs
 
 ### Build123d Knowledge Base — ✅ Complete
 
@@ -89,9 +93,9 @@ Multi-modal evaluation: visual (VLM) + code review + deterministic assertions.
 - **Crawl pipeline** — GitHub files, test functions, ReadTheDocs pages, manual entries, reference uploads, reference URLs
 - **~630 entries** — Build123d examples (65), tests (230), docs Python files (48), ReadTheDocs (209), bd_warehouse (13), community tutorials (27), reference specs (~38)
 - **Validation pipeline** — Build123d marker check + Python syntax check via `/validate/` endpoint
-- **Embeddings** — OpenAI `text-embedding-3-large` at 1536 dims, pgvector HNSW index
-- **Hybrid search** — Semantic (cosine similarity) + lexical (PostgreSQL full-text search) merged via Reciprocal Rank Fusion
-- **Few-shot retrieval** — Operation-aware re-ranking (70% semantic + 30% operation overlap), up to 6 examples per generation
+- **Embeddings** — OpenAI `text-embedding-3-large` at 1536 dims, pgvector HNSW index, configurable dimensions for Ollama/OpenAI-compatible providers, unified backfill with staleness detection
+- **Hybrid search** — Semantic (cosine similarity) + lexical (PostgreSQL full-text search) merged via Reciprocal Rank Fusion, similarity threshold tuned to 0.60
+- **Few-shot retrieval** — Operation-aware re-ranking (70% semantic + 30% operation overlap), up to 6 examples per generation, self-exclusion in workbench context
 - **Reference knowledge** — Non-code content (connector dimensions, fastener specs, dev board datasheets, 3D printing guidelines) stored as Markdown
 - **Keyword-based pre-retrieval** — ~20 tag groups auto-inject matching reference entries into codegen prompt (USB-C, HDMI, RPi, Arduino, etc.)
 - **Knowledge admin UI** — Source management, crawl triggers, validation, entry CRUD, search, Markdown rendering
@@ -114,11 +118,12 @@ Fully implemented admin-only sub-project for generating fine-tuning data. All WB
 - **Operation detection** — `detected_operations` TEXT[] on prompts with GIN index
 - **Training dataset export** — LLaMA-Factory JSONL format
 - **Prompt improvement** — LLM-assisted prompt optimization (126 prompts improved)
-- **Re-evaluation** — Re-run VLM eval on existing examples with new settings
+- **Re-evaluation** — Re-run VLM eval on existing examples with new settings (also captures training data fields)
 - **Re-rendering** — Re-render existing examples with updated pipeline
 - **Spec backfill** — Batch backfill specs for existing examples
 - **Data quality report** — Identify issues across the dataset
 - **RAG gap analysis** — Intelligent decomposition to find missing technique coverage
+- **Pipeline training data persistence** — Raw LLM responses, reasoning tokens, and system prompts captured for VLM eval, code review, spec gen, spec enrichment, and agent conversation history — enables fine-tuning dataset construction from workbench runs
 
 ### User Content Curation Pipeline — ✅ Complete
 
@@ -140,9 +145,10 @@ Admin tools for systematic model comparison and pipeline tuning.
 - **Multi-category selection** — Run experiments across selected workbench categories
 - **Few-shot count as variable** — Test impact of 0/2/4/6 examples
 - **Experiment execution** — Streaming LLM calls, RAG exclusion, timeout handling
-- **Comparison views** — Side-by-side results, outlier detection, delta columns, failure reasons
-- **VLM experiments** — Compare VLM evaluation models/settings with re-evaluation support
-- **Run management** — Edit finished experiments, retry failed runs
+- **Comparison views** — Side-by-side results, outlier detection, delta columns, failure reasons, baseline steps + model display
+- **VLM experiments** — Compare VLM evaluation models/settings with per-model prompt calibration preambles, example selection filtered to examples with ground-truth scores, editable experiment config
+- **Run management** — Edit experiments preserving existing run results, per-run reset button, retry failed runs
+- **Live results** — Experiment results visible while still running
 - **URL-based navigation** — Deep-linkable experiment detail views
 
 ### Frontend & UX — ✅ Complete
@@ -173,8 +179,8 @@ Major UX evolution since initial phases.
 
 ### Operations & Observability — ✅ Complete
 
-- **LLM usage tracking** — Per-call cost attribution with provider/model/purpose breakdown
-- **Cost explorer** — Charts with expanded color palette, per-context cost tracking
+- **Centralized cost ledger** — `llm_usage_events` table as append-only ledger with source context (`workbench`/`chat`/`experiment`/`system`), source labels, experiment IDs. Survives deletion of parent entities (no cascade). Reasoning token estimation from streaming events
+- **Cost explorer** — Charts with source filter (All/Workbench/Chat/Experiment/System), groupBy source dimension, expanded color palette, per-context cost tracking
 - **Pipeline analytics** — Detail views vs. submissions timeseries, angle breakdown, avg cost charts
 - **Output TPS tracking** — Tokens per second with streaming estimation
 - **System backup/restore** — Full backup shell scripts + admin UI, ZIP export with model files + chunked import
@@ -183,8 +189,12 @@ Major UX evolution since initial phases.
 
 ### Infrastructure — ✅ Complete
 
-- **Multi-provider LLM support** — OpenAI, Anthropic, xAI, Ollama, Amazon Bedrock
+- **Multi-provider LLM support** — OpenAI, Anthropic, xAI, Ollama, Amazon Bedrock, vLLM (OpenAI-compatible), DeepSeek, Minimax
+- **Ollama vision workaround** — Custom fetch wrapper routes multi-image vision requests through native Ollama `/api/chat` endpoint (OpenAI-compatible endpoint returns empty for vision). Handles Qwen3 thinking tags and token limits
+- **Streaming-first pipeline** — All LLM calls (spec gen, spec enrichment, code eval, VLM eval, prompt validation) use `trackedStreamText` with `reasoning-delta` separation for thinking model compatibility
+- **Spec enrichment streaming** — Dedicated `spec_enrichment` purpose, thinking model support with `enable_thinking` injection
 - **Prompt caching** — Vercel AI SDK v6 `cache_control` with 4,096 token minimum handling
+- **Reasoning token tracking** — Captures reasoning tokens from stream when provider reports 0, Gemma 4 thinking via `chat_template_kwargs`
 - **JWT auth** with bcrypt, admin roles, route guards
 - **Waitlist mode** with email verification and invitation controls
 - **SSE real-time updates** and notification center
@@ -204,6 +214,8 @@ Major UX evolution since initial phases.
 | **100% example generation** | All existing prompts (incl. Hinges, Gridfinity) have generated, evaluated examples | Medium | In progress |
 | **Spec backfill categories 5-12** | Full spec_interpretation + code_assertions for all categories (currently near-zero for 5+) | Medium | In progress |
 | **Resolve pending approvals** | Clear ~597 pending examples — re-generate or approve/reject | Medium | In progress |
+| **Backfill training data** | Run "Batch Re-Evaluate" across all categories to populate VLM + code review training fields on existing ~940 examples | Medium | Planned |
+| **Verify cost tracking accuracy** | Reasoning token fix deployed (Phase 1); needs validation on next agent codegen run to confirm AWS bill alignment. Cost ledger source context (Phase 2) deployed | Small | In progress |
 | **Quality benchmark** | Define ~50 representative prompts across difficulty levels for evaluation | Small | — |
 
 ### Near-Term: Dataset Expansion to 10K
@@ -277,15 +289,21 @@ Recommended order (each wave builds on the previous):
 | **bd_beams_and_bars** | Structural Profiles & Beams category | Small |
 | **Additional knowledge sources** | gridfinity specs, FreeCAD FastenersWB CSVs, BOLTS YAML, community repos | Medium |
 
-### Near-Term: Fine-Tuning
-> Priority: **High** — starts after Wave 2 dataset is generated
+### Near-Term: Fine-Tuning & OSS Model Alignment
+> Priority: **High** — infrastructure in place, data accumulating
 
-| Item | Description | Effort |
-|------|-------------|--------|
-| **Fine-tune Qwen3-Coder-Next** | LoRA fine-tune on curated dataset using Unsloth on DGX Spark | Large |
-| **Multiple seeds for dataset expansion** | Re-run all prompts with varied temperature/seeds (Wave 5) | Medium |
-| **Tool use training data mix** | Mix ~230K public function-calling examples into domain data ([research](tool-use-training-datasets.md)) | Medium |
-| **Shadow testing** | Run fine-tuned model in parallel, compare against commercial API on benchmark set | Medium |
+| Item | Description | Effort | Status |
+|------|-------------|--------|--------|
+| **Training data capture** | All pipeline stages save raw LLM responses, reasoning, and system prompts for fine-tuning | Small | ✅ Done |
+| **VLM eval alignment (Gemma 4)** | Tested Gemma 4 26B as VLM evaluator; achieves 0.57 Spearman correlation with Claude Sonnet — functional but needs calibration. Per-model preamble + VLM experiment framework in place for iterative tuning | Medium | In progress |
+| **VLM LoRA fine-tune** | Fine-tune Gemma 4 on Claude's VLM evaluation outputs (score + reasoning + images). Training pairs accumulating via `vlm_raw_response` + `vlm_system_prompt` fields. Serve via vLLM LoRA adapter | Large | Planned |
+| **Code review LoRA fine-tune** | Fine-tune on Claude's code review outputs. Training pairs via `code_review_raw_response` + `code_review_system_prompt` | Medium | Planned |
+| **Spec generation LoRA fine-tune** | Fine-tune on Claude's spec decomposition outputs. Training pairs via `spec_raw_response` + `spec_system_prompt` | Medium | Planned |
+| **Agent codegen fine-tune** | Fine-tune on full multi-turn tool-use conversations. Training pairs via `agent_conversation` + `agent_system_prompt` | Large | Planned |
+| **Fine-tune Qwen3-Coder-Next** | LoRA fine-tune on curated dataset using Unsloth on DGX Spark | Large | — |
+| **Multiple seeds for dataset expansion** | Re-run all prompts with varied temperature/seeds (Wave 5) | Medium | — |
+| **Tool use training data mix** | Mix ~230K public function-calling examples into domain data ([research](tool-use-training-datasets.md)) | Medium | — |
+| **Shadow testing** | Run fine-tuned model in parallel, compare against commercial API on benchmark set | Medium | — |
 
 ### Medium-Term: Product Features
 > Priority: **Medium** — significant features for user experience

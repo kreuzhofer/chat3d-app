@@ -32,8 +32,11 @@ export function buildEvaluationSystemPrompt(
   hasZoomTool?: boolean,
   providedAngles?: string[],
   constructionSpec?: string,
+  /** Per-model preamble prepended to the prompt for scoring calibration. */
+  evalPreamble?: string,
 ): string {
-  let prompt = `You are a 3D model quality evaluator for Build123d CAD models.
+  let prompt = evalPreamble ? `${evalPreamble}\n\n` : "";
+  prompt += `You are a 3D model quality evaluator for Build123d CAD models.
 
 The user requested: "${userPrompt}"
 Category: ${categoryName} (complexity level ${complexity}/10)

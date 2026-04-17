@@ -19,6 +19,7 @@ export interface UsageFilters {
   modelName?: string;
   providerName?: string;
   purpose?: string;
+  source?: string;
 }
 
 export interface UsageSummary {
@@ -96,6 +97,11 @@ function buildWhereClause(filters: UsageFilters): { sql: string; params: unknown
     params.push(filters.purpose);
     idx++;
   }
+  if (filters.source) {
+    conditions.push(`source = $${idx}`);
+    params.push(filters.source);
+    idx++;
+  }
 
   return {
     sql: conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "",
@@ -155,12 +161,13 @@ export async function getUsageSummary(filters: UsageFilters): Promise<UsageSumma
 // ── Timeseries ─────────────────────────────────────────────────────
 
 const VALID_GRANULARITIES = new Set(["hour", "day", "week", "month"]);
-const VALID_GROUP_BY = new Set(["model", "provider", "purpose", "user"]);
+const VALID_GROUP_BY = new Set(["model", "provider", "purpose", "user", "source"]);
 
 const GROUP_COLUMN: Record<string, string> = {
   model: "model_name",
   provider: "provider_name",
   purpose: "purpose",
+  source: "source",
   user: "user_id",
 };
 
@@ -270,6 +277,7 @@ export async function exportUsageEvents(
   if (filters.modelName) where.modelName = filters.modelName;
   if (filters.providerName) where.providerName = filters.providerName;
   if (filters.purpose) where.purpose = filters.purpose;
+  if (filters.source) where.source = filters.source;
 
   const events = await prisma.llmUsageEvent.findMany({
     where,

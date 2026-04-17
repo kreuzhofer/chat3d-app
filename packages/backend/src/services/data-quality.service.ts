@@ -29,6 +29,12 @@ export interface DataQualityStats {
   missingCriteria: number;
   // Assertion execution rate on best examples
   assertionsRan: number;
+  // Training data coverage (count WITH data per purpose)
+  trainingVlmEval: number;
+  trainingCodeReview: number;
+  trainingAgentCodegen: number;
+  trainingSpecGen: number;
+  trainingSpecEnrich: number;
 }
 
 export interface CategoryDataQuality {
@@ -59,6 +65,11 @@ interface RawRow {
   missing_checklist: bigint;
   missing_criteria: bigint;
   assertions_ran: bigint;
+  training_vlm_eval: bigint;
+  training_code_review: bigint;
+  training_agent_codegen: bigint;
+  training_spec_gen: bigint;
+  training_spec_enrich: bigint;
 }
 
 function toStats(row: RawRow): DataQualityStats {
@@ -77,6 +88,11 @@ function toStats(row: RawRow): DataQualityStats {
     missingChecklist: Number(row.missing_checklist),
     missingCriteria: Number(row.missing_criteria),
     assertionsRan: Number(row.assertions_ran),
+    trainingVlmEval: Number(row.training_vlm_eval),
+    trainingCodeReview: Number(row.training_code_review),
+    trainingAgentCodegen: Number(row.training_agent_codegen),
+    trainingSpecGen: Number(row.training_spec_gen),
+    trainingSpecEnrich: Number(row.training_spec_enrich),
   };
 }
 
@@ -88,6 +104,8 @@ function sumStats(rows: RawRow[]): DataQualityStats {
     missingSpec: 0, missingConstructionSpec: 0,
     missingAssertions: 0, missingChecklist: 0, missingCriteria: 0,
     assertionsRan: 0,
+    trainingVlmEval: 0, trainingCodeReview: 0, trainingAgentCodegen: 0,
+    trainingSpecGen: 0, trainingSpecEnrich: 0,
   };
   for (const row of rows) {
     const s = toStats(row);
@@ -109,7 +127,10 @@ export async function getDataQualityReport(): Promise<DataQualityReport> {
         e.screenshot_front IS NOT NULL AS has_screenshot,
         e.visual_score IS NOT NULL AS has_visual_score,
         e.code_eval_score IS NOT NULL AS has_code_eval_score,
-        e.assertion_pass_rate IS NOT NULL AS has_assertions_ran
+        e.assertion_pass_rate IS NOT NULL AS has_assertions_ran,
+        e.vlm_raw_response IS NOT NULL AND e.vlm_system_prompt IS NOT NULL AS has_training_vlm,
+        e.code_review_raw_response IS NOT NULL AND e.code_review_system_prompt IS NOT NULL AS has_training_code_review,
+        e.agent_conversation IS NOT NULL AND e.agent_system_prompt IS NOT NULL AS has_training_agent
       FROM workbench_examples e
       WHERE e.render_status = 'success' AND e.experiment_run_id IS NULL
       ORDER BY e.prompt_id,
@@ -137,7 +158,12 @@ export async function getDataQualityReport(): Promise<DataQualityReport> {
       COUNT(p.id) FILTER (WHERE p.code_assertions IS NULL) AS missing_assertions,
       COUNT(p.id) FILTER (WHERE p.verification_checklist IS NULL) AS missing_checklist,
       COUNT(p.id) FILTER (WHERE p.verification_criteria IS NULL) AS missing_criteria,
-      COUNT(be.prompt_id) FILTER (WHERE be.has_assertions_ran) AS assertions_ran
+      COUNT(be.prompt_id) FILTER (WHERE be.has_assertions_ran) AS assertions_ran,
+      COUNT(be.prompt_id) FILTER (WHERE be.has_training_vlm) AS training_vlm_eval,
+      COUNT(be.prompt_id) FILTER (WHERE be.has_training_code_review) AS training_code_review,
+      COUNT(be.prompt_id) FILTER (WHERE be.has_training_agent) AS training_agent_codegen,
+      COUNT(p.id) FILTER (WHERE p.spec_raw_response IS NOT NULL AND p.spec_system_prompt IS NOT NULL) AS training_spec_gen,
+      COUNT(p.id) FILTER (WHERE p.enrichment_raw_response IS NOT NULL AND p.enrichment_system_prompt IS NOT NULL) AS training_spec_enrich
     FROM workbench_categories c
     JOIN workbench_example_prompts p ON p.category_id = c.id
     LEFT JOIN best_examples be ON be.prompt_id = p.id

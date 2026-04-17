@@ -257,20 +257,22 @@ export function startReEvaluate(token: string, exampleId: string): Promise<Batch
 export function startBatchReEvaluate(
   token: string,
   categoryId: string,
+  mode?: "all" | "missing",
 ): Promise<BatchJobSummary> {
   return requestJson<BatchJobSummary>(token, "/re-evaluate/batch", {
     method: "POST",
-    body: JSON.stringify({ categoryId }),
+    body: JSON.stringify({ categoryId, ...(mode ? { mode } : {}) }),
   });
 }
 
 export function startBatchBackfillSpecs(
   token: string,
   categoryId: string,
+  regenerate?: boolean,
 ): Promise<BatchJobSummary> {
   return requestJson<BatchJobSummary>(token, "/backfill-specs/batch", {
     method: "POST",
-    body: JSON.stringify({ categoryId }),
+    body: JSON.stringify({ categoryId, ...(regenerate ? { regenerate: true } : {}) }),
   });
 }
 

@@ -423,6 +423,11 @@ model WorkbenchExamplePrompt {
   codeAssertions           Json?                          @map("code_assertions") @db.JsonB
   verificationChecklist    Json?                          @map("verification_checklist") @db.JsonB
   verificationCriteria     Json?                          @map("verification_criteria") @db.JsonB
+  specRawResponse          String?                        @map("spec_raw_response") @db.Text
+  specSystemPrompt         String?                        @map("spec_system_prompt") @db.Text
+  enrichmentRawResponse    String?                        @map("enrichment_raw_response") @db.Text
+  enrichmentSystemPrompt   String?                        @map("enrichment_system_prompt") @db.Text
+  enrichmentUserMessage    String?                        @map("enrichment_user_message") @db.Text
 
   // Relations
   category                   WorkbenchCategory    @relation(fields: [categoryId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -459,6 +464,14 @@ model WorkbenchExample {
   rejectionNote         String?  @map("rejection_note") @db.Text
   llmModel              String?  @map("llm_model") @db.VarChar(255)
   vlmModel              String?  @map("vlm_model") @db.VarChar(255)
+  vlmRawResponse        String?  @map("vlm_raw_response") @db.Text
+  vlmReasoning          String?  @map("vlm_reasoning") @db.Text
+  vlmSystemPrompt       String?  @map("vlm_system_prompt") @db.Text
+  codeReviewRawResponse String?  @map("code_review_raw_response") @db.Text
+  codeReviewReasoning   String?  @map("code_review_reasoning") @db.Text
+  codeReviewSystemPrompt String? @map("code_review_system_prompt") @db.Text
+  agentConversation     Json?    @map("agent_conversation") @db.JsonB
+  agentSystemPrompt     String?  @map("agent_system_prompt") @db.Text
   promptTokens          Int?     @map("prompt_tokens")
   completionTokens      Int?     @map("completion_tokens")
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz()
@@ -610,6 +623,9 @@ model VlmExperimentResult {
   completionTokens Int?     @map("completion_tokens")
   durationMs       Int?     @map("duration_ms")
   error            String?  @db.Text
+  rawResponse      String?  @map("raw_response") @db.Text
+  reasoning        String?  @map("reasoning") @db.Text
+  systemPrompt     String?  @map("system_prompt") @db.Text
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
@@ -683,6 +699,7 @@ model LlmModel {
   supportsVision        Boolean  @default(false) @map("supports_vision")
   supportsEmbeddings    Boolean  @default(false) @map("supports_embeddings")
   streamingEnabled      Boolean  @default(true) @map("streaming_enabled")
+  vlmEvalPreamble       String?  @map("vlm_eval_preamble")
   isActive              Boolean  @default(true) @map("is_active")
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz()
@@ -775,8 +792,12 @@ model LlmUsageEvent {
   isEstimated        Boolean?  @default(false) @map("is_estimated")
   generationAttempt  Int?      @default(1) @map("generation_attempt")
   outputTokensPerSecond Decimal? @map("output_tokens_per_second") @db.Decimal(10, 2)
+  experimentId       String?   @map("experiment_id") @db.Uuid
+  experimentRunId    String?   @map("experiment_run_id") @db.Uuid
+  source             String?   @map("source") @db.VarChar(20)
+  sourceLabel        String?   @map("source_label") @db.VarChar(255)
 
-  // Relations
+  // Relations — no FK for experiment/source fields (ledger must survive deletions)
   user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   chatContext ChatContext? @relation(fields: [chatContextId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   chatItem    ChatItem?    @relation(fields: [chatItemId], references: [id], onDelete: SetNull, onUpdate: NoAction)
@@ -787,6 +808,8 @@ model LlmUsageEvent {
   @@index([providerName, createdAt], map: "idx_usage_events_provider")
   @@index([purpose, createdAt], map: "idx_usage_events_purpose")
   @@index([chatContextId], map: "idx_usage_events_context")
+  @@index([source, createdAt], map: "idx_usage_events_source")
+  @@index([experimentId], map: "idx_usage_events_experiment")
   @@map("llm_usage_events")
 }
 

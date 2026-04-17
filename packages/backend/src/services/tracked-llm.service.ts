@@ -204,11 +204,16 @@ export function trackedStreamText(
       const durationMs = Date.now() - start;
       const usage = extractUsage(event.totalUsage);
 
-      // When provider doesn't report streaming usage (e.g., vllm/OpenAI-compatible),
-      // estimate output tokens from the response text (~4 chars per token).
+      // When provider doesn't report streaming usage (e.g., Bedrock streaming bug,
+      // vllm/OpenAI-compatible), estimate tokens from response text (~4 chars per token).
       const responseText = typeof event.text === "string" ? event.text : "";
+      const reasoningText = typeof (event as { reasoning?: string }).reasoning === "string"
+        ? (event as { reasoning?: string }).reasoning!
+        : "";
       let effectiveOutputTokens = usage.outputTokens;
+      let effectiveReasoningTokens = usage.reasoningTokens;
       let isEstimated = usage.inputTokens === 0 && usage.outputTokens === 0;
+
       if (usage.outputTokens === 0 && responseText.length > 0) {
         effectiveOutputTokens = Math.ceil(responseText.length / 4);
         isEstimated = true;
@@ -218,7 +223,43 @@ export function trackedStreamText(
         );
       }
 
-      const cost = computeCost(tracking, { ...usage, outputTokens: effectiveOutputTokens });
+      // Estimate reasoning tokens from reasoning text when provider reports 0
+      // (critical for Bedrock where streaming usage is empty but reasoning text is available)
+      if (usage.reasoningTokens === 0 && reasoningText.length > 0) {
+        effectiveReasoningTokens = Math.ceil(reasoningText.length / 4);
+        isEstimated = true;
+        logger.info(
+          { purpose: tracking.purpose, model: tracking.modelName, chars: reasoningText.length, estimatedTokens: effectiveReasoningTokens },
+          "estimated reasoning tokens from stream reasoning text (provider reported 0)",
+        );
+      }
+
+      // Also check per-step usage if totalUsage is empty (Bedrock streaming bug workaround)
+      const steps = (event as { steps?: Array<{ usage?: unknown }> }).steps;
+      if (steps && Array.isArray(steps) && usage.inputTokens === 0) {
+        let stepInput = 0, stepOutput = 0, stepReasoning = 0;
+        for (const step of steps) {
+          const su = extractUsage(step.usage);
+          stepInput += su.inputTokens;
+          stepOutput += su.outputTokens;
+          stepReasoning += su.reasoningTokens;
+        }
+        if (stepInput > 0 || stepOutput > 0) {
+          usage.inputTokens = stepInput;
+          effectiveOutputTokens = stepOutput || effectiveOutputTokens;
+          effectiveReasoningTokens = stepReasoning || effectiveReasoningTokens;
+          usage.cacheReadTokens = 0; // step-level cache data not aggregated
+          usage.cacheWriteTokens = 0;
+          usage.totalTokens = stepInput + stepOutput + stepReasoning;
+          isEstimated = false;
+          logger.info(
+            { purpose: tracking.purpose, steps: steps.length, input: stepInput, output: stepOutput, reasoning: stepReasoning },
+            "recovered usage from per-step data (totalUsage was empty)",
+          );
+        }
+      }
+
+      const cost = computeCost(tracking, { ...usage, outputTokens: effectiveOutputTokens, reasoningTokens: effectiveReasoningTokens });
 
       recordUsageEvent({
         providerName: tracking.providerName,
@@ -227,10 +268,10 @@ export function trackedStreamText(
         purpose: tracking.purpose,
         inputTokens: usage.inputTokens,
         outputTokens: effectiveOutputTokens,
-        reasoningTokens: usage.reasoningTokens,
+        reasoningTokens: effectiveReasoningTokens,
         cacheReadTokens: usage.cacheReadTokens,
         cacheWriteTokens: usage.cacheWriteTokens,
-        totalTokens: usage.totalTokens || effectiveOutputTokens,
+        totalTokens: usage.totalTokens || (usage.inputTokens + effectiveOutputTokens + effectiveReasoningTokens),
         estimatedCostUsd: cost,
         durationMs,
         isEstimated,

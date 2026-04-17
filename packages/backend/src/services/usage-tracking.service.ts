@@ -19,6 +19,10 @@ export interface UsageTrackingContext {
   chatContextId?: string;
   chatItemId?: string;
   workbenchExampleId?: string;
+  experimentId?: string;
+  experimentRunId?: string;
+  source?: "workbench" | "chat" | "experiment" | "system";
+  sourceLabel?: string;
 }
 
 const store = new AsyncLocalStorage<UsageTrackingContext>();
@@ -92,6 +96,10 @@ export function recordUsageEvent(params: UsageEventParams): void {
     chatContextId: params.chatContextId ?? ctx.chatContextId,
     chatItemId: params.chatItemId ?? ctx.chatItemId,
     workbenchExampleId: params.workbenchExampleId ?? ctx.workbenchExampleId,
+    experimentId: ctx.experimentId,
+    experimentRunId: ctx.experimentRunId,
+    source: ctx.source,
+    sourceLabel: ctx.sourceLabel,
   };
 
   // Fire-and-forget
@@ -102,6 +110,10 @@ export function recordUsageEvent(params: UsageEventParams): void {
         chatContextId: merged.chatContextId ?? null,
         chatItemId: merged.chatItemId ?? null,
         workbenchExampleId: merged.workbenchExampleId ?? null,
+        experimentId: merged.experimentId ?? null,
+        experimentRunId: merged.experimentRunId ?? null,
+        source: merged.source ?? null,
+        sourceLabel: merged.sourceLabel ?? null,
         providerName: params.providerName,
         modelId: params.modelId ?? null,
         modelName: params.modelName,
@@ -120,6 +132,9 @@ export function recordUsageEvent(params: UsageEventParams): void {
       },
     })
     .catch((err: unknown) => {
-      logger.error({ err, purpose: params.purpose, model: params.modelName }, "failed to record usage event");
+      logger.warn(
+        { err, purpose: params.purpose, model: params.modelName, costUsd: params.estimatedCostUsd },
+        "failed to record usage event — cost data lost",
+      );
     });
 }

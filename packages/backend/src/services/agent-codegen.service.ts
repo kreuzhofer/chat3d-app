@@ -123,6 +123,8 @@ export interface AgentCodegenResult {
   screenshots: import("./stl-rendering-client.service.js").RenderedScreenshot[];
   /** Full conversation history from this run (for continuation in fix loop). */
   conversationHistory: CoreMessage[];
+  /** Full system prompt used for this agent run (for training data). */
+  systemPrompt?: string;
 }
 
 // Re-export multi-agent orchestration so consumers don't need to change imports
@@ -513,6 +515,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
         totalCostUsd: calculateCostUsd(modelConfig, totalPromptTokens, totalCompletionTokens),
       },
       stepCount, submitted, evalResult, screenshots: lastScreenshots, conversationHistory,
+      systemPrompt,
     };
   } catch (err) {
     // Add a phantom step node when aborted before any step completed
@@ -542,7 +545,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
           reasoningTokens: totalReasoningTokens,
           totalCostUsd: calculateCostUsd(modelConfig, totalPromptTokens, totalCompletionTokens),
         },
-        stepCount: 0, submitted: false, evalResult, screenshots: lastScreenshots, conversationHistory: agentMessages,
+        stepCount: 0, submitted: false, evalResult, screenshots: lastScreenshots, conversationHistory: agentMessages, systemPrompt,
       };
     }
     throw err;

@@ -274,6 +274,7 @@ export interface LlmModelRow {
   supports_vision: boolean;
   supports_embeddings: boolean;
   streaming_enabled: boolean;
+  vlm_eval_preamble: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -303,6 +304,7 @@ export interface CreateLlmModelInput {
   supportsVision?: boolean;
   supportsEmbeddings?: boolean;
   streamingEnabled?: boolean;
+  vlmEvalPreamble?: string | null;
 }
 
 export async function listAdminLlmModels(token: string): Promise<LlmModelRow[]> {
@@ -802,6 +804,7 @@ export interface UsageFiltersInput {
   modelName?: string;
   providerName?: string;
   purpose?: string;
+  source?: string;
 }
 
 function buildUsageQuery(filters: UsageFiltersInput, extra?: Record<string, string>): string {
@@ -812,6 +815,7 @@ function buildUsageQuery(filters: UsageFiltersInput, extra?: Record<string, stri
   if (filters.modelName) params.set("modelName", filters.modelName);
   if (filters.providerName) params.set("providerName", filters.providerName);
   if (filters.purpose) params.set("purpose", filters.purpose);
+  if (filters.source) params.set("source", filters.source);
   if (extra) {
     for (const [k, v] of Object.entries(extra)) params.set(k, v);
   }
@@ -989,6 +993,11 @@ export interface DataQualityStats {
   missingChecklist: number;
   missingCriteria: number;
   assertionsRan: number;
+  trainingVlmEval: number;
+  trainingCodeReview: number;
+  trainingAgentCodegen: number;
+  trainingSpecGen: number;
+  trainingSpecEnrich: number;
 }
 
 export interface CategoryDataQuality {

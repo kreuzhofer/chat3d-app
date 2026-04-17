@@ -14,6 +14,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createXai } from "@ai-sdk/xai";
 import { createMinimax } from "vercel-minimax-ai-provider";
+import { createOllamaVisionFetch } from "./ollama-vision-fetch.js";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -49,6 +50,7 @@ export interface LlmModelRow {
   supports_vision: boolean;
   supports_embeddings: boolean;
   streaming_enabled: boolean;
+  vlm_eval_preamble: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -84,6 +86,8 @@ export interface LlmModelConfig {
   supportsEmbeddings: boolean;
   /** Whether the model supports streaming responses. Default true. */
   streamingEnabled: boolean;
+  /** Optional preamble prepended to VLM evaluation system prompts for per-model calibration. */
+  vlmEvalPreamble: string | null;
   endpointUrl: string | null;
   apiKey: string | null;
   /** Per-provider concurrency limit from DB (null = use global default). */
@@ -190,6 +194,8 @@ interface PrismaModelShape {
   defaultThinkingEffort: string | null;
   supportsVision: boolean;
   supportsEmbeddings: boolean;
+  streamingEnabled: boolean;
+  vlmEvalPreamble: string | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -210,6 +216,7 @@ function toModelRow(m: PrismaModelShape): LlmModelRow {
     supports_vision: m.supportsVision,
     supports_embeddings: m.supportsEmbeddings,
     streaming_enabled: m.streamingEnabled,
+    vlm_eval_preamble: m.vlmEvalPreamble,
     is_active: m.isActive,
     created_at: m.createdAt.toISOString(),
     updated_at: m.updatedAt.toISOString(),
@@ -265,6 +272,7 @@ export async function getModelForPurpose(purpose: string): Promise<LlmModelConfi
     supportsVision: model.supportsVision,
     supportsEmbeddings: model.supportsEmbeddings,
     streamingEnabled: model.streamingEnabled,
+    vlmEvalPreamble: model.vlmEvalPreamble ?? null,
     endpointUrl: provider.endpointUrl,
     apiKey,
     maxConcurrent: provider.maxConcurrent ?? null,
@@ -316,6 +324,7 @@ export async function resolveModelConfigById(modelId: string): Promise<LlmModelC
     supportsVision: model.supportsVision,
     supportsEmbeddings: model.supportsEmbeddings,
     streamingEnabled: model.streamingEnabled,
+    vlmEvalPreamble: model.vlmEvalPreamble ?? null,
     endpointUrl: provider.endpointUrl,
     apiKey,
     maxConcurrent: provider.maxConcurrent ?? null,
@@ -384,6 +393,7 @@ export function createProviderModel(cfg: LlmModelConfig): any {
       name: "ollama",
       baseURL: baseUrlWithVersion,
       apiKey: apiKey && apiKey.trim() !== "" ? apiKey.trim() : undefined,
+      fetch: createOllamaVisionFetch(normalizedBaseUrl),
     });
     return ollama.chatModel(modelName);
   }
@@ -785,6 +795,7 @@ export async function createModel(input: {
   supportsVision?: boolean;
   supportsEmbeddings?: boolean;
   streamingEnabled?: boolean;
+  vlmEvalPreamble?: string | null;
 }): Promise<LlmModelRow> {
   const row = await prisma.llmModel.create({
     data: {
@@ -800,6 +811,7 @@ export async function createModel(input: {
       supportsVision: input.supportsVision ?? false,
       supportsEmbeddings: input.supportsEmbeddings ?? false,
       streamingEnabled: input.streamingEnabled ?? true,
+      vlmEvalPreamble: input.vlmEvalPreamble ?? null,
     },
   });
   return toModelRow(row);
@@ -822,6 +834,7 @@ export async function updateModel(
     supportsVision: "supportsVision",
     supportsEmbeddings: "supportsEmbeddings",
     streamingEnabled: "streamingEnabled",
+    vlmEvalPreamble: "vlmEvalPreamble",
     isActive: "isActive",
   };
 

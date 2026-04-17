@@ -11,17 +11,6 @@
         ]
       }
     ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'FILE=\"$CLAUDE_FILE_PATH\"; if [ -z \"$FILE\" ] || [ ! -f \"$FILE\" ]; then exit 0; fi; case \"$FILE\" in *.ts|*.tsx) ;; *) exit 0;; esac; LINES=$(wc -l < \"$FILE\"); LIMIT=400; case \"$FILE\" in *__tests__/*|*.test.*|*.spec.*) LIMIT=600;; esac; if [ \"$LINES\" -gt \"$LIMIT\" ]; then echo \"BLOCKED: $FILE is $LINES lines (limit: $LIMIT). Refactor before adding more code. See CLAUDE.md File Size Limits.\"; exit 1; elif [ \"$LINES\" -gt 350 ]; then echo \"WARNING: $FILE is $LINES lines (limit: $LIMIT). Consider splitting soon.\"; fi'"
-          }
-        ]
-      }
-    ],
     "TaskCompleted": [
       {
         "hooks": [
@@ -33,5 +22,8 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "werner@kreuzhofer-plugins": true
   }
 }

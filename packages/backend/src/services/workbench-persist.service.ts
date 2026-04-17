@@ -48,6 +48,14 @@ export async function insertExample(data: {
   assertionPassRate?: number | null;
   evalSource?: string | null;
   experimentRunId?: string | null;
+  vlmRawResponse?: string | null;
+  vlmReasoning?: string | null;
+  vlmSystemPrompt?: string | null;
+  codeReviewRawResponse?: string | null;
+  codeReviewReasoning?: string | null;
+  codeReviewSystemPrompt?: string | null;
+  agentConversation?: unknown | null;
+  agentSystemPrompt?: string | null;
 }): Promise<string> {
   const created = await prisma.workbenchExample.upsert({
     where: { id: data.id },
@@ -86,6 +94,14 @@ export async function insertExample(data: {
       assertionPassRate: data.assertionPassRate ?? null,
       evalSource: data.evalSource ?? null,
       experimentRunId: data.experimentRunId ?? null,
+      vlmRawResponse: data.vlmRawResponse ?? null,
+      vlmReasoning: data.vlmReasoning ?? null,
+      vlmSystemPrompt: data.vlmSystemPrompt ?? null,
+      codeReviewRawResponse: data.codeReviewRawResponse ?? null,
+      codeReviewReasoning: data.codeReviewReasoning ?? null,
+      codeReviewSystemPrompt: data.codeReviewSystemPrompt ?? null,
+      agentConversation: data.agentConversation ?? null,
+      agentSystemPrompt: data.agentSystemPrompt ?? null,
     },
     update: {
       iteration: data.iteration,
@@ -120,6 +136,14 @@ export async function insertExample(data: {
       assertionPassRate: data.assertionPassRate ?? null,
       evalSource: data.evalSource ?? null,
       experimentRunId: data.experimentRunId ?? null,
+      vlmRawResponse: data.vlmRawResponse ?? null,
+      vlmReasoning: data.vlmReasoning ?? null,
+      vlmSystemPrompt: data.vlmSystemPrompt ?? null,
+      codeReviewRawResponse: data.codeReviewRawResponse ?? null,
+      codeReviewReasoning: data.codeReviewReasoning ?? null,
+      codeReviewSystemPrompt: data.codeReviewSystemPrompt ?? null,
+      agentConversation: data.agentConversation ?? null,
+      agentSystemPrompt: data.agentSystemPrompt ?? null,
     },
     select: { id: true },
   });

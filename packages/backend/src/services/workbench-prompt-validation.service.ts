@@ -9,7 +9,7 @@
  * never block the pipeline.
  */
 
-import { trackedGenerateText } from "./tracked-llm.service.js";
+import { trackedStreamText } from "./tracked-llm.service.js";
 import { isProviderQuotaError } from "../utils/llm-errors.js";
 import { resolveCodegenModel } from "./workbench-codegen.service.js";
 import { createLogger } from "../utils/logger.js";
@@ -96,7 +96,7 @@ export async function validatePrompt(promptText: string): Promise<ValidationResu
   logger.info({ prompt: promptText.slice(0, 80), model: label }, "validating prompt");
 
   try {
-    const result = await trackedGenerateText({
+    const stream = trackedStreamText({
       model,
       system: VALIDATION_SYSTEM_PROMPT,
       messages: [{ role: "user", content: promptText }],
@@ -112,13 +112,19 @@ export async function validatePrompt(promptText: string): Promise<ValidationResu
       },
     });
 
-    const parsed = parseValidationResponse(result.text);
+    let text = "";
+    for await (const part of stream.fullStream) {
+      if (part.type === "text-delta") text += part.text;
+    }
+    const resolved = await stream;
+
+    const parsed = parseValidationResponse(text);
     logger.info({ valid: parsed.valid, reason: parsed.reason }, "validation result");
 
     return {
       ...parsed,
-      promptTokens: result.usage?.inputTokens ?? 0,
-      completionTokens: result.usage?.outputTokens ?? 0,
+      promptTokens: resolved.usage?.inputTokens ?? 0,
+      completionTokens: resolved.usage?.outputTokens ?? 0,
     };
   } catch (error) {
     // Quota exhaustion is NOT transient — abort the pipeline

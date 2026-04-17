@@ -51,7 +51,16 @@ const GROUP_BY_OPTIONS = [
   { value: "model", label: "Model" },
   { value: "provider", label: "Provider" },
   { value: "purpose", label: "Purpose" },
+  { value: "source", label: "Source" },
   { value: "user", label: "User" },
+];
+
+const SOURCE_FILTER_OPTIONS = [
+  { value: "", label: "All Sources" },
+  { value: "workbench", label: "Workbench" },
+  { value: "chat", label: "Chat" },
+  { value: "experiment", label: "Experiment" },
+  { value: "system", label: "System" },
 ];
 
 const CHART_TYPES = [
@@ -127,13 +136,17 @@ export function CostAnalysisTab({ token }: CostAnalysisTabProps) {
   const [granularity, setGranularity] = useState("day");
   const [groupBy, setGroupBy] = useState("");
   const [chartType, setChartType] = useState("bar");
+  const [sourceFilter, setSourceFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [timeseries, setTimeseries] = useState<TimeseriesResponse | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  const filters: UsageFiltersInput = useMemo(() => presetToDateRange(preset), [preset]);
+  const filters: UsageFiltersInput = useMemo(() => ({
+    ...presetToDateRange(preset),
+    ...(sourceFilter ? { source: sourceFilter } : {}),
+  }), [preset, sourceFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -254,6 +267,16 @@ export function CostAnalysisTab({ token }: CostAnalysisTabProps) {
               options={GROUP_BY_OPTIONS}
               value={groupBy}
               onChange={(e) => setGroupBy(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[hsl(var(--muted-foreground))]">
+              Source
+            </label>
+            <Select
+              options={SOURCE_FILTER_OPTIONS}
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value)}
             />
           </div>
           <div>

@@ -73,6 +73,9 @@ async function queryEligibleExamples(categoryIds: string[]): Promise<string[]> {
     where: {
       screenshotFront: { not: null },
       promptRef: { categoryId: { in: categoryIds } },
+      // Require both ground-truth scores for full comparison
+      visualScore: { not: null },
+      codeEvalScore: { not: null },
     },
     select: { id: true },
     orderBy: [{ promptId: "asc" }, { createdAt: "asc" }],
@@ -127,7 +130,7 @@ export async function createVlmExperiment(input: CreateVlmExperimentInput) {
         data: {
           experimentId: exp.id,
           modelId,
-          modelLabel: `${model.provider}/${model.modelName}`,
+          modelLabel: model.displayName || `${model.provider}/${model.modelName}`,
           runOrder,
         },
       });
@@ -263,14 +266,17 @@ export async function updateVlmExperiment(experimentId: string, input: UpdateVlm
   }
 
   await prisma.$transaction(async (tx) => {
+    // Reset to "created" so experiment can be started again — but only update
+    // fields that were actually provided
     await tx.experiment.update({
       where: { id: experimentId },
       data: {
-        name: input.name,
-        categoryIds: input.categoryIds,
-        promptCount: input.exampleCount,
-        promptSeed: input.exampleSeed,
+        ...(input.name != null ? { name: input.name } : {}),
+        ...(input.categoryIds ? { categoryIds: input.categoryIds } : {}),
+        ...(input.exampleCount != null ? { promptCount: input.exampleCount } : {}),
+        ...(input.exampleSeed != null ? { promptSeed: input.exampleSeed } : {}),
         status: "created",
+        completedAt: null,
       },
     });
 
@@ -288,20 +294,34 @@ export async function updateVlmExperiment(experimentId: string, input: UpdateVlm
     }
 
     if (modelIds) {
-      // Rebuild runs
-      await tx.vlmExperimentResult.deleteMany({ where: { run: { experimentId } } });
-      await tx.experimentRun.deleteMany({ where: { experimentId } });
-
       const { models, uniqueIds } = await validateModels(modelIds);
-      let runOrder = 0;
-      for (const id of uniqueIds) {
+
+      // Find existing runs to preserve
+      const existingRuns = await tx.experimentRun.findMany({ where: { experimentId } });
+      const existingModelIds = new Set(existingRuns.map((r) => r.modelId));
+      const newModelIds = uniqueIds.filter((id) => !existingModelIds.has(id));
+      const removedRuns = existingRuns.filter((r) => !uniqueIds.includes(r.modelId));
+
+      // Delete results + runs only for removed models
+      if (removedRuns.length > 0) {
+        const removedRunIds = removedRuns.map((r) => r.id);
+        await tx.vlmExperimentResult.deleteMany({ where: { runId: { in: removedRunIds } } });
+        await tx.experimentRun.deleteMany({ where: { id: { in: removedRunIds } } });
+      }
+
+      // Add new runs (preserve existing run order, append new ones)
+      const maxOrder = existingRuns.length > 0
+        ? Math.max(...existingRuns.filter((r) => uniqueIds.includes(r.modelId)).map((r) => r.runOrder))
+        : 0;
+      let runOrder = maxOrder;
+      for (const id of newModelIds) {
         const model = models.find((m) => m.id === id)!;
         runOrder++;
         await tx.experimentRun.create({
           data: {
             experimentId,
             modelId: id,
-            modelLabel: `${model.provider}/${model.modelName}`,
+            modelLabel: model.displayName || `${model.provider}/${model.modelName}`,
             runOrder,
           },
         });
@@ -354,6 +374,34 @@ export async function rerunVlmExperiment(experimentId: string) {
 
   logger.info({ experimentId }, "VLM experiment reset for rerun");
   return getVlmExperiment(experimentId);
+}
+
+// ── Reset single run ────────────────────────────────────────────────
+
+export async function resetVlmExperimentRun(experimentId: string, runId: string) {
+  const exp = await prisma.experiment.findUnique({ where: { id: experimentId }, select: { id: true, type: true, status: true } });
+  if (!exp || exp.type !== "vlm_comparison") throw new ExperimentError("VLM experiment not found", 404);
+  if (exp.status === "running") throw new ExperimentError("Cannot reset a run while experiment is running", 409);
+
+  const run = await prisma.experimentRun.findUnique({ where: { id: runId } });
+  if (!run || run.experimentId !== experimentId) throw new ExperimentError("Run not found in this experiment", 404);
+
+  const deleted = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.vlmExperimentResult.deleteMany({ where: { runId } });
+    await tx.experimentRun.update({
+      where: { id: runId },
+      data: { status: "pending", startedAt: null, completedAt: null },
+    });
+    // Reset experiment status so it can be started again
+    await tx.experiment.update({
+      where: { id: experimentId },
+      data: { status: "created", completedAt: null },
+    });
+    return count;
+  });
+
+  logger.info({ experimentId, runId, deleted }, "VLM experiment run reset");
+  return { deleted };
 }
 
 // ── Status (polling) ────────────────────────────────────────────────

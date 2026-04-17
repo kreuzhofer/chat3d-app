@@ -21,6 +21,7 @@ export interface ModelFormData {
   supportsVision: boolean;
   supportsEmbeddings: boolean;
   streamingEnabled: boolean;
+  vlmEvalPreamble: string;
 }
 
 const THINKING_EFFORT_OPTIONS = [
@@ -44,6 +45,7 @@ function emptyForm(defaultProvider: string): ModelFormData {
     supportsVision: false,
     supportsEmbeddings: false,
     streamingEnabled: true,
+    vlmEvalPreamble: "",
   };
 }
 
@@ -61,6 +63,7 @@ function modelToForm(model: LlmModelRow): ModelFormData {
     supportsVision: model.supports_vision,
     supportsEmbeddings: model.supports_embeddings,
     streamingEnabled: model.streaming_enabled,
+    vlmEvalPreamble: model.vlm_eval_preamble ?? "",
   };
 }
 
@@ -284,6 +287,20 @@ export function ModelFormDialog({ model, providers, token, saving, onSave, onClo
             />
           </FormField>
         ) : null}
+
+        {/* VLM Eval Preamble (shown only when vision is supported) */}
+        {form.supportsVision && (
+          <FormField label="VLM Eval Preamble" htmlFor="model-vlm-preamble">
+            <textarea
+              id="model-vlm-preamble"
+              className="w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--input))] px-3 py-2 text-sm text-[hsl(var(--foreground))]"
+              rows={4}
+              placeholder="Optional scoring calibration preamble prepended to the VLM evaluation prompt..."
+              value={form.vlmEvalPreamble}
+              onChange={(e) => patch({ vlmEvalPreamble: e.target.value })}
+            />
+          </FormField>
+        )}
 
         {/* Actions */}
         <div className="flex justify-end gap-2 pt-2">

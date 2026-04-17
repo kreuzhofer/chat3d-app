@@ -922,7 +922,7 @@ async function generateChatName(input: {
   prompt: string;
 }): Promise<void> {
   return runWithUsageContext(
-    { userId: input.userId, chatContextId: input.contextId },
+    { userId: input.userId, chatContextId: input.contextId, source: "chat" },
     () => generateChatNameInner(input),
   );
 }
@@ -1071,7 +1071,7 @@ export async function executeQueryPipeline(input: {
   isFirstPrompt?: boolean;
 }) {
   return runWithUsageContext(
-    { userId: input.userId, chatContextId: input.contextId, chatItemId: input.assistantItemId },
+    { userId: input.userId, chatContextId: input.contextId, chatItemId: input.assistantItemId, source: "chat" },
     () => executeQueryPipelineInner(input),
   );
 }

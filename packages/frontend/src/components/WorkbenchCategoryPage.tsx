@@ -24,6 +24,7 @@ import { PageHeader } from "./layout/PageHeader";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
+import { DropdownMenu, type DropdownItem } from "./ui/dropdown-menu";
 import { useToast } from "./ui/toast";
 
 type Filter = "all" | "pending" | "approved" | "no_examples";
@@ -279,15 +280,15 @@ export function WorkbenchCategoryPage() {
   );
 
   const handleBatchReEvaluate = useCallback(
-    async () => {
+    async (mode?: "all" | "missing") => {
       if (!token || !categoryId) return;
       setError(null);
       try {
-        const job = await startBatchReEvaluate(token, categoryId);
+        const job = await startBatchReEvaluate(token, categoryId, mode);
         setBatchJob(job);
         pushToast({
           tone: "info",
-          title: "Batch re-evaluate started",
+          title: mode === "missing" ? "Re-evaluate missing started" : "Batch re-evaluate started",
           description: `Re-evaluating ${job.total} examples...`,
         });
       } catch (e) {
@@ -298,15 +299,15 @@ export function WorkbenchCategoryPage() {
   );
 
   const handleBatchBackfillSpecs = useCallback(
-    async () => {
+    async (regenerate?: boolean) => {
       if (!token || !categoryId) return;
       setError(null);
       try {
-        const job = await startBatchBackfillSpecs(token, categoryId);
+        const job = await startBatchBackfillSpecs(token, categoryId, regenerate);
         setBatchJob(job);
         pushToast({
           tone: "info",
-          title: "Backfill specs started",
+          title: regenerate ? "Re-generate specs started" : "Backfill specs started",
           description: `Generating specs for ${job.total} prompts...`,
         });
       } catch (e) {
@@ -434,14 +435,13 @@ export function WorkbenchCategoryPage() {
                 >
                   Re-Render All
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void handleBatchReEvaluate()}
-                  disabled={anySingleRunning}
-                >
-                  Re-Evaluate All
-                </Button>
+                <DropdownMenu
+                  triggerLabel="Re-Evaluate"
+                  items={[
+                    { id: "all", label: "Re-Evaluate All", onSelect: () => void handleBatchReEvaluate("all"), disabled: anySingleRunning },
+                    { id: "missing", label: "Re-Evaluate Missing", onSelect: () => void handleBatchReEvaluate("missing"), disabled: anySingleRunning },
+                  ] satisfies DropdownItem[]}
+                />
                 <Button
                   variant="outline"
                   size="sm"
@@ -449,6 +449,18 @@ export function WorkbenchCategoryPage() {
                   disabled={anySingleRunning}
                 >
                   Backfill Specs
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (window.confirm("Re-generate specs for ALL prompts? This overwrites existing specs and captures training data.")) {
+                      void handleBatchBackfillSpecs(true);
+                    }
+                  }}
+                  disabled={anySingleRunning}
+                >
+                  Re-generate Specs
                 </Button>
                 <Button
                   variant="outline"

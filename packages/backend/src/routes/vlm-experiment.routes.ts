@@ -14,6 +14,7 @@ import {
   rerunVlmExperiment,
   previewExampleSelection,
   getVlmExperimentStatus,
+  resetVlmExperimentRun,
 } from "../services/vlm-experiment.service.js";
 import { startVlmExperiment, cancelVlmExperiment } from "../services/vlm-experiment-execution.service.js";
 import {
@@ -114,6 +115,13 @@ vlmExperimentRouter.post("/:id/rerun", async (req: Request, res: Response) => {
   try {
     const experiment = await rerunVlmExperiment(req.params.id);
     res.json(experiment);
+  } catch (err) { handleError(err, res); }
+});
+
+vlmExperimentRouter.delete("/:id/runs/:runId/results", async (req: Request, res: Response) => {
+  try {
+    const result = await resetVlmExperimentRun(req.params.id, req.params.runId);
+    res.json(result);
   } catch (err) { handleError(err, res); }
 });
 

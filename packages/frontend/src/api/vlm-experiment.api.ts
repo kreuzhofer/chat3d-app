@@ -170,6 +170,10 @@ export async function rerunVlmExperiment(token: string, id: string): Promise<Vlm
   return request(token, `/${id}/rerun`, { method: "POST" });
 }
 
+export async function resetVlmExperimentRun(token: string, id: string, runId: string): Promise<{ deleted: number }> {
+  return request(token, `/${id}/runs/${runId}/results`, { method: "DELETE" });
+}
+
 export async function getVlmExperimentStatus(token: string, id: string): Promise<VlmExperimentStatus> {
   return request(token, `/${id}/status`);
 }

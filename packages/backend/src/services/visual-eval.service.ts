@@ -6,7 +6,7 @@
  * are resolved by targeted zoom follow-ups in the eval orchestrator.
  */
 
-import { trackedGenerateText, type TrackingMeta } from "./tracked-llm.service.js";
+import { trackedStreamText, type TrackingMeta } from "./tracked-llm.service.js";
 import { isQuotaExhaustion, asQuotaError, isRateLimitError } from "../utils/llm-errors.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import { createLogger } from "../utils/logger.js";
@@ -36,6 +36,12 @@ export interface EvaluationResult {
   promptTokens: number;
   completionTokens: number;
   checklistResults?: ChecklistResult[];
+  /** Full raw text response from VLM (for training data). */
+  rawResponse?: string;
+  /** Reasoning/thinking tokens from VLM (for training data). */
+  reasoning?: string;
+  /** System prompt used for this evaluation (for training data). */
+  systemPrompt?: string;
 }
 
 export type { ChecklistResult } from "./visual-eval-parser.service.js";
@@ -134,7 +140,7 @@ export async function evaluateModelWithConfig(
   const providedAngles = images.map(img => img.angle);
   const systemPrompt = buildEvaluationSystemPrompt(
     userPrompt, categoryName, complexity, input.verificationChecklist,
-    false, providedAngles, input.constructionSpec,
+    false, providedAngles, input.constructionSpec, vlmConfig.vlmEvalPreamble ?? undefined,
   );
 
   const userContent = buildImageUserContent(images);
@@ -154,19 +160,34 @@ export async function evaluateModelWithConfig(
     for (let attempt = 0; attempt <= EVAL_MAX_RETRIES; attempt++) {
       try {
         logger.info({ model: vlmModelLabel, attempt }, "calling VLM");
-        const result = await trackedGenerateText({
+        // Use streaming so thinking/reasoning tokens go to a separate channel
+        // and don't pollute the response text (critical for Gemma 4, Qwen3, etc.)
+        const stream = trackedStreamText({
           model: providerModel,
           system: systemPrompt,
           messages: [{ role: "user" as const, content: userContent }],
-          maxOutputTokens: 1024,
+          maxOutputTokens: 4096,
           temperature: 0,
         }, trackingMeta);
 
-        const promptTokens = result.usage?.inputTokens ?? 0;
-        const completionTokens = result.usage?.outputTokens ?? 0;
+        let text = "";
+        let reasoning = "";
+        for await (const part of stream.fullStream) {
+          if (part.type === "text-delta") text += part.text;
+          else if (part.type === "reasoning-delta" || part.type === "reasoning") {
+            reasoning += (part as { text?: string }).text ?? "";
+          }
+        }
+        const resolved = await stream;
+        const promptTokens = resolved.usage?.inputTokens ?? 0;
+        const completionTokens = resolved.usage?.outputTokens ?? 0;
 
-        logger.info({ response: result.text }, "VLM returned evaluation");
-        return buildFinalResult(result.text, input, vlmModelLabel, promptTokens, completionTokens);
+        logger.info({ response: text }, "VLM returned evaluation");
+        const result = buildFinalResult(text, input, vlmModelLabel, promptTokens, completionTokens);
+        result.rawResponse = text;
+        result.reasoning = reasoning || undefined;
+        result.systemPrompt = systemPrompt;
+        return result;
       } catch (error) {
         if (isQuotaExhaustion(error)) {
           throw asQuotaError(error, vlmConfig.provider) ?? error;

@@ -9,6 +9,7 @@ import { createLogger } from "../utils/logger.js";
 import { ExperimentError } from "./experiment.service.js";
 import { resolveModelConfigById, createProviderModel } from "./llm-config.service.js";
 import { generateForPrompt, type GenerateResult } from "./workbench-codegen.service.js";
+import { runWithUsageContext } from "./usage-tracking.service.js";
 import {
   acquireExperimentLock,
   releaseExperimentLock,
@@ -205,13 +206,16 @@ async function executeRun(run: RunInfo, promptIds: string[], signal: AbortSignal
     if (signal.aborted) break;
 
     try {
-      const result: GenerateResult = await generateForPrompt(promptId, {
-        externalSignal: signal,
-        codegenModelOverride: modelConfig,
-        experimentRunId: run.id,
-        ragMaxExamplesOverride: run.fewShotCount ?? undefined,
-        excludePromptIds: [promptId],
-      });
+      const result: GenerateResult = await runWithUsageContext(
+        { source: "experiment", experimentId: run.id, experimentRunId: run.id, sourceLabel: `Experiment: ${run.modelLabel}` },
+        () => generateForPrompt(promptId, {
+          externalSignal: signal,
+          codegenModelOverride: modelConfig,
+          experimentRunId: run.id,
+          ragMaxExamplesOverride: run.fewShotCount ?? undefined,
+          excludePromptIds: [promptId],
+        }),
+      );
 
       if (result.renderStatus === "success") {
         successCount++;
