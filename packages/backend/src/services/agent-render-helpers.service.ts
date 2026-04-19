@@ -16,7 +16,11 @@ import { evaluateModel } from "./visual-eval.service.js";
 
 export interface AgentEvalResult {
   score: number;
+  visualScore: number | null;
+  codeScore: number | null;
+  assertionPassRate: number | null;
   vlmModel: string;
+  codeReviewModel: string | null;
   issues: string[];
   suggestions: string[];
   /** Screenshots taken during this evaluation (base64 PNGs). */
@@ -139,7 +143,12 @@ export async function runVlmEval(deps: VlmEvalDeps): Promise<string> {
       stlBase64: stlFile?.contentBase64,
     });
     deps.onEvalComplete?.({
-      score: evalResult.score, vlmModel: evalResult.vlmModel,
+      score: evalResult.score,
+      visualScore: evalResult.score,
+      codeScore: null,
+      assertionPassRate: null,
+      vlmModel: evalResult.vlmModel,
+      codeReviewModel: null,
       issues: evalResult.issues, suggestions: evalResult.suggestions,
       screenshots: ssResult.images,
     });

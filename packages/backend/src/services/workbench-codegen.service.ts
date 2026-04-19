@@ -434,12 +434,12 @@ async function _runPipeline(
 
   if (agResult.submitted && agResult.evalResult) {
     // Reuse agent's in-loop full eval result — same pipeline, same score
-    logger.info({ score: agResult.evalResult.score }, "reusing agent in-loop eval result — skipping post-loop eval");
+    logger.info({ score: agResult.evalResult.score, visualScore: agResult.evalResult.visualScore, codeScore: agResult.evalResult.codeScore }, "reusing agent in-loop eval result — skipping post-loop eval");
     agFullEval = {
       compositeScore: agResult.evalResult.score,
-      visualScore: null, // individual scores not tracked in AgentEvalResult
-      codeScore: null,
-      assertionPassRate: null,
+      visualScore: agResult.evalResult.visualScore,
+      codeScore: agResult.evalResult.codeScore,
+      assertionPassRate: agResult.evalResult.assertionPassRate,
       assertionsFailed: false, // agent wouldn't have submitted if assertions failed
       source: "agent_submitted",
       vlmIssues: agResult.evalResult.issues.filter(i => !i.startsWith("[CODE]")),
@@ -447,7 +447,7 @@ async function _runPipeline(
       codeIssues: agResult.evalResult.issues.filter(i => i.startsWith("[CODE]")),
       checklistResults: undefined,
       vlmModel: agResult.evalResult.vlmModel,
-      codeReviewModel: null,
+      codeReviewModel: agResult.evalResult.codeReviewModel,
       totalPromptTokens: 0,
       totalCompletionTokens: 0,
     };

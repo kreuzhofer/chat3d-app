@@ -339,7 +339,11 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
           // Store eval result for pipeline reuse (screenshots + scores)
           deps.onEvalComplete?.({
             score: compositeScore,
+            visualScore: fullEval.visualScore,
+            codeScore: fullEval.codeScore,
+            assertionPassRate: fullEval.assertionPassRate,
             vlmModel: fullEval.vlmModel ?? "unknown",
+            codeReviewModel: fullEval.codeReviewModel,
             issues: allIssues,
             suggestions: fullEval.vlmSuggestions,
             screenshots,

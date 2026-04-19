@@ -43,6 +43,43 @@ export function fuzzyMatch(target: string, paramName: string, aliases: string[])
   return candidates.some((c) => normalize(c) === normalizedTarget);
 }
 
+// ── Radius/diameter awareness ────────────────────────────────────────
+
+/**
+ * Detect when an assertion value and a matched parameter have a radius↔diameter
+ * relationship (factor of 2). Returns the corrected expected value if a
+ * conversion is detected, or null if no conversion applies.
+ *
+ * Examples:
+ *   assertion: "diameter == 30", matched param: "hole_radius = 15" → returns 15
+ *   assertion: "radius == 15",   matched param: "hole_diameter = 30" → returns 30
+ */
+function radiusDiameterCorrection(
+  matchedName: string,
+  assertionParam: string,
+  assertionAliases: string[],
+  expected: number,
+): number | null {
+  const norm = (s: string) => s.toLowerCase().replace(/[_\s-]/g, "");
+  const matchedNorm = norm(matchedName);
+  const assertionNames = [assertionParam, ...assertionAliases].map(norm);
+
+  const matchedIsRadius = matchedNorm.includes("radius") || matchedNorm.includes("rad");
+  const matchedIsDiameter = matchedNorm.includes("diameter") || matchedNorm.includes("dia");
+  const assertionIsRadius = assertionNames.some(n => n.includes("radius") || n.includes("rad"));
+  const assertionIsDiameter = assertionNames.some(n => n.includes("diameter") || n.includes("dia"));
+
+  // Matched param is radius but assertion expects diameter → expected should be halved
+  if (matchedIsRadius && !matchedIsDiameter && (assertionIsDiameter || !assertionIsRadius)) {
+    return expected / 2;
+  }
+  // Matched param is diameter but assertion expects radius → expected should be doubled
+  if (matchedIsDiameter && !matchedIsRadius && (assertionIsRadius || !assertionIsDiameter)) {
+    return expected * 2;
+  }
+  return null;
+}
+
 // ── Main assertion checker ────────────────────────────────────────────
 
 export async function checkAssertions(
@@ -98,7 +135,19 @@ export async function checkAssertions(
 
     let pass: boolean;
     const actual = match.value;
-    const expected = assertion.value;
+    let expected = assertion.value;
+
+    // Check for radius↔diameter mismatch and correct before comparing
+    const correctedExpected = radiusDiameterCorrection(
+      match.name, assertion.parameter, assertion.aliases, expected,
+    );
+    if (correctedExpected !== null && Math.abs(actual - correctedExpected) < 0.001) {
+      expected = correctedExpected;
+      logger.info(
+        { param: match.name, actual, originalExpected: assertion.value, correctedExpected },
+        "applied radius↔diameter correction for assertion",
+      );
+    }
 
     switch (assertion.operator) {
       case "==":

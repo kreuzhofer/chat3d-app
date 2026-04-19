@@ -74,6 +74,16 @@ so edges may look jagged.
 
 ${buildViewDescription(providedAngles)}
 
+CRITICAL — extrusions and thin profiles:
+When a 2D profile is extruded, viewing the model along the extrusion axis shows only a flat rectangle
+(the extrusion depth as one side). This is EXPECTED and correct — the profile shape is visible from
+the PERPENDICULAR views instead. For example, an L-profile extruded along X will show the L-shape in
+the front/back views but appear as a rectangle from left/right views. Similarly, a revolved profile
+viewed from the side shows the silhouette; from top/bottom it shows a circle. Do NOT flag a model as
+wrong because some views show only a rectangle or circle — check ALL views before judging the shape.
+A thin flat shape (like a flat sketch extruded 1-5mm) will appear as a thin line from side views.
+This is normal and expected for 2D profile extrusions.
+
 CRITICAL — positional judgments:
 The 45° angled views create visual displacement: features appear shifted toward the camera's opposite
 edge (e.g. holes appear lower in the 45° down view and higher in the 45° up view). This is a normal
