@@ -336,7 +336,7 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
           const compositeScore = fullEval.compositeScore;
           const allIssues = [...fullEval.codeIssues, ...fullEval.vlmIssues];
 
-          // Store eval result for pipeline reuse (screenshots + scores)
+          // Store eval result for pipeline reuse (screenshots + scores + training data)
           deps.onEvalComplete?.({
             score: compositeScore,
             visualScore: fullEval.visualScore,
@@ -347,6 +347,12 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
             issues: allIssues,
             suggestions: fullEval.vlmSuggestions,
             screenshots,
+            vlmRawResponse: fullEval.vlmRawResponse,
+            vlmReasoning: fullEval.vlmReasoning,
+            vlmSystemPrompt: fullEval.vlmSystemPrompt,
+            codeReviewRawResponse: fullEval.codeReviewRawResponse,
+            codeReviewReasoning: fullEval.codeReviewReasoning,
+            codeReviewSystemPrompt: fullEval.codeReviewSystemPrompt,
           });
 
           if (fullEval.assertionsFailed) {

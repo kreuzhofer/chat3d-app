@@ -450,6 +450,12 @@ async function _runPipeline(
       codeReviewModel: agResult.evalResult.codeReviewModel,
       totalPromptTokens: 0,
       totalCompletionTokens: 0,
+      vlmRawResponse: agResult.evalResult.vlmRawResponse,
+      vlmReasoning: agResult.evalResult.vlmReasoning,
+      vlmSystemPrompt: agResult.evalResult.vlmSystemPrompt,
+      codeReviewRawResponse: agResult.evalResult.codeReviewRawResponse,
+      codeReviewReasoning: agResult.evalResult.codeReviewReasoning,
+      codeReviewSystemPrompt: agResult.evalResult.codeReviewSystemPrompt,
     };
   } else if (agScreenshots.length > 0 || agAllCode.trim()) {
     // Agent didn't submit — run full eval post-loop

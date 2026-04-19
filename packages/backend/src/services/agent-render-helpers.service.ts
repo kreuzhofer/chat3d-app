@@ -25,6 +25,13 @@ export interface AgentEvalResult {
   suggestions: string[];
   /** Screenshots taken during this evaluation (base64 PNGs). */
   screenshots: import("./stl-rendering-client.service.js").RenderedScreenshot[];
+  // Training data capture
+  vlmRawResponse?: string;
+  vlmReasoning?: string;
+  vlmSystemPrompt?: string;
+  codeReviewRawResponse?: string;
+  codeReviewReasoning?: string;
+  codeReviewSystemPrompt?: string;
 }
 
 const logger = createLogger("agent-render");
