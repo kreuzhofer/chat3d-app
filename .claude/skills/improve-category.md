@@ -44,6 +44,25 @@ Then use: `TOKEN=$(cat /tmp/chat3d-token.txt)` in subsequent calls.
 
 4. **If approval rate is already >= 90%, report success and stop.**
 
+## Phase 1.5: Generate Missing Examples (if needed)
+
+If there are prompts with 0 examples (exampleCount == 0), generate them first before analyzing quality:
+
+1. **Count prompts without examples:**
+   ```python
+   no_example = [p for p in prompts if p['exampleCount'] == 0]
+   ```
+
+2. **If any exist, generate them in batch:**
+   ```
+   POST /api/admin/workbench/generate/batch
+   {"categoryId": "$categoryId", "onlyMissing": true}
+   ```
+
+3. **Poll until complete.** This may take a while for large categories (3-10 min per prompt).
+
+4. **Re-fetch prompts and recalculate metrics** before proceeding.
+
 ## Phase 2: Fix Eval Issues (Quick Wins)
 
 Before regenerating anything, fix what we can with re-evals:
