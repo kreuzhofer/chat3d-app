@@ -264,7 +264,7 @@ export function WorkbenchPage() {
   const handleExportJsonl = useCallback(() => {
     if (!token) return;
     // Download via hidden link with auth header
-    const url = `/api/admin/workbench/export/jsonl`;
+    const url = `/api/admin/workbench/export/training-jsonl`;
     const link = document.createElement("a");
     // We can't easily add auth headers to a download link,
     // so we fetch the content and create a blob
@@ -277,7 +277,7 @@ export function WorkbenchPage() {
         const blob = await response.blob();
         const blobUrl = URL.createObjectURL(blob);
         link.href = blobUrl;
-        link.download = "training-data.jsonl";
+        link.download = "training-data-combined.jsonl";
         link.click();
         URL.revokeObjectURL(blobUrl);
         pushToast({ tone: "success", title: "Export downloaded" });
