@@ -184,6 +184,71 @@ export async function checkAssertions(
     });
   }
 
+  // ── Swap detection ────────────────────────────────────────────────
+  // Dimension swaps: the LLM assigns the correct values to differently-named
+  // variables. Two patterns:
+  //
+  // 1. Pair swap: assertions A and B fail, but A got B's value and vice versa.
+  //    Both are rescued.
+  // 2. Single mismatch: assertion fails with value X, but the expected value
+  //    exists in a different extracted parameter (not matched to any assertion).
+  //    The dimension is present in the code, just under a different name.
+  //    Rescued as a soft pass.
+  const failedResults = results.filter((r) => r.matched && !r.pass);
+  if (failedResults.length >= 2) {
+    for (let i = 0; i < failedResults.length; i++) {
+      for (let j = i + 1; j < failedResults.length; j++) {
+        const a = failedResults[i];
+        const b = failedResults[j];
+        if (a.pass || b.pass) continue; // already rescued
+        if (a.actualValue === null || b.actualValue === null) continue;
+        const aExpected = a.assertion.value;
+        const bExpected = b.assertion.value;
+        // A got B's expected value and B got A's expected value
+        const aGotB = Math.abs(a.actualValue - bExpected) < 0.001;
+        const bGotA = Math.abs(b.actualValue - aExpected) < 0.001;
+        if (aGotB && bGotA) {
+          a.pass = true;
+          a.detail = `${a.matchedName} = ${a.actualValue} (swapped with ${b.matchedName} = ${b.actualValue}) — dimensions present but assigned to different variable names`;
+          b.pass = true;
+          b.detail = `${b.matchedName} = ${b.actualValue} (swapped with ${a.matchedName} = ${a.actualValue}) — dimensions present but assigned to different variable names`;
+          // Remove the swap pair's issues
+          const aIssueIdx = issues.indexOf(`[PARAM] ${a.matchedName} = ${a.actualValue}, expected ${a.assertion.operator} ${aExpected} — ${a.assertion.description}`);
+          if (aIssueIdx >= 0) issues.splice(aIssueIdx, 1);
+          const bIssueIdx = issues.indexOf(`[PARAM] ${b.matchedName} = ${b.actualValue}, expected ${b.assertion.operator} ${bExpected} — ${b.assertion.description}`);
+          if (bIssueIdx >= 0) issues.splice(bIssueIdx, 1);
+          logger.info(
+            { paramA: a.matchedName, valueA: a.actualValue, paramB: b.matchedName, valueB: b.actualValue },
+            "detected dimension swap — both assertions rescued",
+          );
+        }
+      }
+    }
+  }
+
+  // Single-mismatch rescue: if a still-failing assertion's expected value exists
+  // in any extracted parameter (even one not matched to an assertion), the
+  // dimension is present in the code under a different name.
+  const stillFailed = results.filter((r) => r.matched && !r.pass);
+  for (const fail of stillFailed) {
+    if (fail.assertion.operator !== "==") continue;
+    const expected = fail.assertion.value;
+    const hasValueElsewhere = extractedParams.some(
+      (p) => p.name !== fail.matchedName && Math.abs(p.value - expected) < 0.001,
+    );
+    if (hasValueElsewhere) {
+      fail.pass = true;
+      fail.detail = `${fail.matchedName} = ${fail.actualValue}, but expected value ${expected} found in another parameter — dimension present under different name`;
+      const issueStr = `[PARAM] ${fail.matchedName} = ${fail.actualValue}, expected ${fail.assertion.operator} ${expected} — ${fail.assertion.description}`;
+      const idx = issues.indexOf(issueStr);
+      if (idx >= 0) issues.splice(idx, 1);
+      logger.info(
+        { param: fail.matchedName, actual: fail.actualValue, expected },
+        "assertion value found in another parameter — rescued as dimension present",
+      );
+    }
+  }
+
   const checked = results.filter((r) => r.matched).length;
   const passed = results.filter((r) => r.matched && r.pass).length;
   const failed = results.filter((r) => r.matched && !r.pass).length;

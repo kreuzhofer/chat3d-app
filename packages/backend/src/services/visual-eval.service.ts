@@ -18,6 +18,7 @@ import {
 import {
   parseEvaluationResponse,
   parseChecklistResults,
+  reconcileChecklist,
   type ChecklistResult,
 } from "./visual-eval-parser.service.js";
 import { buildEvaluationSystemPrompt } from "./visual-eval-prompt.service.js";
@@ -233,9 +234,17 @@ function buildFinalResult(
 
   let checklistResults: ChecklistResult[] | undefined;
   if (input.verificationChecklist?.length) {
-    checklistResults = parseChecklistResults(responseText);
+    const rawResults = parseChecklistResults(responseText);
+    checklistResults = reconcileChecklist(rawResults, input.verificationChecklist);
     if (checklistResults.length > 0) {
       const uncertainCount = checklistResults.filter(c => c.pass === null).length;
+      if (rawResults.length !== input.verificationChecklist.length) {
+        logger.warn({
+          specCount: input.verificationChecklist.length,
+          vlmCount: rawResults.length,
+          reconciledCount: checklistResults.length,
+        }, "VLM returned different checklist count — reconciled to spec questions");
+      }
       logger.info({
         checklistCount: checklistResults.length,
         passCount: checklistResults.filter(c => c.pass === true).length,

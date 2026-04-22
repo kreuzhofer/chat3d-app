@@ -326,11 +326,14 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
       }
 
       // Build effective checklist: filter annotated criteria by visibility (visual + both only)
-      // Code-only items are excluded from VLM — the code reviewer handles them
+      // Code-only items are excluded from VLM — the code reviewer handles them.
+      // Safety net: reclassify items containing specific dimensions (mm, cm, degrees)
+      // as code-only — the VLM cannot assess precise measurements from screenshots.
+      const DIMENSION_PATTERN = /\b\d+(\.\d+)?\s*(mm|cm|m\b|°|degrees?|radius|diameter)\b/i;
       let effectiveChecklist = input.verificationChecklist;
       if (input.annotatedCriteria?.length) {
         effectiveChecklist = input.annotatedCriteria
-          .filter(c => c.visibility !== "code")
+          .filter(c => c.visibility !== "code" && !DIMENSION_PATTERN.test(c.text))
           .map(c => c.text);
       }
 

@@ -84,7 +84,7 @@ export async function startBatchBackfillSpecs(categoryId: string, regenerate?: b
   };
 
   jobs.set(jobId, job);
-  void runBatchBackfillSpecs(job, promptRows);
+  void runBatchBackfillSpecs(job, promptRows, missingTraining);
 
   logger.info({ jobId, categoryId, total: promptRows.length }, "batch backfill specs started");
   return toSummary(job);
@@ -93,6 +93,7 @@ export async function startBatchBackfillSpecs(categoryId: string, regenerate?: b
 async function runBatchBackfillSpecs(
   job: BatchJob,
   prompts: Array<{ id: string; prompt: string; index: number }>,
+  missingTraining?: boolean,
 ): Promise<void> {
   for (const prompt of prompts) {
     if (job.status === "cancelled") break;
@@ -104,18 +105,27 @@ async function runBatchBackfillSpecs(
     try {
       const specResult = await generateSpec(prompt.prompt);
 
-      // Persist all spec fields + training data on the prompt
+      // In missingTraining mode: only persist training data (raw response + system prompt),
+      // preserve existing spec fields (checklist, assertions, etc.) to avoid
+      // overwriting curated data with potentially different regenerated values.
+      const updateData = missingTraining
+        ? {
+            specRawResponse: specResult.rawResponse ?? null,
+            specSystemPrompt: specResult.systemPrompt ?? null,
+          }
+        : {
+            specInterpretation: specResult.interpretation,
+            constructionSpec: specResult.constructionSpec,
+            codeAssertions: specResult.codeAssertions as unknown as undefined,
+            verificationChecklist: specResult.verificationChecklist,
+            verificationCriteria: specResult.verificationCriteria as unknown as undefined,
+            specRawResponse: specResult.rawResponse ?? null,
+            specSystemPrompt: specResult.systemPrompt ?? null,
+          };
+
       await prisma.workbenchExamplePrompt.update({
         where: { id: prompt.id },
-        data: {
-          specInterpretation: specResult.interpretation,
-          constructionSpec: specResult.constructionSpec,
-          codeAssertions: specResult.codeAssertions as unknown as undefined,
-          verificationChecklist: specResult.verificationChecklist,
-          verificationCriteria: specResult.verificationCriteria as unknown as undefined,
-          specRawResponse: specResult.rawResponse ?? null,
-          specSystemPrompt: specResult.systemPrompt ?? null,
-        },
+        data: updateData,
       });
 
       // Store spec embedding for remix matching

@@ -118,6 +118,70 @@ export function parseEvaluationResponse(content: string): ParsedEvaluation {
   return extractFromText(content);
 }
 
+// ── Checklist reconciliation ────────────────────────────────────────
+
+/**
+ * Match VLM-returned checklist items to the original spec questions.
+ * Discards VLM-invented items and fills in "uncertain" for unanswered spec questions.
+ *
+ * Uses a simple word-overlap similarity metric to pair VLM responses with spec questions.
+ * This prevents VLM non-determinism (adding/splitting/merging items) from affecting
+ * the checklist pass rate, which gates auto-approval.
+ */
+export function reconcileChecklist(
+  vlmResults: ChecklistResult[],
+  specQuestions: string[],
+): ChecklistResult[] {
+  if (specQuestions.length === 0) return vlmResults;
+  if (vlmResults.length === 0) {
+    return specQuestions.map((q) => ({ question: q, pass: null, detail: "" }));
+  }
+
+  // If counts match exactly and the VLM preserved order, trust position-based matching
+  if (vlmResults.length === specQuestions.length) {
+    return specQuestions.map((q, i) => ({
+      question: q,
+      pass: vlmResults[i].pass,
+      detail: vlmResults[i].detail,
+    }));
+  }
+
+  // Fuzzy match: for each spec question, find the best-matching VLM result
+  const used = new Set<number>();
+  return specQuestions.map((specQ) => {
+    const specWords = new Set(specQ.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 2));
+    let bestIdx = -1;
+    let bestScore = 0;
+
+    for (let i = 0; i < vlmResults.length; i++) {
+      if (used.has(i)) continue;
+      const vlmWords = new Set(vlmResults[i].question.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 2));
+      let overlap = 0;
+      for (const w of specWords) {
+        if (vlmWords.has(w)) overlap++;
+      }
+      const similarity = specWords.size > 0 ? overlap / specWords.size : 0;
+      if (similarity > bestScore) {
+        bestScore = similarity;
+        bestIdx = i;
+      }
+    }
+
+    // Require at least 30% word overlap to consider it a match
+    if (bestIdx >= 0 && bestScore >= 0.3) {
+      used.add(bestIdx);
+      return {
+        question: specQ,
+        pass: vlmResults[bestIdx].pass,
+        detail: vlmResults[bestIdx].detail,
+      };
+    }
+
+    // No match found — mark as uncertain (VLM didn't answer this question)
+    return { question: specQ, pass: null, detail: "" };
+  });
+}
+
 // ── Checklist parsing ────────────────────────────────────────────────
 
 export function parseChecklistResults(content: string): ChecklistResult[] {

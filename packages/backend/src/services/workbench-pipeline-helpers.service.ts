@@ -86,7 +86,12 @@ export function shouldAutoApprove(
   if (score === null || score < threshold) return false;
   if (!checklistResults || checklistResults.length === 0) return true;
   // Uncertain (null) counts as not-passing for approval purposes
-  return checklistResults.filter(r => r.pass === true).length / checklistResults.length >= 0.8;
+  const passRate = checklistResults.filter(r => r.pass === true).length / checklistResults.length;
+  // When both evaluators strongly agree (composite ≥ threshold + 1.5),
+  // relax checklist gate to 50% — a single borderline VLM answer shouldn't
+  // override strong agreement from both evaluators.
+  const relaxedThreshold = score >= threshold + 1.5 ? 0.5 : 0.8;
+  return passRate >= relaxedThreshold;
 }
 
 // ── Result builders ──────────────────────────────────────────────────

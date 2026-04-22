@@ -117,9 +117,9 @@ Given a user's prompt describing a 3D model, produce:
    - "visibility": one of "visual", "code", or "both"
 
    Visibility rules:
-   - "visual" — overall shape, major openings (>10% of model size), proportions — clearly visible in a 768px screenshot
-   - "code" — small features (<3mm relative to model), internal geometry, precise dimensions, chamfers/fillets on thin edges — impossible to verify visually
-   - "both" — borderline features that both evaluators should check (e.g., standoffs inside an open box, medium-size cutouts)
+   - "visual" — overall shape, major openings (>10% of model size), proportions — clearly visible in a 768px screenshot. NEVER include specific dimensions (mm, cm, degrees, exact counts) in visual checks.
+   - "code" — small features (<3mm relative to model), internal geometry, ALL specific dimensions/measurements (length, width, height, radius, thickness, angles, counts, spacing), chamfers/fillets on thin edges — anything that requires reading numeric values from code
+   - "both" — medium-size structural features that are both visually confirmable AND dimensionally verifiable (e.g., standoffs inside an open box, medium-size cutouts). NEVER use "both" for checks that mention specific numeric values — those are always "code".
 
    Example:
    [

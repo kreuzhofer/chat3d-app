@@ -19,28 +19,13 @@ import { persistTrace } from "./trace-persistence.service.js";
 import { TraceBuilder, runWithTrace } from "./trace-builder.service.js";
 import { WorkbenchCatalogError as WorkbenchSeederError } from "./workbench-catalog.service.js";
 import { getAutoApproveThreshold, getCodeEvalWeight } from "./generation-settings.service.js";
+import { shouldAutoApprove } from "./workbench-pipeline-helpers.service.js";
 import { insertExample, persistWorkbenchFiles } from "./workbench-persist.service.js";
 import { wrapInTemplate, findFileByExtension } from "../utils/workbench-code-utils.js";
 import { flattenStoredCode } from "../utils/code-flatten.js";
 import type { GenerateResult, ProgressCallback } from "./workbench-codegen.service.js";
 
 const logger = createLogger("workbench-rerender");
-
-// ── Approval logic (duplicated from codegen for isolation) ──────────
-
-function shouldAutoApprove(
-  score: number | null,
-  threshold: number,
-  checklistResults?: Array<{ pass: boolean }> | null,
-  renderSuccess?: boolean,
-): boolean {
-  if (renderSuccess === false) return false;
-  if (score === null || score < threshold) return false;
-  if (!checklistResults || checklistResults.length === 0) return true;
-  const passCount = checklistResults.filter((r) => r.pass).length;
-  const passRate = passCount / checklistResults.length;
-  return passRate >= 0.8;
-}
 
 // ── Prompt context loading ──────────────────────────────────────────
 

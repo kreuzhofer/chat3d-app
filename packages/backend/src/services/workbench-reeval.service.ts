@@ -12,6 +12,7 @@ import { runFullEvaluation, type FullEvalResult } from "./eval-orchestrator.serv
 import { runWithUsageContext } from "./usage-tracking.service.js";
 import { readStorageFile, storageFileExists } from "./file-storage.service.js";
 import { getAutoApproveThreshold, getCodeEvalWeight } from "./generation-settings.service.js";
+import { shouldAutoApprove } from "./workbench-pipeline-helpers.service.js";
 import { flattenStoredCode } from "../utils/code-flatten.js";
 import type { LabeledImage } from "./visual-eval.service.js";
 import type { CodeAssertion, AnnotatedCriterion } from "./spec-generation.service.js";
@@ -30,19 +31,6 @@ const SCREENSHOT_FIELDS: Array<{ angle: string; field: string }> = [
   { angle: "ortho_45", field: "screenshotOrtho45" },
   { angle: "ortho_45_bottom", field: "screenshotOrtho45Bottom" },
 ];
-
-// ── Approval logic ──────────────────────────────────────────────────
-
-function shouldAutoApprove(
-  score: number | null,
-  threshold: number,
-  checklistResults?: Array<{ pass: boolean }> | null,
-): boolean {
-  if (score === null || score < threshold) return false;
-  if (!checklistResults || checklistResults.length === 0) return true;
-  const passRate = checklistResults.filter((r) => r.pass).length / checklistResults.length;
-  return passRate >= 0.8;
-}
 
 // ── Load screenshots from storage ───────────────────────────────────
 
@@ -134,6 +122,20 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
   const approved = evalResult.assertionsFailed
     ? false
     : shouldAutoApprove(score, autoApproveThreshold, evalResult.checklistResults);
+
+  if (!approved && score !== null && score >= autoApproveThreshold) {
+    const clResults = evalResult.checklistResults ?? [];
+    const clPassRate = clResults.length > 0
+      ? clResults.filter((r) => r.pass).length / clResults.length
+      : 1;
+    logger.warn({
+      exampleId, score, autoApproveThreshold,
+      assertionsFailed: evalResult.assertionsFailed,
+      checklistCount: clResults.length,
+      checklistPassRate: clPassRate,
+      checklistFails: clResults.filter((r) => !r.pass).map((r) => r.question?.slice(0, 80)),
+    }, "high-scoring example NOT auto-approved — debugging approval gate");
+  }
 
   // Update existing example in place
   await prisma.workbenchExample.update({
