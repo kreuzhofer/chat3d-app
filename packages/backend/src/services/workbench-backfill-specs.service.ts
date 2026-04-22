@@ -21,7 +21,7 @@ import {
 
 const logger = createLogger("workbench-backfill-specs");
 
-export async function startBatchBackfillSpecs(categoryId: string, regenerate?: boolean): Promise<BatchJobSummary> {
+export async function startBatchBackfillSpecs(categoryId: string, regenerate?: boolean, missingTraining?: boolean): Promise<BatchJobSummary> {
   const existing = getRunningJobForCategory(categoryId);
   if (existing) {
     const err = new Error("A batch job is already running for this category");
@@ -35,20 +35,29 @@ export async function startBatchBackfillSpecs(categoryId: string, regenerate?: b
   });
   if (!cat) throw new Error("Category not found");
 
-  // Find prompts: all (regenerate) or only those missing spec data
+  // Find prompts based on mode:
+  // - regenerate: all prompts (re-run spec gen for everything)
+  // - missingTraining: have spec but missing training data (spec_raw_response)
+  // - default: only prompts with no spec at all
+  const filter = regenerate
+    ? {}
+    : missingTraining
+      ? { specInterpretation: { not: null }, specRawResponse: null }
+      : { specInterpretation: null };
+
   const promptRows = await prisma.workbenchExamplePrompt.findMany({
-    where: {
-      categoryId,
-      ...(regenerate ? {} : { specInterpretation: null }),
-    },
+    where: { categoryId, ...filter },
     select: { id: true, prompt: true, index: true },
     orderBy: { index: "asc" },
   });
 
   if (promptRows.length === 0) {
-    throw new Error(regenerate
+    const msg = regenerate
       ? "No prompts found in this category"
-      : "All prompts in this category already have spec data");
+      : missingTraining
+        ? "All prompts in this category already have spec training data"
+        : "All prompts in this category already have spec data";
+    throw new Error(msg);
   }
 
   const jobId = generateJobId("batch-backfill-specs");

@@ -208,6 +208,21 @@ docker compose up -d --build
 
 Do not consider a change complete until the Docker build succeeds.
 
+### API Testing with Auth
+
+When testing API endpoints that require authentication, use a token file to avoid repeated logins:
+
+1. Check if `/tmp/chat3d-token.txt` exists and is valid (test with `GET /api/auth/me`)
+2. If missing or expired, login using the credentials from `scripts/test-prompt.sh` and save the token:
+   ```bash
+   TOKEN=$(curl -s http://localhost/api/auth/login -H "Content-Type: application/json" \
+     -d '{"email":"admin@chat3d.local","password":"change-admin-password"}' | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['token'])")
+   echo "$TOKEN" > /tmp/chat3d-token.txt
+   ```
+3. Reuse in subsequent calls: `TOKEN=$(cat /tmp/chat3d-token.txt)`
+
+**NEVER modify password hashes or credentials in the database to obtain a test token.** Always use the documented test credentials or ask the user.
+
 ## Coding Conventions
 
 - TypeScript strict mode in all packages
@@ -276,7 +291,7 @@ logger.debug({ payload }, "verbose debug info");
 
 7. **Confidence-Gated Autonomy**: Proceed end-to-end only when confidence is high. Narrow scope and increase checks when confidence is medium. Stop and ask when confidence is low.
 
-8. **Security-by-Default**: Treat all external input as untrusted. Use safe defaults and least privilege. Do not weaken auth, authz, crypto, or injection defenses without explicit instruction. Never introduce secrets into code.
+8. **Security-by-Default**: Treat all external input as untrusted. Use safe defaults and least privilege. Do not weaken auth, authz, crypto, or injection defenses without explicit instruction. Never introduce secrets into code. **NEVER modify user credentials, password hashes, auth tokens, or security-sensitive database rows unless the user explicitly instructs you to do so.** When testing requires authentication, check `scripts/` and documentation for test credentials first, then ask the user.
 
 9. **Don't Break Contracts**: Preserve existing public APIs, schemas, and behavioral contracts unless explicitly instructed otherwise. If breaking changes are required, provide migration steps and compatibility tests.
 

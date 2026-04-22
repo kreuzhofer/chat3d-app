@@ -96,6 +96,10 @@ export const workbenchRouter = Router();
 
 workbenchRouter.use(requireAuth, requireRole("admin"));
 
+// ── Training Data Export (sub-router) ─────────────────────────────────
+import { trainingExportRouter } from "./workbench-training-export.routes.js";
+workbenchRouter.use(trainingExportRouter);
+
 // ── Categories ────────────────────────────────────────────────────────
 
 workbenchRouter.get("/categories", async (_req, res) => {
@@ -573,12 +577,12 @@ workbenchRouter.post("/re-evaluate/batch", async (req, res) => {
 
 workbenchRouter.post("/backfill-specs/batch", async (req, res) => {
   try {
-    const { categoryId, regenerate } = req.body as { categoryId?: string; regenerate?: boolean };
+    const { categoryId, regenerate, missingTraining } = req.body as { categoryId?: string; regenerate?: boolean; missingTraining?: boolean };
     if (!categoryId || typeof categoryId !== "string") {
       res.status(400).json({ error: "categoryId is required" });
       return;
     }
-    const job = await startBatchBackfillSpecs(categoryId, regenerate);
+    const job = await startBatchBackfillSpecs(categoryId, regenerate, missingTraining);
     res.status(202).json(job);
   } catch (error) {
     const statusCode = (error as { statusCode?: number }).statusCode;
