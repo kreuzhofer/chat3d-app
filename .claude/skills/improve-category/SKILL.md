@@ -8,6 +8,15 @@ arguments: [categoryId]
 
 Improve the workbench category **$categoryId** to reach 90-95% approval rate through a structured workflow. Stop when the target is reached or when further attempts show diminishing returns. Do not pursue 100% — cap effort at 3 full rounds.
 
+## Resolve Category Input
+
+The argument `$categoryId` may be:
+- A UUID (e.g., `45d4d691-ef79-4a2c-a7bf-43856b29b22a`) — use directly
+- A URL (e.g., `http://localhost/workbench/45d4d691-...`) — extract the UUID from the path
+- A category name (e.g., `Boolean Operations`) — look up the UUID via `GET /api/admin/workbench/categories` and match by name (case-insensitive)
+
+If the input is not a valid UUID, resolve it to one before proceeding. If no match is found, report an error and stop.
+
 ## Authentication
 
 Use the token file approach from CLAUDE.md:
@@ -125,9 +134,33 @@ For each identified gap pattern:
 
 5. **Verify seed prompts passed** (check scores >= 7.5 and auto_approved). If any seed failed, note it but continue — it may still help as a partial example.
 
+## Phase 4.5: Decompose Complex Failing Prompts
+
+**IMPORTANT: Do this BEFORE attempting to regenerate complex prompts.** Many failing prompts combine multiple techniques (e.g., "shell + selective fillet + flat cut"). Even with pattern-level RAG seeds, the LLM may fail because it has no example of the specific technique combination or of a specific sub-technique in isolation.
+
+1. **For each pending prompt scoring < 7**, read the full prompt text and identify the individual techniques it combines. Examples:
+   - "box shelled to 2mm with top rim filleted" → techniques: shell, selective edge fillet
+   - "L-bracket with all outer edges filleted" → techniques: L-shape extrusion, uniform fillet on complex shape
+   - "sphere shelled with flat cut" → techniques: sphere shell, boolean flat cut on curved surface
+   - "cylinder with chamfer on top and fillet on bottom" → techniques: chamfer on circular edge, fillet on circular edge
+
+2. **Check which individual techniques lack approved examples.** A technique is "covered" if there's an approved example that demonstrates it clearly in isolation.
+
+3. **Write simple single-technique prompts** for each uncovered technique:
+   - One technique per prompt
+   - Simplest possible geometry (box, cylinder, sphere)
+   - Clear dimensions, no ambiguity
+   - Should pass easily on first attempt
+
+4. **Add and generate** these technique prompts (same as Phase 4).
+
+5. **Only after technique prompts are approved**, proceed to regenerate the complex originals. The RAG will now have relevant building blocks for each sub-technique.
+
+This decomposition step is critical — it's the difference between "the LLM has seen a slot before" (pattern-level) and "the LLM has seen exactly how to fillet only the vertical edges of a box" (technique-level). The latter is what actually helps with complex prompts.
+
 ## Phase 5: Regenerate Failing Examples
 
-With RAG seeds in place, regenerate the pending examples that match seeded patterns:
+With RAG seeds AND technique examples in place, regenerate the pending examples that match seeded patterns:
 
 1. **Select candidates** — pending prompts that match seeded patterns, starting with highest-scoring (most likely to pass with RAG help).
 
@@ -146,7 +179,18 @@ With RAG seeds in place, regenerate the pending examples that match seeded patte
    - Last batch showed no improvement (all regenerated prompts still pending), OR
    - 3 full rounds completed
 
-## Phase 6: Report
+## Phase 6: Cleanup
+
+After all improvement rounds are complete (target reached or 3 rounds done), run cleanup to keep only the best example per prompt and delete inferior attempts + their files:
+
+```
+POST /api/admin/workbench/cleanup/batch
+{"categoryId": "$categoryId"}
+```
+
+This retains the best example per prompt (priority: human_approved > auto_approved > pending > rejected, then by eval_score DESC) and deletes all others, freeing storage. Poll the job until complete.
+
+## Phase 7: Report
 
 After each round, report:
 - Approval rate: before -> after
@@ -187,6 +231,7 @@ For generation jobs, use `run_in_background` and wait for task notifications rat
 | Job status | GET | /api/admin/workbench/jobs/:jobId |
 | Data quality | GET | /api/admin/data-quality |
 | Example detail | GET | /api/admin/workbench/examples/:id |
+| Cleanup batch | POST | /api/admin/workbench/cleanup/batch |
 
 ## Pattern Classification Reference
 
@@ -213,7 +258,7 @@ Adjust classification for other categories (extrusions, surface modifications, e
 - **Never modify credentials or auth tokens** — use documented test credentials only
 - **Cap at 3 rounds** of the analyze-seed-regenerate cycle
 - **Stop at 90-95% approval** — don't chase 100%
-- **Report cost** — each generation costs ~$0.10-0.30 in LLM tokens, each re-eval ~$0.02-0.05
+- **Report cost** — each generation costs ~0.10-0.30 USD in LLM tokens, each re-eval ~0.02-0.05 USD
 - **Don't modify prompts that are already approved** — focus only on pending ones
 - **Use background tasks** for long-running jobs (generation batches, full re-evals)
 - **Verify category exists** before starting — fail fast with a clear error if the ID is wrong
