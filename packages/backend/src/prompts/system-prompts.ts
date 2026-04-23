@@ -207,11 +207,13 @@ with BuildPart() as part:
 
 export const CODEGEN_SECTION_ARRAYS = `### Arrays and Patterns
 
+**Location classes** — place features at multiple positions:
 - \`GridLocations(x_spacing, y_spacing, x_count, y_count)\` — rectangular grid
-- \`PolarLocations(radius, count)\` — circular pattern
+- \`PolarLocations(radius, count, start_angle=0, angular_range=360, rotate=True)\` — circular pattern. \`rotate=True\` rotates each child to face outward.
+- \`HexLocations(radius, x_count, y_count)\` — staggered honeycomb grid (alternating offset rows)
 - \`Locations(*points)\` — arbitrary locations. **Takes tuples like \`(x, y)\` or \`(x, y, z)\`, NOT bare integers.**
 
-Example:
+**Example 1 — Grid of holes (basic):**
 \`\`\`python
 with BuildPart() as part:
     Box(100, 100, 10)
@@ -219,7 +221,72 @@ with BuildPart() as part:
         with GridLocations(20, 20, 3, 3):
             Circle(3)
     extrude(amount=-10, mode=Mode.SUBTRACT)
-\`\`\``;
+\`\`\`
+
+**Example 2 — Grid of non-circular features (slots):**
+\`\`\`python
+with BuildPart() as part:
+    Box(120, 80, 5)
+    with BuildSketch((part.faces() > Axis.Z)[-1]):
+        with GridLocations(25, 20, 4, 3):
+            SlotOverall(18, 4)  # oval slots in a grid
+    extrude(amount=-5, mode=Mode.SUBTRACT)
+\`\`\`
+
+**Example 3 — Polar array with complex shapes:**
+\`\`\`python
+with BuildPart() as part:
+    Cylinder(radius=50, height=10)
+    with BuildSketch((part.faces() > Axis.Z)[-1]):
+        with PolarLocations(35, 8):
+            SlotOverall(12, 4)  # 8 radial slots
+    extrude(amount=-10, mode=Mode.SUBTRACT)
+\`\`\`
+
+**Example 4 — Concentric rings (stacked PolarLocations):**
+\`\`\`python
+with BuildPart() as part:
+    Cylinder(radius=60, height=8)
+    with BuildSketch((part.faces() > Axis.Z)[-1]):
+        with PolarLocations(20, 4):
+            Circle(3)       # inner ring: 4 holes
+        with PolarLocations(40, 8):
+            Circle(3)       # outer ring: 8 holes
+    extrude(amount=-8, mode=Mode.SUBTRACT)
+\`\`\`
+
+**Example 5 — Diagonal grid (rotated plane):**
+\`\`\`python
+import math
+with BuildPart() as part:
+    Box(100, 100, 5)
+    top = (part.faces() > Axis.Z)[-1]
+    diag = Plane(top) * Rot(Z=45)
+    with BuildSketch(diag):
+        with GridLocations(15, 15, 8, 8):
+            Circle(2.5)
+    extrude(amount=-5, mode=Mode.SUBTRACT)
+\`\`\`
+
+**Example 6 — Loop with per-element rotation (louvred slots):**
+\`\`\`python
+import math
+with BuildPart() as part:
+    Box(100, 80, 4)
+    top = (part.faces() > Axis.Z)[-1]
+    with BuildSketch(top):
+        for row in range(4):
+            for col in range(5):
+                with Locations((-40 + col * 20, -30 + row * 20)):
+                    SlotOverall(16, 3, rotation=30)
+    extrude(amount=-4, mode=Mode.SUBTRACT)
+\`\`\`
+
+**Key tips:**
+- Any sketch feature (Circle, Rectangle, SlotOverall, RegularPolygon) works inside Locations.
+- Use \`rotation=\` parameter on sketch features for angled items within a pattern.
+- For conditional/alternating patterns, use a Python for-loop with \`Locations()\` instead of GridLocations.
+- HexLocations automatically staggers rows — no manual offset needed.`;
 
 export const CODEGEN_SECTION_EXPORT = `### Export
 
@@ -658,7 +725,7 @@ const CONDITIONAL_SECTIONS: ConditionalSection[] = [
   { key: "edge_face", section: CODEGEN_SECTION_EDGE_FACE, pattern: /\.edges\(\)|\.faces\(\)|sort_by|filter_by/ },
   { key: "fillets", section: CODEGEN_SECTION_FILLETS, pattern: /fillet\(part|chamfer\(part/ },
   { key: "offset_shell", section: CODEGEN_SECTION_OFFSET_SHELL, pattern: /offset\(.*openings/ },
-  { key: "arrays", section: CODEGEN_SECTION_ARRAYS, pattern: /GridLocations|PolarLocations/ },
+  { key: "arrays", section: CODEGEN_SECTION_ARRAYS, pattern: /GridLocations|PolarLocations|HexLocations/ },
   { key: "buildline", section: CODEGEN_SECTION_BUILDLINE, pattern: /BuildLine|Polyline|Spline|ThreePointArc/ },
   { key: "sweep", section: CODEGEN_SECTION_SWEEP, pattern: /sweep\(|Helix/ },
   { key: "loft", section: CODEGEN_SECTION_LOFT, pattern: /loft\(\)/ },
