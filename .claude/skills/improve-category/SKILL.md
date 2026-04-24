@@ -174,10 +174,12 @@ With RAG seeds AND technique examples in place, regenerate the pending examples 
 
 4. **Process in batches of 4-6** to limit cost per round. Check approval rate after each batch.
 
-5. **Stop when:**
+5. **After round 2, if still below 90%**: Run a second technique decomposition pass (Phase 4.5 again) on the remaining pending prompts. The first decomposition targeted patterns visible before any regeneration. After two rounds of regen, the remaining prompts are the hardest — they likely need even more specific technique seeds that weren't obvious initially. Decompose these, add technique seeds, generate them, then proceed to round 3.
+
+6. **Stop when:**
    - Approval rate reaches 90-95%, OR
    - Last batch showed no improvement (all regenerated prompts still pending), OR
-   - 3 full rounds completed
+   - 3 full rounds completed (with the mid-round decomposition counting as part of the process, not a separate round)
 
 ## Phase 6: Cleanup
 
