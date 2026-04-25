@@ -7,7 +7,8 @@ pydantic==2.12.5
 # See: https://github.com/gumyr/build123d/pull/1236
 build123d @ git+https://github.com/gumyr/build123d.git@dev
 # bd_warehouse: parametric mechanical components (threads, fasteners, bearings, gears, pipes)
-bd_warehouse
+# Pin to 0.2.0 — fixes TreeError with anytree 2.13 and ShapeList.wrapped API change
+bd_warehouse>=0.2.0
 # gridfinity_build123d: parametric Gridfinity storage bins, bases, and baseplates
 # Requires typing_extensions for Python <3.12 (backports typing.override)
 typing_extensions>=4.0

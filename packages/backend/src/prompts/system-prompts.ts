@@ -505,7 +505,7 @@ root_part = Compound(children=[body.part, int_thread])
 
 # Option 3: standalone fasteners / gears / bearings — assign directly:
 root_part = HexHeadScrew(size="M8-1.25", length=40, fastener_type="iso4014", simple=False)
-root_part = SpurGear(module=2, tooth_count=20, thickness=10)
+root_part = SpurGear(module=2, tooth_count=20, pressure_angle=20, thickness=10)
 \`\`\`
 
 ### Threads
@@ -575,8 +575,8 @@ bearing = SingleRowDeepGrooveBallBearing(size="M8-22-7", bearing_type="SKT")
 
 ### Gears
 \`\`\`python
-# Spur gear: 20 teeth, module 2, 10mm thick
-gear = SpurGear(module=2, tooth_count=20, thickness=10)
+# Spur gear: 20 teeth, module 2, 10mm thick, 20° pressure angle
+gear = SpurGear(module=2, tooth_count=20, pressure_angle=20, thickness=10)
 \`\`\`
 
 ### Pipes
