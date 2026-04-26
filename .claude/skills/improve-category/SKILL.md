@@ -181,16 +181,34 @@ With RAG seeds AND technique examples in place, regenerate the pending examples 
    - Last batch showed no improvement (all regenerated prompts still pending), OR
    - 3 full rounds completed (with the mid-round decomposition counting as part of the process, not a separate round)
 
-## Phase 6: Cleanup
+## Phase 6: Cleanup (MANDATORY — DO NOT SKIP)
 
-After all improvement rounds are complete (target reached or 3 rounds done), run cleanup to keep only the best example per prompt and delete inferior attempts + their files:
+**You MUST run this phase before reporting.** Cleanup is not optional. It runs even when:
+- The target was reached early
+- Only 1 round was needed
+- Some regenerations failed
+- The job hit the 3-round cap
 
+Skip only if the entire skill failed before any regeneration ran (e.g., bad category ID).
+
+Run cleanup to keep only the best example per prompt and delete inferior attempts + their files:
+
+```bash
+TOKEN=$(cat /tmp/chat3d-token.txt)
+RESP=$(curl -s -X POST "http://localhost/api/admin/workbench/cleanup/batch" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d "{\"categoryId\":\"$categoryId\"}")
+JOB=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['jobId'])")
+for i in $(seq 1 60); do
+  S=$(curl -s "http://localhost/api/admin/workbench/jobs/$JOB" -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json; j=json.load(sys.stdin); print(j['status'])" 2>/dev/null)
+  if [ "$S" = "completed" ] || [ "$S" = "failed" ]; then echo "Cleanup: $S"; break; fi
+  sleep 10
+done
 ```
-POST /api/admin/workbench/cleanup/batch
-{"categoryId": "$categoryId"}
-```
 
-This retains the best example per prompt (priority: human_approved > auto_approved > pending > rejected, then by eval_score DESC) and deletes all others, freeing storage. Poll the job until complete.
+This retains the best example per prompt (priority: human_approved > auto_approved > pending > rejected, then by eval_score DESC) and deletes all others, freeing storage.
+
+**Confirm cleanup ran in your final report** — include "Cleanup: completed" as a line in Phase 7 output. If you cannot confirm cleanup ran, the task is incomplete.
 
 ## Phase 7: Report
 
