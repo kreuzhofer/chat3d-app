@@ -150,6 +150,102 @@ export class ThinkingBlockFilter {
   }
 }
 
+/**
+ * Strip everything from the first code fence onwards. The static analog
+ * of `CodeFenceCutoff`, used to clean the saved conversation text after
+ * the stream completes (so the persisted reply doesn't include leaked
+ * code even if the live stream filter wasn't applied).
+ */
+export function truncateAtCodeFence(text: string): string {
+  const idx = (() => {
+    const a = text.indexOf("```");
+    const b = text.indexOf("~~~");
+    if (a === -1) return b;
+    if (b === -1) return a;
+    return Math.min(a, b);
+  })();
+  return idx === -1 ? text : text.slice(0, idx).trimEnd();
+}
+
+/**
+ * Wraps an `onToken` stream and stops forwarding tokens to the user the
+ * moment a code-block fence appears in the actual output text. Used for
+ * the conversation purpose, where the system prompt forbids fenced code
+ * (a separate codegen pipeline produces the actual code) but some models
+ * (e.g., Qwen3.6) leak code into the chat panel anyway.
+ *
+ * Unlike a server-side stop sequence, this only inspects the visible
+ * output stream — reasoning content is unaffected, so the model keeps
+ * thinking normally even if its reasoning happens to include code.
+ *
+ * `truncatedText()` returns the accumulated visible text up to (but
+ * excluding) the first code fence, suitable for persisting / parsing.
+ */
+export class CodeFenceCutoff {
+  private buffer = "";
+  private cutOff = false;
+  private visible = "";
+  private readonly downstream: (token: string) => void;
+
+  constructor(downstream: (token: string) => void) {
+    this.downstream = downstream;
+  }
+
+  push(token: string): void {
+    if (this.cutOff) return;
+    this.buffer += token;
+    this.drain();
+  }
+
+  flush(): void {
+    if (!this.cutOff && this.buffer.length > 0) {
+      this.downstream(this.buffer);
+      this.visible += this.buffer;
+      this.buffer = "";
+    }
+  }
+
+  truncatedText(): string {
+    return this.visible;
+  }
+
+  wasCutOff(): boolean {
+    return this.cutOff;
+  }
+
+  private drain(): void {
+    // Look for ``` or ~~~ as a literal fence opener.
+    const fenceIdx = (() => {
+      const a = this.buffer.indexOf("```");
+      const b = this.buffer.indexOf("~~~");
+      if (a === -1) return b;
+      if (b === -1) return a;
+      return Math.min(a, b);
+    })();
+
+    if (fenceIdx !== -1) {
+      // Emit everything before the fence, then suppress.
+      if (fenceIdx > 0) {
+        const head = this.buffer.slice(0, fenceIdx);
+        this.downstream(head);
+        this.visible += head;
+      }
+      this.buffer = "";
+      this.cutOff = true;
+      return;
+    }
+
+    // No fence yet — emit everything except the last 2 chars in case the
+    // fence is split across tokens (`` + `).
+    if (this.buffer.length > 2) {
+      const head = this.buffer.slice(0, -2);
+      this.downstream(head);
+      this.visible += head;
+      this.buffer = this.buffer.slice(-2);
+    }
+  }
+}
+
 function sanitizeBaseFileName(value: string): string {
   return value
     .toLowerCase()
@@ -626,16 +722,10 @@ async function streamWithMessages(
           });
         }
         const cleanedText = stripThinkingBlocks(text);
-        if (cleanedText === "") throw new LlmServiceError("LLM returned empty output", 502);
-        return { text: cleanedText, usageRaw: effectiveUsage };
+        const finalText = purpose === "conversation" ? truncateAtCodeFence(cleanedText) : cleanedText;
+        if (finalText === "") throw new LlmServiceError("LLM returned empty output", 502);
+        return { text: finalText, usageRaw: effectiveUsage };
       }
-
-      // Cut conversation responses off at the first code fence — see
-      // streamWithConfig for rationale (some models leak code into the
-      // conversation reply that the system prompt explicitly forbids).
-      const conversationStops = purpose === "conversation"
-        ? ["```", "~~~"]
-        : undefined;
 
       // Streaming path
       const result = streamText({
@@ -643,13 +733,21 @@ async function streamWithMessages(
         system: cacheableSystem,
         messages,
         abortSignal,
-        ...(conversationStops ? { stopSequences: conversationStops } : {}),
         ...extraOpts,
       });
 
       let fullText = "";
       let reasoningChars = 0;
-      const thinkFilter = new ThinkingBlockFilter(onToken);
+      // For the conversation purpose, prevent leaked code blocks from
+      // reaching the user-visible chat panel. Wraps onToken with a
+      // filter that stops forwarding the moment a code fence appears.
+      const userOnToken = purpose === "conversation"
+        ? (() => {
+            const cutoff = new CodeFenceCutoff(onToken);
+            return (token: string) => cutoff.push(token);
+          })()
+        : onToken;
+      const thinkFilter = new ThinkingBlockFilter(userOnToken);
       let streamStepUsage: unknown;
       // Heartbeat so slow thinking models (e.g., Qwen) show progress in logs.
       const streamStart = Date.now();
@@ -754,12 +852,13 @@ async function streamWithMessages(
       }
 
       const cleanedText = stripThinkingBlocks(fullText);
-      if (cleanedText === "") {
+      const finalText = purpose === "conversation" ? truncateAtCodeFence(cleanedText) : cleanedText;
+      if (finalText === "") {
         throw new LlmServiceError("LLM returned empty output", 502);
       }
 
       return {
-        text: cleanedText,
+        text: finalText,
         usageRaw: effectiveUsage,
       };
     } catch (error) {
@@ -830,29 +929,27 @@ async function streamWithConfig(
         return { text: cleanedText, usageRaw: effectiveUsage, reasoningText: genResult.reasoningText };
       }
 
-      // For the conversation purpose, the system prompt forbids code blocks
-      // in the response (a separate codegen pipeline produces the actual code).
-      // Some models (notably Qwen3.6) ignore the instruction and start emitting
-      // a fenced code block. Cut the stream off at the first backtick run so
-      // (a) the user never sees leaked code in the chat panel and (b) we don't
-      // burn output tokens generating code that will be discarded.
-      const conversationStops = purpose === "conversation"
-        ? ["```", "~~~"]
-        : undefined;
-
       // Streaming path
       const result = streamText({
         model: providerModel,
         prompt,
         abortSignal,
         ...(cacheableSystem ? { system: cacheableSystem } : {}),
-        ...(conversationStops ? { stopSequences: conversationStops } : {}),
         ...extraOpts,
       });
 
       let fullText = "";
       let reasoningChars = 0;
-      const thinkFilter = new ThinkingBlockFilter(onToken);
+      // For the conversation purpose, prevent leaked code blocks from
+      // reaching the user-visible chat panel. Wraps onToken with a
+      // filter that stops forwarding the moment a code fence appears.
+      const userOnToken = purpose === "conversation"
+        ? (() => {
+            const cutoff = new CodeFenceCutoff(onToken);
+            return (token: string) => cutoff.push(token);
+          })()
+        : onToken;
+      const thinkFilter = new ThinkingBlockFilter(userOnToken);
       let streamStepUsage: unknown;
       const streamStart = Date.now();
       let lastDeltaAt = Date.now();
@@ -974,12 +1071,13 @@ async function streamWithConfig(
       }
 
       const cleanedText = stripThinkingBlocks(fullText);
-      if (cleanedText === "") {
+      const finalText = purpose === "conversation" ? truncateAtCodeFence(cleanedText) : cleanedText;
+      if (finalText === "") {
         throw new LlmServiceError("LLM returned empty output", 502);
       }
 
       return {
-        text: cleanedText,
+        text: finalText,
         usageRaw: effectiveUsage,
       };
     } catch (error) {
