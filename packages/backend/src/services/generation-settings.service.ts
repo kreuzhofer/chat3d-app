@@ -50,19 +50,21 @@ const SETTINGS_REGISTRY = new Map<string, SettingMeta>([
   ["chat.conversation_history_max_pairs", { default: 5, label: "Conversation history max pairs", description: "Max user/assistant exchange pairs for context", pipeline: "chat-only", min: 1, max: 50, step: 1 }],
   ["workbench.spec_generation_enabled", { default: 1, label: "Spec generation enabled", description: "Enable specification step before codegen (1=on, 0=off)", pipeline: "workbench", min: 0, max: 1, step: 1 }],
   ["chat.spec_generation_enabled", { default: 1, label: "Spec generation enabled", description: "Enable specification step before codegen (1=on, 0=off)", pipeline: "chat", min: 0, max: 1, step: 1 }],
-  ["chat.agent_max_steps", { default: 15, label: "Agent max tool-use steps", description: "Maximum number of tool-use steps in the agent codegen loop", pipeline: "chat", min: 3, max: 50, step: 1 }],
-  ["workbench.agent_max_steps", { default: 15, label: "Agent max tool-use steps", description: "Maximum number of tool-use steps in the agent codegen loop", pipeline: "workbench", min: 3, max: 50, step: 1 }],
+  ["chat.agent_max_steps", { default: 10, label: "Agent max tool-use steps", description: "Maximum number of tool-use steps in the agent codegen loop. Chat is user-facing, so the budget is tighter than workbench.", pipeline: "chat", min: 3, max: 50, step: 1 }],
+  ["workbench.agent_max_steps", { default: 25, label: "Agent max tool-use steps", description: "Maximum number of tool-use steps in the agent codegen loop. Workbench needs more iterations to converge on hard prompts.", pipeline: "workbench", min: 3, max: 50, step: 1 }],
   ["workbench.sub_agent_max_steps", { default: 10, label: "Sub-agent max steps", description: "Maximum tool-use steps per sub-agent in multi-agent mode", pipeline: "workbench", min: 3, max: 30, step: 1 }],
   ["chat.sub_agent_max_steps", { default: 10, label: "Sub-agent max steps", description: "Maximum tool-use steps per sub-agent in multi-agent mode", pipeline: "chat", min: 3, max: 30, step: 1 }],
   ["workbench.code_eval_weight", { default: 0.4, label: "Code eval weight", description: "Weight of code evaluation in composite score (0=visual only, 1=code only)", pipeline: "workbench", min: 0, max: 1, step: 0.1 }],
   ["chat.code_eval_weight", { default: 0.4, label: "Code eval weight", description: "Weight of code evaluation in composite score (0=visual only, 1=code only)", pipeline: "chat", min: 0, max: 1, step: 0.1 }],
-  ["workbench.pipeline_timeout_minutes", { default: 15, label: "Pipeline timeout (minutes)", description: "Maximum time before the pipeline is aborted", pipeline: "workbench", min: 1, max: 60, step: 1 }],
-  ["chat.pipeline_timeout_minutes", { default: 15, label: "Pipeline timeout (minutes)", description: "Maximum time before the pipeline is aborted", pipeline: "chat", min: 1, max: 60, step: 1 }],
+  ["workbench.pipeline_timeout_minutes", { default: 30, label: "Pipeline timeout (minutes)", description: "Maximum time before the pipeline is aborted. Workbench needs longer than chat for agentic codegen + fix loops.", pipeline: "workbench", min: 1, max: 120, step: 1 }],
+  ["chat.pipeline_timeout_minutes", { default: 8, label: "Pipeline timeout (minutes)", description: "Maximum time before the pipeline is aborted. Chat is user-facing — fails fast rather than letting users wait on stuck loops.", pipeline: "chat", min: 1, max: 60, step: 1 }],
+  ["workbench.multi_agent_pipeline_timeout_minutes", { default: 45, label: "Multi-agent pipeline timeout (minutes)", description: "Pipeline timeout when complex prompts trigger multi-agent decomposition. Multi-agent runs sub-agents in parallel + assembly, so it needs more wall-clock time than the single-agent path.", pipeline: "workbench", min: 1, max: 180, step: 1 }],
+  ["chat.multi_agent_pipeline_timeout_minutes", { default: 15, label: "Multi-agent pipeline timeout (minutes)", description: "Pipeline timeout when complex prompts trigger multi-agent decomposition. Multi-agent runs sub-agents in parallel + assembly, so it needs more wall-clock time than the single-agent path.", pipeline: "chat", min: 1, max: 60, step: 1 }],
   // Global settings (apply to both workbench and chat pipelines)
   ["global.agent_search_tools", { default: 1, label: "Agent search tools", description: "Enable search_examples, search_knowledge, and lookup_api tools for agents (1=on, 0=off). When off, agents rely on pre-loaded research results only.", pipeline: "global", min: 0, max: 1, step: 1 }],
   ["global.rag_similarity_threshold", { default: 0.60, label: "RAG similarity threshold", description: "Minimum cosine similarity for examples/knowledge to be included in the pipeline", pipeline: "global", min: 0.1, max: 1.0, step: 0.05 }],
-  ["global.rag_gap_threshold", { default: 0.85, label: "RAG gap detection threshold", description: "If best match is below this, flag as a gap and warn the agent", pipeline: "global", min: 0.1, max: 1.0, step: 0.05 }],
-  ["global.rag_gap_threshold_reference", { default: 0.90, label: "RAG reference gap threshold", description: "Gap threshold for subject-level reference queries (e.g., 'Raspberry Pi 4'). Higher than general gap threshold to demand more specific building blocks.", pipeline: "global", min: 0.1, max: 1.0, step: 0.05 }],
+  ["global.rag_gap_threshold", { default: 0.60, label: "RAG gap detection threshold", description: "If best match is below this, flag as a gap and warn the agent. Should be ≤ rag_similarity_threshold so matches usable for retrieval don't also count as gaps.", pipeline: "global", min: 0.1, max: 1.0, step: 0.05 }],
+  ["global.rag_gap_threshold_reference", { default: 0.70, label: "RAG reference gap threshold", description: "Gap threshold for subject-level reference queries (e.g., 'Raspberry Pi 4'). Slightly higher than general gap threshold to demand more specific building blocks.", pipeline: "global", min: 0.1, max: 1.0, step: 0.05 }],
   ["global.rag_max_examples", { default: 3, label: "Max workbench examples", description: "Number of workbench examples to retrieve per search", pipeline: "global", min: 1, max: 10, step: 1 }],
   ["global.rag_max_knowledge", { default: 3, label: "Max knowledge entries", description: "Number of knowledge base entries to retrieve per search", pipeline: "global", min: 1, max: 10, step: 1 }],
   ["global.llm_max_retries", { default: 3, label: "LLM max retries", description: "Maximum number of retries with exponential backoff for transient LLM failures (timeouts, rate limits, connection errors)", pipeline: "global", min: 0, max: 10, step: 1 }],
@@ -143,6 +145,11 @@ export async function getCodeEvalWeight(pipeline: Pipeline): Promise<number> {
 
 export async function getPipelineTimeoutMs(pipeline: Pipeline): Promise<number> {
   const minutes = await getEffective(`${pipeline}.pipeline_timeout_minutes`);
+  return minutes * 60 * 1000;
+}
+
+export async function getMultiAgentPipelineTimeoutMs(pipeline: Pipeline): Promise<number> {
+  const minutes = await getEffective(`${pipeline}.multi_agent_pipeline_timeout_minutes`);
   return minutes * 60 * 1000;
 }
 

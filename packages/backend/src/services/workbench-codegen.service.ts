@@ -31,7 +31,9 @@ import {
   getAgentMaxSteps,
   getCodeEvalWeight,
   getPipelineTimeoutMs,
+  getMultiAgentPipelineTimeoutMs,
 } from "./generation-settings.service.js";
+import { PipelineTimeoutError } from "../utils/pipeline-errors.js";
 import { storeSpecAndEmbedding } from "./workbench-embeddings.service.js";
 import { generateSpec, deriveComplexity, type SpecResult } from "./spec-generation.service.js";
 import { enrichSpec } from "./spec-enrichment.service.js";
@@ -94,9 +96,24 @@ export async function generateForPrompt(
   }, async () => {
     logger.info({ promptId }, "starting generation for prompt");
 
+    const startTime = Date.now();
     const timeoutMs = await getPipelineTimeoutMs("workbench");
     const pipelineController = new AbortController();
-    const pipelineTimeout = setTimeout(() => pipelineController.abort(), timeoutMs);
+
+    let pipelineTimeout: NodeJS.Timeout;
+    let activeTimeoutMs = timeoutMs;
+    function armTimeout(totalBudgetMs: number) {
+      if (pipelineTimeout) clearTimeout(pipelineTimeout);
+      activeTimeoutMs = totalBudgetMs;
+      const minutes = Math.round(totalBudgetMs / 60_000);
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, totalBudgetMs - elapsed);
+      pipelineTimeout = setTimeout(
+        () => pipelineController.abort(new PipelineTimeoutError(minutes)),
+        remaining,
+      );
+    }
+    armTimeout(timeoutMs);
 
     const externalSignal = options?.externalSignal;
     if (externalSignal) {
@@ -108,9 +125,14 @@ export async function generateForPrompt(
     }
 
     try {
-      return await _generateForPromptInner(promptId, pipelineController.signal, { ...options, pipelineTimeoutMs: timeoutMs });
+      return await _generateForPromptInner(
+        promptId,
+        pipelineController.signal,
+        { ...options, pipelineTimeoutMs: timeoutMs },
+        armTimeout,
+      );
     } finally {
-      clearTimeout(pipelineTimeout);
+      clearTimeout(pipelineTimeout!);
     }
   });
 }
@@ -118,7 +140,8 @@ export async function generateForPrompt(
 async function _generateForPromptInner(
   promptId: string,
   pipelineSignal: AbortSignal,
-  options?: GenerateOptions,
+  options: GenerateOptions | undefined,
+  rearmPipelineTimeout: (totalBudgetMs: number) => void,
 ): Promise<GenerateResult> {
   // 1. Load context and resolve model (use override if provided)
   const ctx = await loadPromptContext(promptId);
@@ -174,7 +197,7 @@ async function _generateForPromptInner(
 
   return runWithTrace(traceBuilder, async () => {
     try {
-      return await _runPipeline(ctx, llmModelLabel, codegenModelConfig, traceBuilder, traceId, pipelineSignal, options, earlyExampleId);
+      return await _runPipeline(ctx, llmModelLabel, codegenModelConfig, traceBuilder, traceId, pipelineSignal, options, earlyExampleId, rearmPipelineTimeout);
     } catch (err) {
       // Classify and persist error on the current phase + root
       traceBuilder.endPhaseWithError(err);
@@ -197,8 +220,9 @@ async function _runPipeline(
   traceBuilder: TraceBuilder,
   traceId: string | null,
   pipelineSignal: AbortSignal,
-  options?: GenerateOptions,
-  earlyExampleId?: string,
+  options: GenerateOptions | undefined,
+  earlyExampleId: string | undefined,
+  rearmPipelineTimeout: (totalBudgetMs: number) => void,
 ): Promise<GenerateResult> {
   const onProgress = options?.onProgress;
   // 2. Validate prompt
@@ -294,6 +318,7 @@ async function _runPipeline(
             signal: pipelineSignal,
             ragMaxExamplesOverride: options?.ragMaxExamplesOverride,
             excludePromptIds: options?.excludePromptIds,
+            sourceCategoryName: ctx.categoryName,
           });
       // Compute LLM cost for the research phase
       // Research uses spec_generation model — resolve config for cost calculation
@@ -353,7 +378,18 @@ async function _runPipeline(
   const wbAgentModelConfig = codegenModelConfig;
   const wbAgMaxSteps = await getAgentMaxSteps("workbench");
   const wbUseMultiAgent = specResult?.complexity === "complex";
-  if (wbUseMultiAgent) traceBuilder.setPipelineType("multi_agent");
+  if (wbUseMultiAgent) {
+    traceBuilder.setPipelineType("multi_agent");
+    // Multi-agent decomposition + parallel sub-agents + assembly is much
+    // wall-clock heavier than single-agent. Bump the pipeline budget so
+    // assembly isn't squeezed by the single-agent timeout.
+    const multiAgentTimeoutMs = await getMultiAgentPipelineTimeoutMs("workbench");
+    const baseTimeoutMs = options?.pipelineTimeoutMs ?? 0;
+    if (multiAgentTimeoutMs > baseTimeoutMs) {
+      rearmPipelineTimeout(multiAgentTimeoutMs);
+      logger.info({ multiAgentTimeoutMin: Math.round(multiAgentTimeoutMs / 60_000) }, "extended pipeline timeout for multi-agent");
+    }
+  }
 
   const agCodeEvalWeight = await getCodeEvalWeight("workbench");
 
@@ -618,27 +654,34 @@ async function _runPipeline(
     agentSystemPrompt: agResult?.systemPrompt ?? null,
   });
 
-  // Persist all spec outputs on the prompt for future re-render/re-eval use
+  // Persist all spec outputs on the prompt for future re-render/re-eval use.
+  // Awaited so the example never lands in DB without its spec — earlier
+  // fire-and-forget pattern produced orphan examples when the update
+  // crashed silently.
   if (specResult) {
-    const specUpdate = prisma.workbenchExamplePrompt.update({
-      where: { id: ctx.promptId },
-      data: {
-        specInterpretation: specResult.interpretation,
-        codeAssertions: specResult.codeAssertions as unknown as undefined,
-        verificationChecklist: specResult.verificationChecklist,
-        verificationCriteria: specResult.verificationCriteria as unknown as undefined,
-        specRawResponse: specResult.rawResponse ?? null,
-        specSystemPrompt: specResult.systemPrompt ?? null,
-        ...(enrichmentResult ? {
-          enrichmentRawResponse: enrichmentResult.rawResponse ?? null,
-          enrichmentSystemPrompt: enrichmentResult.systemPrompt ?? null,
-          enrichmentUserMessage: enrichmentResult.userMessage ?? null,
-        } : {}),
-      },
-    });
-    specUpdate.catch(err => logger.warn({ err: err instanceof Error ? err.message : String(err) }, "failed to persist spec fields (non-fatal)"));
+    try {
+      await prisma.workbenchExamplePrompt.update({
+        where: { id: ctx.promptId },
+        data: {
+          specInterpretation: specResult.interpretation,
+          codeAssertions: specResult.codeAssertions as unknown as undefined,
+          verificationChecklist: specResult.verificationChecklist,
+          verificationCriteria: specResult.verificationCriteria as unknown as undefined,
+          specRawResponse: specResult.rawResponse ?? null,
+          specSystemPrompt: specResult.systemPrompt ?? null,
+          ...(enrichmentResult ? {
+            enrichmentRawResponse: enrichmentResult.rawResponse ?? null,
+            enrichmentSystemPrompt: enrichmentResult.systemPrompt ?? null,
+            enrichmentUserMessage: enrichmentResult.userMessage ?? null,
+          } : {}),
+        },
+      });
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, "failed to persist spec fields (non-fatal)");
+    }
 
-    // Store construction spec + embedding for future remix candidates
+    // Spec embedding is independent — leave fire-and-forget since it's only
+    // used by the remix-candidate path and a missing one is recoverable.
     if (specResult.constructionSpec) {
       storeSpecAndEmbedding(ctx.promptId, specResult.constructionSpec)
         .catch(err => logger.warn({ err: err instanceof Error ? err.message : String(err) }, "failed to store spec embedding (non-fatal)"));

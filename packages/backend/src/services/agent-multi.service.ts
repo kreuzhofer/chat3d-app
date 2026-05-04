@@ -364,10 +364,30 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   // Run sub-agents in parallel
   await Promise.all(subAgentTasks.map(task => task()));
 
-  // Check abort after parallel sub-agents complete
+  // Check abort after parallel sub-agents complete. Don't fall through to the
+  // single-agent fallback — the same aborted signal would just kill it
+  // immediately and produce a misleading "stream failed" log. Return an
+  // empty/cancelled result; the pipeline catch block will translate
+  // signal.reason into the right user-facing message.
   if (signal?.aborted) {
-    logger.info("multi-agent orchestration aborted after sub-agents");
-    return runAgentCodegen(input); // fallback won't run either due to abort
+    logger.info({ reason: (signal as AbortSignal & { reason?: unknown }).reason instanceof Error ? ((signal as AbortSignal & { reason?: Error }).reason as Error).name : "unknown" }, "multi-agent orchestration aborted after sub-agents");
+    return {
+      code: "",
+      files: [],
+      renderedFiles: [],
+      renderSuccess: false,
+      usage: {
+        promptTokens: totalPromptTokens,
+        completionTokens: totalCompletionTokens,
+        reasoningTokens: totalReasoningTokens,
+        totalCostUsd: calculateCostUsd(modelConfig, totalPromptTokens, totalCompletionTokens),
+      },
+      stepCount: totalSteps,
+      submitted: false,
+      evalResult: null,
+      screenshots: [],
+      conversationHistory: [],
+    };
   }
 
   if (componentFiles.size === 0) {

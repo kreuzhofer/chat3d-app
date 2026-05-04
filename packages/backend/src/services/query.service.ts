@@ -26,6 +26,7 @@ import {
   getAutoApproveThreshold,
   getCodeEvalWeight,
   getPipelineTimeoutMs,
+  getMultiAgentPipelineTimeoutMs,
 } from "./generation-settings.service.js";
 import { runFullEvaluation } from "./eval-orchestrator.service.js";
 import { generateSpec, formatDisambiguationResponse } from "./spec-generation.service.js";
@@ -106,9 +107,8 @@ export class QueryServiceError extends Error {
 
 // ── Pipeline cancellation ──
 
-export class PipelineCancelledError extends Error {
-  constructor() { super("Pipeline cancelled by user"); }
-}
+export { PipelineCancelledError, PipelineTimeoutError } from "../utils/pipeline-errors.js";
+import { PipelineCancelledError, PipelineTimeoutError } from "../utils/pipeline-errors.js";
 
 /** In-memory registry of running query pipelines. Key: assistantItemId. */
 const runningPipelines = new Map<string, { controller: AbortController; userId: string }>();
@@ -1094,12 +1094,35 @@ async function executeQueryPipelineInner(input: {
   const pipelineController = registerPipeline(assistantItemId, input.userId);
   const pipelineSignal = pipelineController.signal;
 
-  // Pipeline timeout — abort after configured duration
+  // Hoisted: needed by the timer re-arm logic below and by cost summaries later.
+  const epStartTime = Date.now();
+
+  // Pipeline timeout — abort after configured duration. Single-agent budget
+  // is used initially; if spec-gen later determines complexity is "complex"
+  // and multi-agent runs, the timer is re-armed with the larger multi-agent
+  // budget (relative to pipeline start, not from the moment of re-arm).
+  let pipelineTimeout: NodeJS.Timeout | undefined;
+  let pipelineTimeoutMinutes = 0;
+  function armPipelineTimeout(totalBudgetMs: number) {
+    if (pipelineTimeout) clearTimeout(pipelineTimeout);
+    pipelineTimeoutMinutes = Math.round(totalBudgetMs / 60_000);
+    const elapsed = Date.now() - epStartTime;
+    const remaining = Math.max(0, totalBudgetMs - elapsed);
+    pipelineTimeout = setTimeout(
+      () => pipelineController.abort(new PipelineTimeoutError(pipelineTimeoutMinutes)),
+      remaining,
+    );
+  }
+
   const chatTimeoutMs = await getPipelineTimeoutMs("chat");
-  const pipelineTimeout = setTimeout(() => pipelineController.abort(), chatTimeoutMs);
+  armPipelineTimeout(chatTimeoutMs);
 
   function checkAborted() {
-    if (pipelineSignal.aborted) throw new PipelineCancelledError();
+    if (pipelineSignal.aborted) {
+      const reason = (pipelineSignal as AbortSignal & { reason?: unknown }).reason;
+      if (reason instanceof PipelineTimeoutError) throw reason;
+      throw new PipelineCancelledError();
+    }
   }
 
   // Track partial conversation text for persistence on cancellation
@@ -1126,7 +1149,6 @@ async function executeQueryPipelineInner(input: {
   let epTotalCompletionTokens = 0;
   let epTotalReasoningTokens = 0;
   let epTotalCostUsd = 0;
-  const epStartTime = Date.now();
 
   try {
     await publishQueryState({
@@ -1422,6 +1444,17 @@ async function executeQueryPipelineInner(input: {
       await persistPhase(agDetail);
       queryLogger.info({ mode: agMode, complexity: epSpecComplexity }, "agent mode selected");
 
+      // Re-arm the timeout with the multi-agent budget if applicable. The
+      // single-agent default (~8 min) isn't enough for parallel sub-agents
+      // plus assembly on complex prompts.
+      if (useMultiAgent) {
+        const multiAgentTimeoutMs = await getMultiAgentPipelineTimeoutMs("chat");
+        if (multiAgentTimeoutMs > chatTimeoutMs) {
+          armPipelineTimeout(multiAgentTimeoutMs);
+          queryLogger.info({ multiAgentTimeoutMin: pipelineTimeoutMinutes }, "extended pipeline timeout for multi-agent");
+        }
+      }
+
       const agentInput: Parameters<typeof runAgentCodegen>[0] = {
         promptText: prompt,
         interpretation: epSpecInterpretation,
@@ -1452,6 +1485,11 @@ async function executeQueryPipelineInner(input: {
       epTotalCostUsd += agResult.usage.totalCostUsd;
       await incrementContextCost(input.contextId, agResult.usage.totalCostUsd);
       await persistItemCost();
+
+      // If the pipeline was aborted (timeout or user cancel) during codegen,
+      // throw so the catch block can render the right user-facing message
+      // instead of falling through to the generic "all-failed" branch.
+      checkAborted();
 
       // Take screenshots if render succeeded
       let agScreenshots: RenderedScreenshot[] = [];
@@ -1651,9 +1689,55 @@ async function executeQueryPipelineInner(input: {
 
     }
   } catch (error) {
-    // Handle cancellation: either our own PipelineCancelledError (from checkAborted()
-    // at stage boundaries) or an AbortError thrown by the Vercel AI SDK when the
-    // abort signal fires during an in-flight LLM call.
+    // Handle cancellation: either our own PipelineCancelledError /
+    // PipelineTimeoutError (from checkAborted() at stage boundaries) or an
+    // AbortError thrown by the Vercel AI SDK when the abort signal fires
+    // during an in-flight LLM call. Differentiate timeout from user cancel
+    // by inspecting signal.reason — the timer aborts with PipelineTimeoutError
+    // as the reason, user cancellation aborts with no reason (DOMException).
+    const abortReason = (pipelineSignal as AbortSignal & { reason?: unknown }).reason;
+    const timeoutErr =
+      error instanceof PipelineTimeoutError ? error :
+      abortReason instanceof PipelineTimeoutError ? abortReason :
+      null;
+
+    if (timeoutErr) {
+      queryLogger.warn({ assistantItemId, minutes: timeoutErr.minutes }, "query pipeline timed out");
+
+      const partialText = accumulatedConversationText.trim();
+      const errMessage = `Generation timed out after ${timeoutErr.minutes} minute${timeoutErr.minutes === 1 ? "" : "s"}. Try simplifying the prompt, or increase the timeout in Admin → Generation settings.`;
+      const messages: Array<Record<string, unknown>> = [];
+      if (partialText) {
+        messages.push({ itemType: "message", text: partialText, state: "completed", stateMessage: "" });
+      }
+      messages.push({
+        itemType: "errormessage",
+        text: errMessage,
+        state: "error",
+        stateMessage: "",
+      });
+
+      await updateChatItem({
+        userId: input.userId,
+        contextId: input.contextId,
+        itemId: assistantItemId,
+        messages,
+        promptTokens: epTotalPromptTokens,
+        completionTokens: epTotalCompletionTokens,
+        estimatedCostUsd: Number(epTotalCostUsd.toFixed(8)),
+      });
+
+      await publishQueryState({
+        userId: input.userId,
+        contextId: input.contextId,
+        assistantItemId,
+        state: "failed",
+        detail: errMessage,
+      });
+
+      return;
+    }
+
     if (error instanceof PipelineCancelledError || pipelineSignal.aborted) {
       queryLogger.info({ assistantItemId }, "query pipeline cancelled by user");
 
@@ -1724,7 +1808,7 @@ async function executeQueryPipelineInner(input: {
       url: `/chat/${input.contextId}`,
     }).catch(() => {/* ignore push errors */});
   } finally {
-    clearTimeout(pipelineTimeout);
+    if (pipelineTimeout) clearTimeout(pipelineTimeout);
     // Recalculate context cost from item totals to correct any drift
     // from interrupted/resumed pipelines or double-counted increments.
     try {
