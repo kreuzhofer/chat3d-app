@@ -630,12 +630,20 @@ async function streamWithMessages(
         return { text: cleanedText, usageRaw: effectiveUsage };
       }
 
+      // Cut conversation responses off at the first code fence — see
+      // streamWithConfig for rationale (some models leak code into the
+      // conversation reply that the system prompt explicitly forbids).
+      const conversationStops = purpose === "conversation"
+        ? ["```", "~~~"]
+        : undefined;
+
       // Streaming path
       const result = streamText({
         model: providerModel,
         system: cacheableSystem,
         messages,
         abortSignal,
+        ...(conversationStops ? { stopSequences: conversationStops } : {}),
         ...extraOpts,
       });
 
@@ -822,12 +830,23 @@ async function streamWithConfig(
         return { text: cleanedText, usageRaw: effectiveUsage, reasoningText: genResult.reasoningText };
       }
 
+      // For the conversation purpose, the system prompt forbids code blocks
+      // in the response (a separate codegen pipeline produces the actual code).
+      // Some models (notably Qwen3.6) ignore the instruction and start emitting
+      // a fenced code block. Cut the stream off at the first backtick run so
+      // (a) the user never sees leaked code in the chat panel and (b) we don't
+      // burn output tokens generating code that will be discarded.
+      const conversationStops = purpose === "conversation"
+        ? ["```", "~~~"]
+        : undefined;
+
       // Streaming path
       const result = streamText({
         model: providerModel,
         prompt,
         abortSignal,
         ...(cacheableSystem ? { system: cacheableSystem } : {}),
+        ...(conversationStops ? { stopSequences: conversationStops } : {}),
         ...extraOpts,
       });
 
