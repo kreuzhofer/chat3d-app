@@ -184,7 +184,7 @@ export function ModelFormDialog({ model, providers, token, saving, onSave, onClo
               id="model-cost-in"
               type="number"
               min={0}
-              step={0.01}
+              step={0.001}
               value={form.costPer1mInput}
               onChange={(e) => patch({ costPer1mInput: parseFloat(e.target.value) || 0 })}
             />
@@ -195,7 +195,7 @@ export function ModelFormDialog({ model, providers, token, saving, onSave, onClo
               id="model-cost-out"
               type="number"
               min={0}
-              step={0.01}
+              step={0.001}
               value={form.costPer1mOutput}
               onChange={(e) => patch({ costPer1mOutput: parseFloat(e.target.value) || 0 })}
             />
