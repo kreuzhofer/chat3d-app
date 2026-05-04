@@ -125,7 +125,26 @@ export async function trackedGenerateText(
 
     const durationMs = Date.now() - start;
     const usage = extractUsage(result.usage);
-    const cost = computeCost(tracking, usage);
+
+    // Bedrock + Anthropic don't always include reasoning_tokens in usage even
+    // when thinking is enabled and produced output. Fall back to estimating
+    // from result.reasoningText (AI SDK 6 exposes the concatenated thinking
+    // text on this field after generateText resolves).
+    let effectiveReasoningTokens = usage.reasoningTokens;
+    let isEstimated = usage.inputTokens === 0 && usage.outputTokens === 0;
+    const reasoningText = typeof (result as { reasoningText?: string }).reasoningText === "string"
+      ? (result as { reasoningText?: string }).reasoningText!
+      : "";
+    if (effectiveReasoningTokens === 0 && reasoningText.length > 0) {
+      effectiveReasoningTokens = Math.ceil(reasoningText.length / 4);
+      isEstimated = true;
+      logger.info(
+        { purpose: tracking.purpose, model: tracking.modelName, chars: reasoningText.length, estimatedTokens: effectiveReasoningTokens },
+        "estimated reasoning tokens from generateText reasoningText (provider reported 0)",
+      );
+    }
+
+    const cost = computeCost(tracking, { ...usage, reasoningTokens: effectiveReasoningTokens });
 
     recordUsageEvent({
       providerName: tracking.providerName,
@@ -134,15 +153,16 @@ export async function trackedGenerateText(
       purpose: tracking.purpose,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
-      reasoningTokens: usage.reasoningTokens,
+      reasoningTokens: effectiveReasoningTokens,
       cacheReadTokens: usage.cacheReadTokens,
       cacheWriteTokens: usage.cacheWriteTokens,
       totalTokens: usage.totalTokens,
       estimatedCostUsd: cost,
       durationMs,
-      isEstimated: usage.inputTokens === 0 && usage.outputTokens === 0,
+      isEstimated,
       generationAttempt: tracking.generationAttempt,
       outputTokensPerSecond: computeOutputTps(usage.outputTokens, durationMs),
+      reasoningText: reasoningText || undefined,
     });
 
     return result;
@@ -207,9 +227,24 @@ export function trackedStreamText(
       // When provider doesn't report streaming usage (e.g., Bedrock streaming bug,
       // vllm/OpenAI-compatible), estimate tokens from response text (~4 chars per token).
       const responseText = typeof event.text === "string" ? event.text : "";
-      const reasoningText = typeof (event as { reasoning?: string }).reasoning === "string"
-        ? (event as { reasoning?: string }).reasoning!
+      // AI SDK 6: streamText onFinish.reasoningText reflects only the LAST
+      // step's reasoning. For tool-use agents (multi-step), reasoning from
+      // earlier steps lives on event.steps[i].reasoningText — sum across
+      // all steps to get the full thinking trace. Fall back to the older
+      // top-level field shape and the legacy `reasoning` string for safety.
+      const eventSteps = (event as { steps?: Array<{ reasoningText?: string }> }).steps;
+      const stepsReasoning = Array.isArray(eventSteps)
+        ? eventSteps.map((s) => s?.reasoningText ?? "").join("")
         : "";
+      const lastStepReasoning =
+        typeof (event as { reasoningText?: string }).reasoningText === "string"
+          ? (event as { reasoningText?: string }).reasoningText!
+          : "";
+      const legacyReasoning =
+        typeof (event as { reasoning?: string }).reasoning === "string"
+          ? (event as { reasoning?: string }).reasoning!
+          : "";
+      const reasoningText = stepsReasoning || lastStepReasoning || legacyReasoning;
       let effectiveOutputTokens = usage.outputTokens;
       let effectiveReasoningTokens = usage.reasoningTokens;
       let isEstimated = usage.inputTokens === 0 && usage.outputTokens === 0;
@@ -277,6 +312,7 @@ export function trackedStreamText(
         isEstimated,
         generationAttempt: tracking.generationAttempt,
         outputTokensPerSecond: computeOutputTps(effectiveOutputTokens, durationMs),
+        reasoningText: reasoningText || undefined,
       });
 
       await userOnFinish?.(event);

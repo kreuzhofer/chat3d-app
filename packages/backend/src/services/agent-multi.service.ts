@@ -11,6 +11,8 @@ import { trackedGenerateText } from "./tracked-llm.service.js";
 import {
   createProviderModel,
   calculateCostUsd,
+  buildGenerateOptions,
+  maxOutputWithThinking,
   type LlmModelConfig,
 } from "./llm-config.service.js";
 import {
@@ -90,7 +92,8 @@ Respond with raw JSON only. No markdown, no code fences, no explanation:
     model,
     system: systemPrompt,
     prompt: fullPrompt,
-    maxOutputTokens: 2048,
+    ...buildGenerateOptions(modelConfig),
+    maxOutputTokens: maxOutputWithThinking(2048, modelConfig),
   }, {
     purpose: "agent_decomposition",
     providerName: modelConfig.provider,

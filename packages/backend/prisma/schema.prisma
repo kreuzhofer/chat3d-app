@@ -796,6 +796,7 @@ model LlmUsageEvent {
   experimentRunId    String?   @map("experiment_run_id") @db.Uuid
   source             String?   @map("source") @db.VarChar(20)
   sourceLabel        String?   @map("source_label") @db.VarChar(255)
+  reasoningText      String?   @map("reasoning_text") @db.Text
 
   // Relations — no FK for experiment/source fields (ledger must survive deletions)
   user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: NoAction)

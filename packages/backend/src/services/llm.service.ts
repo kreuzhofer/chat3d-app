@@ -22,6 +22,20 @@ import type { ConversationHistoryEntry, CollectedImage } from "./query.service.j
 
 const logger = createLogger("llm");
 
+/**
+ * Bedrock + Anthropic streaming usage payloads sometimes report
+ * `reasoningTokens === 0` even when the model produced thinking output. When
+ * reasoning text is available (either streamed reasoning-delta chars or the
+ * resolved `reasoningText` string), estimate ~4 chars/token so the stored
+ * usage record reflects the actual work done. Falls back to the raw value
+ * when no reasoning text was captured.
+ */
+function effectiveReasoningTokens(rawTokens: number, reasoningChars: number): number {
+  if (rawTokens > 0) return rawTokens;
+  if (reasoningChars > 0) return Math.ceil(reasoningChars / 4);
+  return 0;
+}
+
 type LlmProvider = "mock" | "openai" | "anthropic" | "xai" | "deepseek" | "minimax" | "ollama";
 
 export interface LlmModelDefinition {
@@ -421,6 +435,7 @@ async function generateWithConfig(
         // Record usage for Bedrock fallback stream
         if (purpose) {
           const su = extractTokenUsage(usage);
+          const rt = effectiveReasoningTokens(su.reasoningTokens ?? 0, reasoningChars);
           recordUsageEvent({
             providerName: cfg.provider,
             modelId: cfg.id,
@@ -428,11 +443,12 @@ async function generateWithConfig(
             purpose,
             inputTokens: su.inputTokens ?? 0,
             outputTokens: su.outputTokens ?? 0,
-            reasoningTokens: su.reasoningTokens ?? 0,
+            reasoningTokens: rt,
             cacheReadTokens: su.cacheReadTokens ?? 0,
             cacheWriteTokens: su.cacheWriteTokens ?? 0,
             totalTokens: su.totalTokens ?? 0,
-            estimatedCostUsd: calculateCostUsd(cfg, su.inputTokens ?? 0, su.outputTokens ?? 0, su.reasoningTokens ?? 0, su.cacheReadTokens ?? 0, su.cacheWriteTokens ?? 0),
+            estimatedCostUsd: calculateCostUsd(cfg, su.inputTokens ?? 0, su.outputTokens ?? 0, rt, su.cacheReadTokens ?? 0, su.cacheWriteTokens ?? 0),
+            isEstimated: (su.reasoningTokens ?? 0) === 0 && reasoningChars > 0,
           });
         }
       } else {
@@ -597,13 +613,16 @@ async function streamWithMessages(
         onToken(text); // emit full text at once
         const effectiveUsage = genResult.usage;
         const cacheUsage = extractTokenUsage(effectiveUsage);
+        const reasoningChars = (genResult.reasoningText ?? "").length;
+        const rt = effectiveReasoningTokens(cacheUsage.reasoningTokens ?? 0, reasoningChars);
         if (purpose) {
           recordUsageEvent({
             providerName: cfg.provider, modelId: cfg.id, modelName: cfg.modelName, purpose,
             inputTokens: cacheUsage.inputTokens ?? 0, outputTokens: cacheUsage.outputTokens ?? 0,
-            reasoningTokens: cacheUsage.reasoningTokens ?? 0, cacheReadTokens: cacheUsage.cacheReadTokens ?? 0,
+            reasoningTokens: rt, cacheReadTokens: cacheUsage.cacheReadTokens ?? 0,
             cacheWriteTokens: cacheUsage.cacheWriteTokens ?? 0, totalTokens: cacheUsage.totalTokens ?? 0,
-            estimatedCostUsd: calculateCostUsd(cfg, cacheUsage.inputTokens ?? 0, cacheUsage.outputTokens ?? 0, cacheUsage.reasoningTokens ?? 0, cacheUsage.cacheReadTokens ?? 0, cacheUsage.cacheWriteTokens ?? 0),
+            estimatedCostUsd: calculateCostUsd(cfg, cacheUsage.inputTokens ?? 0, cacheUsage.outputTokens ?? 0, rt, cacheUsage.cacheReadTokens ?? 0, cacheUsage.cacheWriteTokens ?? 0),
+            isEstimated: (cacheUsage.reasoningTokens ?? 0) === 0 && reasoningChars > 0,
           });
         }
         const cleanedText = stripThinkingBlocks(text);
@@ -621,12 +640,15 @@ async function streamWithMessages(
       });
 
       let fullText = "";
+      let reasoningChars = 0;
       const thinkFilter = new ThinkingBlockFilter(onToken);
       let streamStepUsage: unknown;
       for await (const part of result.fullStream) {
         if (part.type === "text-delta") {
           fullText += part.text;
           thinkFilter.push(part.text);
+        } else if (part.type === "reasoning-delta") {
+          reasoningChars += (part as { text?: string }).text?.length ?? 0;
         } else if (part.type === "finish-step" && "usage" in part) {
           streamStepUsage = (part as Record<string, unknown>).usage;
         }
@@ -659,6 +681,7 @@ async function streamWithMessages(
         );
       }
 
+      const rt = effectiveReasoningTokens(cacheUsage.reasoningTokens ?? 0, reasoningChars);
       // Record usage event for streaming call
       if (purpose) {
         recordUsageEvent({
@@ -668,11 +691,12 @@ async function streamWithMessages(
           purpose,
           inputTokens: cacheUsage.inputTokens ?? 0,
           outputTokens: cacheUsage.outputTokens ?? 0,
-          reasoningTokens: cacheUsage.reasoningTokens ?? 0,
+          reasoningTokens: rt,
           cacheReadTokens: cacheUsage.cacheReadTokens ?? 0,
           cacheWriteTokens: cacheUsage.cacheWriteTokens ?? 0,
           totalTokens: cacheUsage.totalTokens ?? 0,
-          estimatedCostUsd: calculateCostUsd(cfg, cacheUsage.inputTokens ?? 0, cacheUsage.outputTokens ?? 0, cacheUsage.reasoningTokens ?? 0, cacheUsage.cacheReadTokens ?? 0, cacheUsage.cacheWriteTokens ?? 0),
+          estimatedCostUsd: calculateCostUsd(cfg, cacheUsage.inputTokens ?? 0, cacheUsage.outputTokens ?? 0, rt, cacheUsage.cacheReadTokens ?? 0, cacheUsage.cacheWriteTokens ?? 0),
+          isEstimated: (cacheUsage.reasoningTokens ?? 0) === 0 && reasoningChars > 0,
         });
       }
 
@@ -736,13 +760,16 @@ async function streamWithConfig(
         onToken(text);
         const effectiveUsage = genResult.usage;
         const cacheUsage = extractTokenUsage(effectiveUsage);
+        const reasoningChars = (genResult.reasoningText ?? "").length;
+        const rt = effectiveReasoningTokens(cacheUsage.reasoningTokens ?? 0, reasoningChars);
         if (purpose) {
           recordUsageEvent({
             providerName: cfg.provider, modelId: cfg.id, modelName: cfg.modelName, purpose,
             inputTokens: cacheUsage.inputTokens ?? 0, outputTokens: cacheUsage.outputTokens ?? 0,
-            reasoningTokens: cacheUsage.reasoningTokens ?? 0, cacheReadTokens: cacheUsage.cacheReadTokens ?? 0,
+            reasoningTokens: rt, cacheReadTokens: cacheUsage.cacheReadTokens ?? 0,
             cacheWriteTokens: cacheUsage.cacheWriteTokens ?? 0, totalTokens: cacheUsage.totalTokens ?? 0,
-            estimatedCostUsd: calculateCostUsd(cfg, cacheUsage.inputTokens ?? 0, cacheUsage.outputTokens ?? 0, cacheUsage.reasoningTokens ?? 0, cacheUsage.cacheReadTokens ?? 0, cacheUsage.cacheWriteTokens ?? 0),
+            estimatedCostUsd: calculateCostUsd(cfg, cacheUsage.inputTokens ?? 0, cacheUsage.outputTokens ?? 0, rt, cacheUsage.cacheReadTokens ?? 0, cacheUsage.cacheWriteTokens ?? 0),
+            isEstimated: (cacheUsage.reasoningTokens ?? 0) === 0 && reasoningChars > 0,
           });
         }
         const cleanedText = stripThinkingBlocks(text);
@@ -817,6 +844,8 @@ async function streamWithConfig(
         );
       }
 
+      const reasoningCharsResolved = (awaitedReasoningText ?? "").length;
+      const rt = effectiveReasoningTokens(cacheUsage.reasoningTokens ?? 0, reasoningCharsResolved);
       // Record usage event for streaming call
       if (purpose) {
         recordUsageEvent({
@@ -826,11 +855,12 @@ async function streamWithConfig(
           purpose,
           inputTokens: cacheUsage.inputTokens ?? 0,
           outputTokens: cacheUsage.outputTokens ?? 0,
-          reasoningTokens: cacheUsage.reasoningTokens ?? 0,
+          reasoningTokens: rt,
           cacheReadTokens: cacheUsage.cacheReadTokens ?? 0,
           cacheWriteTokens: cacheUsage.cacheWriteTokens ?? 0,
           totalTokens: cacheUsage.totalTokens ?? 0,
-          estimatedCostUsd: calculateCostUsd(cfg, cacheUsage.inputTokens ?? 0, cacheUsage.outputTokens ?? 0, cacheUsage.reasoningTokens ?? 0, cacheUsage.cacheReadTokens ?? 0, cacheUsage.cacheWriteTokens ?? 0),
+          estimatedCostUsd: calculateCostUsd(cfg, cacheUsage.inputTokens ?? 0, cacheUsage.outputTokens ?? 0, rt, cacheUsage.cacheReadTokens ?? 0, cacheUsage.cacheWriteTokens ?? 0),
+          isEstimated: (cacheUsage.reasoningTokens ?? 0) === 0 && reasoningCharsResolved > 0,
         });
       }
 

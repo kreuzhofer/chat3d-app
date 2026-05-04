@@ -123,12 +123,20 @@ export const LLM_PURPOSES = [
 
 export type LlmPurpose = (typeof LLM_PURPOSES)[number];
 
-// ── Thinking budget mapping (legacy models with budget_tokens) ──────
+// ── Thinking budget mapping ──────────────────────────────────────────
+// Effort levels map to thinking-token budgets used by Claude's
+// `thinking: { type: "enabled", budgetTokens: N }` provider option.
+// Both the direct Anthropic SDK and the AWS Bedrock SDK accept this
+// shape (Bedrock as `reasoningConfig`). The previous "adaptive" config
+// (`type: "adaptive"`, `maxReasoningEffort`) was silently dropped by
+// the AI SDK Bedrock provider — see DB evidence: 0 reasoning_tokens
+// across 9k+ Sonnet 4.6 events. Always use `type: "enabled"`.
 
 const THINKING_BUDGETS: Record<string, number> = {
   low: 1024,
   medium: 4096,
   high: 16384,
+  max: 32768,
 };
 
 export function thinkingBudget(effort: string | null): number {
@@ -136,21 +144,20 @@ export function thinkingBudget(effort: string | null): number {
   return THINKING_BUDGETS[effort] ?? 0;
 }
 
-// ── Adaptive thinking detection ─────────────────────────────────────
-// Claude 4.6 models use adaptive thinking (thinking.type = "adaptive")
-// with an effort parameter instead of the legacy budget_tokens approach.
-
-const ADAPTIVE_EFFORTS = new Set(["low", "medium", "high", "max"]);
-
 /**
- * Returns true if the model name refers to a Claude 4.6+ model
- * that supports adaptive thinking.
+ * Compute the max_tokens cap for a call where the caller has a desired
+ * output-token budget. When thinking is enabled, max_tokens must cover
+ * BOTH thinking and output (Anthropic API contract). If max_tokens is
+ * less than budget_tokens, Bedrock silently disables thinking.
  *
- * Matches patterns like: claude-opus-4-6, claude-sonnet-4-6,
- * us.anthropic.claude-opus-4-6-v1, anthropic.claude-sonnet-4-6-v1
+ * Use this everywhere a caller passes `maxOutputTokens` for a model that
+ * may have thinking enabled.
  */
-function isAdaptiveThinkingModel(modelName: string): boolean {
-  return /4[-.]6/.test(modelName);
+export function maxOutputWithThinking(desiredOutputTokens: number, cfg: { supportsThinking: boolean; thinkingEffort: string | null }): number {
+  if (!cfg.supportsThinking || !cfg.thinkingEffort) return desiredOutputTokens;
+  const budget = thinkingBudget(cfg.thinkingEffort);
+  if (budget <= 0) return desiredOutputTokens;
+  return desiredOutputTokens + budget + 256; // 256 = small safety headroom
 }
 
 // ── Prisma → API row mappers ────────────────────────────────────────
@@ -526,37 +533,22 @@ export function buildGenerateOptions(cfg: LlmModelConfig): Record<string, unknow
 
   const providerOptions: Record<string, unknown> = {};
 
-  // Anthropic thinking/reasoning (direct API and Bedrock)
+  // Anthropic thinking/reasoning (direct API and Bedrock). Always use
+  // the documented `type: "enabled"` shape with an explicit budgetTokens —
+  // this is the only thinking config the @ai-sdk/amazon-bedrock and
+  // @ai-sdk/anthropic providers actually forward to the upstream API.
   const type = sdkType(cfg);
   if (cfg.supportsThinking && cfg.thinkingEffort) {
-    if (isAdaptiveThinkingModel(cfg.modelName)) {
-      // Claude 4.6+: adaptive thinking with effort parameter
-      const effort = ADAPTIVE_EFFORTS.has(cfg.thinkingEffort)
-        ? cfg.thinkingEffort
-        : "high"; // default to high if unrecognised value
+    const budget = thinkingBudget(cfg.thinkingEffort);
+    if (budget > 0) {
       if (type === "bedrock") {
         providerOptions.bedrock = {
-          reasoningConfig: { type: "adaptive", maxReasoningEffort: effort },
+          reasoningConfig: { type: "enabled", budgetTokens: budget },
         };
       } else {
         providerOptions.anthropic = {
-          thinking: { type: "adaptive" },
-          effort,
+          thinking: { type: "enabled", budgetTokens: budget },
         };
-      }
-    } else {
-      // Older models: enabled thinking with budget_tokens
-      const budget = thinkingBudget(cfg.thinkingEffort);
-      if (budget > 0) {
-        if (type === "bedrock") {
-          providerOptions.bedrock = {
-            reasoningConfig: { type: "enabled", budgetTokens: budget },
-          };
-        } else {
-          providerOptions.anthropic = {
-            thinking: { type: "enabled", budgetTokens: budget },
-          };
-        }
       }
     }
   }

@@ -16,6 +16,8 @@ import { getLlmSemaphore } from "../utils/resource-limits.js";
 import {
   getModelForPurpose,
   createProviderModel as createProviderModelFromConfig,
+  buildGenerateOptions,
+  maxOutputWithThinking,
   type LlmModelConfig,
 } from "./llm-config.service.js";
 import { detectPromptOperations } from "../prompts/system-prompts.js";
@@ -325,7 +327,8 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
         model,
         system: SPEC_SYSTEM_PROMPT,
         messages: [{ role: "user", content: promptText }],
-        maxOutputTokens: 1536,
+        ...buildGenerateOptions(config),
+        maxOutputTokens: maxOutputWithThinking(1536, config),
         temperature: 1.0,
       }, {
         purpose: "spec_generation",

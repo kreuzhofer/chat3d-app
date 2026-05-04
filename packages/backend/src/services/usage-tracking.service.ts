@@ -82,7 +82,23 @@ export interface UsageEventParams {
   isEstimated?: boolean;
   generationAttempt?: number;
   outputTokensPerSecond?: number;
+  /**
+   * Raw thinking text from the model. Persisted only for purposes in
+   * REASONING_TEXT_PERSIST_PURPOSES — those are the runs we'd want to
+   * use for fine-tuning data later (planning + codegen). Other callers
+   * may pass it; it'll be dropped to keep storage small.
+   */
+  reasoningText?: string;
 }
+
+/**
+ * Purposes whose reasoning_text we persist. Limited to runs that are
+ * useful for distillation/training datasets.
+ */
+const REASONING_TEXT_PERSIST_PURPOSES = new Set<LlmPurpose>([
+  "agent_orchestration",
+  "spec_generation",
+]);
 
 /**
  * Record a usage event. Fire-and-forget: never throws.
@@ -129,6 +145,10 @@ export function recordUsageEvent(params: UsageEventParams): void {
         isEstimated: params.isEstimated ?? false,
         generationAttempt: params.generationAttempt ?? 1,
         outputTokensPerSecond: params.outputTokensPerSecond ?? null,
+        reasoningText:
+          params.reasoningText && REASONING_TEXT_PERSIST_PURPOSES.has(params.purpose)
+            ? params.reasoningText
+            : null,
       },
     })
     .catch((err: unknown) => {
