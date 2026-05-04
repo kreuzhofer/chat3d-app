@@ -643,17 +643,62 @@ async function streamWithMessages(
       let reasoningChars = 0;
       const thinkFilter = new ThinkingBlockFilter(onToken);
       let streamStepUsage: unknown;
-      for await (const part of result.fullStream) {
-        if (part.type === "text-delta") {
-          fullText += part.text;
-          thinkFilter.push(part.text);
-        } else if (part.type === "reasoning-delta") {
-          reasoningChars += (part as { text?: string }).text?.length ?? 0;
-        } else if (part.type === "finish-step" && "usage" in part) {
-          streamStepUsage = (part as Record<string, unknown>).usage;
+      // Heartbeat so slow thinking models (e.g., Qwen) show progress in logs.
+      const streamStart = Date.now();
+      let lastHeartbeatAt = 0;
+      let lastDeltaAt = Date.now();
+      let lastLoggedTextChars = 0;
+      const HEARTBEAT_MS = 3000;
+      const STALL_HEARTBEAT_MS = 5000;
+      const TEXT_LOG_INTERVAL_CHARS = 400; // ~100 tokens at 4 chars/token
+      const emitProgress = (reason: "interval" | "heartbeat" | "stall") => {
+        logger.info(
+          {
+            provider,
+            model,
+            estimatedTokens: Math.ceil(fullText.length / 4),
+            estimatedReasoningTokens: Math.ceil(reasoningChars / 4),
+            elapsedMs: Date.now() - streamStart,
+            lastDeltaAgoMs: Date.now() - lastDeltaAt,
+            reason,
+          },
+          "LLM streaming progress",
+        );
+      };
+      // Stall detector — fires only when no delta arrived in the last 5s,
+      // so a flowing stream stays quiet but a hung one stays visible.
+      const stallTimer = setInterval(() => {
+        if (Date.now() - lastDeltaAt >= STALL_HEARTBEAT_MS) {
+          emitProgress("stall");
         }
+      }, STALL_HEARTBEAT_MS);
+      try {
+        for await (const part of result.fullStream) {
+          if (part.type === "text-delta") {
+            fullText += part.text;
+            thinkFilter.push(part.text);
+            lastDeltaAt = Date.now();
+            if (fullText.length - lastLoggedTextChars >= TEXT_LOG_INTERVAL_CHARS) {
+              lastLoggedTextChars = fullText.length;
+              lastHeartbeatAt = Date.now();
+              emitProgress("interval");
+            }
+          } else if (part.type === "reasoning-delta") {
+            reasoningChars += (part as { text?: string }).text?.length ?? 0;
+            lastDeltaAt = Date.now();
+            const now = Date.now();
+            if (now - lastHeartbeatAt >= HEARTBEAT_MS) {
+              lastHeartbeatAt = now;
+              emitProgress("heartbeat");
+            }
+          } else if (part.type === "finish-step" && "usage" in part) {
+            streamStepUsage = (part as Record<string, unknown>).usage;
+          }
+        }
+        thinkFilter.flush();
+      } finally {
+        clearInterval(stallTimer);
       }
-      thinkFilter.flush();
 
       let finalResult;
       try {
@@ -787,17 +832,62 @@ async function streamWithConfig(
       });
 
       let fullText = "";
+      let reasoningChars = 0;
       const thinkFilter = new ThinkingBlockFilter(onToken);
       let streamStepUsage: unknown;
-      for await (const part of result.fullStream) {
-        if (part.type === "text-delta") {
-          fullText += part.text;
-          thinkFilter.push(part.text);
-        } else if (part.type === "finish-step" && "usage" in part) {
-          streamStepUsage = (part as Record<string, unknown>).usage;
+      const streamStart = Date.now();
+      let lastDeltaAt = Date.now();
+      let lastHeartbeatAt = 0;
+      let lastLoggedTextChars = 0;
+      const HEARTBEAT_MS = 3000;
+      const STALL_HEARTBEAT_MS = 5000;
+      const TEXT_LOG_INTERVAL_CHARS = 400;
+      const emitProgress = (reason: "interval" | "heartbeat" | "stall") => {
+        logger.info(
+          {
+            provider: cfg.provider,
+            model: cfg.modelName,
+            estimatedTokens: Math.ceil(fullText.length / 4),
+            estimatedReasoningTokens: Math.ceil(reasoningChars / 4),
+            elapsedMs: Date.now() - streamStart,
+            lastDeltaAgoMs: Date.now() - lastDeltaAt,
+            reason,
+          },
+          "LLM streaming progress",
+        );
+      };
+      const stallTimer = setInterval(() => {
+        if (Date.now() - lastDeltaAt >= STALL_HEARTBEAT_MS) {
+          emitProgress("stall");
         }
+      }, STALL_HEARTBEAT_MS);
+      try {
+        for await (const part of result.fullStream) {
+          if (part.type === "text-delta") {
+            fullText += part.text;
+            thinkFilter.push(part.text);
+            lastDeltaAt = Date.now();
+            if (fullText.length - lastLoggedTextChars >= TEXT_LOG_INTERVAL_CHARS) {
+              lastLoggedTextChars = fullText.length;
+              lastHeartbeatAt = Date.now();
+              emitProgress("interval");
+            }
+          } else if (part.type === "reasoning-delta") {
+            reasoningChars += (part as { text?: string }).text?.length ?? 0;
+            lastDeltaAt = Date.now();
+            const now = Date.now();
+            if (now - lastHeartbeatAt >= HEARTBEAT_MS) {
+              lastHeartbeatAt = now;
+              emitProgress("heartbeat");
+            }
+          } else if (part.type === "finish-step" && "usage" in part) {
+            streamStepUsage = (part as Record<string, unknown>).usage;
+          }
+        }
+        thinkFilter.flush();
+      } finally {
+        clearInterval(stallTimer);
       }
-      thinkFilter.flush();
 
       let finalResult;
       try {

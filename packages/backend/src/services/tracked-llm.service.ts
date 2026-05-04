@@ -329,28 +329,41 @@ export async function consumeStreamWithProgress(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   stream: AsyncIterable<TextStreamPart<any>>,
   meta: { purpose: string; modelName: string },
-  logIntervalTokens = 500,
+  logIntervalTokens = 100,
 ): Promise<{ streamErrors: string[]; estimatedReasoningTokens: number }> {
   let estimatedTokens = 0;
   let estimatedReasoningTokens = 0;
-  let lastLoggedAt = 0;
+  let lastLoggedTokens = 0;
+  let lastHeartbeatAt = 0;
   const start = Date.now();
   const streamErrors: string[] = [];
+  const HEARTBEAT_INTERVAL_MS = 3000;
+
+  const emitProgress = (reason: "interval" | "heartbeat") => {
+    logger.info(
+      { purpose: meta.purpose, model: meta.modelName, estimatedTokens, estimatedReasoningTokens, elapsedMs: Date.now() - start, reason },
+      "LLM streaming progress",
+    );
+  };
 
   for await (const part of stream) {
     if (part.type === "reasoning-delta" || part.type === "reasoning") {
       const delta = (part as { text?: string }).text ?? "";
       estimatedReasoningTokens += Math.ceil(delta.length / 4);
+      // Heartbeat for thinking-only streams so the user can see progress vs stalled
+      const now = Date.now();
+      if (now - lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS) {
+        lastHeartbeatAt = now;
+        emitProgress("heartbeat");
+      }
     } else if (part.type === "text-delta") {
       // Rough token estimate: ~4 chars per token (exact counts come via onFinish)
       const delta = (part as { delta?: string }).delta ?? "";
       estimatedTokens += Math.ceil(delta.length / 4);
-      if (estimatedTokens - lastLoggedAt >= logIntervalTokens) {
-        lastLoggedAt = estimatedTokens;
-        logger.info(
-          { purpose: meta.purpose, model: meta.modelName, estimatedTokens, estimatedReasoningTokens, elapsedMs: Date.now() - start },
-          "LLM streaming progress",
-        );
+      if (estimatedTokens - lastLoggedTokens >= logIntervalTokens) {
+        lastLoggedTokens = estimatedTokens;
+        lastHeartbeatAt = Date.now();
+        emitProgress("interval");
       }
     } else if (part.type === "error") {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
