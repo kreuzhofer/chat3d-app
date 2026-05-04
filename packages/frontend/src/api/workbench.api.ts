@@ -117,7 +117,7 @@ export interface ExportStats {
   };
 }
 
-export type JobType = "batch" | "batch-re-render" | "batch-re-evaluate" | "generate" | "retry" | "re-render" | "re-evaluate";
+export type JobType = "batch" | "batch-re-render" | "batch-re-evaluate" | "batch-cleanup" | "batch-backfill-specs" | "generate" | "retry" | "re-render" | "re-evaluate";
 
 export interface BatchJobSummary {
   jobId: string;

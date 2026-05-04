@@ -408,24 +408,14 @@ export function WorkbenchCategoryPage() {
               </Button>
             ) : (
               <>
-                <Button
-                  variant="default"
-                  size="sm"
-                  iconLeft={<Sparkles className="h-3.5 w-3.5" />}
-                  onClick={() => void handleBatchGenerate({ onlyMissing: true })}
-                  disabled={anySingleRunning}
-                >
-                  Generate Missing
-                </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  iconLeft={<Zap className="h-3.5 w-3.5" />}
-                  onClick={() => void handleBatchGenerate({ skipApproved: true })}
-                  disabled={anySingleRunning}
-                >
-                  Generate All
-                </Button>
+                <DropdownMenu
+                  triggerLabel="Generate"
+                  items={[
+                    { id: "missing", label: "Generate Missing", onSelect: () => void handleBatchGenerate({ onlyMissing: true }), disabled: anySingleRunning },
+                    { id: "pending", label: "Generate Pending", onSelect: () => void handleBatchGenerate({ skipApproved: true }), disabled: anySingleRunning },
+                    { id: "all", label: "Regenerate All", onSelect: () => void handleBatchGenerate({ skipApproved: false }), disabled: anySingleRunning },
+                  ] satisfies DropdownItem[]}
+                />
                 <Button
                   variant="outline"
                   size="sm"
