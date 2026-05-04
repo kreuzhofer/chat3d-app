@@ -569,7 +569,8 @@ bolt = HexHeadScrew(..., simple=simple_mode)
 
 ### Bearings
 \`\`\`python
-# Deep groove ball bearing (e.g., 608 bearing: 8mm bore, 22mm OD)
+# Deep groove ball bearing — size format: "M{bore}-{OD}-{width}"
+# Common sizes: 608→"M8-22-7", 625→"M5-16-5", 6204→"M20-47-14"
 bearing = SingleRowDeepGrooveBallBearing(size="M8-22-7", bearing_type="SKT")
 \`\`\`
 
@@ -579,12 +580,29 @@ bearing = SingleRowDeepGrooveBallBearing(size="M8-22-7", bearing_type="SKT")
 gear = SpurGear(module=2, tooth_count=20, pressure_angle=20, thickness=10)
 \`\`\`
 
+### Sprockets
+\`\`\`python
+# Chain sprocket — requires chain_pitch and roller_diameter in mm
+# ANSI chain specs: #25=(6.35, 3.30), #35=(9.525, 5.08), #40=(12.7, 7.92), #50=(15.875, 10.16)
+sprocket = Sprocket(num_teeth=15, chain_pitch=6.35, roller_diameter=3.30, thickness=3)
+# With bore and mounting holes:
+sprocket = Sprocket(num_teeth=20, chain_pitch=12.7, roller_diameter=7.92,
+                    bore_diameter=10, num_mount_bolts=4, mount_bolt_diameter=4)
+\`\`\`
+
 ### Pipes
 \`\`\`python
 pipe = Pipe(nps="1", material="steel", identifier="40", path=Line((0,0,0), (0,0,100)))
 \`\`\`
 
-**MANDATORY**: When the prompt requests screws, bolts, nuts, threads, gears, bearings, or other standard mechanical components, you MUST use bd_warehouse classes. NEVER build these manually with Cone, Cylinder, Helix, or sweep — bd_warehouse produces accurate ISO-standard geometry that is impossible to replicate manually. If the user specifies dimensions (e.g., "M6", "12mm head diameter"), map them to the closest standard size parameter (e.g., \`size="M6-1"\`). User-stated dimensions are typically approximations of the ISO standard.`;
+**IMPORTANT — fastener_type determines size system:**
+- \`"iso*"\` and \`"din*"\` types accept metric sizes (\`"M3-0.5"\`, \`"M8-1.25"\`)
+- \`"asme*"\` types accept imperial sizes ONLY (\`"#3-48"\`, \`"1/4-20"\`)
+- If the prompt uses metric dimensions (M3, M6, etc.), ALWAYS use an ISO/DIN fastener_type, not ASME.
+
+**IMPORTANT — "ACME thread" with metric dimensions:** ACME is an imperial standard. \`AcmeThread\` only accepts imperial sizes (\`"1/4"\`, \`"1/2"\`). If the prompt says "ACME" but gives metric dimensions, use \`TrapezoidalThread(diameter=D, pitch=P, thread_angle=29, length=L)\` instead — it produces the same 29° thread profile with metric parameters.
+
+**MANDATORY**: When the prompt requests screws, bolts, nuts, threads, gears, bearings, sprockets, or other standard mechanical components, you MUST use bd_warehouse classes. NEVER build these manually with Cone, Cylinder, Helix, or sweep — bd_warehouse produces accurate ISO-standard geometry that is impossible to replicate manually. If the user specifies dimensions (e.g., "M6", "12mm head diameter"), map them to the closest standard size parameter (e.g., \`size="M6-1"\`). User-stated dimensions are typically approximations of the ISO standard.`;
 
 export const CODEGEN_SECTION_MORE_EXAMPLES = `## More Examples
 
@@ -732,7 +750,7 @@ const CONDITIONAL_SECTIONS: ConditionalSection[] = [
   { key: "sketch_on_face", section: CODEGEN_SECTION_SKETCH_ON_FACE, pattern: /BuildSketch\([^)]+\)/ },
   { key: "revolve", section: CODEGEN_SECTION_REVOLVE, pattern: /revolve\(/ },
   { key: "parametric", section: CODEGEN_SECTION_PARAMETRIC, pattern: /import math|math\./ },
-  { key: "bd_warehouse", section: CODEGEN_SECTION_BD_WAREHOUSE, pattern: /IsoThread|AcmeThread|CounterSunkScrew|HexHeadScrew|SocketHeadCapScrew|HexNut|SpurGear|SingleRowDeepGrooveBallBearing|bd_warehouse/ },
+  { key: "bd_warehouse", section: CODEGEN_SECTION_BD_WAREHOUSE, pattern: /IsoThread|AcmeThread|TrapezoidalThread|CounterSunkScrew|HexHeadScrew|SocketHeadCapScrew|HexNut|SpurGear|SingleRowDeepGrooveBallBearing|Sprocket|bd_warehouse/ },
   { key: "gridfinity", section: CODEGEN_SECTION_GRIDFINITY, pattern: /gridfinity|Gridfinity|BaseEqual|BasePlateEqual|CompartmentsEqual|StackingLip|gridfinity_build123d/ },
 ];
 
