@@ -14,6 +14,7 @@ import {
   createProviderModel,
 } from "./llm-config.service.js";
 import { getGapMaxSubskills } from "./generation-settings.service.js";
+import { isSemanticDuplicateInCategory } from "./rag-gap-dedup.service.js";
 
 const logger = createLogger("rag-gap-decomp");
 
@@ -176,6 +177,9 @@ export async function decomposeAndCollectGap(
     if (recentGaps.has(key) || await isDuplicate(analysisResult.prompt, categoryId, prisma)) {
       return { stored: 0, skipped: 1 };
     }
+    if (await isSemanticDuplicateInCategory(analysisResult.prompt, categoryId)) {
+      return { stored: 0, skipped: 1 };
+    }
     recentGaps.add(key);
 
     await prisma.workbenchExamplePrompt.create({
@@ -202,6 +206,10 @@ export async function decomposeAndCollectGap(
       skipped++;
       continue;
     }
+    if (await isSemanticDuplicateInCategory(skill.prompt, categoryId)) {
+      skipped++;
+      continue;
+    }
     recentGaps.add(key);
 
     await prisma.workbenchExamplePrompt.create({
@@ -217,7 +225,9 @@ export async function decomposeAndCollectGap(
 
   // Always store the composition prompt (combining skills is a distinct need)
   const compKey = composition.trim().toLowerCase().slice(0, 200);
-  if (!recentGaps.has(compKey)) {
+  const compositionDup =
+    recentGaps.has(compKey) || (await isSemanticDuplicateInCategory(composition, categoryId));
+  if (!compositionDup) {
     recentGaps.add(compKey);
 
     await prisma.workbenchExamplePrompt.create({

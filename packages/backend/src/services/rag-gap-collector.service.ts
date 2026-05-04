@@ -18,6 +18,7 @@ import {
   createProviderModel,
 } from "./llm-config.service.js";
 import { decomposeAndCollectGap } from "./rag-gap-decomposer.service.js";
+import { isSemanticDuplicateInCategory } from "./rag-gap-dedup.service.js";
 
 const logger = createLogger("rag-gap");
 
@@ -117,6 +118,9 @@ export async function collectMissingExample(componentName: string, description: 
       select: { id: true },
     });
     if (existing) return;
+
+    // Embedding-based dedup catches paraphrases the prefix check misses.
+    if (await isSemanticDuplicateInCategory(description, category.id)) return;
 
     // Use timestamp-based index to avoid race conditions on parallel inserts
     const nextIndex = Date.now() % 1_000_000;

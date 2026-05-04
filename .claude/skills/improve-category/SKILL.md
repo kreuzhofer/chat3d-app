@@ -134,52 +134,49 @@ For each identified gap pattern:
 
 5. **Verify seed prompts passed** (check scores >= 7.5 and auto_approved). If any seed failed, note it but continue — it may still help as a partial example.
 
-## Phase 4.5: Decompose Complex Failing Prompts
+## Phase 5: Regenerate with Inter-Round Sub-Skill Drain
 
-**IMPORTANT: Do this BEFORE attempting to regenerate complex prompts.** Many failing prompts combine multiple techniques (e.g., "shell + selective fillet + flat cut"). Even with pattern-level RAG seeds, the LLM may fail because it has no example of the specific technique combination or of a specific sub-technique in isolation.
+The pipeline already auto-decomposes failing prompts into sub-skill prompts in the `Missing Examples` category (`22fc7bd6-3f68-4b40-94a3-50a99ee8fe46`). Those sub-skills are useless until they have generated examples. The skill exploits this by capturing a timestamp before each regen round, then **draining** sub-skills spawned during that round before the next round retries the same prompts.
 
-1. **For each pending prompt scoring < 7**, read the full prompt text and identify the individual techniques it combines. Examples:
-   - "box shelled to 2mm with top rim filleted" → techniques: shell, selective edge fillet
-   - "L-bracket with all outer edges filleted" → techniques: L-shape extrusion, uniform fillet on complex shape
-   - "sphere shelled with flat cut" → techniques: sphere shell, boolean flat cut on curved surface
-   - "cylinder with chamfer on top and fillet on bottom" → techniques: chamfer on circular edge, fillet on circular edge
+**Flow per round:**
 
-2. **Check which individual techniques lack approved examples.** A technique is "covered" if there's an approved example that demonstrates it clearly in isolation.
-
-3. **Write simple single-technique prompts** for each uncovered technique:
-   - One technique per prompt
-   - Simplest possible geometry (box, cylinder, sphere)
-   - Clear dimensions, no ambiguity
-   - Should pass easily on first attempt
-
-4. **Add and generate** these technique prompts (same as Phase 4).
-
-5. **Only after technique prompts are approved**, proceed to regenerate the complex originals. The RAG will now have relevant building blocks for each sub-technique.
-
-This decomposition step is critical — it's the difference between "the LLM has seen a slot before" (pattern-level) and "the LLM has seen exactly how to fillet only the vertical edges of a box" (technique-level). The latter is what actually helps with complex prompts.
-
-## Phase 5: Regenerate Failing Examples
-
-With RAG seeds AND technique examples in place, regenerate the pending examples that match seeded patterns:
-
-1. **Select candidates** — pending prompts that match seeded patterns, starting with highest-scoring (most likely to pass with RAG help).
-
-2. **Regenerate one at a time:**
-   ```
-   POST /api/admin/workbench/generate
-   {"promptId": "<prompt_id>"}
+1. **Capture round-start timestamp:**
+   ```bash
+   ROUND_START_TS=$(date -u +%FT%TZ)
    ```
 
-3. **Poll each job to completion.** Check the new score vs old score.
+2. **Select candidates** — pending prompts in the target category, sorted by `bestScore` desc (most likely to flip first). Take 4-6 per round.
 
-4. **Process in batches of 4-6** to limit cost per round. Check approval rate after each batch.
+3. **Regenerate one at a time** (via `POST /api/admin/workbench/generate`, poll job to completion).
 
-5. **After round 2, if still below 90%**: Run a second technique decomposition pass (Phase 4.5 again) on the remaining pending prompts. The first decomposition targeted patterns visible before any regeneration. After two rounds of regen, the remaining prompts are the hardest — they likely need even more specific technique seeds that weren't obvious initially. Decompose these, add technique seeds, generate them, then proceed to round 3.
+4. **After the round (before the next round):** query `Missing Examples` for prompts created during this round that have no examples yet:
+   ```bash
+   curl -s "http://localhost/api/admin/workbench/categories/22fc7bd6-3f68-4b40-94a3-50a99ee8fe46/prompts" \
+     -H "Authorization: Bearer $TOKEN" | python3 -c "
+   import sys, json, os
+   data = json.load(sys.stdin)
+   prompts = data if isinstance(data, list) else data.get('prompts', [])
+   ts = os.environ['ROUND_START_TS']
+   spawned = [p for p in prompts if p.get('createdAt','') >= ts and p.get('exampleCount',0) == 0]
+   for p in spawned: print(p['id'])
+   "
+   ```
 
-6. **Stop when:**
-   - Approval rate reaches 90-95%, OR
-   - Last batch showed no improvement (all regenerated prompts still pending), OR
-   - 3 full rounds completed (with the mid-round decomposition counting as part of the process, not a separate round)
+5. **Generate examples for each spawned sub-skill** (one-at-a-time `POST /api/admin/workbench/generate`). Typically 0–10 per round. **Cap at 10 per round** to bound cost; if more were spawned, skip the rest.
+
+6. **Then run the next round** (back to step 1) — the same failed prompts now retry against the freshly-populated sub-skill RAG.
+
+**Rationale.** Sub-skills spawned during round N are exactly the building blocks the failing prompts need. Generating them between rounds turns the second attempt into a meaningfully different one — the agent sees new RAG content. Without this step, round 2 retries the same prompt against the same RAG and rarely succeeds.
+
+**Stop when (in priority order):**
+1. **Approval rate reaches 90-95%** — target hit, stop and report.
+2. **Saturation signal: zero sub-skills spawned during the round AND zero new approvals.** This means the RAG already has the building blocks (no gaps the system can detect) but the agent still can't compose them. Further rounds against the same RAG will produce the same result — stop. The remaining failures are composition / reasoning problems, not RAG coverage problems.
+3. **Diminishing returns: round N produced fewer than 2 new approvals** AND no sub-skills spawned. Same logic as above with a small tolerance for noise.
+4. **3 full rounds completed** — hard cap regardless of outcome.
+
+The saturation signal is the most useful new criterion: if no sub-skills got spawned, the inter-round drain phase will be a no-op, so round N+1 will see exactly the same RAG as round N. Cheaper to stop and report "RAG saturated, agent composition is the bottleneck" than to burn another ~$1.20 on a round that can't help.
+
+Cost note: each spawned sub-skill is one extra generation (~$0.20). A round that regenerates 6 prompts and drains 5 sub-skills costs ~11 generations. Acceptable tradeoff if the drain enables 2-3 retries to succeed in the next round.
 
 ## Phase 6: Cleanup (MANDATORY — DO NOT SKIP)
 

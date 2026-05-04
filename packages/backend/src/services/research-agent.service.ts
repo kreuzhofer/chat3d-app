@@ -45,7 +45,14 @@ export interface ResearchInput {
   ragMaxExamplesOverride?: number;
   /** Prompt IDs to exclude from RAG retrieval (experiment contamination prevention). */
   excludePromptIds?: string[];
+  /** Source category name — if "Missing Examples", gap collection is suppressed to prevent recursion. */
+  sourceCategoryName?: string;
 }
+
+/** Hard cap on technique gaps collected per research call. Prevents avalanche of decomposition. */
+const MAX_GAPS_PER_RUN = 3;
+/** Category name reserved for collected RAG gaps. Excluded from further gap collection. */
+const MISSING_EXAMPLES_CATEGORY = "Missing Examples";
 
 export interface ResearchPackage {
   /** Deduplicated examples across all techniques, ordered by relevance */
@@ -122,11 +129,24 @@ export async function runResearch(input: ResearchInput): Promise<ResearchPackage
   const knowledge = deduplicateKnowledge(searchResult.techniqueResults);
 
   // Step 4: Record technique-level gaps (fire-and-forget)
+  // Skip collection entirely when the source prompt is itself a Missing Examples
+  // entry — this prevents the gap pipeline from recursively spawning new gaps
+  // when generating the very prompts we already collected.
   const gapWarnings: string[] = [];
+  const suppressGapCollection = input.sourceCategoryName === MISSING_EXAMPLES_CATEGORY;
+  let gapsCollected = 0;
   for (const gap of searchResult.gaps) {
     gapWarnings.push(gap.technique);
+    if (suppressGapCollection) continue;
+    if (gapsCollected >= MAX_GAPS_PER_RUN) continue;
+    gapsCollected++;
     collectMissingTechnique(gap.technique, gap.query, promptText)
       .catch(err => logger.debug({ err: err instanceof Error ? err.message : String(err) }, "technique gap collection failed"));
+  }
+  if (suppressGapCollection && searchResult.gaps.length > 0) {
+    logger.info({ skippedGaps: searchResult.gaps.length }, "gap collection suppressed — source is Missing Examples category");
+  } else if (searchResult.gaps.length > MAX_GAPS_PER_RUN) {
+    logger.info({ collected: gapsCollected, total: searchResult.gaps.length }, "gap collection capped");
   }
 
   logger.info({
