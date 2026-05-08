@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "NODE_OPTIONS=--max-old-space-size=16384 tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "db:migrate": "npx prisma migrate deploy",
     "db:bootstrap": "npm run db:migrate",
