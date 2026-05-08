@@ -408,30 +408,33 @@ export async function getEmbeddingStatus(): Promise<EmbeddingStatus> {
  * Store a construction spec and its embedding on a workbench prompt row.
  * Called after successful generation to build the spec embedding pool.
  * Respects the global.remix_spec_embedding_enabled setting.
+ *
+ * The constructionSpec text is written first and unconditionally, so that an
+ * embedding-side failure (rate limit, model unavailable, etc.) cannot drop
+ * the spec text alongside it.
  */
 export async function storeSpecAndEmbedding(
   promptId: string,
   constructionSpec: string,
 ): Promise<void> {
+  await prisma.workbenchExamplePrompt.update({
+    where: { id: promptId },
+    data: { constructionSpec },
+  });
+
   const enabled = await isSpecEmbeddingEnabled();
   if (!enabled) {
-    logger.debug("spec embedding disabled, storing text only");
-    await prisma.workbenchExamplePrompt.update({
-      where: { id: promptId },
-      data: { constructionSpec },
-    });
+    logger.debug("spec embedding disabled, stored spec text only");
     return;
   }
 
   const { embedding } = await embedPromptTextWithUsage(constructionSpec);
   const pgVector = `[${embedding.join(",")}]`;
-
   const cfg = await getModelForPurpose("embedding");
 
   await prisma.$executeRaw`
     UPDATE workbench_example_prompts
-    SET construction_spec = ${constructionSpec},
-        spec_embedding = ${pgVector}::vector,
+    SET spec_embedding = ${pgVector}::vector,
         spec_embedding_model = ${cfg.modelName}
     WHERE id = ${promptId}::uuid
   `;

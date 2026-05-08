@@ -153,7 +153,7 @@ export function DataQualityTab({ token }: { token: string }) {
             <tr>
               <th className="py-2 px-3 text-xs font-medium text-[hsl(var(--muted-foreground))]">Category</th>
               <th className="py-2 px-3 text-xs font-medium text-[hsl(var(--muted-foreground))] text-center">Prompts</th>
-              <th className="py-2 px-3 text-xs font-medium text-[hsl(var(--muted-foreground))] text-center" title="Best examples with composite or visual_only eval source">VLM</th>
+              <th className="py-2 px-3 text-xs font-medium text-[hsl(var(--muted-foreground))] text-center" title="Best examples with composite, visual_only, or agent_submitted eval source (i.e. VLM ran)">VLM</th>
               <th className="py-2 px-3 text-xs font-medium text-[hsl(var(--muted-foreground))] text-center" title="Prompts with spec_interpretation">Spec</th>
               <th className="py-2 px-3 text-xs font-medium text-[hsl(var(--muted-foreground))] text-center" title="Prompts with code_assertions stored">Assert Stored</th>
               <th className="py-2 px-3 text-xs font-medium text-[hsl(var(--muted-foreground))] text-center" title="Best examples where assertions actually ran">Assert Ran</th>

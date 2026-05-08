@@ -667,6 +667,7 @@ async function _runPipeline(
           codeAssertions: specResult.codeAssertions as unknown as undefined,
           verificationChecklist: specResult.verificationChecklist,
           verificationCriteria: specResult.verificationCriteria as unknown as undefined,
+          constructionSpec: specResult.constructionSpec || null,
           specRawResponse: specResult.rawResponse ?? null,
           specSystemPrompt: specResult.systemPrompt ?? null,
           ...(enrichmentResult ? {

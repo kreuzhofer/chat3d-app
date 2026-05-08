@@ -147,7 +147,7 @@ export async function getDataQualityReport(): Promise<DataQualityReport> {
       c.name AS category_name,
       COUNT(p.id) AS total_prompts,
       COUNT(be.prompt_id) AS prompts_with_examples,
-      COUNT(be.prompt_id) FILTER (WHERE be.eval_source IN ('composite', 'visual_only')) AS eval_source_composite,
+      COUNT(be.prompt_id) FILTER (WHERE be.eval_source IN ('composite', 'visual_only', 'agent_submitted')) AS eval_source_composite,
       COUNT(be.prompt_id) FILTER (WHERE be.eval_source = 'code_only') AS eval_source_code_only,
       COUNT(be.prompt_id) FILTER (WHERE be.eval_source IS NULL AND be.prompt_id IS NOT NULL) AS eval_source_legacy,
       COUNT(be.prompt_id) FILTER (WHERE NOT be.has_screenshot) AS missing_screenshots,
