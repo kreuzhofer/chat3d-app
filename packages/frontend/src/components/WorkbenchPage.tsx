@@ -19,11 +19,13 @@ import {
 } from "../api/workbench.api";
 import { chunkedUploadAndImport, type ChunkedUploadProgress } from "../api/chunked-upload";
 import { useAuth } from "../hooks/useAuth";
+import { EXPORT_FORMATS, type ExportFormatId } from "../lib/training-export-formats";
 import { InlineAlert } from "./layout/InlineAlert";
 import { PageHeader } from "./layout/PageHeader";
 import { SectionCard } from "./layout/SectionCard";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { DropdownMenu, type DropdownItem } from "./ui/dropdown-menu";
 import { useToast } from "./ui/toast";
 
 function approvedCount(cat: WorkbenchCategory): number {
@@ -261,13 +263,11 @@ export function WorkbenchPage() {
     }
   }, [pushToast, token]);
 
-  const handleExportJsonl = useCallback(() => {
+  const handleExportJsonl = useCallback((formatId: ExportFormatId) => {
     if (!token) return;
-    // Download via hidden link with auth header
-    const url = `/api/admin/workbench/export/training-jsonl`;
-    const link = document.createElement("a");
-    // We can't easily add auth headers to a download link,
-    // so we fetch the content and create a blob
+    const format = EXPORT_FORMATS.find((f) => f.id === formatId);
+    if (!format) return;
+    const url = `/api/admin/workbench/export/training-jsonl?format=${encodeURIComponent(formatId)}`;
     void (async () => {
       try {
         const response = await fetch(url, {
@@ -276,11 +276,12 @@ export function WorkbenchPage() {
         if (!response.ok) throw new Error("Export failed");
         const blob = await response.blob();
         const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
         link.href = blobUrl;
-        link.download = "training-data-combined.jsonl";
+        link.download = format.filename;
         link.click();
         URL.revokeObjectURL(blobUrl);
-        pushToast({ tone: "success", title: "Export downloaded" });
+        pushToast({ tone: "success", title: `Export downloaded (${format.label})` });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -303,9 +304,16 @@ export function WorkbenchPage() {
             <Button variant="outline" size="sm" iconLeft={<Database className="h-3.5 w-3.5" />} loading={backfilling} onClick={() => void handleBackfill()} disabled={!embeddingStatus || (embeddingStatus.missing === 0 && embeddingStatus.stale === 0)}>
               Backfill Embeddings{embeddingStatus && (embeddingStatus.missing + embeddingStatus.stale) > 0 ? ` (${embeddingStatus.missing + embeddingStatus.stale})` : ""}
             </Button>
-            <Button variant="outline" size="sm" iconLeft={<Download className="h-3.5 w-3.5" />} onClick={handleExportJsonl} disabled={!totals || totals.autoApproved + totals.humanApproved === 0}>
-              Export JSONL
-            </Button>
+            <DropdownMenu
+              triggerLabel="Export JSONL"
+              items={EXPORT_FORMATS.map<DropdownItem>((f) => ({
+                id: f.id,
+                type: "item",
+                label: f.label,
+                onSelect: () => handleExportJsonl(f.id),
+                disabled: !totals || totals.autoApproved + totals.humanApproved === 0,
+              }))}
+            />
             <Button variant="outline" size="sm" iconLeft={<Download className="h-3.5 w-3.5" />} loading={exporting} onClick={() => void handleExportFull()}>
               Export Full
             </Button>
