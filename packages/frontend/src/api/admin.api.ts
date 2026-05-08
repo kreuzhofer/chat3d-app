@@ -897,6 +897,10 @@ export interface PipelineToolUsageRow {
   toolName: string;
   callCount: number;
   successCount: number;
+  p50DurationMs: number;
+  p95DurationMs: number;
+  failureBreakdown: Record<string, number>;
+  recentFailureSamples: string[];
 }
 
 export interface PipelineBreakdown {
@@ -910,6 +914,7 @@ export interface PipelineFiltersInput {
   from?: string;
   to?: string;
   pipelineType?: string;
+  categoryId?: string;
 }
 
 function buildPipelineQuery(filters: PipelineFiltersInput, extra?: Record<string, string>): string {
@@ -917,6 +922,7 @@ function buildPipelineQuery(filters: PipelineFiltersInput, extra?: Record<string
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   if (filters.pipelineType) params.set("pipelineType", filters.pipelineType);
+  if (filters.categoryId) params.set("categoryId", filters.categoryId);
   if (extra) {
     for (const [k, v] of Object.entries(extra)) params.set(k, v);
   }

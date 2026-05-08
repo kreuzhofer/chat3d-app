@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -29,6 +29,7 @@ import {
   type DetailViewAngleRow,
   type DetailViewTimeseriesPoint,
 } from "../../api/admin.api";
+import { listWorkbenchCategories } from "../../api/experiment.api";
 import { SectionCard } from "../layout/SectionCard";
 import { InlineAlert } from "../layout/InlineAlert";
 import { Select } from "../ui/select";
@@ -64,6 +65,14 @@ function presetToRange(preset: string): { from: string; to: string } {
 
 const PIE_COLORS = ["#3b82f6", "#f59e0b", "#ef4444", "#10b981"];
 
+function topFailureCategory(breakdown: Record<string, number> | undefined | null): { category: string; count: number } | null {
+  if (!breakdown) return null;
+  const entries = Object.entries(breakdown);
+  if (entries.length === 0) return null;
+  entries.sort((a, b) => b[1] - a[1]);
+  return { category: entries[0][0], count: entries[0][1] };
+}
+
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
@@ -80,6 +89,8 @@ function formatBucketLabel(bucket: string, granularity: string): string {
 export function PipelinePerformanceTab({ token }: Props) {
   const [preset, setPreset] = useState("7d");
   const [granularity, setGranularity] = useState("day");
+  const [categoryId, setCategoryId] = useState("");
+  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [summary, setSummary] = useState<PipelineSummary | null>(null);
   const [timeseries, setTimeseries] = useState<PipelineTimeseriesPoint[]>([]);
   const [tools, setTools] = useState<PipelineToolUsageRow[]>([]);
@@ -88,8 +99,18 @@ export function PipelinePerformanceTab({ token }: Props) {
   const [dvTimeseries, setDvTimeseries] = useState<DetailViewTimeseriesPoint[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [expandedTool, setExpandedTool] = useState<string | null>(null);
 
-  const filters = useMemo<PipelineFiltersInput>(() => presetToRange(preset), [preset]);
+  const filters = useMemo<PipelineFiltersInput>(() => {
+    const range = presetToRange(preset);
+    return categoryId ? { ...range, categoryId } : range;
+  }, [preset, categoryId]);
+
+  useEffect(() => {
+    listWorkbenchCategories(token)
+      .then((cats) => setCategories(cats.map(c => ({ id: c.id, name: c.name }))))
+      .catch(() => setCategories([]));
+  }, [token]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -148,6 +169,11 @@ export function PipelinePerformanceTab({ token }: Props) {
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Pipeline Performance</h2>
         <div className="flex items-center gap-3">
+          <Select
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+            options={[{ value: "", label: "All categories" }, ...categories.map(c => ({ value: c.id, label: c.name }))]}
+          />
           <Select value={preset} onChange={(e) => setPreset(e.target.value)} options={PRESETS} />
           <Select value={granularity} onChange={(e) => setGranularity(e.target.value)} options={GRANULARITIES} />
         </div>
@@ -297,25 +323,84 @@ export function PipelinePerformanceTab({ token }: Props) {
       {/* Tool usage table */}
       {tools.length > 0 ? (
         <SectionCard title="Tool Usage">
-          <div className="max-h-80 overflow-auto">
+          <div className="max-h-96 overflow-auto">
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-[hsl(var(--border))]">
                   <th className="pb-2 font-medium text-[hsl(var(--muted-foreground))]">Tool</th>
                   <th className="pb-2 text-right font-medium text-[hsl(var(--muted-foreground))]">Calls</th>
                   <th className="pb-2 text-right font-medium text-[hsl(var(--muted-foreground))]">Success Rate</th>
+                  <th className="pb-2 text-right font-medium text-[hsl(var(--muted-foreground))]">p50</th>
+                  <th className="pb-2 text-right font-medium text-[hsl(var(--muted-foreground))]">p95</th>
+                  <th className="pb-2 font-medium text-[hsl(var(--muted-foreground))]">Top Failure</th>
                 </tr>
               </thead>
               <tbody>
-                {tools.map((t) => (
-                  <tr key={t.toolName} className="border-b border-[hsl(var(--border)/0.3)]">
-                    <td className="py-1.5 font-mono">{t.toolName}</td>
-                    <td className="py-1.5 text-right">{t.callCount}</td>
-                    <td className="py-1.5 text-right">
-                      {t.callCount > 0 ? `${((t.successCount / t.callCount) * 100).toFixed(0)}%` : "—"}
-                    </td>
-                  </tr>
-                ))}
+                {tools.map((t) => {
+                  const topFailure = topFailureCategory(t.failureBreakdown);
+                  const failureCount = t.callCount - t.successCount;
+                  const expanded = expandedTool === t.toolName;
+                  const hasDetail = (t.recentFailureSamples?.length ?? 0) > 0
+                    || Object.keys(t.failureBreakdown ?? {}).length > 0;
+                  return (
+                    <Fragment key={t.toolName}>
+                      <tr
+                        className={`border-b border-[hsl(var(--border)/0.3)] ${hasDetail ? "cursor-pointer hover:bg-[hsl(var(--muted)/0.3)]" : ""}`}
+                        onClick={() => hasDetail && setExpandedTool(expanded ? null : t.toolName)}
+                      >
+                        <td className="py-1.5 font-mono">
+                          {hasDetail ? <span className="mr-1 text-[hsl(var(--muted-foreground))]">{expanded ? "▼" : "▶"}</span> : <span className="mr-1 inline-block w-3" />}
+                          {t.toolName}
+                        </td>
+                        <td className="py-1.5 text-right">{t.callCount}</td>
+                        <td className="py-1.5 text-right">
+                          {t.callCount > 0 ? `${((t.successCount / t.callCount) * 100).toFixed(0)}%` : "—"}
+                        </td>
+                        <td className="py-1.5 text-right">{t.p50DurationMs > 0 ? formatDuration(t.p50DurationMs) : "—"}</td>
+                        <td className="py-1.5 text-right">{t.p95DurationMs > 0 ? formatDuration(t.p95DurationMs) : "—"}</td>
+                        <td className="py-1.5">
+                          {topFailure ? (
+                            <span className="inline-block rounded bg-[hsl(var(--destructive)/0.15)] px-1.5 py-0.5 font-mono text-[10px] text-[hsl(var(--destructive))]">
+                              {topFailure.category} ({topFailure.count}/{failureCount})
+                            </span>
+                          ) : failureCount > 0 ? (
+                            <span className="text-[10px] text-[hsl(var(--muted-foreground))]">{failureCount} unclassified</span>
+                          ) : (
+                            <span className="text-[10px] text-[hsl(var(--muted-foreground))]">—</span>
+                          )}
+                        </td>
+                      </tr>
+                      {expanded ? (
+                        <tr className="border-b border-[hsl(var(--border)/0.3)]">
+                          <td colSpan={6} className="bg-[hsl(var(--muted)/0.2)] px-3 py-2 text-[11px]">
+                            {Object.keys(t.failureBreakdown ?? {}).length > 0 ? (
+                              <div className="mb-2">
+                                <span className="text-[hsl(var(--muted-foreground))]">Breakdown: </span>
+                                {Object.entries(t.failureBreakdown).sort((a, b) => b[1] - a[1]).map(([cat, cnt]) => (
+                                  <span key={cat} className="ml-1 inline-block rounded bg-[hsl(var(--card))] px-1.5 py-0.5 font-mono">
+                                    {cat}: {cnt}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                            {(t.recentFailureSamples ?? []).length > 0 ? (
+                              <>
+                                <p className="mb-1 text-[hsl(var(--muted-foreground))]">Recent failure samples:</p>
+                                <ul className="space-y-1">
+                                  {t.recentFailureSamples.map((s, i) => (
+                                    <li key={i} className="rounded bg-[hsl(var(--card))] px-2 py-1 font-mono text-[10px] text-[hsl(var(--foreground))]">
+                                      {s}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
