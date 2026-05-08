@@ -2,10 +2,12 @@
  * Training data export routes — sub-router mounted on workbenchRouter.
  *
  * Endpoints:
- *   GET /export/training-jsonl       — Combined multi-task JSONL (all training data)
- *   GET /export/agent-jsonl          — Agent tool-use trajectories (OpenAI format)
- *   GET /export/spec-gen-jsonl       — Spec generation training data
- *   GET /export/spec-enrichment-jsonl — Spec enrichment training data
+ *   GET /export/formats              — List available export formats
+ *   GET /export/training-jsonl?format=<id>
+ *                                    — Dispatched export (defaults to openai-multitask)
+ *   GET /export/agent-jsonl          — (legacy) Agent tool-use trajectories
+ *   GET /export/spec-gen-jsonl       — (legacy) Spec generation training data
+ *   GET /export/spec-enrichment-jsonl — (legacy) Spec enrichment training data
  *   GET /export/agent-tools          — Tool definitions JSON (for inspection)
  */
 
@@ -14,9 +16,10 @@ import {
   exportAgentTrainingJsonl,
   exportSpecGenTrainingJsonl,
   exportSpecEnrichmentTrainingJsonl,
-  exportCombinedTrainingJsonl,
   getAgentToolDefinitions,
 } from "../services/workbench-training-export.service.js";
+import { listFormats, getFormat } from "../services/training-export/registry.js";
+import type { ExportFormatId } from "../services/training-export/types.js";
 import { createLogger } from "../utils/logger.js";
 
 const logger = createLogger("training-export-routes");
@@ -37,12 +40,28 @@ function sendJsonl(res: import("express").Response, data: string, filename: stri
   res.status(200).send(data);
 }
 
+trainingExportRouter.get("/export/formats", (_req, res) => {
+  const formats = listFormats().map((f) => ({
+    id: f.id,
+    label: f.label,
+    description: f.description,
+    filename: f.filename,
+  }));
+  res.json({ formats });
+});
+
 trainingExportRouter.get("/export/training-jsonl", async (req, res) => {
+  const formatId = (typeof req.query.format === "string" ? req.query.format : "openai-multitask") as ExportFormatId;
+  const def = getFormat(formatId);
+  if (!def) {
+    res.status(400).json({ error: "Unknown format", format: formatId });
+    return;
+  }
   try {
-    const jsonl = await exportCombinedTrainingJsonl(parseExportQuery(req.query));
-    sendJsonl(res, jsonl, "training-data-combined.jsonl");
+    const jsonl = await def.exporter(parseExportQuery(req.query));
+    sendJsonl(res, jsonl, def.filename);
   } catch (error) {
-    logger.error({ err: error }, "combined training export failed");
+    logger.error({ err: error, formatId }, "training export failed");
     res.status(500).json({ error: "Export failed", detail: String(error) });
   }
 });

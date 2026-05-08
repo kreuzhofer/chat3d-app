@@ -22,4 +22,20 @@ describe("training-export registry", () => {
   it("getFormat returns undefined for unknown id", () => {
     expect(getFormat("does-not-exist" as never)).toBeUndefined();
   });
+
+  it("registers openai-multitask, sharegpt-codegen, alpaca-codegen", () => {
+    const ids = listFormats().map((f) => f.id);
+    expect(ids).toEqual(
+      expect.arrayContaining(["openai-multitask", "sharegpt-codegen", "alpaca-codegen"]),
+    );
+  });
+
+  it("each format has non-empty label, description, filename, and an exporter function", () => {
+    for (const f of listFormats()) {
+      expect(f.label.length).toBeGreaterThan(0);
+      expect(f.description.length).toBeGreaterThan(0);
+      expect(f.filename.length).toBeGreaterThan(0);
+      expect(typeof f.exporter).toBe("function");
+    }
+  });
 });
