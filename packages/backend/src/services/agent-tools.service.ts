@@ -112,6 +112,7 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
     validate_code: {
       type: "function" as const,
       description: "Validate your Build123d code for syntax errors and common mistakes. This is fast and free — always validate before rendering. Validates all files in the project.",
+      // @ts-expect-error AI SDK 6 + Zod input inference exceeds depth limit; tools schema is validated at runtime
       inputSchema: zodSchema(z.object({})),
       execute: async () => {
         const files = fs.getFiles();
@@ -150,6 +151,7 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
     tools.search_examples = {
       type: "function" as const,
       description: "Search the workbench for similar Build123d examples. Use this to see how similar models are built. Returns up to 3 examples with their prompt and code.",
+      // @ts-expect-error AI SDK 6 + Zod input inference exceeds depth limit; tools schema is validated at runtime
       inputSchema: zodSchema(z.object({
         query: z.string().describe("Natural language description of what you're looking for (e.g., 'gear with rounded teeth', 'box with lid')"),
       })),
@@ -178,6 +180,7 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
     tools.lookup_api = {
       type: "function" as const,
       description: "Look up Build123d API reference documentation for a specific topic. Available topics: primitives_3d, primitives_2d, sketch_ops, operations_3d, boolean, positioning, edge_face_selection, fillets_chamfers, offset_shell, arrays_patterns, build_contexts, buildline, sweep, loft, sketch_on_face, revolve, parametric_math",
+      // @ts-expect-error AI SDK 6 + Zod input inference exceeds depth limit; tools schema is validated at runtime
       inputSchema: zodSchema(z.object({
         topic: z.string().describe("The API topic to look up (e.g., 'sweep', 'boolean', 'fillets_chamfers')"),
       })),
@@ -194,6 +197,7 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
     tools.search_knowledge = {
       type: "function" as const,
       description: "Search the Build123d external knowledge base (official docs, repo examples, test patterns, and reference material like specs and dimensions) for working code snippets or technical reference related to a technique or concept. Use when you need to see how a specific API or pattern works, or when you need dimensions/specifications for components.",
+      // @ts-expect-error AI SDK 6 + Zod input inference exceeds depth limit; tools schema is validated at runtime
       inputSchema: zodSchema(z.object({
         query: z.string().describe("Natural language description of what you want to find (e.g., 'how to create a helix sweep', 'loft between two sketches')"),
       })),
@@ -228,6 +232,7 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
   tools.list_files = {
       type: "function" as const,
       description: "List files in the project with line counts. Cheaper than viewing each file individually.",
+      // @ts-expect-error AI SDK 6 + Zod input inference exceeds depth limit; tools schema is validated at runtime
       inputSchema: zodSchema(z.object({
         directory: z.string().optional().describe("Optional directory to filter by (e.g., 'components')"),
       })),
@@ -248,6 +253,7 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
       description: options.disableRender
         ? "Submit your component code after validation passes. No render needed — the assembly agent handles rendering."
         : "Submit your result after a successful render. Automatically runs a visual evaluation (VLM) to check quality. If the score is below the acceptance threshold, the submission is REJECTED and you must address the issues before re-submitting.",
+      // @ts-expect-error AI SDK 6 + Zod input inference exceeds depth limit; tools schema is validated at runtime
       inputSchema: zodSchema(z.object({
         summary: z.string().describe("Brief summary of what was built or changed"),
       })),
@@ -383,6 +389,7 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
   tools.evaluate_model = {
       type: "function" as const,
       description: "Evaluate the rendered 3D model against the user's prompt using a vision model (VLM). Takes screenshots and scores the model 1-10. Only call after a successful render. Use this to check quality before submitting — submit_result also runs evaluation automatically.",
+      // @ts-expect-error AI SDK 6 + Zod input inference exceeds depth limit; tools schema is validated at runtime
       inputSchema: zodSchema(z.object({})),
       execute: async () => {
         return runVlmEval({
@@ -397,6 +404,7 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
   tools.evaluate_code = {
       type: "function" as const,
       description: "Review your code for correctness against the user's prompt. Runs two checks: (1) Assertion check — verifies numeric parameters (dimensions, counts) match the spec (free, instant). (2) Code review — an LLM reviews the code for parameter accuracy, feature completeness, and logical correctness (cheap, ~5s). Call this BEFORE rendering to catch dimensional errors early. You do NOT need a rendered model for this.",
+      // @ts-expect-error AI SDK 6 + Zod input inference exceeds depth limit; tools schema is validated at runtime
       inputSchema: zodSchema(z.object({})),
       execute: async () => {
         const allFiles = fs.getFiles();
@@ -474,6 +482,7 @@ Commands:
 
 All paths are relative (e.g., "main.py", "components/base.py"). Only .py files are allowed.
 Always view a file before editing it to see the current line numbers and content.`,
+      // @ts-expect-error AI SDK 6 + Zod input inference exceeds depth limit; tools schema is validated at runtime
       inputSchema: zodSchema(z.object({
         command: z.enum(["view", "create", "str_replace", "insert", "overwrite"]).describe("The editor command to execute"),
         path: z.string().describe("Relative file path (e.g., 'main.py')"),
@@ -524,6 +533,7 @@ Always view a file before editing it to see the current line numbers and content
     tools.render_project = {
       type: "function" as const,
       description: "Render the project to produce 3D model files (STEP, STL, 3MF). This is expensive — only call after validation passes. Executes main.py as the entry point.",
+      // @ts-expect-error AI SDK 6 + Zod input inference exceeds depth limit; tools schema is validated at runtime
       inputSchema: zodSchema(z.object({})),
       execute: async () => {
         const files = fs.getFiles();
@@ -547,6 +557,7 @@ Always view a file before editing it to see the current line numbers and content
     tools.validate_and_render = {
       type: "function" as const,
       description: "Validate and render in one step. Validates first; if validation passes, renders immediately. Use this when you're confident the code is ready. Saves a round-trip compared to calling validate_code then render_project separately.",
+      // @ts-expect-error AI SDK 6 + Zod input inference exceeds depth limit; tools schema is validated at runtime
       inputSchema: zodSchema(z.object({})),
       execute: async () => {
         const files = fs.getFiles();

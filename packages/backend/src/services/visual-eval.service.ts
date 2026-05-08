@@ -175,13 +175,14 @@ export async function evaluateModelWithConfig(
         let reasoning = "";
         for await (const part of stream.fullStream) {
           if (part.type === "text-delta") text += part.text;
-          else if (part.type === "reasoning-delta" || part.type === "reasoning") {
+          else if (part.type === "reasoning-delta") {
             reasoning += (part as { text?: string }).text ?? "";
           }
         }
         const resolved = await stream;
-        const promptTokens = resolved.usage?.inputTokens ?? 0;
-        const completionTokens = resolved.usage?.outputTokens ?? 0;
+        const usage = await resolved.usage;
+        const promptTokens = usage?.inputTokens ?? 0;
+        const completionTokens = usage?.outputTokens ?? 0;
 
         logger.info({ response: text }, "VLM returned evaluation");
         const result = buildFinalResult(text, input, vlmModelLabel, promptTokens, completionTokens);

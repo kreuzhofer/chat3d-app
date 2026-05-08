@@ -347,7 +347,7 @@ export async function consumeStreamWithProgress(
   };
 
   for await (const part of stream) {
-    if (part.type === "reasoning-delta" || part.type === "reasoning") {
+    if (part.type === "reasoning-delta") {
       const delta = (part as { text?: string }).text ?? "";
       estimatedReasoningTokens += Math.ceil(delta.length / 4);
       // Heartbeat for thinking-only streams so the user can see progress vs stalled

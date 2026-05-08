@@ -342,7 +342,7 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
       let reasoningText = "";
       for await (const part of stream.fullStream) {
         if (part.type === "text-delta") text += part.text;
-        else if (part.type === "reasoning" || part.type === "reasoning-delta") {
+        else if (part.type === "reasoning-delta") {
           reasoningText += (part as { text?: string }).text ?? "";
         }
       }
@@ -351,8 +351,9 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
     });
 
     const parsed = parseSpecResponse(responseText);
-    const promptTokens = resolved.usage?.inputTokens ?? 0;
-    const completionTokens = resolved.usage?.outputTokens ?? 0;
+    const usage = await resolved.usage;
+    const promptTokens = usage?.inputTokens ?? 0;
+    const completionTokens = usage?.outputTokens ?? 0;
     const complexity = deriveComplexity(promptText, parsed.interpretation);
 
     logger.info(

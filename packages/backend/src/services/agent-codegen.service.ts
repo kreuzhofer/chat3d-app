@@ -10,7 +10,7 @@
  * OpenAI, etc.) via the standard createProviderModel() path.
  */
 
-import { stepCountIs, type CoreMessage } from "ai";
+import { stepCountIs, type ModelMessage as CoreMessage } from "ai";
 import { trackedStreamText, trackedGenerateText, consumeStreamWithProgress } from "./tracked-llm.service.js";
 import { createLogger } from "../utils/logger.js";
 import { AgentFilesystem } from "./agent-filesystem.service.js";

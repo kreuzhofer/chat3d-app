@@ -299,7 +299,7 @@ export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResu
         let reasoning = "";
         for await (const part of stream.fullStream) {
           if (part.type === "text-delta") text += part.text;
-          else if (part.type === "reasoning-delta" || part.type === "reasoning") {
+          else if (part.type === "reasoning-delta") {
             reasoning += (part as { text?: string }).text ?? "";
           }
         }
@@ -323,13 +323,14 @@ export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResu
           "code evaluation completed",
         );
 
+        const usage = await resolved.usage;
         const reviewResult: CodeReviewResult = {
           score: parsed.score,
           issues: allIssues,
           criticalAngles: parsed.criticalAngles,
           codeReviewModel: label,
-          promptTokens: resolved.usage?.inputTokens ?? 0,
-          completionTokens: resolved.usage?.outputTokens ?? 0,
+          promptTokens: usage?.inputTokens ?? 0,
+          completionTokens: usage?.outputTokens ?? 0,
           assertionSummary,
         };
 

@@ -121,10 +121,11 @@ export async function validatePrompt(promptText: string): Promise<ValidationResu
     const parsed = parseValidationResponse(text);
     logger.info({ valid: parsed.valid, reason: parsed.reason }, "validation result");
 
+    const usage = await resolved.usage;
     return {
       ...parsed,
-      promptTokens: resolved.usage?.inputTokens ?? 0,
-      completionTokens: resolved.usage?.outputTokens ?? 0,
+      promptTokens: usage?.inputTokens ?? 0,
+      completionTokens: usage?.outputTokens ?? 0,
     };
   } catch (error) {
     // Quota exhaustion is NOT transient — abort the pipeline

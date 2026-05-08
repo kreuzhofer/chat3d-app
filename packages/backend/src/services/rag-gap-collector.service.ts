@@ -53,7 +53,7 @@ Return ONLY the prompt text, nothing else.`;
  */
 async function generateConcretePrompt(technique: string, originalPrompt?: string): Promise<string | null> {
   try {
-    const config = await getModelForPurposeWithFallback("spec_generation");
+    const config = await getModelForPurposeWithFallback("spec_generation", "conversation");
     const model = createProviderModel(config);
 
     const userMessage = originalPrompt

@@ -10,6 +10,7 @@ import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import { embedPromptTextWithUsage } from "./workbench-embeddings.service.js";
 import type { KnowledgeSearchMatch, KnowledgeSourceType } from "./knowledge.service.js";
+export type { KnowledgeSearchMatch } from "./knowledge.service.js";
 
 export interface PreRetrievedReference {
   title: string;

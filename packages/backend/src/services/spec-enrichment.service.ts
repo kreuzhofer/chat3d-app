@@ -125,7 +125,7 @@ export async function enrichSpec(
         if (part.type === "text-delta") text += part.text;
       }
       const resolved = await stream;
-      return { text, usage: resolved.usage };
+      return { text, usage: await resolved.usage };
     });
 
     const promptTokens = streamResult.usage?.inputTokens ?? 0;

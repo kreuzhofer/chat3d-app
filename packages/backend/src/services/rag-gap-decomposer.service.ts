@@ -73,7 +73,7 @@ async function analyzeGap(
   originalPrompt: string | undefined,
   maxSubskills: number,
 ): Promise<GapAnalysisResult | null> {
-  const config = await getModelForPurposeWithFallback("spec_generation");
+  const config = await getModelForPurposeWithFallback("spec_generation", "conversation");
   const model = createProviderModel(config);
 
   const userMessage = originalPrompt

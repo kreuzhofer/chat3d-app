@@ -45,6 +45,7 @@ import {
   shouldAutoApprove,
   earlyExitResult,
   NULL_SCREENSHOTS,
+  type PromptContext,
 } from "./workbench-pipeline-helpers.service.js";
 import { persistAbortedPipeline, persistRejectedPrompt } from "./workbench-pipeline-persist.service.js";
 import crypto from "node:crypto";
@@ -325,7 +326,7 @@ async function _runPipeline(
       let researchLlmCost = 0;
       if (researchPackage?.llmTokens) {
         try {
-          const researchModelCfg = await getModelForPurposeWithFallback("spec_generation");
+          const researchModelCfg = await getModelForPurposeWithFallback("spec_generation", "conversation");
           researchLlmCost = calculateCostUsd(researchModelCfg, researchPackage.llmTokens.prompt, researchPackage.llmTokens.completion);
         } catch { /* cost tracking is non-critical */ }
       }

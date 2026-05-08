@@ -96,7 +96,7 @@ experimentRouter.get("/preview-prompts", async (req: Request, res: Response) => 
 
 experimentRouter.get("/:id", async (req: Request, res: Response) => {
   try {
-    const experiment = await getExperiment(req.params.id);
+    const experiment = await getExperiment((req.params.id as string));
     res.json(experiment);
   } catch (err) {
     handleError(err, res);
@@ -106,7 +106,7 @@ experimentRouter.get("/:id", async (req: Request, res: Response) => {
 experimentRouter.patch("/:id", async (req: Request, res: Response) => {
   try {
     const { name, categoryIds, promptCount, promptSeed, modelIds, fewShotCounts } = req.body;
-    const experiment = await updateExperiment(req.params.id, { name, categoryIds, promptCount, promptSeed, modelIds, fewShotCounts });
+    const experiment = await updateExperiment((req.params.id as string), { name, categoryIds, promptCount, promptSeed, modelIds, fewShotCounts });
     res.json(experiment);
   } catch (err) {
     handleError(err, res);
@@ -115,7 +115,7 @@ experimentRouter.patch("/:id", async (req: Request, res: Response) => {
 
 experimentRouter.delete("/:id", async (req: Request, res: Response) => {
   try {
-    await deleteExperiment(req.params.id);
+    await deleteExperiment((req.params.id as string));
     res.json({ ok: true });
   } catch (err) {
     handleError(err, res);
@@ -126,7 +126,7 @@ experimentRouter.delete("/:id", async (req: Request, res: Response) => {
 
 experimentRouter.post("/:id/start", async (req: Request, res: Response) => {
   try {
-    await startExperiment(req.params.id, req.authUser!.id);
+    await startExperiment((req.params.id as string), req.authUser!.id);
     res.status(202).json({ ok: true, message: "Experiment started" });
   } catch (err) {
     handleError(err, res);
@@ -135,7 +135,7 @@ experimentRouter.post("/:id/start", async (req: Request, res: Response) => {
 
 experimentRouter.post("/:id/cancel", async (req: Request, res: Response) => {
   try {
-    await cancelExperiment(req.params.id);
+    await cancelExperiment((req.params.id as string));
     res.json({ ok: true, message: "Experiment cancelled" });
   } catch (err) {
     handleError(err, res);
@@ -144,7 +144,7 @@ experimentRouter.post("/:id/cancel", async (req: Request, res: Response) => {
 
 experimentRouter.post("/:id/rerun", async (req: Request, res: Response) => {
   try {
-    await rerunExperiment(req.params.id);
+    await rerunExperiment((req.params.id as string));
     res.json({ ok: true, message: "Experiment reset for re-run" });
   } catch (err) {
     handleError(err, res);
@@ -153,7 +153,7 @@ experimentRouter.post("/:id/rerun", async (req: Request, res: Response) => {
 
 experimentRouter.get("/:id/status", async (req: Request, res: Response) => {
   try {
-    const status = await getExperimentStatus(req.params.id);
+    const status = await getExperimentStatus((req.params.id as string));
     res.json(status);
   } catch (err) {
     handleError(err, res);
@@ -164,7 +164,7 @@ experimentRouter.get("/:id/status", async (req: Request, res: Response) => {
 
 experimentRouter.get("/:id/comparison", async (req: Request, res: Response) => {
   try {
-    const comparison = await getExperimentComparison(req.params.id);
+    const comparison = await getExperimentComparison((req.params.id as string));
     res.json(comparison);
   } catch (err) {
     handleError(err, res);
@@ -173,7 +173,7 @@ experimentRouter.get("/:id/comparison", async (req: Request, res: Response) => {
 
 experimentRouter.get("/:id/prompts", async (req: Request, res: Response) => {
   try {
-    const comparison = await getPerPromptComparison(req.params.id);
+    const comparison = await getPerPromptComparison((req.params.id as string));
     res.json(comparison);
   } catch (err) {
     handleError(err, res);
@@ -182,7 +182,7 @@ experimentRouter.get("/:id/prompts", async (req: Request, res: Response) => {
 
 experimentRouter.get("/:id/runs/:runId/examples", async (req: Request, res: Response) => {
   try {
-    const examples = await getRunExamples(req.params.id, req.params.runId);
+    const examples = await getRunExamples((req.params.id as string), (req.params.runId as string));
     res.json(examples);
   } catch (err) {
     handleError(err, res);
@@ -193,7 +193,7 @@ experimentRouter.get("/:id/runs/:runId/examples", async (req: Request, res: Resp
 
 experimentRouter.delete("/:id/runs/:runId", async (req: Request, res: Response) => {
   try {
-    await deleteExperimentRun(req.params.id, req.params.runId);
+    await deleteExperimentRun((req.params.id as string), (req.params.runId as string));
     res.json({ ok: true });
   } catch (err) {
     handleError(err, res);
@@ -202,7 +202,7 @@ experimentRouter.delete("/:id/runs/:runId", async (req: Request, res: Response) 
 
 experimentRouter.post("/:id/runs/:runId/retry", async (req: Request, res: Response) => {
   try {
-    await retryExperimentRun(req.params.id, req.params.runId);
+    await retryExperimentRun((req.params.id as string), (req.params.runId as string));
     res.json({ ok: true });
   } catch (err) {
     handleError(err, res);
@@ -211,7 +211,7 @@ experimentRouter.post("/:id/runs/:runId/retry", async (req: Request, res: Respon
 
 experimentRouter.post("/:id/retry-failed", async (req: Request, res: Response) => {
   try {
-    await retryFailedRuns(req.params.id);
+    await retryFailedRuns((req.params.id as string));
     res.json({ ok: true });
   } catch (err) {
     handleError(err, res);

@@ -73,7 +73,7 @@ vlmExperimentRouter.get("/preview-examples", async (req: Request, res: Response)
 
 vlmExperimentRouter.get("/:id", async (req: Request, res: Response) => {
   try {
-    const experiment = await getVlmExperiment(req.params.id);
+    const experiment = await getVlmExperiment((req.params.id as string));
     res.json(experiment);
   } catch (err) { handleError(err, res); }
 });
@@ -81,7 +81,7 @@ vlmExperimentRouter.get("/:id", async (req: Request, res: Response) => {
 vlmExperimentRouter.patch("/:id", async (req: Request, res: Response) => {
   try {
     const { name, categoryIds, exampleCount, exampleSeed, modelIds } = req.body;
-    const experiment = await updateVlmExperiment(req.params.id, {
+    const experiment = await updateVlmExperiment((req.params.id as string), {
       name, categoryIds, exampleCount, exampleSeed, modelIds,
     });
     res.json(experiment);
@@ -90,7 +90,7 @@ vlmExperimentRouter.patch("/:id", async (req: Request, res: Response) => {
 
 vlmExperimentRouter.delete("/:id", async (req: Request, res: Response) => {
   try {
-    await deleteVlmExperiment(req.params.id);
+    await deleteVlmExperiment((req.params.id as string));
     res.status(204).end();
   } catch (err) { handleError(err, res); }
 });
@@ -99,35 +99,35 @@ vlmExperimentRouter.delete("/:id", async (req: Request, res: Response) => {
 
 vlmExperimentRouter.post("/:id/start", async (req: Request, res: Response) => {
   try {
-    await startVlmExperiment(req.params.id);
+    await startVlmExperiment((req.params.id as string));
     res.status(202).json({ message: "VLM experiment started" });
   } catch (err) { handleError(err, res); }
 });
 
 vlmExperimentRouter.post("/:id/cancel", async (req: Request, res: Response) => {
   try {
-    await cancelVlmExperiment(req.params.id);
+    await cancelVlmExperiment((req.params.id as string));
     res.json({ message: "Cancellation requested" });
   } catch (err) { handleError(err, res); }
 });
 
 vlmExperimentRouter.post("/:id/rerun", async (req: Request, res: Response) => {
   try {
-    const experiment = await rerunVlmExperiment(req.params.id);
+    const experiment = await rerunVlmExperiment((req.params.id as string));
     res.json(experiment);
   } catch (err) { handleError(err, res); }
 });
 
 vlmExperimentRouter.delete("/:id/runs/:runId/results", async (req: Request, res: Response) => {
   try {
-    const result = await resetVlmExperimentRun(req.params.id, req.params.runId);
+    const result = await resetVlmExperimentRun((req.params.id as string), (req.params.runId as string));
     res.json(result);
   } catch (err) { handleError(err, res); }
 });
 
 vlmExperimentRouter.get("/:id/status", async (req: Request, res: Response) => {
   try {
-    const status = await getVlmExperimentStatus(req.params.id);
+    const status = await getVlmExperimentStatus((req.params.id as string));
     res.json(status);
   } catch (err) { handleError(err, res); }
 });
@@ -136,21 +136,21 @@ vlmExperimentRouter.get("/:id/status", async (req: Request, res: Response) => {
 
 vlmExperimentRouter.get("/:id/comparison", async (req: Request, res: Response) => {
   try {
-    const result = await getVlmComparison(req.params.id);
+    const result = await getVlmComparison((req.params.id as string));
     res.json(result);
   } catch (err) { handleError(err, res); }
 });
 
 vlmExperimentRouter.get("/:id/examples", async (req: Request, res: Response) => {
   try {
-    const result = await getVlmPerExampleComparison(req.params.id);
+    const result = await getVlmPerExampleComparison((req.params.id as string));
     res.json(result);
   } catch (err) { handleError(err, res); }
 });
 
 vlmExperimentRouter.get("/:id/inter-rater", async (req: Request, res: Response) => {
   try {
-    const result = await getVlmInterRaterAgreement(req.params.id);
+    const result = await getVlmInterRaterAgreement((req.params.id as string));
     res.json(result);
   } catch (err) { handleError(err, res); }
 });

@@ -106,7 +106,7 @@ export async function decomposeTechniquesWithLlm(
   promptText: string,
   interpretation: string | undefined,
 ): Promise<TechniqueDecomposition> {
-  const config = await getModelForPurposeWithFallback("spec_generation");
+  const config = await getModelForPurposeWithFallback("spec_generation", "conversation");
   const model = createProviderModel(config);
 
   const userMessage = interpretation
