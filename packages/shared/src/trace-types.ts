@@ -38,6 +38,7 @@ export interface TraceToolCall {
   success: boolean;
   inputSummary?: string;
   outputSummary?: string;
+  errorInfo?: TraceErrorInfo;
 }
 
 export interface TraceAgentMeta {
@@ -47,6 +48,7 @@ export interface TraceAgentMeta {
   renderSuccess?: boolean | "skipped";
   evalScore?: number;
   codeSnapshotHash?: string;
+  finishReason?: string;
 }
 
 // ── Error classification ───────────────────────────────────────────────

@@ -16,6 +16,7 @@ export interface PipelineFilters {
   from?: Date;
   to?: Date;
   pipelineType?: string;
+  categoryId?: string;
 }
 
 export interface PipelineSummary {
@@ -45,6 +46,10 @@ export interface PipelineToolUsageRow {
   toolName: string;
   callCount: number;
   successCount: number;
+  p50DurationMs: number;
+  p95DurationMs: number;
+  failureBreakdown: Record<string, number>;
+  recentFailureSamples: string[];
 }
 
 export interface PipelineBreakdown {
@@ -194,22 +199,73 @@ export async function getPipelineTimeseries(
 
 export async function getPipelineToolUsage(filters: PipelineFilters): Promise<PipelineToolUsageRow[]> {
   const { sql: whereClause, params } = buildWhereClause(filters);
+  // categoryId requires joining workbench_example_prompts. generation_traces.prompt_id
+  // is varchar containing the prompt UUID as text, so we cast wep.id::text.
+  const categoryJoin = filters.categoryId ? "JOIN workbench_example_prompts wep ON wep.id::text = gt.prompt_id" : "";
+  const categoryClause = filters.categoryId
+    ? (whereClause ? `AND wep.category_id = $${params.length + 1}::uuid` : `WHERE wep.category_id = $${params.length + 1}::uuid`)
+    : "";
+  const allParams = filters.categoryId ? [...params, filters.categoryId] : params;
 
   const query = `
+    WITH tool_calls AS (
+      SELECT
+        tool->>'toolName' AS tool_name,
+        (tool->>'success')::boolean AS success,
+        (tool->>'durationMs')::int AS duration_ms,
+        tool->'errorInfo'->>'category' AS error_category,
+        LEFT(tool->>'outputSummary', 200) AS output_summary,
+        gt.created_at AS created_at
+      FROM generation_traces gt
+      ${categoryJoin},
+        jsonb_array_elements(gt.trace->'nodes') AS node,
+        jsonb_array_elements(COALESCE(node->'toolCalls', '[]'::jsonb)) AS tool
+      ${whereClause}
+      ${categoryClause}
+    ),
+    failure_breakdown AS (
+      SELECT tool_name, error_category, COUNT(*)::int AS cnt
+      FROM tool_calls
+      WHERE NOT success AND error_category IS NOT NULL
+      GROUP BY 1, 2
+    ),
+    failure_samples AS (
+      SELECT tool_name, output_summary,
+             row_number() OVER (PARTITION BY tool_name ORDER BY created_at DESC) AS rn
+      FROM tool_calls
+      WHERE NOT success AND output_summary IS NOT NULL AND output_summary <> ''
+    )
     SELECT
-      tool->>'toolName' AS "toolName",
+      tc.tool_name AS "toolName",
       COUNT(*)::int AS "callCount",
-      COUNT(*) FILTER (WHERE (tool->>'success')::boolean)::int AS "successCount"
-    FROM generation_traces gt,
-         jsonb_array_elements(gt.trace->'nodes') AS node,
-         jsonb_array_elements(COALESCE(node->'toolCalls', '[]'::jsonb)) AS tool
-    ${whereClause}
-    GROUP BY tool->>'toolName'
+      COUNT(*) FILTER (WHERE tc.success)::int AS "successCount",
+      COALESCE(
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tc.duration_ms)
+          FILTER (WHERE tc.duration_ms IS NOT NULL),
+        0
+      )::int AS "p50DurationMs",
+      COALESCE(
+        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY tc.duration_ms)
+          FILTER (WHERE tc.duration_ms IS NOT NULL),
+        0
+      )::int AS "p95DurationMs",
+      COALESCE(
+        (SELECT jsonb_object_agg(fb.error_category, fb.cnt)
+         FROM failure_breakdown fb WHERE fb.tool_name = tc.tool_name),
+        '{}'::jsonb
+      ) AS "failureBreakdown",
+      COALESCE(
+        (SELECT array_agg(s.output_summary ORDER BY s.rn)
+         FROM failure_samples s WHERE s.tool_name = tc.tool_name AND s.rn <= 5),
+        ARRAY[]::text[]
+      ) AS "recentFailureSamples"
+    FROM tool_calls tc
+    GROUP BY tc.tool_name
     ORDER BY "callCount" DESC
   `;
 
   try {
-    return await prisma.$queryRawUnsafe<PipelineToolUsageRow[]>(query, ...params);
+    return await prisma.$queryRawUnsafe<PipelineToolUsageRow[]>(query, ...allParams);
   } catch (err) {
     logger.warn({ err }, "tool usage query failed");
     return [];

@@ -1098,6 +1098,7 @@ adminRouter.get("/pipeline/tools", async (req, res) => {
       from: parseOptionalDate(req.query.from),
       to: parseOptionalDate(req.query.to),
       pipelineType: typeof req.query.pipelineType === "string" ? req.query.pipelineType : undefined,
+      categoryId: typeof req.query.categoryId === "string" ? req.query.categoryId : undefined,
     });
     res.status(200).json({ tools });
   } catch (error) {

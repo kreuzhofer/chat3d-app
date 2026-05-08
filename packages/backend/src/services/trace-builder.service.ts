@@ -150,6 +150,35 @@ export class TraceBuilder {
     return { category, message, stack, errorName };
   }
 
+  /**
+   * Classify a tool-call failure from its output text into a TraceErrorInfo.
+   * Returns undefined when the output looks successful. Used by the agent
+   * loop to enrich captured tool calls with a category for aggregation.
+   */
+  static classifyToolFailure(toolName: string, output: string | undefined): TraceErrorInfo | undefined {
+    if (!output) return undefined;
+    const failPatterns = ["FAILED", "ERROR:", "error:", "not valid", "not found"];
+    const failed = failPatterns.some(p => output.includes(p));
+    if (!failed) return undefined;
+
+    const message = output.split("\n")[0].slice(0, 300);
+    let category: TraceErrorCategory = "unknown";
+
+    if (/\btimeout\b/i.test(output) || /\btimed?\s*out\b/i.test(output)) {
+      category = "timeout";
+    } else if (/rate.?limit/i.test(output)) {
+      category = "rate_limit";
+    } else if (/quota.?exhaust/i.test(output)) {
+      category = "quota_exhausted";
+    } else if (/render/i.test(toolName) || /\brender\b/i.test(output) || /\bbuild123d\b/i.test(output)) {
+      category = "render_failure";
+    } else if (/validate/i.test(toolName) || /\bvalidation\b/i.test(output) || /\bnot valid\b/i.test(output)) {
+      category = "validation_failure";
+    }
+
+    return { category, message };
+  }
+
   /** Convenience: classify error, then end the current phase as failed with error info. */
   endPhaseWithError(err: unknown, opts?: { nodeId?: string }): void {
     const errorInfo = TraceBuilder.classifyError(err);

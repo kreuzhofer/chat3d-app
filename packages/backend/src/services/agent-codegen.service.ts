@@ -278,6 +278,10 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const commonOnStepFinish = (event: any) => {
+        // Step-level wall clock; per-tool durationMs is approximated as
+        // (step elapsed) / (tool count) since the AI SDK does not currently
+        // emit per-tool timings on step events.
+        const stepStartTs = Date.now();
         const stepNum = event.stepNumber + 1;
         completedStepCount = stepNum;
         const usage = event.usage;
@@ -294,7 +298,8 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
         // Trace each step as a child node of the agent
         const stepId = `${agentNodeId}/step-${stepNum}`;
         tb?.startPhase(stepId, "agent_step", `Step ${stepNum}`, agentNodeId);
-        tb?.setAgentMeta({ stepNumber: stepNum, maxSteps }, stepId);
+        const finishReason = typeof event.finishReason === "string" ? event.finishReason : undefined;
+        tb?.setAgentMeta({ stepNumber: stepNum, maxSteps, finishReason }, stepId);
         const stepCostUsd = calculateCostUsd(modelConfig, usage?.inputTokens ?? 0, usage?.outputTokens ?? 0);
         tb?.addUsage({
           inputTokens: usage?.inputTokens ?? 0,
@@ -302,6 +307,8 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
           reasoningTokens,
           costUsd: stepCostUsd,
         }, stepId);
+        const toolCount = Math.max(1, event.toolCalls.length);
+        const perToolDurationMs = Math.round((Date.now() - stepStartTs) / toolCount);
         for (const tc of event.toolCalls) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const tcAny = tc as any;
@@ -322,15 +329,15 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
             outputText = JSON.stringify(rawResult).slice(0, 500);
           }
 
-          // Detect failure from output content, not just tool call status
-          const failPatterns = ["FAILED", "ERROR:", "error:", "not valid", "not found"];
-          const outputFailed = outputText != null && failPatterns.some(p => outputText!.includes(p));
+          const errorInfo = TraceBuilder.classifyToolFailure(tcAny.toolName, outputText);
 
           tb?.addToolCall({
             toolName: tcAny.toolName,
-            success: !outputFailed,
+            success: errorInfo === undefined,
+            durationMs: perToolDurationMs,
             inputSummary: JSON.stringify(tcAny.args ?? {}).slice(0, 200),
             outputSummary: outputText?.slice(0, 500),
+            errorInfo,
           }, stepId);
         }
         // Capture LLM text response (the assistant's reasoning before tool calls)
