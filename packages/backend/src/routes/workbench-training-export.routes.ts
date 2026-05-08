@@ -27,10 +27,14 @@ const logger = createLogger("training-export-routes");
 export const trainingExportRouter = Router();
 
 function parseExportQuery(query: Record<string, unknown>) {
+  const cmRaw = typeof query.commentMode === "string" ? query.commentMode : undefined;
+  const commentMode =
+    cmRaw === "smart" || cmRaw === "smarter" || cmRaw === "none" ? cmRaw : undefined;
   return {
     minScore: query.minScore ? Number(query.minScore) : undefined,
     categoryId: typeof query.categoryId === "string" ? query.categoryId : undefined,
     approvalOnly: query.approvalOnly !== "false",
+    commentMode,
   };
 }
 
