@@ -89,9 +89,32 @@ The benchmark is the article's core table.
 
 ---
 
+## Two fine-tune targets, not one
+
+The original framing of this doc treated "the fine-tune" as a single codegen-focused effort. Empirical work in May 2026 surfaced that there are actually two separable, differently-sized fine-tune opportunities:
+
+1. **Conversation-purpose fine-tune (small, fast).** Replaces the OSS chat model's default behaviour on the conversation/intent stage. Sonnet-generated conversation replies (1-2 sentences, no code, after a `[CODEGEN_NEEDED]` tag) are already accumulating in `chat_items`. Training Qwen3.6-27B on (prompt → conciseReply) pairs would fix two observed failure modes at once: (a) Qwen ignoring the "1-2 sentences" instruction (writes 1700+ tokens of intent text) and (b) Qwen burning 6,000+ reasoning tokens on a trivial intent acknowledgement. This is a smaller dataset, smaller LoRA, faster experiment than the codegen target — useful as a proof point before the bigger run.
+
+2. **Codegen-purpose fine-tune (large, the v1 plan).** Original framing — trains the model on workbench-approved (prompt → Build123d code) examples. Closes the API-knowledge gap.
+
+Treat them as distinct experiments. #1 is a "does fine-tuning fix instruction-following on this OSS model" probe with a fast feedback loop. #2 is the dataset-release-grade artifact backing the next LinkedIn post.
+
 ## Living notes
 
 Add observations as we learn things. Date entries.
+
+### 2026-05-05
+- **First end-to-end Qwen3.6-27B experiment COMPLETED** (100 prompts, workbench_codegen, run `4a0bff08`, ~11h wall-clock 18:06 → 05:07 UTC).
+  - **81% auto-approval (81/100), mean composite 8.70**, visual 8.6, code-eval 9.2, assertion pass 100%.
+  - Avg 7.0 steps/prompt, 6.6 min/prompt, **31 output tok/s**, **$0.00196/prompt → $0.196 total**.
+  - Failure breakdown of the 19 non-approved prompts:
+    - **11 × "agent codegen failed to render"** — agent loop ran to step budget without producing renderable code. Sample (`b407ae62` rounded L-shape, 12 steps, 30 min): genuine OCCT geometry failure (`BRep_API: command not done` in `fillet_2d`) the model couldn't fix. This bucket is real codegen weakness, not infra.
+    - **6 × pipeline timeout** — 30-min `agent_orchestration` hard timeout, mostly Qwen marathon-thinking on a single step (e.g. `04d4b72d` accumulated 27k+ reasoning tokens with 0 output tokens before abort).
+    - **2 × low-score** — `2061586c` ev=7.4 (just below 7.5 threshold), `76e8ad91` ev=3.0 (genuine quality miss).
+  - Tool-call validation errors (Qwen omitting `function.arguments`) seen during the run but did not push prompts into the failed bucket — the agent retried and recovered.
+- Per-step Qwen reasoning at `low` thinking effort: simple prompts ~14s/step, complex prompts can hit ~30 min on a single step. Conversation purpose was so verbose (1700-token "intent" replies + 6K reasoning) that reverting it to Claude Sonnet was necessary to keep chat path usable.
+- Identified two-fine-tune-target framing (see section above): a small conversation-purpose fine-tune to fix Qwen's verbosity + over-thinking on the intent stage, and the original codegen-purpose fine-tune. The conversation one is a fast proof-point and uses the (Sonnet conversation reply) data we're already accumulating.
+- **Headline.** Qwen3.6-27B reaches 81% auto-approval at $0.0020/prompt — vs. Sonnet+RAG production which sits at ~85–89% on saturated categories at far higher cost. Pre-fine-tune baseline established. Fine-tune should aim to (a) close the ~5-point quality gap, (b) eliminate marathon-thinking timeouts (the 6 timeout failures alone would bump approval to 87%), (c) keep the cost advantage.
 
 ### 2026-05-03
 - Doc created. v1 article is published; v2 will be backed by fine-tune results.
