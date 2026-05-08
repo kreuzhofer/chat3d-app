@@ -19,7 +19,7 @@ import {
 } from "../api/workbench.api";
 import { chunkedUploadAndImport, type ChunkedUploadProgress } from "../api/chunked-upload";
 import { useAuth } from "../hooks/useAuth";
-import { EXPORT_FORMATS, type ExportFormatId } from "../lib/training-export-formats";
+import { EXPORT_MENU_ITEMS } from "../lib/training-export-formats";
 import { InlineAlert } from "./layout/InlineAlert";
 import { PageHeader } from "./layout/PageHeader";
 import { SectionCard } from "./layout/SectionCard";
@@ -263,11 +263,14 @@ export function WorkbenchPage() {
     }
   }, [pushToast, token]);
 
-  const handleExportJsonl = useCallback((formatId: ExportFormatId) => {
+  const handleExportJsonl = useCallback((menuId: string) => {
     if (!token) return;
-    const format = EXPORT_FORMATS.find((f) => f.id === formatId);
-    if (!format) return;
-    const url = `/api/admin/workbench/export/training-jsonl?format=${encodeURIComponent(formatId)}`;
+    const item = EXPORT_MENU_ITEMS.find((it) => it.menuId === menuId);
+    if (!item) return;
+    const url =
+      `/api/admin/workbench/export/training-jsonl` +
+      `?format=${encodeURIComponent(item.formatId)}` +
+      `&commentMode=${encodeURIComponent(item.commentMode)}`;
     void (async () => {
       try {
         const response = await fetch(url, {
@@ -278,10 +281,10 @@ export function WorkbenchPage() {
         const blobUrl = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = blobUrl;
-        link.download = format.filename;
+        link.download = item.filename;
         link.click();
         URL.revokeObjectURL(blobUrl);
-        pushToast({ tone: "success", title: `Export downloaded (${format.label})` });
+        pushToast({ tone: "success", title: `Export downloaded (${item.label})` });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -306,11 +309,11 @@ export function WorkbenchPage() {
             </Button>
             <DropdownMenu
               triggerLabel="Export JSONL"
-              items={EXPORT_FORMATS.map<DropdownItem>((f) => ({
-                id: f.id,
+              items={EXPORT_MENU_ITEMS.map<DropdownItem>((item) => ({
+                id: item.menuId,
                 type: "item",
-                label: f.label,
-                onSelect: () => handleExportJsonl(f.id),
+                label: item.label,
+                onSelect: () => handleExportJsonl(item.menuId),
                 disabled: !totals || totals.autoApproved + totals.humanApproved === 0,
               }))}
             />

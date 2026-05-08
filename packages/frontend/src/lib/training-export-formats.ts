@@ -1,29 +1,63 @@
 export type ExportFormatId = "openai-multitask" | "sharegpt-codegen" | "alpaca-codegen";
+export type CommentMode = "none" | "smart" | "smarter";
 
-export interface ExportFormat {
-  id: ExportFormatId;
+export interface ExportMenuItem {
+  /** Stable id for use as the dropdown menu item key. */
+  menuId: string;
+  formatId: ExportFormatId;
+  commentMode: CommentMode;
   label: string;
-  description: string;
   filename: string;
 }
 
-export const EXPORT_FORMATS: ExportFormat[] = [
+export const EXPORT_MENU_ITEMS: ExportMenuItem[] = [
   {
-    id: "openai-multitask",
+    menuId: "openai-multitask",
+    formatId: "openai-multitask",
+    commentMode: "none",
     label: "OpenAI multi-task (combined)",
-    description: "Agent tool-use + spec-gen + enrichment combined; OpenAI messages format with metadata.",
     filename: "training-data-combined.jsonl",
   },
   {
-    id: "sharegpt-codegen",
-    label: "ShareGPT — codegen only",
-    description: "Single-turn ShareGPT (from/value). Matches dgx-manager-fine-tune-recipes.",
+    menuId: "sharegpt-codegen-none",
+    formatId: "sharegpt-codegen",
+    commentMode: "none",
+    label: "ShareGPT — full comments",
     filename: "training-data-sharegpt-codegen.jsonl",
   },
   {
-    id: "alpaca-codegen",
-    label: "Alpaca — codegen only",
-    description: "Flat instruction/input/output. Simplest format.",
+    menuId: "sharegpt-codegen-smarter",
+    formatId: "sharegpt-codegen",
+    commentMode: "smarter",
+    label: "ShareGPT — smarter strip (keep CoT)",
+    filename: "training-data-sharegpt-codegen-smarter.jsonl",
+  },
+  {
+    menuId: "sharegpt-codegen-smart",
+    formatId: "sharegpt-codegen",
+    commentMode: "smart",
+    label: "ShareGPT — smart strip (densest UI-safe)",
+    filename: "training-data-sharegpt-codegen-smart.jsonl",
+  },
+  {
+    menuId: "alpaca-codegen-none",
+    formatId: "alpaca-codegen",
+    commentMode: "none",
+    label: "Alpaca — full comments",
     filename: "training-data-alpaca-codegen.jsonl",
+  },
+  {
+    menuId: "alpaca-codegen-smarter",
+    formatId: "alpaca-codegen",
+    commentMode: "smarter",
+    label: "Alpaca — smarter strip (keep CoT)",
+    filename: "training-data-alpaca-codegen-smarter.jsonl",
+  },
+  {
+    menuId: "alpaca-codegen-smart",
+    formatId: "alpaca-codegen",
+    commentMode: "smart",
+    label: "Alpaca — smart strip (densest UI-safe)",
+    filename: "training-data-alpaca-codegen-smart.jsonl",
   },
 ];
