@@ -3,10 +3,13 @@ export type ExportFormatId =
   | "sharegpt-codegen"
   | "alpaca-codegen";
 
+export type CommentMode = "none" | "smart" | "smarter";
+
 export interface ExportRequest {
   minScore?: number;
   categoryId?: string;
   approvalOnly?: boolean;
+  commentMode?: CommentMode;
 }
 
 export interface FormatDefinition {

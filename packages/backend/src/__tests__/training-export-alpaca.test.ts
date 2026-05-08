@@ -42,4 +42,21 @@ describe("exportAlpacaCodegenJsonl", () => {
     ]);
     expect((await exportAlpacaCodegenJsonl({})).split("\n")).toHaveLength(2);
   });
+
+  it("applies commentMode='smart' to the output field", async () => {
+    (fetchCodegenRows as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        exampleId: "ex-1",
+        promptId: "p-1",
+        prompt: "Make a cube",
+        code: "# header\nx = 20\n",
+        systemPrompt: "s",
+        category: "c",
+        evalScore: null,
+      },
+    ]);
+    const out = await exportAlpacaCodegenJsonl({ commentMode: "smart" });
+    const parsed = JSON.parse(out);
+    expect(parsed.output).toBe("x = 20\n");
+  });
 });

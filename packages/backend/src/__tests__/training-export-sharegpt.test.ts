@@ -54,4 +54,23 @@ describe("exportShareGptCodegenJsonl", () => {
     await exportShareGptCodegenJsonl({ minScore: 8, categoryId: "cat-x", approvalOnly: false });
     expect(fetchCodegenRows).toHaveBeenCalledWith({ minScore: 8, categoryId: "cat-x", approvalOnly: false });
   });
+
+  it("applies commentMode='smart' to the gpt code fence", async () => {
+    (fetchCodegenRows as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        exampleId: "ex-1",
+        promptId: "p-1",
+        prompt: "Make a cube",
+        code: "# header\nx = 20\n",
+        systemPrompt: "s",
+        category: "c",
+        evalScore: null,
+      },
+    ]);
+    const out = await exportShareGptCodegenJsonl({ commentMode: "smart" });
+    const parsed = JSON.parse(out);
+    const gpt = parsed.conversations[2].value as string;
+    expect(gpt).not.toContain("# header");
+    expect(gpt).toContain("x = 20");
+  });
 });
