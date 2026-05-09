@@ -90,6 +90,30 @@ async function validateModels(modelIds: string[], _fewShotCounts?: number[] | nu
   return { models, uniqueModelIds };
 }
 
+/**
+ * Decide whether an updateExperiment input actually changes the values that
+ * govern prompt selection. Pure helper so the rule is unit-testable. Returns
+ * true only if at least one of categoryIds (compared as a set), promptCount,
+ * or promptSeed differs from the stored experiment value. Fields absent from
+ * the input are treated as unchanged.
+ */
+export function haveSelectionInputsChanged(
+  input: { categoryIds?: string[]; promptCount?: number; promptSeed?: number },
+  current: { categoryIds: string[]; promptCount: number; promptSeed: number },
+): boolean {
+  if (input.categoryIds !== undefined) {
+    const inSet = new Set(input.categoryIds);
+    if (
+      input.categoryIds.length !== current.categoryIds.length ||
+      inSet.size !== current.categoryIds.length ||
+      !current.categoryIds.every((c) => inSet.has(c))
+    ) return true;
+  }
+  if (input.promptCount !== undefined && input.promptCount !== current.promptCount) return true;
+  if (input.promptSeed !== undefined && input.promptSeed !== current.promptSeed) return true;
+  return false;
+}
+
 async function selectApprovedPrompts(categoryIds: string[], promptCount: number, promptSeed: number) {
   const prompts = await prisma.workbenchExamplePrompt.findMany({
     where: { categoryId: { in: categoryIds }, ...APPROVED_PROMPT_FILTER },
@@ -198,14 +222,11 @@ export async function updateExperiment(id: string, input: UpdateExperimentInput)
   // Re-select prompts only if the values that govern selection actually
   // changed (not just present in the payload). The frontend always submits
   // the full form, so a model-only edit must not re-roll the prompt set.
-  const sameCategories =
-    input.categoryIds === undefined ||
-    (input.categoryIds.length === exp.categoryIds.length &&
-      new Set(input.categoryIds).size === exp.categoryIds.length &&
-      input.categoryIds.every((c) => exp.categoryIds.includes(c)));
-  const sameCount = input.promptCount === undefined || input.promptCount === exp.promptCount;
-  const sameSeed = input.promptSeed === undefined || input.promptSeed === exp.promptSeed;
-  const promptsChanged = !sameCategories || !sameCount || !sameSeed;
+  const promptsChanged = haveSelectionInputsChanged(input, {
+    categoryIds: exp.categoryIds,
+    promptCount: exp.promptCount,
+    promptSeed: exp.promptSeed,
+  });
   const selectedIds = promptsChanged ? await selectApprovedPrompts(categoryIds, promptCount, promptSeed) : null;
 
   await prisma.$transaction(async (tx) => {
