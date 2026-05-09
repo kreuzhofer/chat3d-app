@@ -195,8 +195,17 @@ export async function updateExperiment(id: string, input: UpdateExperimentInput)
     models = await validateModels(modelIds, effectiveFsc);
   }
 
-  // Re-select prompts if categories, count, or seed changed
-  const promptsChanged = input.categoryIds || input.promptCount !== undefined || input.promptSeed !== undefined;
+  // Re-select prompts only if the values that govern selection actually
+  // changed (not just present in the payload). The frontend always submits
+  // the full form, so a model-only edit must not re-roll the prompt set.
+  const sameCategories =
+    input.categoryIds === undefined ||
+    (input.categoryIds.length === exp.categoryIds.length &&
+      new Set(input.categoryIds).size === exp.categoryIds.length &&
+      input.categoryIds.every((c) => exp.categoryIds.includes(c)));
+  const sameCount = input.promptCount === undefined || input.promptCount === exp.promptCount;
+  const sameSeed = input.promptSeed === undefined || input.promptSeed === exp.promptSeed;
+  const promptsChanged = !sameCategories || !sameCount || !sameSeed;
   const selectedIds = promptsChanged ? await selectApprovedPrompts(categoryIds, promptCount, promptSeed) : null;
 
   await prisma.$transaction(async (tx) => {
