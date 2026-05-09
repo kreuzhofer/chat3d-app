@@ -1,6 +1,7 @@
 import { createLogger } from "../../utils/logger.js";
 import { fetchCodegenRows } from "./codegen-rows.service.js";
 import { stripComments } from "./strip-comments.js";
+import { buildMinimalSystemPrompt } from "./minimal-system-prompt.js";
 import type { ExportRequest } from "./types.js";
 
 const logger = createLogger("training-export-alpaca");
@@ -11,9 +12,10 @@ export async function exportAlpacaCodegenJsonl(req: ExportRequest): Promise<stri
 
   const lines = rows.map((r) => {
     const code = stripComments(r.code, mode);
+    const systemPrompt = buildMinimalSystemPrompt(r.code, "code-only");
     return JSON.stringify({
       instruction: r.prompt,
-      input: r.systemPrompt,
+      input: systemPrompt,
       output: code,
     });
   });

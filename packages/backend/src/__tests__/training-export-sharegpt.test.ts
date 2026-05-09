@@ -8,14 +8,14 @@ const { fetchCodegenRows } = await import("../services/training-export/codegen-r
 const { exportShareGptCodegenJsonl } = await import("../services/training-export/sharegpt-codegen.exporter.js");
 
 describe("exportShareGptCodegenJsonl", () => {
-  it("emits one JSON line per row with conversations [system, human, gpt]", async () => {
+  it("emits one JSON line per row with conversations [system, human, gpt] and a per-row minimal system prompt", async () => {
     (fetchCodegenRows as ReturnType<typeof vi.fn>).mockResolvedValue([
       {
         exampleId: "ex-1",
         promptId: "p-1",
         prompt: "Make a 20mm cube",
         code: "from build123d import *\nb = Box(20, 20, 20)\n",
-        systemPrompt: "You are a Build123d expert.",
+        systemPrompt: "irrelevant — exporter now builds prompt from code",
         category: "primitives",
         evalScore: 9,
       },
@@ -25,13 +25,12 @@ describe("exportShareGptCodegenJsonl", () => {
     const lines = out.split("\n");
     expect(lines).toHaveLength(1);
     const parsed = JSON.parse(lines[0]);
-    expect(parsed).toEqual({
-      conversations: [
-        { from: "system", value: "You are a Build123d expert." },
-        { from: "human", value: "Make a 20mm cube" },
-        { from: "gpt", value: "```python\nfrom build123d import *\nb = Box(20, 20, 20)\n\n```" },
-      ],
-    });
+    const [system, human, gpt] = parsed.conversations;
+    expect(system.from).toBe("system");
+    expect(system.value).toContain("You are a Build123d code generation assistant");
+    expect(system.value).not.toContain("irrelevant");
+    expect(human).toEqual({ from: "human", value: "Make a 20mm cube" });
+    expect(gpt).toEqual({ from: "gpt", value: "```python\nfrom build123d import *\nb = Box(20, 20, 20)\n\n```" });
   });
 
   it("returns empty string when no rows match", async () => {

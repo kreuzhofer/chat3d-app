@@ -736,7 +736,7 @@ interface ConditionalSection {
   pattern: RegExp;
 }
 
-const CONDITIONAL_SECTIONS: ConditionalSection[] = [
+export const CONDITIONAL_SECTIONS: ConditionalSection[] = [
   { key: "2d_sketch", section: CODEGEN_SECTION_2D_SKETCH, pattern: /BuildSketch|Circle\s*\(|Rectangle\s*\(|Polygon\s*\(/ },
   { key: "sketch_ops", section: CODEGEN_SECTION_SKETCH_OPS, pattern: /fillet\(sk|make_face|make_hull/ },
   { key: "3d_ops", section: CODEGEN_SECTION_3D_OPS, pattern: /extrude|revolve|sweep|loft|thicken/ },

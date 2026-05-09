@@ -12,6 +12,7 @@ import { zodSchema } from "ai";
 import { z } from "zod";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
+import { buildMinimalSystemPrompt } from "./training-export/minimal-system-prompt.js";
 
 const logger = createLogger("training-export");
 
@@ -243,6 +244,7 @@ export async function exportAgentTrainingJsonl(
     select: {
       id: true,
       promptId: true,
+      code: true,
       agentConversation: true,
       agentSystemPrompt: true,
       evalScore: true,
@@ -271,7 +273,8 @@ export async function exportAgentTrainingJsonl(
   const lines: string[] = [];
 
   for (const row of rows) {
-    const messages = convertAgentConversation(row.agentConversation, row.agentSystemPrompt!);
+    const minimalSystemPrompt = buildMinimalSystemPrompt(row.code, "trajectory");
+    const messages = convertAgentConversation(row.agentConversation, minimalSystemPrompt);
     if (messages.length <= 1) continue; // system-only = no real conversation
 
     const metadata: TrainingExampleMetadata = {
