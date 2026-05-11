@@ -34,20 +34,6 @@ interface OpenAIMessage {
   tool_call_id?: string;
 }
 
-interface TrainingExampleMetadata {
-  example_id: string;
-  prompt_id: string;
-  category: string;
-  eval_score: number | null;
-  visual_score: number | null;
-  code_score: number | null;
-  assertion_pass_rate: number | null;
-  approval_status: string;
-  llm_model: string | null;
-  prompt_tokens: number | null;
-  completion_tokens: number | null;
-}
-
 export interface TrainingExportOptions {
   minScore?: number;
   categoryId?: string;
@@ -242,25 +228,8 @@ export async function exportAgentTrainingJsonl(
   const rows = await prisma.workbenchExample.findMany({
     where,
     select: {
-      id: true,
-      promptId: true,
       code: true,
       agentConversation: true,
-      agentSystemPrompt: true,
-      evalScore: true,
-      visualScore: true,
-      codeEvalScore: true,
-      assertionPassRate: true,
-      approvalStatus: true,
-      llmModel: true,
-      promptTokens: true,
-      completionTokens: true,
-      promptRef: {
-        select: {
-          prompt: true,
-          category: { select: { name: true } },
-        },
-      },
     },
     orderBy: [
       { promptRef: { categoryId: "asc" } },
@@ -277,21 +246,7 @@ export async function exportAgentTrainingJsonl(
     const messages = convertAgentConversation(row.agentConversation, minimalSystemPrompt);
     if (messages.length <= 1) continue; // system-only = no real conversation
 
-    const metadata: TrainingExampleMetadata = {
-      example_id: row.id,
-      prompt_id: row.promptId,
-      category: row.promptRef.category.name,
-      eval_score: row.evalScore ? Number(row.evalScore) : null,
-      visual_score: row.visualScore ? Number(row.visualScore) : null,
-      code_score: row.codeEvalScore ? Number(row.codeEvalScore) : null,
-      assertion_pass_rate: row.assertionPassRate ? Number(row.assertionPassRate) : null,
-      approval_status: row.approvalStatus,
-      llm_model: row.llmModel,
-      prompt_tokens: row.promptTokens,
-      completion_tokens: row.completionTokens,
-    };
-
-    lines.push(JSON.stringify({ task_type: "agent_codegen", tools, messages, metadata }));
+    lines.push(JSON.stringify({ task_type: "agent_codegen", tools, messages }));
   }
 
   logger.info(
@@ -322,34 +277,15 @@ export async function exportSpecGenTrainingJsonl(
   const rows = await prisma.workbenchExamplePrompt.findMany({
     where,
     select: {
-      id: true,
       prompt: true,
       specRawResponse: true,
       specSystemPrompt: true,
-      specInterpretation: true,
-      constructionSpec: true,
-      codeAssertions: true,
-      verificationChecklist: true,
-      verificationCriteria: true,
-      category: { select: { name: true } },
     },
     orderBy: [{ categoryId: "asc" }, { index: "asc" }],
   });
 
   const lines: string[] = [];
   for (const row of rows) {
-    // Find best eval score among approved examples for this prompt (quality signal)
-    const bestExample = await prisma.workbenchExample.findFirst({
-      where: {
-        promptId: row.id,
-        approvalStatus: { in: ["auto_approved", "human_approved"] },
-        renderStatus: "success",
-        experimentRunId: null,
-      },
-      select: { evalScore: true },
-      orderBy: { evalScore: "desc" },
-    });
-
     lines.push(JSON.stringify({
       task_type: "spec_generation",
       messages: [
@@ -357,13 +293,6 @@ export async function exportSpecGenTrainingJsonl(
         { role: "user", content: row.prompt },
         { role: "assistant", content: row.specRawResponse },
       ],
-      metadata: {
-        prompt_id: row.id,
-        category: row.category.name,
-        has_construction_spec: !!row.constructionSpec,
-        has_assertions: Array.isArray(row.codeAssertions) && (row.codeAssertions as unknown[]).length > 0,
-        downstream_eval_score: bestExample?.evalScore ? Number(bestExample.evalScore) : null,
-      },
     }));
   }
 
@@ -392,12 +321,9 @@ export async function exportSpecEnrichmentTrainingJsonl(
   const rows = await prisma.workbenchExamplePrompt.findMany({
     where,
     select: {
-      id: true,
-      prompt: true,
       enrichmentRawResponse: true,
       enrichmentSystemPrompt: true,
       enrichmentUserMessage: true,
-      category: { select: { name: true } },
     },
     orderBy: [{ categoryId: "asc" }, { index: "asc" }],
   });
@@ -411,10 +337,6 @@ export async function exportSpecEnrichmentTrainingJsonl(
         { role: "user", content: row.enrichmentUserMessage },
         { role: "assistant", content: row.enrichmentRawResponse },
       ],
-      metadata: {
-        prompt_id: row.id,
-        category: row.category.name,
-      },
     }));
   }
 
