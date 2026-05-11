@@ -22,8 +22,8 @@ The supporting RAG / sub-skill / agent-loop work becomes one paragraph of eviden
 
 | # | Question | Status |
 |---|----------|--------|
-| 1 | Which base model to fine-tune? | Tentatively `gpt-oss-120b` per roadmap |
-| 2 | LoRA via Unsloth on DGX Spark — still the plan? | Need to confirm |
+| 1 | Which base model to fine-tune? | **Decided: Qwen3.6-27B dense.** Picked over `gpt-oss-120b` because the 120B is MoE and the 27B dense is more capable per token for a niche-specialization task — better starting point for the first fine-tune. |
+| 2 | Training framework? | **Decided: DeepSpeed ZeRO-3 + PEFT LoRA on DGX Spark multi-node** via the dgx-manager `recipes/qwen3.6-27b-base-lora/` recipe. Not Unsloth — Unsloth is single-node; we want multi-node. |
 | 3 | How many examples in the held-out benchmark? | Proposed: ~100 |
 | 4 | Dataset license? | Proposed: CC-BY-4.0 for data, Apache-2.0 for model |
 | 5 | Hosting platform? | Proposed: HuggingFace (`datasets` + `models`) |
@@ -38,8 +38,8 @@ The supporting RAG / sub-skill / agent-loop work becomes one paragraph of eviden
 ### Phase 1 — Lock the dataset shape (1-2 days)
 
 - [ ] Decide on release schema: minimum fields per row (`prompt`, `code`, `score`, `screenshots[]`, `category`, `model_used_to_generate`).
-- [ ] Decide on training-format export: LLaMA-Factory JSONL is already supported (`workbench-training-export.service.ts`). Confirm it produces what Unsloth expects.
-- [ ] Define a **frozen held-out set** of ~100 prompts, stratified by category, that will be used for benchmarking. **Crucial: these must NOT appear in the training split.** Add a flag on the prompt rows.
+- [ ] Decide on training-format export: OpenAI multi-task JSONL is already supported (`workbench-training-export.service.ts`). Confirm it loads cleanly into the dgx-manager recipe's HuggingFace `datasets.load_dataset(..., format="json")` path.
+- [ ] Define a **frozen held-out set** of ~500 rows (~12.5% of the ~4,000-row multi-task dataset), stratified by category and task type, that will be used for benchmarking. **Crucial: these must NOT appear in the training split.** Add a flag on the prompt rows.
 - [ ] Audit prompt text for anything that shouldn't be public (PII, private references, bug tracker URLs, etc.).
 
 ### Phase 2 — Dataset release (parallel with Phase 3)
@@ -51,9 +51,9 @@ The supporting RAG / sub-skill / agent-loop work becomes one paragraph of eviden
 
 ### Phase 3 — Fine-tune
 
-- [ ] Confirm DGX Spark availability + Unsloth setup.
-- [ ] Train LoRA on the training split (everything except the 100 held-out prompts).
-- [ ] Decide hyperparams (rank, learning rate, epochs). Probably start with Unsloth defaults for `gpt-oss-120b`.
+- [ ] Confirm DGX Spark multi-node availability + `recipes/qwen3.6-27b-base-lora/` recipe up to date.
+- [ ] Train LoRA on the training split (everything except the ~500 held-out rows).
+- [ ] Hyperparams: start from the recipe defaults (`lora_r=16, lora_alpha=16, target_modules=["q_proj","k_proj","v_proj","o_proj"]`, dropout=0.0, lr=2e-4, warmup=5, DeepSpeed ZeRO-3). Adjust `max_seq_length` for chat3d's longer trajectory rows (recipe default 256 is sized for SQL; we likely need 4096+).
 - [ ] Save adapter, push to HuggingFace as `models/<org>/chat3d-build123d-lora-v1`.
 
 ### Phase 4 — Benchmark
