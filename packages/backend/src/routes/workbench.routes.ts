@@ -596,12 +596,23 @@ workbenchRouter.post("/backfill-specs/batch", async (req, res) => {
 
 workbenchRouter.post("/cleanup/batch", async (req, res) => {
   try {
-    const { categoryId } = req.body as { categoryId?: string };
+    const { categoryId, prefer, dryRun } = req.body as {
+      categoryId?: string;
+      prefer?: "score" | "newest-approved";
+      dryRun?: boolean;
+    };
     if (!categoryId || typeof categoryId !== "string") {
       res.status(400).json({ error: "categoryId is required" });
       return;
     }
-    const job = await startBatchCleanup(categoryId);
+    if (prefer !== undefined && prefer !== "score" && prefer !== "newest-approved") {
+      res.status(400).json({ error: "prefer must be 'score' or 'newest-approved'" });
+      return;
+    }
+    const job = await startBatchCleanup(categoryId, {
+      prefer,
+      dryRun: dryRun === true,
+    });
     res.status(202).json(job);
   } catch (error) {
     if (error instanceof WorkbenchCatalogError) {
