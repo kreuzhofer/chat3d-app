@@ -137,6 +137,20 @@ export interface BatchJobSummary {
   finishedAt: string | null;
 }
 
+export interface CleanupPreviewExample {
+  id: string;
+  approvalStatus: "auto_approved" | "human_approved" | "pending" | "rejected";
+  evalScore: number | null;
+  createdAt: string;
+  hasAgentTrace: boolean;
+}
+
+export interface CleanupPreview {
+  kept: CleanupPreviewExample;
+  dropped: CleanupPreviewExample[];
+  fellBackToOlder: boolean;
+}
+
 export interface BatchPromptResult {
   promptId: string;
   promptText: string;
@@ -145,6 +159,8 @@ export interface BatchPromptResult {
   evalScore: number | null;
   approvalStatus: string | null;
   error: string | null;
+  /** Present only on dry-run cleanup jobs. */
+  cleanupPreview?: CleanupPreview;
 }
 
 export interface BatchJobDetail extends BatchJobSummary {
@@ -279,10 +295,11 @@ export function startBatchBackfillSpecs(
 export function startBatchCleanup(
   token: string,
   categoryId: string,
+  options: { prefer?: "score" | "newest-approved"; dryRun?: boolean } = {},
 ): Promise<BatchJobSummary> {
   return requestJson<BatchJobSummary>(token, "/cleanup/batch", {
     method: "POST",
-    body: JSON.stringify({ categoryId }),
+    body: JSON.stringify({ categoryId, ...options }),
   });
 }
 
