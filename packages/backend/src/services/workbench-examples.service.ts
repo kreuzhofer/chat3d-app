@@ -312,6 +312,10 @@ interface CleanupExampleRow {
   screenshot_iso: string | null;
   screenshot_iso_back: string | null;
   category_id: string;
+  approval_status: string;
+  eval_score: number | null;
+  created_at: Date;
+  has_agent_trace: boolean;
 }
 
 /**
@@ -339,6 +343,30 @@ function collectFilePaths(row: CleanupExampleRow): string[] {
 
 export type CleanupPrefer = "score" | "newest-approved";
 
+export interface CleanupPreviewExample {
+  id: string;
+  approvalStatus: "auto_approved" | "human_approved" | "pending" | "rejected";
+  evalScore: number | null;
+  createdAt: string;
+  hasAgentTrace: boolean;
+}
+
+export interface CleanupPreview {
+  kept: CleanupPreviewExample;
+  dropped: CleanupPreviewExample[];
+  fellBackToOlder: boolean;
+}
+
+function toPreview(row: CleanupExampleRow): CleanupPreviewExample {
+  return {
+    id: row.id,
+    approvalStatus: row.approval_status as CleanupPreviewExample["approvalStatus"],
+    evalScore: row.eval_score == null ? null : Number(row.eval_score),
+    createdAt: row.created_at.toISOString(),
+    hasAgentTrace: row.has_agent_trace,
+  };
+}
+
 /**
  * For a single prompt: keep the best example, delete all others + their files.
  *
@@ -356,11 +384,12 @@ export type CleanupPrefer = "score" | "newest-approved";
  */
 export async function cleanupExamplesForPrompt(
   promptId: string,
-  options: { prefer?: CleanupPrefer } = {},
+  options: { prefer?: CleanupPrefer; dryRun?: boolean } = {},
 ): Promise<{
   keptId: string | null;
   deleted: number;
   filesDeleted: number;
+  preview?: CleanupPreview;
 }> {
   const prefer: CleanupPrefer = options.prefer ?? "score";
 
@@ -371,7 +400,9 @@ export async function cleanupExamplesForPrompt(
                 e.screenshot_front, e.screenshot_back, e.screenshot_left, e.screenshot_right,
                 e.screenshot_top, e.screenshot_bottom, e.screenshot_ortho_45, e.screenshot_ortho_45_bottom,
                 e.screenshot_iso, e.screenshot_iso_back,
-                p.category_id
+                p.category_id,
+                e.approval_status, e.eval_score, e.created_at,
+                (e.agent_conversation IS NOT NULL) AS has_agent_trace
          FROM workbench_examples e
          JOIN workbench_example_prompts p ON p.id = e.prompt_id
          WHERE e.prompt_id = ${promptId}::uuid AND e.experiment_run_id IS NULL
@@ -394,7 +425,9 @@ export async function cleanupExamplesForPrompt(
                 e.screenshot_front, e.screenshot_back, e.screenshot_left, e.screenshot_right,
                 e.screenshot_top, e.screenshot_bottom, e.screenshot_ortho_45, e.screenshot_ortho_45_bottom,
                 e.screenshot_iso, e.screenshot_iso_back,
-                p.category_id
+                p.category_id,
+                e.approval_status, e.eval_score, e.created_at,
+                (e.agent_conversation IS NOT NULL) AS has_agent_trace
          FROM workbench_examples e
          JOIN workbench_example_prompts p ON p.id = e.prompt_id
          WHERE e.prompt_id = ${promptId}::uuid AND e.experiment_run_id IS NULL
@@ -410,10 +443,37 @@ export async function cleanupExamplesForPrompt(
       `;
 
   if (rows.length <= 1) {
-    return { keptId: rows[0]?.id ?? null, deleted: 0, filesDeleted: 0 };
+    const single = rows[0];
+    return {
+      keptId: single?.id ?? null,
+      deleted: 0,
+      filesDeleted: 0,
+      preview: options.dryRun && single
+        ? { kept: toPreview(single), dropped: [], fellBackToOlder: false }
+        : undefined,
+    };
   }
 
   const [keeper, ...toPurge] = rows;
+
+  if (options.dryRun) {
+    const droppedRows = toPurge.map(toPreview);
+    const keeperTime = keeper.created_at.getTime();
+    const fellBackToOlder = droppedRows.some(
+      d => new Date(d.createdAt).getTime() > keeperTime,
+    );
+    return {
+      keptId: keeper.id,
+      deleted: 0,
+      filesDeleted: 0,
+      preview: {
+        kept: toPreview(keeper),
+        dropped: droppedRows,
+        fellBackToOlder,
+      },
+    };
+  }
+
   let filesDeleted = 0;
 
   for (const row of toPurge) {

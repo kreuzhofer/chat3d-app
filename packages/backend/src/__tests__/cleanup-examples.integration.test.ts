@@ -106,3 +106,46 @@ describe("cleanupExamplesForPrompt — prefer='newest-approved' fallback when no
     void pendingLow;
   });
 });
+
+describe("cleanupExamplesForPrompt — dryRun=true", () => {
+  it("returns kept + dropped detail without deleting anything", async () => {
+    const older = await insertExample(promptId, "auto_approved", 9.2, "2026-04-03T10:00:00Z");
+    const newer = await insertExample(promptId, "auto_approved", 8.5, "2026-05-11T10:00:00Z");
+    const rejected = await insertExample(promptId, "rejected", 4.0, "2026-04-02T10:00:00Z");
+
+    const result = await cleanupExamplesForPrompt(promptId, {
+      prefer: "newest-approved",
+      dryRun: true,
+    });
+
+    expect(result.keptId).toBe(newer);
+    expect(result.deleted).toBe(0);
+    expect(result.filesDeleted).toBe(0);
+    expect(result.preview).toBeDefined();
+    expect(result.preview!.kept.id).toBe(newer);
+    expect(result.preview!.kept.approvalStatus).toBe("auto_approved");
+    expect(result.preview!.dropped.map(d => d.id).sort()).toEqual([older, rejected].sort());
+    expect(result.preview!.fellBackToOlder).toBe(false);
+
+    const rows = await prisma.workbenchExample.findMany({ where: { promptId }, select: { id: true } });
+    expect(rows.map(r => r.id).sort()).toEqual([older, newer, rejected].sort());
+
+    await prisma.workbenchExample.deleteMany({ where: { promptId } });
+  });
+
+  it("flags fellBackToOlder=true when regenerate didn't produce an approved example", async () => {
+    const olderApproved = await insertExample(promptId, "auto_approved", 8.5, "2026-04-03T10:00:00Z");
+    const newerPending = await insertExample(promptId, "pending", 7.0, "2026-05-11T10:00:00Z");
+
+    const result = await cleanupExamplesForPrompt(promptId, {
+      prefer: "newest-approved",
+      dryRun: true,
+    });
+
+    expect(result.keptId).toBe(olderApproved);
+    expect(result.preview!.fellBackToOlder).toBe(true);
+    expect(result.preview!.dropped.map(d => d.id)).toEqual([newerPending]);
+
+    await prisma.workbenchExample.deleteMany({ where: { promptId } });
+  });
+});
