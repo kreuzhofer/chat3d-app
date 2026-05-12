@@ -250,7 +250,7 @@ export async function getPerPromptComparison(experimentId: string): Promise<Prom
     LEFT JOIN generation_traces t ON t.workbench_example_id = e.id
     WHERE eps.experiment_id = ${experimentId}::uuid
       AND r.experiment_id = ${experimentId}::uuid
-    ORDER BY eps.selection_order, r.run_order
+    ORDER BY eps.selection_order, r.run_order, r.created_at, r.id
   `;
 
   // Group by prompt
