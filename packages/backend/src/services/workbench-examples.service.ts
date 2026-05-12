@@ -337,39 +337,77 @@ function collectFilePaths(row: CleanupExampleRow): string[] {
   return paths;
 }
 
+export type CleanupPrefer = "score" | "newest-approved";
+
 /**
  * For a single prompt: keep the best example, delete all others + their files.
  *
- * Retention priority:
- * 1. approval_status: human_approved > auto_approved > pending > rejected
- * 2. eval_score DESC (highest wins)
- * 3. created_at DESC (most recent wins)
+ * Retention priority depends on `prefer` option:
+ *
+ * - prefer='score' (default):
+ *   1. approval_status: human_approved > auto_approved > pending > rejected
+ *   2. eval_score DESC (highest wins)
+ *   3. created_at DESC (most recent wins)
+ *
+ * - prefer='newest-approved':
+ *   1. approval_status: auto_approved OR human_approved are treated equally
+ *   2. For approved examples: created_at DESC (most recent wins)
+ *   3. For non-approved: eval_score DESC, created_at DESC (fallback)
  */
-export async function cleanupExamplesForPrompt(promptId: string): Promise<{
+export async function cleanupExamplesForPrompt(
+  promptId: string,
+  options: { prefer?: CleanupPrefer } = {},
+): Promise<{
   keptId: string | null;
   deleted: number;
   filesDeleted: number;
 }> {
+  const prefer: CleanupPrefer = options.prefer ?? "score";
+
   // Complex ORDER BY CASE → stays as raw SQL
-  const rows = await prisma.$queryRaw<CleanupExampleRow[]>`
-    SELECT e.id, e.stl_path, e.step_path, e.threemf_path,
-            e.screenshot_front, e.screenshot_back, e.screenshot_left, e.screenshot_right,
-            e.screenshot_top, e.screenshot_bottom, e.screenshot_ortho_45, e.screenshot_ortho_45_bottom,
-            e.screenshot_iso, e.screenshot_iso_back,
-            p.category_id
-     FROM workbench_examples e
-     JOIN workbench_example_prompts p ON p.id = e.prompt_id
-     WHERE e.prompt_id = ${promptId}::uuid AND e.experiment_run_id IS NULL
-     ORDER BY
-       CASE e.approval_status
-         WHEN 'human_approved' THEN 1
-         WHEN 'auto_approved' THEN 2
-         WHEN 'pending' THEN 3
-         WHEN 'rejected' THEN 4
-       END ASC,
-       e.eval_score DESC NULLS LAST,
-       e.created_at DESC
-  `;
+  const rows = prefer === "newest-approved"
+    ? await prisma.$queryRaw<CleanupExampleRow[]>`
+        SELECT e.id, e.stl_path, e.step_path, e.threemf_path,
+                e.screenshot_front, e.screenshot_back, e.screenshot_left, e.screenshot_right,
+                e.screenshot_top, e.screenshot_bottom, e.screenshot_ortho_45, e.screenshot_ortho_45_bottom,
+                e.screenshot_iso, e.screenshot_iso_back,
+                p.category_id
+         FROM workbench_examples e
+         JOIN workbench_example_prompts p ON p.id = e.prompt_id
+         WHERE e.prompt_id = ${promptId}::uuid AND e.experiment_run_id IS NULL
+         ORDER BY
+           CASE e.approval_status
+             WHEN 'human_approved' THEN 1
+             WHEN 'auto_approved' THEN 1
+             WHEN 'pending'       THEN 3
+             WHEN 'rejected'      THEN 4
+           END ASC,
+           CASE WHEN e.approval_status IN ('human_approved','auto_approved')
+                THEN e.created_at
+                ELSE NULL
+           END DESC NULLS LAST,
+           e.eval_score DESC NULLS LAST,
+           e.created_at DESC
+      `
+    : await prisma.$queryRaw<CleanupExampleRow[]>`
+        SELECT e.id, e.stl_path, e.step_path, e.threemf_path,
+                e.screenshot_front, e.screenshot_back, e.screenshot_left, e.screenshot_right,
+                e.screenshot_top, e.screenshot_bottom, e.screenshot_ortho_45, e.screenshot_ortho_45_bottom,
+                e.screenshot_iso, e.screenshot_iso_back,
+                p.category_id
+         FROM workbench_examples e
+         JOIN workbench_example_prompts p ON p.id = e.prompt_id
+         WHERE e.prompt_id = ${promptId}::uuid AND e.experiment_run_id IS NULL
+         ORDER BY
+           CASE e.approval_status
+             WHEN 'human_approved' THEN 1
+             WHEN 'auto_approved' THEN 2
+             WHEN 'pending'       THEN 3
+             WHEN 'rejected'      THEN 4
+           END ASC,
+           e.eval_score DESC NULLS LAST,
+           e.created_at DESC
+      `;
 
   if (rows.length <= 1) {
     return { keptId: rows[0]?.id ?? null, deleted: 0, filesDeleted: 0 };
