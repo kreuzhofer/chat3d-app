@@ -4,6 +4,7 @@ import { ArrowLeft, Loader2, Play, RotateCcw, Scissors, Sparkles, Square, Trash2
 import {
   cancelJob,
   deleteExamplesForCategory,
+  getJobDetails,
   getJobStatus,
   getRunningJobsForCategory,
   listCategories,
@@ -15,9 +16,11 @@ import {
   startBatchBackfillSpecs,
   startGenerate,
   type BatchJobSummary,
+  type BatchPromptResult,
   type WorkbenchCategory,
   type WorkbenchPrompt,
 } from "../api/workbench.api";
+import { CleanupPreviewTable } from "./admin/CleanupPreviewTable";
 import { useAuth } from "../hooks/useAuth";
 import { InlineAlert } from "./layout/InlineAlert";
 import { PageHeader } from "./layout/PageHeader";
@@ -103,6 +106,10 @@ export function WorkbenchCategoryPage() {
   const [batchJob, setBatchJob] = useState<BatchJobSummary | null>(null);
   const [confirmResetCategory, setConfirmResetCategory] = useState(false);
   const [confirmCleanup, setConfirmCleanup] = useState(false);
+  const [previewJobId, setPreviewJobId] = useState<string | null>(null);
+  const [previewResults, setPreviewResults] = useState<BatchPromptResult[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [applyingCleanup, setApplyingCleanup] = useState(false);
   const pendingScrollRestore = useRef(false);
 
   // Restore scroll position after initial data load renders the list
@@ -368,23 +375,91 @@ export function WorkbenchCategoryPage() {
     }
   }, [categoryId, loadData, pushToast, token]);
 
-  const handleCleanup = useCallback(async () => {
+  const cancelPreview = useCallback(() => {
+    setConfirmCleanup(false);
+    setPreviewJobId(null);
+    setPreviewResults([]);
+    setPreviewLoading(false);
+  }, []);
+
+  const startPreview = useCallback(async () => {
     if (!token || !categoryId) return;
-    setError(null);
+    setPreviewLoading(true);
+    setPreviewResults([]);
     try {
-      const job = await startBatchCleanup(token, categoryId);
+      const job = await startBatchCleanup(token, categoryId, {
+        prefer: "newest-approved",
+        dryRun: true,
+      });
+      setPreviewJobId(job.jobId);
+    } catch (err) {
+      pushToast({
+        tone: "error",
+        title: "Preview failed",
+        description: err instanceof Error ? err.message : String(err),
+      });
+      setPreviewLoading(false);
+    }
+  }, [token, categoryId, pushToast]);
+
+  const applyCleanup = useCallback(async () => {
+    if (!token || !categoryId) return;
+    setApplyingCleanup(true);
+    try {
+      const job = await startBatchCleanup(token, categoryId, {
+        prefer: "newest-approved",
+        dryRun: false,
+      });
       setBatchJob(job);
       setConfirmCleanup(false);
+      setPreviewJobId(null);
+      setPreviewResults([]);
       pushToast({
         tone: "info",
         title: "Cleanup started",
-        description: `Cleaning up ${job.total} prompts — keeping best example each...`,
+        description: `Job ${job.jobId} is processing ${job.total} prompt(s).`,
       });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setConfirmCleanup(false);
+    } catch (err) {
+      pushToast({
+        tone: "error",
+        title: "Cleanup failed",
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setApplyingCleanup(false);
     }
-  }, [categoryId, pushToast, token]);
+  }, [token, categoryId, pushToast]);
+
+  // Poll the dry-run preview job until it completes, then fetch full results.
+  useEffect(() => {
+    if (!previewJobId) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const status = await getJobStatus(token, previewJobId);
+        if (cancelled) return;
+        if (status.status === "completed" || status.status === "failed") {
+          const full = await getJobDetails(token, previewJobId);
+          if (cancelled) return;
+          setPreviewResults(full.results ?? []);
+          setPreviewLoading(false);
+        } else {
+          setTimeout(tick, 1500);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setPreviewLoading(false);
+          pushToast({
+            tone: "error",
+            title: "Preview polling failed",
+            description: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    };
+    void tick();
+    return () => { cancelled = true; };
+  }, [previewJobId, token, pushToast]);
 
   return (
     <section className="space-y-4">
@@ -658,25 +733,42 @@ export function WorkbenchCategoryPage() {
         </div>
       </Dialog>
 
-      {/* Cleanup confirmation */}
+      {/* Cleanup preview + apply */}
       <Dialog
         open={confirmCleanup}
         title="Cleanup category"
-        description={`Keep only the best example per prompt in "${category?.name ?? ""}" and delete all others including their files. This cannot be undone.`}
-        onClose={() => setConfirmCleanup(false)}
+        onClose={cancelPreview}
       >
-        <div className="flex justify-end gap-2">
-          <Button size="sm" variant="outline" onClick={() => setConfirmCleanup(false)}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            variant="destructive"
-            onClick={() => void handleCleanup()}
-          >
-            Cleanup
-          </Button>
-        </div>
+        {previewResults.length === 0 && !previewLoading ? (
+          <div className="space-y-4">
+            <p className="text-sm">
+              Preview what cleanup will keep and delete. Uses{" "}
+              <span className="font-mono">prefer=newest-approved</span> — among
+              approved examples, the newest wins (even if its eval score is slightly lower
+              than an older one), so trace-bearing regenerations replace older approved
+              examples.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="outline" onClick={cancelPreview}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={() => void startPreview()}>
+                Preview cleanup
+              </Button>
+            </div>
+          </div>
+        ) : previewLoading ? (
+          <p className="p-4 text-sm text-[hsl(var(--muted-foreground))]">
+            Running preview…
+          </p>
+        ) : (
+          <CleanupPreviewTable
+            results={previewResults}
+            onApply={() => void applyCleanup()}
+            onCancel={cancelPreview}
+            applying={applyingCleanup}
+          />
+        )}
       </Dialog>
     </section>
   );
