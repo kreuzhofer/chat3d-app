@@ -3,8 +3,8 @@ import { prisma } from "../db/prisma.js";
 import { cleanupExamplesForPrompt } from "../services/workbench-examples.service.js";
 
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-let categoryId: string | null = null;
-let promptId: string | null = null;
+let categoryId = "";
+let promptId = "";
 
 async function insertExample(
   promptId: string,
