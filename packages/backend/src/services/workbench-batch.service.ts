@@ -13,7 +13,7 @@ import { prisma } from "../db/prisma.js";
 import { ProviderQuotaExhaustedError } from "../utils/llm-errors.js";
 import { generateForPrompt, reRenderForExample, type GenerateResult, type ProgressCallback, type TracePublisher } from "./workbench-codegen.service.js";
 import { embedAndStorePrompt } from "./workbench-embeddings.service.js";
-import { cleanupExamplesForPrompt } from "./workbench-examples.service.js";
+import { cleanupExamplesForPrompt, type CleanupPreview } from "./workbench-examples.service.js";
 import { createLogger } from "../utils/logger.js";
 import { sseService } from "./sse.service.js";
 
@@ -57,6 +57,8 @@ export interface BatchPromptResult {
   evalScore: number | null;
   approvalStatus: string | null;
   error: string | null;
+  /** Present only on dry-run cleanup jobs. */
+  cleanupPreview?: CleanupPreview;
 }
 
 export interface BatchJobSummary {
@@ -982,7 +984,10 @@ async function runBatchReEvaluate(
  * For each prompt, keeps only the best example (by approval, score, date)
  * and deletes all others including their stored files.
  */
-export async function startBatchCleanup(categoryId: string): Promise<BatchJobSummary> {
+export async function startBatchCleanup(
+  categoryId: string,
+  options: { prefer?: "score" | "newest-approved"; dryRun?: boolean } = {},
+): Promise<BatchJobSummary> {
   const existing = getRunningJobForCategory(categoryId);
   if (existing) {
     const err = new Error("A batch job is already running for this category");
@@ -1040,7 +1045,7 @@ export async function startBatchCleanup(categoryId: string): Promise<BatchJobSum
 
   jobs.set(jobId, job);
 
-  void runBatchCleanup(job, prompts);
+  void runBatchCleanup(job, prompts, options);
 
   logger.info(
     { jobId, categoryId, total: prompts.length },
@@ -1053,6 +1058,7 @@ export async function startBatchCleanup(categoryId: string): Promise<BatchJobSum
 async function runBatchCleanup(
   job: BatchJob,
   prompts: Array<{ id: string; prompt: string }>,
+  options: { prefer?: "score" | "newest-approved"; dryRun?: boolean } = {},
 ): Promise<void> {
   let totalDeleted = 0;
   let totalFilesDeleted = 0;
@@ -1067,7 +1073,7 @@ async function runBatchCleanup(
     job.pendingPromptIds.delete(prompt.id);
 
     try {
-      const result = await cleanupExamplesForPrompt(prompt.id);
+      const result = await cleanupExamplesForPrompt(prompt.id, options);
       totalDeleted += result.deleted;
       totalFilesDeleted += result.filesDeleted;
 
@@ -1077,9 +1083,10 @@ async function runBatchCleanup(
         promptText: prompt.prompt,
         status: "success",
         exampleId: result.keptId,
-        evalScore: null,
-        approvalStatus: null,
+        evalScore: result.preview?.kept.evalScore ?? null,
+        approvalStatus: result.preview?.kept.approvalStatus ?? null,
         error: null,
+        cleanupPreview: result.preview,
       });
     } catch (error) {
       job.failed += 1;
