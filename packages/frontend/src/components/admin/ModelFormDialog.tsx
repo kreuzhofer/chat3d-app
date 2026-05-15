@@ -111,7 +111,10 @@ export function ModelFormDialog({ model, providers, token, saving, onSave, onClo
   }, [form.provider, token]);
 
   const isEdit = model !== null;
-  const canSubmit = form.provider.trim() !== "" && form.modelName.trim() !== "";
+  const canSubmit =
+    form.provider.trim() !== "" &&
+    form.modelName.trim() !== "" &&
+    form.displayName.trim() !== "";
 
   const providerOptions = providers.map((p) => ({
     value: p.name,
@@ -168,11 +171,16 @@ export function ModelFormDialog({ model, providers, token, saving, onSave, onClo
           </FormField>
         </div>
 
-        <FormField label="Display Name" htmlFor="model-display-name" helperText="Friendly label for the UI (optional)">
+        <FormField
+          label="Display Name"
+          htmlFor="model-display-name"
+          required
+          helperText="Unique per provider. Use this to register variants of the same model — e.g. qwen3-27b-thinking-low vs qwen3-27b-thinking-high."
+        >
           <Input
             id="model-display-name"
             value={form.displayName}
-            placeholder="e.g. GPT-4o Mini"
+            placeholder="e.g. qwen3-27b-thinking-low"
             onChange={(e) => patch({ displayName: e.target.value })}
           />
         </FormField>
