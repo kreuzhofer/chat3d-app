@@ -335,7 +335,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
             toolName: tcAny.toolName,
             success: errorInfo === undefined,
             durationMs: perToolDurationMs,
-            inputSummary: JSON.stringify(tcAny.args ?? {}).slice(0, 200),
+            inputSummary: JSON.stringify(tcAny.input ?? tcAny.args ?? {}).slice(0, 200),
             outputSummary: outputText?.slice(0, 500),
             errorInfo,
           }, stepId);
@@ -617,7 +617,7 @@ function stepsToMessages(initialMessages: CoreMessage[], steps: any[]): CoreMess
           type: "tool-call",
           toolCallId: tc.toolCallId,
           toolName: tc.toolName,
-          args: tc.args ?? {},
+          args: tc.input ?? tc.args ?? {},
         });
       }
     }
