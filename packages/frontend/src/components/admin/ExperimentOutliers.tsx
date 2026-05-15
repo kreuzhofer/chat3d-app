@@ -54,7 +54,8 @@ function OutlierTable({ rows, label, color }: { rows: OutlierRow[]; label: strin
   return (
     <div>
       <h4 className="mb-2 text-xs font-semibold" style={{ color }}>{label}</h4>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
+      <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+      <table className="min-w-[520px]" style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
         <thead>
           <tr className="border-b border-[hsl(var(--border))]">
             <th className="p-1.5 text-left text-[hsl(var(--muted-foreground))]" style={{ width: 30 }}>#</th>
@@ -105,6 +106,7 @@ function OutlierTable({ rows, label, color }: { rows: OutlierRow[]; label: strin
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -146,7 +148,7 @@ export function ExperimentOutliers({ data, topN = 3 }: Props) {
             <h3 className="text-sm font-semibold" style={{ color: COLORS[i % COLORS.length] }}>
               {model.label.split("/").pop()}
             </h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <OutlierTable rows={model.best} label="Best (highest eval)" color="hsl(var(--success))" />
               <OutlierTable rows={model.worst} label="Worst (lowest eval)" color="hsl(var(--destructive))" />
             </div>

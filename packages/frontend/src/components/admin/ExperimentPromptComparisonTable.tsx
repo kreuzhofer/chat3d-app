@@ -128,8 +128,8 @@ export function ExperimentPromptComparisonTable({ data }: Props) {
 
   return (
     <SectionCard title="Per-Prompt Comparison">
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
+      <div className="-mx-4 px-4 sm:mx-0 sm:px-0" style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", minWidth: 640, borderCollapse: "collapse", fontSize: "0.8rem" }}>
           <thead>
             <tr className="border-b-2 border-[hsl(var(--border))]">
               <th className="p-2 text-left text-[hsl(var(--muted-foreground))]" style={{ width: 40 }}>#</th>
@@ -184,7 +184,7 @@ export function ExperimentPromptComparisonTable({ data }: Props) {
       </div>
 
       {/* Summary */}
-      <div className="mt-3 flex items-center gap-4 text-xs text-[hsl(var(--muted-foreground))]">
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[hsl(var(--muted-foreground))]">
         <strong>Wins:</strong>
         {runLabels.map((label, i) => (
           <span key={label} style={{ color: COLORS[i % COLORS.length] }}>

@@ -152,24 +152,28 @@ function RunProgressSection({ status, exampleCount }: { status: VlmExperimentSta
       <div className="mb-3">
         <ProgressBar value={totalCompleted} max={totalExpected} />
       </div>
-      <div className="space-y-2">
+      <div className="space-y-3">
         {status.runs.map((r, i) => {
           const pct = exampleCount > 0 ? Math.round((r.completedExamples / exampleCount) * 100) : 0;
           return (
-            <div key={r.runId} className="flex items-center gap-3">
-              <Badge
-                variant={r.status === "running" ? "default" : r.status === "completed" ? "secondary" : "outline"}
-                className="w-20 justify-center text-[0.65rem]"
-              >
-                {r.status}
-              </Badge>
-              <span className="w-40 truncate text-sm">{r.modelLabel.split("/").pop()}</span>
-              <div className="flex-1">
-                <ProgressBar value={r.completedExamples} max={exampleCount} color={COLORS[i % COLORS.length]} />
+            <div key={r.runId} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+              <div className="flex items-center gap-2 sm:contents">
+                <Badge
+                  variant={r.status === "running" ? "default" : r.status === "completed" ? "secondary" : "outline"}
+                  className="justify-center text-[0.65rem] sm:w-20"
+                >
+                  {r.status}
+                </Badge>
+                <span className="min-w-0 flex-1 truncate text-sm sm:w-40 sm:flex-none">{r.modelLabel.split("/").pop()}</span>
               </div>
-              <span className="w-24 text-right text-xs text-[hsl(var(--muted-foreground))]">
-                {r.completedExamples}/{exampleCount} ({pct}%)
-              </span>
+              <div className="flex items-center gap-2 sm:contents">
+                <div className="flex-1">
+                  <ProgressBar value={r.completedExamples} max={exampleCount} color={COLORS[i % COLORS.length]} />
+                </div>
+                <span className="whitespace-nowrap text-right text-xs text-[hsl(var(--muted-foreground))] sm:w-24">
+                  {r.completedExamples}/{exampleCount} ({pct}%)
+                </span>
+              </div>
             </div>
           );
         })}
@@ -197,7 +201,7 @@ function VlmExperimentHeader({ experiment, status, token, onRefresh, setError, o
 
   return (
     <SectionCard title={experiment.name}>
-      <div className="mb-3 grid grid-cols-3 gap-2 text-sm">
+      <div className="mb-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2 md:grid-cols-3">
         <div><strong>Type:</strong> VLM Comparison</div>
         <div><strong>Examples:</strong> {experiment.promptCount} (seed: {experiment.promptSeed})</div>
         <div>
@@ -245,7 +249,7 @@ function VlmExperimentHeader({ experiment, status, token, onRefresh, setError, o
         ))}
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {canEdit && (
           <Button size="sm" variant="outline" onClick={() => setShowEditDialog(true)}>
             Edit

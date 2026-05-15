@@ -145,7 +145,7 @@ export function ExperimentsTab({ token, selectedExperimentId }: Props) {
         <VlmExperimentsTab token={token} />
       ) : (
         <>
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-[hsl(var(--foreground))]">LLM Experiments</h2>
             <Button onClick={() => setShowCreate(true)}>New Experiment</Button>
           </div>
@@ -158,7 +158,8 @@ export function ExperimentsTab({ token, selectedExperimentId }: Props) {
             ) : experiments.length === 0 ? (
               <p className="p-4 text-[hsl(var(--muted-foreground))]">No experiments yet. Create one to compare LLM models.</p>
             ) : (
-              <table className="w-full border-collapse text-sm">
+              <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+              <table className="w-full min-w-[640px] border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-[hsl(var(--border))] text-left text-[hsl(var(--muted-foreground))]">
                     <th className="p-2">Name</th>
@@ -214,6 +215,7 @@ export function ExperimentsTab({ token, selectedExperimentId }: Props) {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </SectionCard>
 
