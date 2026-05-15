@@ -265,6 +265,11 @@ async function _runPipeline(
         semanticContext: "",
         promptTokens: 0,
         completionTokens: 0,
+        // Carry forward the previously-persisted training pair so the
+        // post-example persist step writes them back unchanged instead of
+        // overwriting with NULL (regression in data-quality td:spec count).
+        rawResponse: ctx.cachedSpec.specRawResponse ?? undefined,
+        systemPrompt: ctx.cachedSpec.specSystemPrompt ?? undefined,
       };
       logger.info({ promptId: ctx.promptId }, "reusing cached spec — skipping spec LLM call");
       traceBuilder.endPhase("completed");

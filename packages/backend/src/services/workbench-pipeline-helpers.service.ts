@@ -19,6 +19,10 @@ export interface CachedSpec {
   codeAssertions: CodeAssertion[] | null;
   verificationChecklist: string[] | null;
   verificationCriteria: AnnotatedCriterion[] | null;
+  // Training-data fields preserved through the cached-spec reuse path so the
+  // codegen persist step doesn't overwrite them with NULL on re-generation.
+  specRawResponse: string | null;
+  specSystemPrompt: string | null;
 }
 
 export interface PromptContext {
@@ -60,6 +64,8 @@ export async function loadPromptContext(promptId: string): Promise<PromptContext
       codeAssertions: row.codeAssertions as CodeAssertion[] | null,
       verificationChecklist: row.verificationChecklist as string[] | null,
       verificationCriteria: row.verificationCriteria as AnnotatedCriterion[] | null,
+      specRawResponse: row.specRawResponse,
+      specSystemPrompt: row.specSystemPrompt,
     },
   };
 }
