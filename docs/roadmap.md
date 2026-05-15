@@ -218,6 +218,17 @@ Major UX evolution since initial phases.
 | **Verify cost tracking accuracy** | Reasoning token fix deployed (Phase 1); needs validation on next agent codegen run to confirm AWS bill alignment. Cost ledger source context (Phase 2) deployed | Small | In progress |
 | **Quality benchmark** | Define ~50 representative prompts across difficulty levels for evaluation | Small | — |
 
+### Near-Term: Experiment UI Enhancements
+> Priority: **Medium** — improve interpretability of fine-tune vs. baseline comparisons
+
+| Item | Description | Effort | Status |
+|------|-------------|--------|--------|
+| **Base model in visual comparison charts** | Visual comparison charts currently plot only the experiment runs' outputs. Include the baseline (production model) result alongside the trained-model variants so reviewers can see drift/improvement at a glance | Small | — |
+| **Base model cost + time in per-prompt comparison list** | Each model column in the per-prompt comparison list already includes cost and time rows alongside its other per-prompt metrics; the baseline column omits both. Add cost and time rows inside the baseline column (not new columns) so the baseline matches the other model columns and we have parity for cost-and-latency comparison | Small | — |
+| **Per-prompt bar charts (score / cost / duration)** | Three per-prompt bar charts on the experiment detail page — one for composite score, one for cost USD, one for duration — with one bar per prompt per model side-by-side and the baseline included. Failed prompts render as empty bars (gap markers) so the index axis stays aligned. With 100 prompts this is dense; design needs a strategy — see open question below. Provides quick visual outlier detection that the table view doesn't | Medium | — |
+
+**Open design question — 100-bar density:** options include (a) horizontal scroll with sticky y-axis and hover tooltips, (b) small multiples — wrap 100 prompts to 4–5 rows of ~20, (c) sort toggle (by prompt index for narrative read, or by metric desc to surface outliers fast), (d) heatmap rendering instead of bars (each cell = one prompt × model, color = value) which scales much better, (e) collapse to top-N / bottom-N + median band with "expand all". My lean is **(c) + (a)**: horizontal-scrollable strip with sort toggle and click-to-drill into a prompt row. Heatmap is the densest fit if visual scanability matters more than precise value reading. Decide before implementation.
+
 ### Near-Term: Dataset Expansion to 10K
 > Priority: **High** — the core quality improvement path. See [`dataset-expansion-plan.md`](dataset-expansion-plan.md) for full category details.
 
