@@ -689,7 +689,7 @@ model LlmModel {
   id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   provider              String   @db.VarChar(50)
   modelName             String   @map("model_name") @db.VarChar(255)
-  displayName           String?  @map("display_name") @db.VarChar(255)
+  displayName           String   @map("display_name") @db.VarChar(255)
   costPer1mInput        Decimal  @default(0) @map("cost_per_1m_input") @db.Decimal(12, 4)
   costPer1mOutput       Decimal  @default(0) @map("cost_per_1m_output") @db.Decimal(12, 4)
   maxOutputTokens       Int?     @map("max_output_tokens")
@@ -709,7 +709,7 @@ model LlmModel {
   purposes       LlmPurposeMap[]
   experimentRuns ExperimentRun[]
 
-  @@unique([provider, modelName])
+  @@unique([provider, displayName])
   @@map("llm_models")
 }
 
