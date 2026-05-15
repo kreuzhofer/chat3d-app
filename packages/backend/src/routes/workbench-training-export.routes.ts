@@ -18,6 +18,7 @@ import {
   exportSpecEnrichmentTrainingJsonl,
   getAgentToolDefinitions,
 } from "../services/workbench-training-export.service.js";
+import { exportAgentSyntheticTrainingJsonl } from "../services/training-export/agent-synthetic.exporter.js";
 import { listFormats, getFormat } from "../services/training-export/registry.js";
 import type { ExportFormatId } from "../services/training-export/types.js";
 import { createLogger } from "../utils/logger.js";
@@ -96,6 +97,16 @@ trainingExportRouter.get("/export/spec-enrichment-jsonl", async (req, res) => {
     sendJsonl(res, jsonl, "spec-enrichment-training-data.jsonl");
   } catch (error) {
     logger.error({ err: error }, "spec-enrichment training export failed");
+    res.status(500).json({ error: "Export failed", detail: String(error) });
+  }
+});
+
+trainingExportRouter.get("/export/agent-synthetic-jsonl", async (req, res) => {
+  try {
+    const jsonl = await exportAgentSyntheticTrainingJsonl(parseExportQuery(req.query));
+    sendJsonl(res, jsonl, "agent-synthetic-training-data.jsonl");
+  } catch (error) {
+    logger.error({ err: error }, "synthetic agent training export failed");
     res.status(500).json({ error: "Export failed", detail: String(error) });
   }
 });
