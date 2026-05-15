@@ -96,6 +96,7 @@ import {
   createProvider,
   updateProvider,
   deleteProvider,
+  LlmConfigError,
 } from "../services/llm-config.service.js";
 import { fetchProviderModels } from "../services/llm-provider-models.service.js";
 
@@ -167,7 +168,8 @@ function sendKnownError(res: Response, error: unknown, fallbackMessage: string) 
     error instanceof AdminError ||
     error instanceof WaitlistError ||
     error instanceof GenerationSettingsError ||
-    error instanceof CurationError
+    error instanceof CurationError ||
+    error instanceof LlmConfigError
   ) {
     res.status(error.statusCode).json({ error: error.message });
     return;

@@ -20,6 +20,18 @@ import { createLogger } from "../utils/logger.js";
 
 const logger = createLogger("llm-config");
 
+// ── Errors ───────────────────────────────────────────────────────────
+
+export class LlmConfigError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode = 400,
+  ) {
+    super(message);
+    this.name = "LlmConfigError";
+  }
+}
+
 // ── Types ────────────────────────────────────────────────────────────
 
 /** API-facing row shape from llm_providers table (snake_case for backward compat) */
@@ -791,9 +803,7 @@ export async function createModel(input: {
 }): Promise<LlmModelRow> {
   const displayName = input.displayName.trim();
   if (!displayName) {
-    const err = new Error("displayName is required");
-    (err as Error & { statusCode: number }).statusCode = 400;
-    throw err;
+    throw new LlmConfigError("displayName is required", 400);
   }
 
   try {
@@ -823,11 +833,10 @@ export async function createModel(input: {
       "code" in error &&
       (error as { code: string }).code === "P2002"
     ) {
-      const err = new Error(
+      throw new LlmConfigError(
         `A model with display name "${displayName}" already exists for provider "${input.provider}"`,
+        409,
       );
-      (err as Error & { statusCode: number }).statusCode = 409;
-      throw err;
     }
     throw error;
   }
