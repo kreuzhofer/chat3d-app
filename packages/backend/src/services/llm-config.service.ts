@@ -777,7 +777,7 @@ export async function getModelById(id: string): Promise<LlmModelRow | null> {
 export async function createModel(input: {
   provider: string;
   modelName: string;
-  displayName?: string;
+  displayName: string;            // now required
   costPer1mInput?: number;
   costPer1mOutput?: number;
   maxOutputTokens?: number | null;
@@ -789,24 +789,48 @@ export async function createModel(input: {
   streamingEnabled?: boolean;
   vlmEvalPreamble?: string | null;
 }): Promise<LlmModelRow> {
-  const row = await prisma.llmModel.create({
-    data: {
-      provider: input.provider,
-      modelName: input.modelName,
-      displayName: input.displayName ?? null,
-      costPer1mInput: input.costPer1mInput ?? 0,
-      costPer1mOutput: input.costPer1mOutput ?? 0,
-      maxOutputTokens: input.maxOutputTokens ?? null,
-      maxContextTokens: input.maxContextTokens ?? null,
-      supportsThinking: input.supportsThinking ?? false,
-      defaultThinkingEffort: input.defaultThinkingEffort ?? null,
-      supportsVision: input.supportsVision ?? false,
-      supportsEmbeddings: input.supportsEmbeddings ?? false,
-      streamingEnabled: input.streamingEnabled ?? true,
-      vlmEvalPreamble: input.vlmEvalPreamble ?? null,
-    },
-  });
-  return toModelRow(row);
+  const displayName = input.displayName.trim();
+  if (!displayName) {
+    const err = new Error("displayName is required");
+    (err as Error & { statusCode: number }).statusCode = 400;
+    throw err;
+  }
+
+  try {
+    const row = await prisma.llmModel.create({
+      data: {
+        provider: input.provider,
+        modelName: input.modelName,
+        displayName,
+        costPer1mInput: input.costPer1mInput ?? 0,
+        costPer1mOutput: input.costPer1mOutput ?? 0,
+        maxOutputTokens: input.maxOutputTokens ?? null,
+        maxContextTokens: input.maxContextTokens ?? null,
+        supportsThinking: input.supportsThinking ?? false,
+        defaultThinkingEffort: input.defaultThinkingEffort ?? null,
+        supportsVision: input.supportsVision ?? false,
+        supportsEmbeddings: input.supportsEmbeddings ?? false,
+        streamingEnabled: input.streamingEnabled ?? true,
+        vlmEvalPreamble: input.vlmEvalPreamble ?? null,
+      },
+    });
+    return toModelRow(row);
+  } catch (error) {
+    // Prisma unique-constraint violation → 409 Conflict
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code: string }).code === "P2002"
+    ) {
+      const err = new Error(
+        `A model with display name "${displayName}" already exists for provider "${input.provider}"`,
+      );
+      (err as Error & { statusCode: number }).statusCode = 409;
+      throw err;
+    }
+    throw error;
+  }
 }
 
 export async function updateModel(
