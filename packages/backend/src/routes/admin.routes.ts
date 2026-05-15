@@ -475,8 +475,14 @@ adminRouter.get("/llm-models", async (_req, res) => {
 
 adminRouter.post("/llm-models", async (req, res) => {
   const body = req.body as Record<string, unknown> | undefined;
-  if (!body || typeof body.provider !== "string" || typeof body.modelName !== "string") {
-    res.status(400).json({ error: "provider and modelName are required" });
+  if (
+    !body ||
+    typeof body.provider !== "string" ||
+    typeof body.modelName !== "string" ||
+    typeof body.displayName !== "string" ||
+    body.displayName.trim() === ""
+  ) {
+    res.status(400).json({ error: "provider, modelName, and displayName are required" });
     return;
   }
 
@@ -484,7 +490,7 @@ adminRouter.post("/llm-models", async (req, res) => {
     const model = await createModel({
       provider: body.provider,
       modelName: body.modelName,
-      displayName: typeof body.displayName === "string" ? body.displayName : undefined,
+      displayName: body.displayName,
       costPer1mInput: typeof body.costPer1mInput === "number" ? body.costPer1mInput : undefined,
       costPer1mOutput: typeof body.costPer1mOutput === "number" ? body.costPer1mOutput : undefined,
       maxOutputTokens: typeof body.maxOutputTokens === "number" ? body.maxOutputTokens : (body.maxOutputTokens === null ? null : undefined),
