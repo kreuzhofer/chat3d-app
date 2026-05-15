@@ -394,7 +394,7 @@ export function WorkbenchCategoryPage() {
       setPreviewJobId(job.jobId);
     } catch (err) {
       pushToast({
-        tone: "error",
+        tone: "danger",
         title: "Preview failed",
         description: err instanceof Error ? err.message : String(err),
       });
@@ -421,7 +421,7 @@ export function WorkbenchCategoryPage() {
       });
     } catch (err) {
       pushToast({
-        tone: "error",
+        tone: "danger",
         title: "Cleanup failed",
         description: err instanceof Error ? err.message : String(err),
       });
@@ -450,7 +450,7 @@ export function WorkbenchCategoryPage() {
         if (!cancelled) {
           setPreviewLoading(false);
           pushToast({
-            tone: "error",
+            tone: "danger",
             title: "Preview polling failed",
             description: err instanceof Error ? err.message : String(err),
           });
