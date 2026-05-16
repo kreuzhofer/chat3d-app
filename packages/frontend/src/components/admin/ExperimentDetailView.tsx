@@ -15,6 +15,7 @@ import {
   retryFailedRuns,
   type Experiment,
   type RunMetrics,
+  type BaselineMetrics,
   type ExperimentStatus,
   type PromptComparison,
 } from "../../api/experiment.api";
@@ -34,6 +35,7 @@ const COLORS = ["#2563eb", "#16a34a", "#dc2626", "#d97706", "#7c3aed", "#0891b2"
 export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
   const [experiment, setExperiment] = useState<Experiment | null>(null);
   const [comparison, setComparison] = useState<RunMetrics[] | null>(null);
+  const [baseline, setBaseline] = useState<BaselineMetrics | null>(null);
   const [promptData, setPromptData] = useState<PromptComparison[] | null>(null);
   const [status, setStatus] = useState<ExperimentStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +53,7 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
           getPerPromptComparison(token, experimentId),
         ]);
         setComparison(comp.runs);
+        setBaseline(comp.baseline);
         setPromptData(prompts);
       }
       if (exp.status === "running") {
@@ -78,6 +81,7 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
         ]);
         setStatus(st);
         setComparison(comp.runs);
+        setBaseline(comp.baseline);
         setPromptData(prompts);
         if (st.status !== "running") load();
       } catch { /* ignore polling errors */ }
@@ -112,7 +116,7 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
       {comparison && comparison.length > 0 && (
         <>
           <ComparisonTable runs={comparison} />
-          <ComparisonCharts runs={comparison} />
+          <ComparisonCharts runs={comparison} baseline={baseline} />
           <ExperimentFewShotChart runs={comparison} />
           {promptData && <ExperimentOutliers data={promptData} />}
           {promptData && <ExperimentPromptComparisonTable data={promptData} />}
@@ -312,8 +316,10 @@ function ComparisonTable({ runs }: { runs: RunMetrics[] }) {
 
 // ── Comparison Charts ───────────────────────────────────────────────
 
-function ComparisonCharts({ runs }: { runs: RunMetrics[] }) {
-  const chartData = runs.map((r, i) => ({
+function ComparisonCharts({ runs, baseline }: { runs: RunMetrics[]; baseline: BaselineMetrics | null }) {
+  const BASELINE_COLOR = "#6b7280"; // slate-500
+
+  const runEntries = runs.map((r, i) => ({
     name: r.modelLabel.split("/").pop() ?? r.modelLabel,
     evalScore: r.avgEvalScore ?? 0,
     successRate: (r.successRate ?? 0) * 100,
@@ -321,6 +327,19 @@ function ComparisonCharts({ runs }: { runs: RunMetrics[] }) {
     avgDuration: r.avgDurationMs ? r.avgDurationMs / 1000 : 0,
     color: COLORS[i % COLORS.length],
   }));
+
+  const baselineEntry = baseline
+    ? [{
+        name: `baseline${baseline.llmModel ? ` (${baseline.llmModel.split("/").pop()})` : ""}`,
+        evalScore: baseline.avgEvalScore ?? 0,
+        successRate: (baseline.successRate ?? 0) * 100,
+        avgCost: baseline.avgCostUsd ?? 0,
+        avgDuration: baseline.avgDurationMs ? baseline.avgDurationMs / 1000 : 0,
+        color: BASELINE_COLOR,
+      }]
+    : [];
+
+  const chartData = [...baselineEntry, ...runEntries];
 
   return (
     <SectionCard title="Visual Comparison">
