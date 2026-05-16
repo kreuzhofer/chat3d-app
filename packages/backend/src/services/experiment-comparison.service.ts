@@ -34,6 +34,18 @@ interface RunMetrics {
   avgOutputTps: number | null;
 }
 
+interface BaselineMetrics {
+  llmModel: string | null;
+  totalPrompts: number;
+  successCount: number;
+  successRate: number;
+  avgEvalScore: number | null;
+  avgVisualScore: number | null;
+  avgCodeEvalScore: number | null;
+  avgDurationMs: number | null;
+  avgCostUsd: number | null;
+}
+
 interface PromptRunResult {
   runId: string;
   modelLabel: string;
@@ -98,7 +110,7 @@ interface TpsAggRow {
   avg_output_tps: number | null;
 }
 
-export async function getExperimentComparison(experimentId: string): Promise<{ runs: RunMetrics[] }> {
+export async function getExperimentComparison(experimentId: string): Promise<{ runs: RunMetrics[]; baseline: BaselineMetrics | null }> {
   const exp = await prisma.experiment.findUnique({ where: { id: experimentId }, select: { id: true } });
   if (!exp) throw new ExperimentError("Experiment not found", 404);
 
@@ -197,7 +209,76 @@ export async function getExperimentComparison(experimentId: string): Promise<{ r
     };
   });
 
-  return { runs };
+  const baseline = await getBaselineMetricsForExperiment(experimentId);
+  return { runs, baseline };
+}
+
+// ── Baseline aggregate ──────────────────────────────────────────────
+
+export async function getBaselineMetricsForExperiment(
+  experimentId: string,
+): Promise<BaselineMetrics | null> {
+  const promptIds = await prisma.$queryRaw<Array<{ prompt_id: string }>>`
+    SELECT DISTINCT e.prompt_id
+    FROM workbench_examples e
+    INNER JOIN experiment_runs r ON r.id = e.experiment_run_id
+    WHERE r.experiment_id = ${experimentId}::uuid
+  `;
+
+  if (promptIds.length === 0) return null;
+
+  const ids = promptIds.map(p => p.prompt_id);
+
+  const rows = await prisma.$queryRaw<Array<{
+    eval_score: number;
+    visual_score: number | null;
+    code_eval_score: number | null;
+    total_duration_ms: number | null;
+    total_cost_usd: number | null;
+    llm_model: string | null;
+  }>>`
+    SELECT DISTINCT ON (e.prompt_id)
+      e.eval_score,
+      e.visual_score,
+      e.code_eval_score,
+      t.total_duration_ms,
+      t.total_cost_usd,
+      e.llm_model
+    FROM workbench_examples e
+    LEFT JOIN generation_traces t ON t.workbench_example_id = e.id
+    WHERE e.prompt_id = ANY(${ids}::uuid[])
+      AND e.experiment_run_id IS NULL
+      AND e.eval_score IS NOT NULL
+      AND e.approval_status = 'auto_approved'
+    ORDER BY e.prompt_id, e.eval_score DESC
+  `;
+
+  if (rows.length === 0) return null;
+
+  const avg = (vals: Array<number | null>) => {
+    const nums = vals.filter((v): v is number => v != null);
+    return nums.length === 0 ? null : nums.reduce((a, b) => a + b, 0) / nums.length;
+  };
+
+  const labelCounts = new Map<string, number>();
+  for (const r of rows) {
+    if (r.llm_model) labelCounts.set(r.llm_model, (labelCounts.get(r.llm_model) ?? 0) + 1);
+  }
+  const llmModel = [...labelCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+  const avgCost = avg(rows.map(r => r.total_cost_usd != null ? Number(r.total_cost_usd) : null));
+
+  return {
+    llmModel,
+    totalPrompts: promptIds.length,
+    successCount: rows.length,
+    successRate: rows.length / promptIds.length,
+    avgEvalScore: avg(rows.map(r => Number(r.eval_score))),
+    avgVisualScore: avg(rows.map(r => r.visual_score != null ? Number(r.visual_score) : null)),
+    avgCodeEvalScore: avg(rows.map(r => r.code_eval_score != null ? Number(r.code_eval_score) : null)),
+    avgDurationMs: avg(rows.map(r => r.total_duration_ms != null ? Number(r.total_duration_ms) : null)),
+    avgCostUsd: avgCost != null ? Number(avgCost.toFixed(6)) : null,
+  };
 }
 
 // ── Per-prompt comparison ───────────────────────────────────────────
