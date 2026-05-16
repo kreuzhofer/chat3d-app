@@ -60,9 +60,9 @@ interface PromptComparison {
     evalScore: number;
     visualScore: number | null;
     codeEvalScore: number | null;
-    totalSteps: number | null;
     durationMs: number | null;
     costUsd: number | null;
+    totalSteps: number | null;
     llmModel: string | null;
   };
 }
@@ -286,7 +286,7 @@ export async function getPerPromptComparison(experimentId: string): Promise<Prom
       renderStatus: row.render_status,
       approvalStatus: row.approval_status,
       durationMs: row.total_duration_ms != null ? Number(row.total_duration_ms) : null,
-      costUsd: row.total_cost_usd != null ? Number(row.total_cost_usd) : null,
+      costUsd: row.total_cost_usd != null ? Number(Number(row.total_cost_usd).toFixed(6)) : null,
       totalSteps: row.total_steps != null ? Number(row.total_steps) : null,
       renderError: row.render_error,
       failureReason: row.failure_reason,
@@ -331,9 +331,9 @@ export async function getPerPromptComparison(experimentId: string): Promise<Prom
           evalScore: Number(bl.eval_score),
           visualScore: bl.visual_score != null ? Number(bl.visual_score) : null,
           codeEvalScore: bl.code_eval_score != null ? Number(bl.code_eval_score) : null,
-          totalSteps: bl.total_steps != null ? Number(bl.total_steps) : null,
           durationMs: bl.total_duration_ms != null ? Number(bl.total_duration_ms) : null,
           costUsd: bl.total_cost_usd != null ? Number(Number(bl.total_cost_usd).toFixed(6)) : null,
+          totalSteps: bl.total_steps != null ? Number(bl.total_steps) : null,
           llmModel: bl.llm_model,
         };
       }
