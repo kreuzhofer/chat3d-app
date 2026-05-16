@@ -21,6 +21,7 @@ import {
 } from "../../api/experiment.api";
 import { ExperimentPromptComparisonTable } from "./ExperimentPromptComparisonTable";
 import { ExperimentOutliers } from "./ExperimentOutliers";
+import { PerPromptBarCharts } from "./PerPromptBarCharts";
 import { ExperimentCreateDialog } from "./ExperimentCreateDialog";
 import { ExperimentFewShotChart } from "./ExperimentFewShotChart";
 
@@ -120,6 +121,7 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
           <ExperimentFewShotChart runs={comparison} />
           {promptData && <ExperimentOutliers data={promptData} />}
           {promptData && <ExperimentPromptComparisonTable data={promptData} />}
+          {promptData && <PerPromptBarCharts data={promptData} />}
         </>
       )}
     </div>
