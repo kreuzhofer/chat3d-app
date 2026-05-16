@@ -160,8 +160,8 @@ export async function createExperiment(input: CreateExperimentInput) {
       for (const fsc of effectiveCounts) {
         runOrder++;
         const label = fsc != null
-          ? `${model.provider}/${model.modelName} (${fsc} ex)`
-          : `${model.provider}/${model.modelName}`;
+          ? `${model.provider}/${model.displayName} (${fsc} ex)`
+          : `${model.provider}/${model.displayName}`;
         await tx.experimentRun.create({
           data: { experimentId: exp.id, modelId: model.id, modelLabel: label, runOrder, fewShotCount: fsc },
         });
@@ -240,8 +240,8 @@ export async function updateExperiment(id: string, input: UpdateExperimentInput)
         const model = models.models.find((m) => m.id === modelId)!;
         for (const fsc of effectiveCounts) {
           const label = fsc != null
-            ? `${model.provider}/${model.modelName} (${fsc} ex)`
-            : `${model.provider}/${model.modelName}`;
+            ? `${model.provider}/${model.displayName} (${fsc} ex)`
+            : `${model.provider}/${model.displayName}`;
           desiredRuns.push({ modelId: model.id, fsc, label });
         }
       }
@@ -374,7 +374,14 @@ export async function deleteExperiment(id: string) {
 export async function rerunExperiment(id: string) {
   const exp = await prisma.experiment.findUnique({
     where: { id },
-    include: { runs: { select: { id: true, modelId: true, modelLabel: true, runOrder: true, fewShotCount: true } } },
+    include: {
+      runs: {
+        select: {
+          id: true, modelId: true, runOrder: true, fewShotCount: true,
+          model: { select: { provider: true, displayName: true } },
+        },
+      },
+    },
   });
   if (!exp) throw new ExperimentError("Experiment not found", 404);
   if (exp.status === "running") throw new ExperimentError("Cannot re-run a running experiment", 409);
@@ -386,8 +393,11 @@ export async function rerunExperiment(id: string) {
       await tx.experimentRun.deleteMany({ where: { id: { in: runIds } } });
     }
     for (const run of exp.runs) {
+      const label = run.fewShotCount != null
+        ? `${run.model.provider}/${run.model.displayName} (${run.fewShotCount} ex)`
+        : `${run.model.provider}/${run.model.displayName}`;
       await tx.experimentRun.create({
-        data: { experimentId: id, modelId: run.modelId, modelLabel: run.modelLabel, runOrder: run.runOrder, fewShotCount: run.fewShotCount },
+        data: { experimentId: id, modelId: run.modelId, modelLabel: label, runOrder: run.runOrder, fewShotCount: run.fewShotCount },
       });
     }
     await tx.experiment.update({ where: { id }, data: { status: "created", startedAt: null, completedAt: null } });
