@@ -92,6 +92,18 @@ export interface RunMetrics {
   avgOutputTps: number | null;
 }
 
+export interface BaselineMetrics {
+  llmModel: string | null;
+  totalPrompts: number;
+  successCount: number;
+  successRate: number;
+  avgEvalScore: number | null;
+  avgVisualScore: number | null;
+  avgCodeEvalScore: number | null;
+  avgDurationMs: number | null;
+  avgCostUsd: number | null;
+}
+
 export interface PromptRunResult {
   runId: string;
   modelLabel: string;
@@ -114,6 +126,8 @@ export interface PromptBaseline {
   visualScore: number | null;
   codeEvalScore: number | null;
   totalSteps: number | null;
+  durationMs: number | null;
+  costUsd: number | null;
   llmModel: string | null;
 }
 
@@ -211,7 +225,7 @@ export async function getExperimentStatus(token: string, id: string) {
 }
 
 export async function getExperimentComparison(token: string, id: string) {
-  return request<{ runs: RunMetrics[] }>(token, `/${id}/comparison`);
+  return request<{ runs: RunMetrics[]; baseline: BaselineMetrics | null }>(token, `/${id}/comparison`);
 }
 
 export async function getPerPromptComparison(token: string, id: string) {
