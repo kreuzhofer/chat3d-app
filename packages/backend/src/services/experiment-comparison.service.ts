@@ -219,10 +219,9 @@ export async function getBaselineMetricsForExperiment(
   experimentId: string,
 ): Promise<BaselineMetrics | null> {
   const promptIds = await prisma.$queryRaw<Array<{ prompt_id: string }>>`
-    SELECT DISTINCT e.prompt_id
-    FROM workbench_examples e
-    INNER JOIN experiment_runs r ON r.id = e.experiment_run_id
-    WHERE r.experiment_id = ${experimentId}::uuid
+    SELECT eps.prompt_id
+    FROM experiment_prompt_selections eps
+    WHERE eps.experiment_id = ${experimentId}::uuid
   `;
 
   if (promptIds.length === 0) return null;
@@ -272,7 +271,7 @@ export async function getBaselineMetricsForExperiment(
     llmModel,
     totalPrompts: promptIds.length,
     successCount: rows.length,
-    successRate: rows.length / promptIds.length,
+    successRate: promptIds.length > 0 ? Math.round((rows.length / promptIds.length) * 1000) / 1000 : 0,
     avgEvalScore: avg(rows.map(r => Number(r.eval_score))),
     avgVisualScore: avg(rows.map(r => r.visual_score != null ? Number(r.visual_score) : null)),
     avgCodeEvalScore: avg(rows.map(r => r.code_eval_score != null ? Number(r.code_eval_score) : null)),
