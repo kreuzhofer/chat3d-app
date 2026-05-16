@@ -56,6 +56,15 @@ interface PromptComparison {
   promptText: string;
   promptIndex: number;
   runs: PromptRunResult[];
+  baseline?: {
+    evalScore: number;
+    visualScore: number | null;
+    codeEvalScore: number | null;
+    totalSteps: number | null;
+    durationMs: number | null;
+    costUsd: number | null;
+    llmModel: string | null;
+  };
 }
 
 // ── Aggregate comparison ────────────────────────────────────────────
@@ -293,6 +302,8 @@ export async function getPerPromptComparison(experimentId: string): Promise<Prom
       visual_score: number | null;
       code_eval_score: number | null;
       total_steps: number | null;
+      total_duration_ms: number | null;
+      total_cost_usd: number | null;
       llm_model: string | null;
     }>>`
       SELECT DISTINCT ON (e.prompt_id)
@@ -301,6 +312,8 @@ export async function getPerPromptComparison(experimentId: string): Promise<Prom
         e.visual_score,
         e.code_eval_score,
         t.total_steps,
+        t.total_duration_ms,
+        t.total_cost_usd,
         e.llm_model
       FROM workbench_examples e
       LEFT JOIN generation_traces t ON t.workbench_example_id = e.id
@@ -319,6 +332,8 @@ export async function getPerPromptComparison(experimentId: string): Promise<Prom
           visualScore: bl.visual_score != null ? Number(bl.visual_score) : null,
           codeEvalScore: bl.code_eval_score != null ? Number(bl.code_eval_score) : null,
           totalSteps: bl.total_steps != null ? Number(bl.total_steps) : null,
+          durationMs: bl.total_duration_ms != null ? Number(bl.total_duration_ms) : null,
+          costUsd: bl.total_cost_usd != null ? Number(Number(bl.total_cost_usd).toFixed(6)) : null,
           llmModel: bl.llm_model,
         };
       }
