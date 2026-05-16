@@ -71,7 +71,11 @@ function BaselineCell({ baseline }: { baseline?: PromptBaseline }) {
       </div>
       <div className="text-[0.65rem] text-[hsl(var(--muted-foreground))]">
         {baseline.totalSteps != null && <span>{baseline.totalSteps}st</span>}
-        {baseline.llmModel && <span> {baseline.llmModel.split("/").pop()}</span>}
+        {baseline.costUsd != null && <span> ${baseline.costUsd.toFixed(3)}</span>}
+        {baseline.durationMs != null && <span> {(baseline.durationMs / 1000).toFixed(0)}s</span>}
+      </div>
+      <div className="text-[0.65rem] text-[hsl(var(--muted-foreground))]">
+        {baseline.llmModel && <span>{baseline.llmModel.split("/").pop()}</span>}
       </div>
     </td>
   );
