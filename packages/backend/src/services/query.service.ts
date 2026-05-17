@@ -29,9 +29,10 @@ import {
   getMultiAgentPipelineTimeoutMs,
 } from "./generation-settings.service.js";
 import { runFullEvaluation } from "./eval-orchestrator.service.js";
-import { generateSpec, formatDisambiguationResponse } from "./spec-generation.service.js";
+import { generateSpec, formatDisambiguationResponse, resolveComplexityFromSpec } from "./spec-generation.service.js";
 import { updateProjectCode, updateProjectFiles, getProjectCode } from "./code-project.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
+import { getTraceBuilder } from "./trace-builder.service.js";
 import {
   getModelForPurpose,
   createProviderModel as createProviderModelFromConfig,
@@ -1348,6 +1349,7 @@ async function executeQueryPipelineInner(input: {
     let epCodeAssertions: import("./spec-generation.service.js").CodeAssertion[] = [];
     let epSpecInterpretation: string | undefined;
     let epSpecComplexity: "simple" | "medium" | "complex" | undefined;
+    let epSpecRequiresDecomposition: boolean | undefined;
     let epConstructionSpec: string | undefined;
     const specEnabled = await isSpecGenerationEnabled("chat");
     if (specEnabled) {
@@ -1414,6 +1416,7 @@ async function executeQueryPipelineInner(input: {
       epCodeAssertions = specResult.codeAssertions;
       epSpecInterpretation = specResult.interpretation;
       epSpecComplexity = specResult.complexity;
+      epSpecRequiresDecomposition = specResult.requiresDecomposition;
       epConstructionSpec = specResult.constructionSpec || undefined;
 
       queryLogger.info({ interpretation: specResult.interpretation.slice(0, 100), checklistCount: epVerificationChecklist.length, complexity: specResult.complexity }, "spec generated");
@@ -1436,6 +1439,19 @@ async function executeQueryPipelineInner(input: {
         getAutoApproveThreshold("chat"),
       ]);
       const useMultiAgent = epSpecComplexity === "complex" && !agIsModification;
+
+      // Persist routing reason for observability (mirror of workbench-codegen logic).
+      if (epSpecComplexity !== undefined) {
+        const { reason } = resolveComplexityFromSpec({
+          promptText: prompt,
+          interpretation: epSpecInterpretation,
+          requiresDecomposition: epSpecRequiresDecomposition,
+        });
+        getTraceBuilder()?.setComplexityTriggerReason(reason);
+      } else {
+        getTraceBuilder()?.setComplexityTriggerReason("spec_unavailable");
+      }
+
       const agMode = useMultiAgent ? "multi-agent" : "single-agent";
       const agDetail = useMultiAgent
         ? "Orchestrating multi-agent build for complex model..."
