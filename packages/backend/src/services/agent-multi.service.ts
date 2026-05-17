@@ -289,6 +289,7 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
         traceLabel,
         traceSkipAutoEdge: true,
         traceId: input.traceId,
+        retrievalCollector: input.retrievalCollector,
         onProgress: (state, detail) => {
           onProgress?.(state, `[${component.name}] ${detail}`);
         },
@@ -448,6 +449,7 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     evalThreshold: input.evalThreshold,
     traceNodeId: "assembly",
     traceLabel: "Assembly Agent",
+    retrievalCollector: input.retrievalCollector,
     onProgress: (state, detail) => {
       onProgress?.(state, `[assembly] ${detail}`);
     },
