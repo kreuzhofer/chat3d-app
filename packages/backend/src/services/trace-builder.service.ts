@@ -359,7 +359,14 @@ export class TraceBuilder {
     const totalLlmCalls = this.nodes.filter(n => n.usage && n.usage.inputTokens > 0).length;
     const totalSteps = this.nodes.filter(n => n.type === "agent_step").length;
 
-    const hasFailed = this.nodes.some(n => n.status === "failed");
+    // finalStatus reflects the OVERALL pipeline outcome, derived from the root
+    // phase's status. Intermediate node failures (a sub-agent that retried, an
+    // enrichment phase that was tolerated, etc.) must not poison the summary —
+    // they're recorded on the individual node but the pipeline as a whole only
+    // failed if its root phase did. Without this discrimination, multi-agent
+    // runs that recovered from a sub-agent failure get marked failed even when
+    // render_status on the workbench_example is success.
+    const rootFailed = rootNodes.some(n => n.status === "failed");
     const abortCategories: ReadonlySet<string> = new Set(["abort", "timeout", "step_limit"]);
     const hasAborted = this.nodes.some(n => n.errorInfo?.category != null && abortCategories.has(n.errorInfo.category))
       || rootNodes.some(n => n.status === "failed" && n.error?.includes("abort"));
@@ -369,7 +376,7 @@ export class TraceBuilder {
       totalCostUsd,
       totalSteps,
       totalLlmCalls,
-      finalStatus: hasAborted ? "aborted" : hasFailed ? "failed" : "completed",
+      finalStatus: hasAborted ? "aborted" : rootFailed ? "failed" : "completed",
     };
   }
 
