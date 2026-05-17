@@ -5,18 +5,20 @@
 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import type { RunMetrics } from "../../api/experiment.api";
-
-const COLORS = ["#2563eb", "#16a34a", "#dc2626", "#d97706", "#7c3aed", "#0891b2"];
+import { colorFor } from "./experiment-colors";
 
 interface Props {
   runs: RunMetrics[];
+  colorMap: Map<string, string>;
 }
 
-export function ExperimentFewShotChart({ runs }: Props) {
+export function ExperimentFewShotChart({ runs, colorMap }: Props) {
   const hasFewShot = runs.some((r) => r.fewShotCount != null);
   if (!hasFewShot) return null;
 
-  // Group runs by base model (strip the "(N ex)" suffix)
+  // Group runs by base model (strip the "(N ex)" suffix). Insertion order
+  // follows the (already-sorted) runs list, so few-shot lines render in the
+  // same order as everywhere else.
   const modelMap = new Map<string, RunMetrics[]>();
   for (const r of runs) {
     const baseModel = r.modelLabel.replace(/\s*\(\d+ ex\)$/, "");
@@ -25,6 +27,10 @@ export function ExperimentFewShotChart({ runs }: Props) {
   }
 
   const models = [...modelMap.keys()];
+  // Color a base-model line with the color of its first variant (e.g. the
+  // 0-ex run). Consistent with the per-prompt charts that color each variant
+  // individually — same color appears here for the merged line.
+  const lineColor = (baseModel: string) => colorFor(colorMap, modelMap.get(baseModel)![0].modelLabel);
   const allCounts = [...new Set(runs.map((r) => r.fewShotCount).filter((c): c is number => c != null))].sort((a, b) => a - b);
 
   // Build chart data: one row per few-shot count, columns per model
@@ -81,7 +87,7 @@ export function ExperimentFewShotChart({ runs }: Props) {
               <Tooltip />
               <Legend formatter={shortLabel} />
               {models.map((model, i) => (
-                <Line key={model} type="monotone" dataKey={model} name={model} stroke={COLORS[i % COLORS.length]} strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                <Line key={model} type="monotone" dataKey={model} name={model} stroke={lineColor(model)} strokeWidth={2} dot={{ r: 4 }} connectNulls />
               ))}
             </LineChart>
           </ResponsiveContainer>
@@ -97,7 +103,7 @@ export function ExperimentFewShotChart({ runs }: Props) {
               <Tooltip />
               <Legend formatter={shortLabel} />
               {models.map((model, i) => (
-                <Line key={model} type="monotone" dataKey={model} name={model} stroke={COLORS[i % COLORS.length]} strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                <Line key={model} type="monotone" dataKey={model} name={model} stroke={lineColor(model)} strokeWidth={2} dot={{ r: 4 }} connectNulls />
               ))}
             </LineChart>
           </ResponsiveContainer>
@@ -113,7 +119,7 @@ export function ExperimentFewShotChart({ runs }: Props) {
               <Tooltip />
               <Legend formatter={shortLabel} />
               {models.map((model, i) => (
-                <Line key={model} type="monotone" dataKey={model} name={model} stroke={COLORS[i % COLORS.length]} strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                <Line key={model} type="monotone" dataKey={model} name={model} stroke={lineColor(model)} strokeWidth={2} dot={{ r: 4 }} connectNulls />
               ))}
             </LineChart>
           </ResponsiveContainer>
@@ -129,7 +135,7 @@ export function ExperimentFewShotChart({ runs }: Props) {
               <Tooltip />
               <Legend formatter={shortLabel} />
               {models.map((model, i) => (
-                <Line key={model} type="monotone" dataKey={model} name={model} stroke={COLORS[i % COLORS.length]} strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                <Line key={model} type="monotone" dataKey={model} name={model} stroke={lineColor(model)} strokeWidth={2} dot={{ r: 4 }} connectNulls />
               ))}
             </LineChart>
           </ResponsiveContainer>

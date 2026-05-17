@@ -24,14 +24,13 @@ import { ExperimentOutliers } from "./ExperimentOutliers";
 import { PerPromptBarCharts } from "./PerPromptBarCharts";
 import { ExperimentCreateDialog } from "./ExperimentCreateDialog";
 import { ExperimentFewShotChart } from "./ExperimentFewShotChart";
+import { buildColorMapByLabel, colorFor, sortByLabelOrder } from "./experiment-colors";
 
 interface Props {
   token: string;
   experimentId: string;
   onBack: () => void;
 }
-
-const COLORS = ["#2563eb", "#16a34a", "#dc2626", "#d97706", "#7c3aed", "#0891b2"];
 
 export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
   const [experiment, setExperiment] = useState<Experiment | null>(null);
@@ -93,11 +92,20 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
   if (loading) return <div className="p-4 text-[hsl(var(--muted-foreground))]">Loading...</div>;
   if (!experiment) return <InlineAlert variant="error" message={error ?? "Experiment not found"} />;
 
+  // Canonical color + order: keyed by modelLabel, seeded from experiment.runs.
+  // Every chart receives the same map so a model is the same color & position
+  // everywhere it appears.
+  const colorMap = buildColorMapByLabel(experiment.runs);
+  const sortedComparison = comparison ? sortByLabelOrder(comparison, colorMap) : null;
+  const sortedPromptData = promptData
+    ? promptData.map((p) => ({ ...p, runs: sortByLabelOrder(p.runs, colorMap) }))
+    : null;
+
   return (
     <div className="p-4">
       <Button variant="outline" size="sm" onClick={onBack} className="mb-4">Back to list</Button>
 
-      <ExperimentHeader experiment={experiment} status={status} token={token} onRefresh={load} setError={setError} onEdit={() => setShowEdit(true)} />
+      <ExperimentHeader experiment={experiment} status={status} token={token} onRefresh={load} setError={setError} onEdit={() => setShowEdit(true)} colorMap={colorMap} />
 
       {showEdit && (
         <ExperimentCreateDialog
@@ -111,17 +119,17 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
       {error && <InlineAlert variant="error" message={error} />}
 
       {experiment.status === "running" && status && (
-        <RunProgressSection status={status} promptCount={experiment.promptCount} />
+        <RunProgressSection status={status} promptCount={experiment.promptCount} colorMap={colorMap} />
       )}
 
-      {comparison && comparison.length > 0 && (
+      {sortedComparison && sortedComparison.length > 0 && (
         <>
-          <ComparisonTable runs={comparison} baseline={baseline} />
-          <ComparisonCharts runs={comparison} baseline={baseline} />
-          <ExperimentFewShotChart runs={comparison} />
-          {promptData && <ExperimentOutliers data={promptData} />}
-          {promptData && <ExperimentPromptComparisonTable data={promptData} />}
-          {promptData && <PerPromptBarCharts data={promptData} />}
+          <ComparisonTable runs={sortedComparison} baseline={baseline} colorMap={colorMap} />
+          <ComparisonCharts runs={sortedComparison} baseline={baseline} colorMap={colorMap} />
+          <ExperimentFewShotChart runs={sortedComparison} colorMap={colorMap} />
+          {sortedPromptData && <ExperimentOutliers data={sortedPromptData} colorMap={colorMap} />}
+          {sortedPromptData && <ExperimentPromptComparisonTable data={sortedPromptData} colorMap={colorMap} />}
+          {sortedPromptData && <PerPromptBarCharts data={sortedPromptData} colorMap={colorMap} />}
         </>
       )}
     </div>
@@ -142,9 +150,10 @@ function ProgressBar({ value, max, color }: { value: number; max: number; color?
   );
 }
 
-function RunProgressSection({ status, promptCount }: { status: ExperimentStatus; promptCount: number }) {
-  const totalCompleted = status.runs.reduce((sum, r) => sum + r.completedPrompts, 0);
-  const totalExpected = status.runs.length * promptCount;
+function RunProgressSection({ status, promptCount, colorMap }: { status: ExperimentStatus; promptCount: number; colorMap: Map<string, string> }) {
+  const sortedRuns = sortByLabelOrder(status.runs, colorMap);
+  const totalCompleted = sortedRuns.reduce((sum, r) => sum + r.completedPrompts, 0);
+  const totalExpected = sortedRuns.length * promptCount;
   const overallPct = totalExpected > 0 ? Math.round((totalCompleted / totalExpected) * 100) : 0;
 
   return (
@@ -153,7 +162,7 @@ function RunProgressSection({ status, promptCount }: { status: ExperimentStatus;
         <ProgressBar value={totalCompleted} max={totalExpected} />
       </div>
       <div className="space-y-3">
-        {status.runs.map((r, i) => {
+        {sortedRuns.map((r) => {
           const pct = promptCount > 0 ? Math.round((r.completedPrompts / promptCount) * 100) : 0;
           return (
             <div key={r.id} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
@@ -165,7 +174,7 @@ function RunProgressSection({ status, promptCount }: { status: ExperimentStatus;
               </div>
               <div className="flex items-center gap-2 sm:contents">
                 <div className="flex-1">
-                  <ProgressBar value={r.completedPrompts} max={promptCount} color={COLORS[i % COLORS.length]} />
+                  <ProgressBar value={r.completedPrompts} max={promptCount} color={colorFor(colorMap, r.modelLabel)} />
                 </div>
                 <span className="whitespace-nowrap text-right text-xs text-[hsl(var(--muted-foreground))] sm:w-24">
                   {r.completedPrompts}/{promptCount} ({pct}%)
@@ -181,13 +190,14 @@ function RunProgressSection({ status, promptCount }: { status: ExperimentStatus;
 
 // ── Header ──────────────────────────────────────────────────────────
 
-function ExperimentHeader({ experiment, status, token, onRefresh, setError, onEdit }: {
+function ExperimentHeader({ experiment, status, token, onRefresh, setError, onEdit, colorMap }: {
   experiment: Experiment;
   status: ExperimentStatus | null;
   token: string;
   onRefresh: () => void;
   setError: (e: string | null) => void;
   onEdit: () => void;
+  colorMap: Map<string, string>;
 }) {
   const canRerun = ["completed", "failed", "cancelled"].includes(experiment.status);
   const canEdit = experiment.status !== "running";
@@ -210,11 +220,14 @@ function ExperimentHeader({ experiment, status, token, onRefresh, setError, onEd
 
       <div className="mb-2 flex flex-wrap gap-2 text-sm">
         <strong>Models:</strong>
-        {experiment.runs.map((r, i) => (
-          <Badge key={r.id} style={{ backgroundColor: COLORS[i % COLORS.length] + "22", color: COLORS[i % COLORS.length] }}>
-            {r.modelLabel}
-          </Badge>
-        ))}
+        {experiment.runs.map((r) => {
+          const c = colorFor(colorMap, r.modelLabel);
+          return (
+            <Badge key={r.id} style={{ backgroundColor: c + "22", color: c }}>
+              {r.modelLabel}
+            </Badge>
+          );
+        })}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -254,7 +267,7 @@ function ExperimentHeader({ experiment, status, token, onRefresh, setError, onEd
 
 // ── Comparison Table ────────────────────────────────────────────────
 
-function ComparisonTable({ runs, baseline }: { runs: RunMetrics[]; baseline: BaselineMetrics | null }) {
+function ComparisonTable({ runs, baseline, colorMap }: { runs: RunMetrics[]; baseline: BaselineMetrics | null; colorMap: Map<string, string> }) {
   const BASELINE_ID = "__baseline__";
   const BASELINE_COLOR = "#6b7280";
 
@@ -306,8 +319,8 @@ function ComparisonTable({ runs, baseline }: { runs: RunMetrics[]; baseline: Bas
                   baseline{baselineLabel ? ` (${baselineLabel})` : ""}
                 </th>
               )}
-              {runs.map((r, i) => (
-                <th key={r.runId} className="p-2 text-right" style={{ color: COLORS[i % COLORS.length] }}>
+              {runs.map((r) => (
+                <th key={r.runId} className="p-2 text-right" style={{ color: colorFor(colorMap, r.modelLabel) }}>
                   {r.modelLabel.split("/").pop()}
                 </th>
               ))}
@@ -348,16 +361,16 @@ function ComparisonTable({ runs, baseline }: { runs: RunMetrics[]; baseline: Bas
 
 // ── Comparison Charts ───────────────────────────────────────────────
 
-function ComparisonCharts({ runs, baseline }: { runs: RunMetrics[]; baseline: BaselineMetrics | null }) {
+function ComparisonCharts({ runs, baseline, colorMap }: { runs: RunMetrics[]; baseline: BaselineMetrics | null; colorMap: Map<string, string> }) {
   const BASELINE_COLOR = "#6b7280"; // slate-500
 
-  const runEntries = runs.map((r, i) => ({
+  const runEntries = runs.map((r) => ({
     name: r.modelLabel.split("/").pop() ?? r.modelLabel,
     evalScore: r.avgEvalScore ?? 0,
     successRate: (r.successRate ?? 0) * 100,
     avgCost: r.avgCostUsd ?? 0,
     avgDuration: r.avgDurationMs ? r.avgDurationMs / 1000 : 0,
-    color: COLORS[i % COLORS.length],
+    color: colorFor(colorMap, r.modelLabel),
   }));
 
   const baselineEntry = baseline

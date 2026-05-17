@@ -9,16 +9,17 @@ import { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { SectionCard } from "../layout/SectionCard";
 import type { PromptComparison } from "../../api/experiment.api";
+import { colorFor } from "./experiment-colors";
 
 type SortMode = "prompt-index" | "score-desc" | "cost-desc" | "duration-desc";
 
 interface Props {
   data: PromptComparison[];
+  colorMap: Map<string, string>;
 }
 
 const CLUSTER_WIDTH_PX = 80; // pixels per prompt cluster
 const BASELINE_COLOR = "#6b7280";
-const RUN_COLORS = ["#2563eb", "#16a34a", "#dc2626", "#d97706", "#7c3aed", "#0891b2"];
 
 // Module-scope helpers — pure functions, no closure over props.
 
@@ -46,20 +47,25 @@ function avgDuration(row: PromptComparison): number | null {
 // Chart row shape: one entry per prompt cluster.
 type ChartRow = Record<string, number | string | null>;
 
-export function PerPromptBarCharts({ data }: Props) {
+export function PerPromptBarCharts({ data, colorMap }: Props) {
   const [sort, setSort] = useState<SortMode>("prompt-index");
 
-  // Collect distinct (runId, shortLabel) pairs across all rows; baseline always first.
+  // Collect distinct (runId, shortLabel, modelLabel) tuples across all rows.
+  // Order matches the canonical colorMap order (already applied to data
+  // upstream); colors are looked up by modelLabel for cross-chart consistency.
   const runOrder = useMemo(() => {
-    const seen = new Map<string, string>();
+    const seen = new Map<string, { shortLabel: string; modelLabel: string }>();
     for (const row of data) {
       for (const r of row.runs) {
         if (!seen.has(r.runId)) {
-          seen.set(r.runId, r.modelLabel.split("/").pop() ?? r.modelLabel);
+          seen.set(r.runId, {
+            shortLabel: r.modelLabel.split("/").pop() ?? r.modelLabel,
+            modelLabel: r.modelLabel,
+          });
         }
       }
     }
-    return [...seen.entries()]; // [runId, shortLabel]
+    return [...seen.entries()];
   }, [data]);
 
   const sorted = useMemo(() => {
@@ -155,13 +161,13 @@ export function PerPromptBarCharts({ data }: Props) {
           />
           baseline
         </span>
-        {runOrder.map(([runId, label], i) => (
+        {runOrder.map(([runId, info]) => (
           <span key={runId} className="flex items-center gap-1">
             <span
               className="inline-block h-2.5 w-2.5 rounded-sm"
-              style={{ background: RUN_COLORS[i % RUN_COLORS.length] }}
+              style={{ background: colorFor(colorMap, info.modelLabel) }}
             />
-            {label}
+            {info.shortLabel}
           </span>
         ))}
       </div>
@@ -218,12 +224,12 @@ export function PerPromptBarCharts({ data }: Props) {
                       }}
                     />
                     <Bar dataKey={`baseline_${metric.key}`} fill={BASELINE_COLOR} name="baseline" />
-                    {runOrder.map(([runId, label], i) => (
+                    {runOrder.map(([runId, info]) => (
                       <Bar
                         key={runId}
                         dataKey={`${runId}_${metric.key}`}
-                        fill={RUN_COLORS[i % RUN_COLORS.length]}
-                        name={label}
+                        fill={colorFor(colorMap, info.modelLabel)}
+                        name={info.shortLabel}
                       />
                     ))}
                   </BarChart>

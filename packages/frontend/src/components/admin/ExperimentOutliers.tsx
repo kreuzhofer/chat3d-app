@@ -6,13 +6,13 @@
 import { SectionCard } from "../layout/SectionCard";
 import { Badge } from "../ui/badge";
 import type { PromptComparison, PromptRunResult } from "../../api/experiment.api";
+import { colorFor } from "./experiment-colors";
 
 interface Props {
   data: PromptComparison[];
+  colorMap: Map<string, string>;
   topN?: number;
 }
-
-const COLORS = ["#2563eb", "#16a34a", "#dc2626", "#d97706", "#7c3aed", "#0891b2"];
 
 interface OutlierRow {
   promptIndex: number;
@@ -111,7 +111,7 @@ function OutlierTable({ rows, label, color }: { rows: OutlierRow[]; label: strin
   );
 }
 
-export function ExperimentOutliers({ data, topN = 3 }: Props) {
+export function ExperimentOutliers({ data, colorMap, topN = 3 }: Props) {
   if (data.length === 0) return null;
 
   const runLabels = data[0]?.runs.map((r) => r.modelLabel) ?? [];
@@ -143,9 +143,9 @@ export function ExperimentOutliers({ data, topN = 3 }: Props) {
   return (
     <SectionCard title="Outliers — Best & Worst per Model">
       <div className="space-y-6">
-        {modelOutliers.map((model, i) => (
+        {modelOutliers.map((model) => (
           <div key={model.label} className="space-y-3">
-            <h3 className="text-sm font-semibold" style={{ color: COLORS[i % COLORS.length] }}>
+            <h3 className="text-sm font-semibold" style={{ color: colorFor(colorMap, model.label) }}>
               {model.label.split("/").pop()}
             </h3>
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

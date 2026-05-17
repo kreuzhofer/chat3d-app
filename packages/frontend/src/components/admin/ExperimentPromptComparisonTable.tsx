@@ -6,12 +6,12 @@
 import { SectionCard } from "../layout/SectionCard";
 import { Badge } from "../ui/badge";
 import type { PromptComparison, PromptRunResult, PromptBaseline } from "../../api/experiment.api";
+import { colorFor } from "./experiment-colors";
 
 interface Props {
   data: PromptComparison[];
+  colorMap: Map<string, string>;
 }
-
-const COLORS = ["#2563eb", "#16a34a", "#dc2626", "#d97706", "#7c3aed", "#0891b2"];
 
 function scoreColor(score: number | null): string {
   if (score === null) return "hsl(var(--muted-foreground))";
@@ -112,7 +112,7 @@ function DeltaCell({ row }: { row: PromptComparison }) {
   );
 }
 
-export function ExperimentPromptComparisonTable({ data }: Props) {
+export function ExperimentPromptComparisonTable({ data, colorMap }: Props) {
   if (data.length === 0) return null;
 
   const runLabels = data[0]?.runs.map((r) => r.modelLabel) ?? [];
@@ -141,8 +141,8 @@ export function ExperimentPromptComparisonTable({ data }: Props) {
               {hasBaseline && (
                 <th className="p-2 text-center text-[hsl(var(--muted-foreground))]" style={{ minWidth: 80 }}>Baseline</th>
               )}
-              {runLabels.map((label, i) => (
-                <th key={label} className="p-2 text-center" style={{ color: COLORS[i % COLORS.length], minWidth: 120 }}>
+              {runLabels.map((label) => (
+                <th key={label} className="p-2 text-center" style={{ color: colorFor(colorMap, label), minWidth: 120 }}>
                   {label.split("/").pop()}
                 </th>
               ))}
@@ -191,7 +191,7 @@ export function ExperimentPromptComparisonTable({ data }: Props) {
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[hsl(var(--muted-foreground))]">
         <strong>Wins:</strong>
         {runLabels.map((label, i) => (
-          <span key={label} style={{ color: COLORS[i % COLORS.length] }}>
+          <span key={label} style={{ color: colorFor(colorMap, label) }}>
             {label.split("/").pop()}: {winCounts[i]}
           </span>
         ))}
