@@ -18,6 +18,7 @@ import { renderModelScreenshots } from "./stl-rendering-client.service.js";
 import { flattenForEval } from "../utils/code-flatten.js";
 import type { CodeAssertion } from "./spec-generation.service.js";
 import { findSimilarExamples } from "./workbench-embeddings.service.js";
+import { extractIdentifiers } from "./rag-attribution.service.js";
 import {
   CODEGEN_SECTION_3D_PRIMITIVES,
   CODEGEN_SECTION_2D_SKETCH,
@@ -105,7 +106,19 @@ export interface AgentToolDeps {
   codeEvalWeight?: number;
 }
 
-export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: boolean; enableSearch?: boolean; ragMaxExamplesOverride?: number; excludePromptIds?: string[] }): Record<string, any> {
+export function buildAgentTools(
+  deps: AgentToolDeps,
+  options: {
+    disableRender?: boolean;
+    enableSearch?: boolean;
+    ragMaxExamplesOverride?: number;
+    excludePromptIds?: string[];
+    /** Optional collector — when present, RAG-style tools push retrieval events here. */
+    retrievalCollector?: import("./rag-retrieval-collector.service.js").RagRetrievalCollector;
+    /** Current agent step number (incremented externally per step). Pass a getter so tools see live value. */
+    getCurrentStep?: () => number;
+  },
+): Record<string, any> {
   const { fs, wrapProjectFiles, baseFileName, signal, onProgress, onRenderSuccess, onSubmit } = deps;
 
   const tools: Record<string, any> = {
@@ -163,6 +176,18 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
           if (maxEx <= 0) return "Example search disabled for this run (few-shot count = 0).";
           const { matches } = await findSimilarExamples(query, maxEx, undefined, options.excludePromptIds);
           const filtered = matches.filter(m => m.similarity >= simThreshold);
+          if (options.retrievalCollector) {
+            const step = options.getCurrentStep?.() ?? null;
+            for (const m of filtered) {
+              options.retrievalCollector.push({
+                source: "tool_search_examples",
+                snippetRef: (m as any).promptId ?? null,
+                snippetSummary: m.prompt.slice(0, 200),
+                identifiers: extractIdentifiers(m.code),
+                retrievalStep: step,
+              });
+            }
+          }
           if (filtered.length === 0) {
             return "No similar examples found in the workbench (above similarity threshold).";
           }
@@ -190,6 +215,16 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
           const available = Object.keys(API_SECTIONS).join(", ");
           return `Unknown topic: "${topic}". Available topics: ${available}`;
         }
+        if (options.retrievalCollector) {
+          const step = options.getCurrentStep?.() ?? null;
+          options.retrievalCollector.push({
+            source: "tool_lookup_api",
+            snippetRef: topic,
+            snippetSummary: `API topic: ${topic}`,
+            identifiers: extractIdentifiers(section),
+            retrievalStep: step,
+          });
+        }
         return section;
       },
     };
@@ -206,6 +241,18 @@ export function buildAgentTools(deps: AgentToolDeps, options: { disableRender?: 
           const { getRagMaxKnowledge } = await import("./generation-settings.service.js");
           const maxKnowledge = await getRagMaxKnowledge();
           const { matches } = await hybridSearchKnowledge(query, maxKnowledge);
+          if (options.retrievalCollector) {
+            const step = options.getCurrentStep?.() ?? null;
+            for (const m of matches) {
+              options.retrievalCollector.push({
+                source: "tool_search_knowledge",
+                snippetRef: m.id ?? null,
+                snippetSummary: (m.title ?? "").slice(0, 200),
+                identifiers: extractIdentifiers(m.code ?? m.description ?? ""),
+                retrievalStep: step,
+              });
+            }
+          }
           if (matches.length === 0) {
             return "No matching knowledge entries found.";
           }
