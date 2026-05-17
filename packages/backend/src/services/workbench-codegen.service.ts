@@ -652,7 +652,9 @@ async function _runPipeline(
   // Post-loop: attribute RAG retrievals against the final code + conversation
   if (retrievalCollector.size() > 0) {
     const finalCode = currentResult?.code ?? "";
-    const convoText = JSON.stringify(agResult?.conversationHistory ?? []);
+    // Use currentResult.conversationHistory (post-fix-loop) so fix-loop exchanges
+    // contribute to attribution evidence, not just the initial agent run.
+    const convoText = JSON.stringify(currentResult?.conversationHistory ?? agResult?.conversationHistory ?? []);
     const promptText = ctx.prompt ?? "";
     const specText = specResult?.constructionSpec ?? specResult?.interpretation ?? "";
     const events = retrievalCollector.list();
