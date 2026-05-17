@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSpecResponse, formatDisambiguationResponse, type SpecResult } from "../services/spec-generation.service.js";
+import { parseSpecResponse, formatDisambiguationResponse, resolveComplexityFromSpec, type SpecResult } from "../services/spec-generation.service.js";
 
 // ── parseSpecResponse — decomposition fields ──────────────────────────────────
 
@@ -224,5 +224,39 @@ describe("formatDisambiguationResponse", () => {
     const result = formatDisambiguationResponse("Let me help.", spec);
     expect(result).toContain("1. Should the bracket be L-shaped or U-shaped?");
     expect(result).not.toContain("2.");
+  });
+});
+
+// ── resolveComplexityFromSpec ─────────────────────────────────────────────────
+
+describe("resolveComplexityFromSpec", () => {
+  it("returns complex+spec_llm_decision when requiresDecomposition is true", () => {
+    const result = resolveComplexityFromSpec({
+      promptText: "a 10mm cube",
+      interpretation: "a tiny cube",
+      requiresDecomposition: true,
+    });
+    expect(result.complexity).toBe("complex");
+    expect(result.reason).toBe("spec_llm_decision");
+  });
+
+  it("returns complex+multi_part_pattern when regex matches even if LLM says no", () => {
+    const result = resolveComplexityFromSpec({
+      promptText: "a box with a snap-fit lid",
+      interpretation: "a small enclosure",
+      requiresDecomposition: false,
+    });
+    expect(result.complexity).toBe("complex");
+    expect(result.reason).toBe("multi_part_pattern");
+  });
+
+  it("returns simple+single_agent_default for ordinary single-piece prompts", () => {
+    const result = resolveComplexityFromSpec({
+      promptText: "a 10mm cube with a 3mm hole through the centre",
+      interpretation: "a small cube with a through-hole",
+      requiresDecomposition: false,
+    });
+    expect(result.complexity).toBe("simple");
+    expect(result.reason).toBe("single_agent_default");
   });
 });

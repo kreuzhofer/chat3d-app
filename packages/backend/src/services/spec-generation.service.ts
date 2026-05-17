@@ -20,8 +20,8 @@ import {
   maxOutputWithThinking,
   type LlmModelConfig,
 } from "./llm-config.service.js";
-import { detectPromptOperations } from "../prompts/system-prompts.js";
 import { createLogger } from "../utils/logger.js";
+import type { ComplexityTriggerReason } from "@chat3d/shared";
 
 const logger = createLogger("spec-gen");
 
@@ -327,22 +327,55 @@ async function resolveSpecModel(): Promise<{ model: ReturnType<typeof createProv
 
 // ── Complexity derivation ────────────────────────────────────────────
 
-/** Patterns that indicate the model has multiple distinct parts requiring assembly. */
+/** Patterns that indicate the model has multiple distinct parts requiring assembly.
+ *  Cheap regex safety net — fires before any LLM cost. */
 const MULTI_PART_PATTERN = /\b(two[- ]parts?|multi[- ]parts?|separate\s+parts?|top\s+and\s+bottom|base\s+and\s+(cover|lid|top)|lid\s+and\s+base|snap[- ]fit|hinge[ds]?\s+(lid|cover)|mating\s+parts?|interlocking|dovetail\s+joint|assembly|two[- ]piece|two[- ]halves?|upper\s+and\s+lower|clamshell)\b/i;
 
+interface ResolveComplexityArgs {
+  promptText: string;
+  interpretation?: string;
+  /** If undefined, only the regex path can fire complex. */
+  requiresDecomposition?: boolean;
+}
+
+export interface ComplexityResolution {
+  complexity: SpecComplexity;
+  reason: ComplexityTriggerReason;
+}
+
+/**
+ * Authoritative routing decision. Order of precedence:
+ *   1. requiresDecomposition === true        → complex / spec_llm_decision
+ *   2. MULTI_PART_PATTERN matches text       → complex / multi_part_pattern
+ *   3. otherwise                              → simple / single_agent_default
+ *
+ * Notes:
+ *  - "medium" is no longer used as a routing signal. The complexity field
+ *    keeps its three-value type for backward compatibility with downstream
+ *    consumers (system-prompt tiering, etc.) but only "simple" and "complex"
+ *    matter for multi-agent routing.
+ *  - Operation-count thresholds are retired — the production data showed
+ *    avg detected ops 2.2–3.4 across all categories, well below the old
+ *    6+ threshold (see docs/codegen-harness-audit.md §6.4.5 N1).
+ */
+export function resolveComplexityFromSpec(args: ResolveComplexityArgs): ComplexityResolution {
+  if (args.requiresDecomposition === true) {
+    return { complexity: "complex", reason: "spec_llm_decision" };
+  }
+  const combined = args.interpretation ? `${args.promptText} ${args.interpretation}` : args.promptText;
+  if (MULTI_PART_PATTERN.test(combined)) {
+    return { complexity: "complex", reason: "multi_part_pattern" };
+  }
+  return { complexity: "simple", reason: "single_agent_default" };
+}
+
+/**
+ * Legacy synchronous form. Existing callers that just want a SpecComplexity
+ * still work; they get the regex-only fallback (no LLM signal available).
+ * New code should prefer `resolveComplexityFromSpec` which returns the reason.
+ */
 export function deriveComplexity(promptText: string, interpretation?: string): SpecComplexity {
-  const combined = interpretation ? `${promptText} ${interpretation}` : promptText;
-  const ops = detectPromptOperations(promptText, interpretation);
-  // 3d_ops and 2d_sketch are always added by detectPromptOperations,
-  // so subtract those to count only detected specific operations
-  const specificOps = ops.size - 2; // subtract always-included 3d_ops and 2d_sketch
-
-  // Multi-part models are always complex — they need decomposition + assembly
-  if (MULTI_PART_PATTERN.test(combined)) return "complex";
-
-  if (specificOps <= 2) return "simple";
-  if (specificOps <= 5) return "medium";
-  return "complex";
+  return resolveComplexityFromSpec({ promptText, interpretation, requiresDecomposition: false }).complexity;
 }
 
 // ── Main function ────────────────────────────────────────────────────
@@ -389,7 +422,11 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
     const usage = await resolved.usage;
     const promptTokens = usage?.inputTokens ?? 0;
     const completionTokens = usage?.outputTokens ?? 0;
-    const complexity = deriveComplexity(promptText, parsed.interpretation);
+    const { complexity } = resolveComplexityFromSpec({
+      promptText,
+      interpretation: parsed.interpretation,
+      requiresDecomposition: parsed.requiresDecomposition,
+    });
 
     logger.info(
       {
