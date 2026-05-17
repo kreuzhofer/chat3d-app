@@ -117,6 +117,22 @@ export interface TraceEdge {
 
 export type TracePipelineType = "single_agent" | "multi_agent" | "chat";
 
+/**
+ * Why a generation run was routed to single-agent vs multi-agent.
+ *
+ * - `spec_llm_decision`: the spec LLM emitted `requiresDecomposition: true`
+ * - `multi_part_pattern`: prompt or interpretation matched the multi-part regex
+ *   (snap-fit, hinged lid, clamshell, etc.) — fires without paying the LLM cost
+ * - `single_agent_default`: none of the above — routed single-agent
+ * - `spec_unavailable`: spec generation was disabled or failed; routing defaulted
+ *   to single-agent without any signal
+ */
+export type ComplexityTriggerReason =
+  | "spec_llm_decision"
+  | "multi_part_pattern"
+  | "single_agent_default"
+  | "spec_unavailable";
+
 export interface GenerationTrace {
   version: 1;
   pipelineType: TracePipelineType;
