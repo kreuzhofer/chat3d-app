@@ -94,8 +94,11 @@ while IFS='|' read -r CAT_ID CAT_NAME; do
   echo "[backfill]    job=$JOB_ID, polling..."
 
   # Poll this category's job until completion before moving to next.
+  # No MAX_WAIT — spec_generation on a 1k+ prompt category can take 5-7h and
+  # we want strict sequential serialization across categories so the LLM
+  # provider only sees one backfill job at a time.
   WAITED=0
-  while [ $WAITED -lt 7200 ]; do
+  while :; do
     STATUS_JSON=$(curl -s "$BASE_URL/api/admin/workbench/generate/jobs/$JOB_ID" \
       -H "Authorization: Bearer $TOKEN")
     STATUS=$(echo "$STATUS_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "unknown")
