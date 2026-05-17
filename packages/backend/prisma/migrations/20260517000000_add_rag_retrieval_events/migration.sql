@@ -21,4 +21,8 @@ CREATE TABLE rag_retrieval_events (
 
 CREATE INDEX idx_rag_retrieval_events_example ON rag_retrieval_events (workbench_example_id);
 CREATE INDEX idx_rag_retrieval_events_source_used ON rag_retrieval_events (source, used);
+-- Partial index: indexed only when snippet_ref is set. This is not represented
+-- in schema.prisma because Prisma DSL has no WHERE-clause support. If you see
+-- a future migration trying to drop this index and recreate it as a full
+-- index, that migration is wrong — discard it.
 CREATE INDEX idx_rag_retrieval_events_snippet_ref ON rag_retrieval_events (source, snippet_ref) WHERE snippet_ref IS NOT NULL;
