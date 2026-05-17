@@ -134,6 +134,19 @@ Given a user's prompt describing a 3D model, produce:
      {"text": "4 cylindrical standoff posts inside the box", "visibility": "both"}
    ]
 
+9. **requiresDecomposition**: A boolean. Return true ONLY when the model genuinely benefits from splitting into 2–6 independently-designable components that are then assembled. Use these criteria:
+   - Multi-part objects with distinct mating geometry (a base + a lid, a body + an arm, etc.)
+   - Functional assemblies where components have clear interfaces (mounting points, hinges, snap features)
+   - Spatial layouts where components can be designed independently and then placed (e.g. several different brackets on a chassis)
+   Do NOT return true for:
+   - Single-piece models, even if complex (a detailed gear, an organic sculpture, a decorative vase)
+   - Repetitive features on one body (an array of holes, a pattern of ribs)
+   - Adding small features to a base shape (fillets, chamfers, knurling)
+
+   When in doubt, return false — multi-agent is more expensive; reserve it for prompts that clearly need it.
+
+10. **decompositionReasoning**: One sentence (≤25 words) explaining the requiresDecomposition decision. Required regardless of true/false. Example: "Two distinct parts with mating dovetail geometry — independent design then assembly is appropriate." or "Single revolved profile; no decomposition needed."
+
 Be LENIENT about disambiguation. Most prompts should NOT need disambiguation. Only flag when multiple fundamentally different interpretations exist (e.g., "container with lid" — is the lid attached with a hinge, threaded, or snap-fit?).
 
 Return JSON only:
@@ -145,7 +158,9 @@ Return JSON only:
   "disambiguationQuestions": ["..."],
   "semanticContext": "...",
   "constructionSpec": "- step 1\\n- step 2\\n...",
-  "verificationCriteria": [{"text": "...", "visibility": "visual|code|both"}]
+  "verificationCriteria": [{"text": "...", "visibility": "visual|code|both"}],
+  "requiresDecomposition": true|false,
+  "decompositionReasoning": "..."
 }`;
 
 // ── Response parsing ─────────────────────────────────────────────────

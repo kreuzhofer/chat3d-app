@@ -188,6 +188,11 @@ describe("formatDisambiguationResponse", () => {
       complexity: "simple",
       promptTokens: 100,
       completionTokens: 50,
+      semanticContext: "",
+      constructionSpec: "",
+      verificationCriteria: [],
+      requiresDecomposition: false,
+      decompositionReasoning: "",
     };
 
     const result = formatDisambiguationResponse("I'd be happy to help you create that!", spec);
@@ -209,6 +214,11 @@ describe("formatDisambiguationResponse", () => {
       complexity: "simple",
       promptTokens: 50,
       completionTokens: 25,
+      semanticContext: "",
+      constructionSpec: "",
+      verificationCriteria: [],
+      requiresDecomposition: false,
+      decompositionReasoning: "",
     };
 
     const result = formatDisambiguationResponse("Let me help.", spec);
