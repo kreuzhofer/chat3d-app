@@ -23,6 +23,7 @@ import type {
   TraceSummary,
   TraceErrorInfo,
   TraceErrorCategory,
+  ComplexityTriggerReason,
 } from "@chat3d/shared";
 
 // ── AsyncLocalStorage context ────────────────────────────────────────
@@ -46,6 +47,7 @@ export class TraceBuilder {
   private edges: TraceEdge[] = [];
   private nodeStack: string[] = [];
   private pipelineType: TracePipelineType;
+  private complexityTriggerReason?: ComplexityTriggerReason;
   /** Tracks the last sibling added under each parent (keyed by parentId or "__root__"). */
   private lastSiblingByParent = new Map<string, string>();
   /** Optional callback invoked on every state change for live SSE publishing. */
@@ -67,6 +69,11 @@ export class TraceBuilder {
   /** Update pipeline type (e.g. when multi-agent is determined after init). */
   setPipelineType(type: TracePipelineType): void {
     this.pipelineType = type;
+  }
+
+  /** Set the reason why the pipeline was routed to multi-agent vs single-agent. */
+  setComplexityTriggerReason(reason: ComplexityTriggerReason): void {
+    this.complexityTriggerReason = reason;
   }
 
   /**
@@ -308,6 +315,7 @@ export class TraceBuilder {
     return {
       version: 1,
       pipelineType: this.pipelineType,
+      complexityTriggerReason: this.complexityTriggerReason,
       nodes: snapshotNodes,
       edges: [...this.edges],
     };
@@ -328,6 +336,7 @@ export class TraceBuilder {
     return {
       version: 1,
       pipelineType: this.pipelineType,
+      complexityTriggerReason: this.complexityTriggerReason,
       nodes: this.nodes,
       edges: this.edges,
     };

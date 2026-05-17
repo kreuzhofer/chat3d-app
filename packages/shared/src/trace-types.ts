@@ -136,6 +136,11 @@ export type ComplexityTriggerReason =
 export interface GenerationTrace {
   version: 1;
   pipelineType: TracePipelineType;
+  /**
+   * Why the pipeline routed to multi-agent vs single-agent.
+   * Absent on traces that predate this field.
+   */
+  complexityTriggerReason?: ComplexityTriggerReason;
   nodes: TraceNode[];
   edges: TraceEdge[];
 }
