@@ -64,6 +64,10 @@ export interface SpecResult {
   constructionSpec: string;
   /** Objective structural checks with visibility annotations for eval routing. */
   verificationCriteria: AnnotatedCriterion[];
+  /** Spec LLM's verdict — true means route to multi-agent codegen. */
+  requiresDecomposition: boolean;
+  /** One-sentence rationale for the requiresDecomposition decision. */
+  decompositionReasoning: string;
   rawResponse?: string;
   reasoning?: string;
   systemPrompt?: string;
@@ -155,6 +159,8 @@ interface ParsedSpec {
   semanticContext: string;
   constructionSpec: string;
   verificationCriteria: AnnotatedCriterion[];
+  requiresDecomposition: boolean;
+  decompositionReasoning: string;
 }
 
 const EMPTY_SPEC: ParsedSpec = {
@@ -166,6 +172,8 @@ const EMPTY_SPEC: ParsedSpec = {
   semanticContext: "",
   constructionSpec: "",
   verificationCriteria: [],
+  requiresDecomposition: false,
+  decompositionReasoning: "",
 };
 
 function parseCodeAssertions(raw: unknown): CodeAssertion[] {
@@ -218,10 +226,18 @@ function buildSpecFromParsed(raw: Partial<ParsedSpec>): ParsedSpec {
     ? verificationCriteria
     : verificationChecklist.map(text => ({ text, visibility: "both" as const }));
 
+  const rawRecord = raw as Record<string, unknown>;
+  const requiresDecomposition = typeof rawRecord.requiresDecomposition === "boolean"
+    ? rawRecord.requiresDecomposition
+    : false;
+  const decompositionReasoning = typeof rawRecord.decompositionReasoning === "string"
+    ? rawRecord.decompositionReasoning.trim()
+    : "";
+
   return {
     interpretation: typeof raw.interpretation === "string" ? raw.interpretation : "",
     verificationChecklist: effectiveChecklist,
-    codeAssertions: parseCodeAssertions((raw as Record<string, unknown>).codeAssertions),
+    codeAssertions: parseCodeAssertions(rawRecord.codeAssertions),
     disambiguationNeeded: raw.disambiguationNeeded === true,
     disambiguationQuestions: Array.isArray(raw.disambiguationQuestions)
       ? raw.disambiguationQuestions.filter((q): q is string => typeof q === "string" && q.trim().length > 0)
@@ -229,6 +245,8 @@ function buildSpecFromParsed(raw: Partial<ParsedSpec>): ParsedSpec {
     semanticContext: typeof raw.semanticContext === "string" ? raw.semanticContext : "",
     constructionSpec: typeof raw.constructionSpec === "string" ? raw.constructionSpec : "",
     verificationCriteria: effectiveCriteria,
+    requiresDecomposition,
+    decompositionReasoning,
   };
 }
 
@@ -266,6 +284,8 @@ export function parseSpecResponse(content: string): ParsedSpec {
       semanticContext: "",
       constructionSpec: "",
       verificationCriteria: [],
+      requiresDecomposition: false,
+      decompositionReasoning: "",
     };
   }
 

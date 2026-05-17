@@ -1,6 +1,42 @@
 import { describe, expect, it } from "vitest";
 import { parseSpecResponse, formatDisambiguationResponse, type SpecResult } from "../services/spec-generation.service.js";
 
+// ── parseSpecResponse — decomposition fields ──────────────────────────────────
+
+describe("parseSpecResponse — decomposition fields", () => {
+  it("parses requiresDecomposition + decompositionReasoning", () => {
+    const json = JSON.stringify({
+      interpretation: "A snap-fit enclosure with a base and a lid.",
+      verificationChecklist: ["Is there a base?", "Is there a lid?"],
+      disambiguationNeeded: false,
+      disambiguationQuestions: [],
+      semanticContext: "Enclosure",
+      constructionSpec: "- base 50×30×20mm\n- lid 50×30×3mm",
+      verificationCriteria: [{ text: "Two distinct parts", visibility: "visual" }],
+      requiresDecomposition: true,
+      decompositionReasoning: "Two distinct parts (base + lid) with mating geometry; benefit from independent design before assembly.",
+    });
+    const result = parseSpecResponse(json);
+    expect(result.requiresDecomposition).toBe(true);
+    expect(result.decompositionReasoning).toContain("Two distinct parts");
+  });
+
+  it("defaults requiresDecomposition to false when missing", () => {
+    const json = JSON.stringify({
+      interpretation: "A 10mm cube.",
+      verificationChecklist: ["Is it a cube?"],
+      disambiguationNeeded: false,
+      disambiguationQuestions: [],
+      semanticContext: "Cube",
+      constructionSpec: "- 10×10×10mm box",
+      verificationCriteria: [],
+    });
+    const result = parseSpecResponse(json);
+    expect(result.requiresDecomposition).toBe(false);
+    expect(result.decompositionReasoning).toBe("");
+  });
+});
+
 // ── parseSpecResponse ─────────────────────────────────────────────────────────
 
 describe("parseSpecResponse", () => {
