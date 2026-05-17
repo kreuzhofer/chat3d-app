@@ -24,6 +24,7 @@ import { galleryRouter } from "./routes/gallery.routes.js";
 import { experimentRouter } from "./routes/experiment.routes.js";
 import { vlmExperimentRouter } from "./routes/vlm-experiment.routes.js";
 import { systemBackupRouter } from "./routes/system-backup.routes.js";
+import { ragHitRateRouter } from "./routes/rag-hit-rate.routes.js";
 
 export function createApp() {
   const app = express();
@@ -67,6 +68,7 @@ export function createApp() {
   app.use("/api/admin/experiments", experimentRouter);
   app.use("/api/admin/vlm-experiments", vlmExperimentRouter);
   app.use("/api/admin/system-backup", systemBackupRouter);
+  app.use("/api/admin/rag-hit-rate", ragHitRateRouter);
 
   app.use((req, res) => {
     res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
