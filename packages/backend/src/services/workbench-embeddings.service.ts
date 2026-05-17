@@ -22,6 +22,7 @@ const logger = createLogger("embeddings");
 // ── Types ────────────────────────────────────────────────────────────
 
 export interface FewShotMatch {
+  promptId: string;
   prompt: string;
   code: string;
   similarity: number;
@@ -232,8 +233,8 @@ export async function findSimilarExamples(
     // Fetch 3x candidates, then re-rank with operation overlap boost
     const candidateLimit = Math.min(limit * 3, 20);
     const candidates = exclusionIds
-      ? await prisma.$queryRaw<{ prompt: string; code: string; similarity: number; detected_operations: string[] }[]>`
-          SELECT p.prompt, e.code,
+      ? await prisma.$queryRaw<{ promptId: string; prompt: string; code: string; similarity: number; detected_operations: string[] }[]>`
+          SELECT p.id AS "promptId", p.prompt, e.code,
                   1 - (p.embedding <=> ${pgVector}::vector) AS similarity,
                   p.detected_operations
            FROM workbench_examples e
@@ -245,8 +246,8 @@ export async function findSimilarExamples(
            ORDER BY p.embedding <=> ${pgVector}::vector ASC
            LIMIT ${candidateLimit}
         `
-      : await prisma.$queryRaw<{ prompt: string; code: string; similarity: number; detected_operations: string[] }[]>`
-          SELECT p.prompt, e.code,
+      : await prisma.$queryRaw<{ promptId: string; prompt: string; code: string; similarity: number; detected_operations: string[] }[]>`
+          SELECT p.id AS "promptId", p.prompt, e.code,
                   1 - (p.embedding <=> ${pgVector}::vector) AS similarity,
                   p.detected_operations
            FROM workbench_examples e
@@ -259,20 +260,20 @@ export async function findSimilarExamples(
         `;
 
     // Re-rank: semantic similarity (0.7 weight) + operation overlap (0.3 weight)
-    const ranked = candidates.map((c: { prompt: string; code: string; similarity: number; detected_operations: string[] }) => {
+    const ranked = candidates.map((c: { promptId: string; prompt: string; code: string; similarity: number; detected_operations: string[] }) => {
       const ops = c.detected_operations ?? [];
       const overlap = ops.filter((op: string) => opsArray.includes(op)).length;
       const overlapScore = opsArray.length > 0 ? overlap / opsArray.length : 0;
       const combined = c.similarity * 0.7 + overlapScore * 0.3;
-      return { prompt: c.prompt, code: c.code, similarity: combined };
+      return { promptId: c.promptId, prompt: c.prompt, code: c.code, similarity: combined };
     });
     ranked.sort((a: { similarity: number }, b: { similarity: number }) => b.similarity - a.similarity);
     return { matches: ranked.slice(0, limit), embeddingTokens };
   }
 
   const rows = exclusionIds
-    ? await prisma.$queryRaw<{ prompt: string; code: string; similarity: number }[]>`
-        SELECT p.prompt, e.code,
+    ? await prisma.$queryRaw<{ promptId: string; prompt: string; code: string; similarity: number }[]>`
+        SELECT p.id AS "promptId", p.prompt, e.code,
                 1 - (p.embedding <=> ${pgVector}::vector) AS similarity
          FROM workbench_examples e
          JOIN workbench_example_prompts p ON p.id = e.prompt_id
@@ -283,8 +284,8 @@ export async function findSimilarExamples(
          ORDER BY p.embedding <=> ${pgVector}::vector ASC
          LIMIT ${limit}
       `
-    : await prisma.$queryRaw<{ prompt: string; code: string; similarity: number }[]>`
-        SELECT p.prompt, e.code,
+    : await prisma.$queryRaw<{ promptId: string; prompt: string; code: string; similarity: number }[]>`
+        SELECT p.id AS "promptId", p.prompt, e.code,
                 1 - (p.embedding <=> ${pgVector}::vector) AS similarity
          FROM workbench_examples e
          JOIN workbench_example_prompts p ON p.id = e.prompt_id

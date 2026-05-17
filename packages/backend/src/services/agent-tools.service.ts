@@ -181,7 +181,7 @@ export function buildAgentTools(
             for (const m of filtered) {
               options.retrievalCollector.push({
                 source: "tool_search_examples",
-                snippetRef: (m as any).promptId ?? null,
+                snippetRef: m.promptId,
                 snippetSummary: m.prompt.slice(0, 200),
                 identifiers: extractIdentifiers(m.code),
                 retrievalStep: step,
