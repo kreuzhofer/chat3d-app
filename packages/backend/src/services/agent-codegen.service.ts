@@ -95,6 +95,8 @@ export interface AgentCodegenInput {
   codeEvalWeight?: number;
   /** Previous conversation messages for continuation (fix loop, retry). */
   previousMessages?: CoreMessage[];
+  /** Optional collector — when present, tools log retrieval events here. */
+  retrievalCollector?: import("./rag-retrieval-collector.service.js").RagRetrievalCollector;
 }
 
 export interface AgentCodegenResult {
@@ -212,6 +214,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
   let totalCompletionTokens = 0;
   let totalReasoningTokens = 0;
   let completedStepCount = 0;
+  let currentStep = 0;
 
   // Load eval threshold for submit_result quality gate (caller provides pipeline-scoped value)
   const evalThreshold = inputEvalThreshold ?? await getAutoApproveThreshold("chat");
@@ -265,7 +268,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       complexity: input.promptComplexity,
       codeEvalWeight: input.codeEvalWeight,
     },
-    { disableRender, enableSearch: resolvedEnableSearch, ragMaxExamplesOverride: input.ragMaxExamplesOverride, excludePromptIds: input.excludePromptIds },
+    { disableRender, enableSearch: resolvedEnableSearch, ragMaxExamplesOverride: input.ragMaxExamplesOverride, excludePromptIds: input.excludePromptIds, retrievalCollector: input.retrievalCollector, getCurrentStep: () => currentStep },
   );
 
   // Run the agent loop
@@ -284,6 +287,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
         const stepStartTs = Date.now();
         const stepNum = event.stepNumber + 1;
         completedStepCount = stepNum;
+        currentStep = stepNum;
         const usage = event.usage;
 
         totalPromptTokens += usage?.inputTokens ?? 0;
