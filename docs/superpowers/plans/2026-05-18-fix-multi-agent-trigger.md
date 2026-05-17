@@ -916,6 +916,7 @@ git commit -m "docs: document spec-LLM multi-agent routing trigger"
 - Offline check (Task 8): d8ac9bae fake-model columns provide side-by-side comparison without re-running the original baseline.
 
 **Follow-up plans (out of scope here):**
+- **Wire trace capture into the chat path.** Discovered during Task 6 execution: `query.service.ts` has no `runWithTrace` wrapper, so `getTraceBuilder()` returns `undefined` on every chat run. Production confirms: **0 of 3,280 `generation_traces` rows have `chat_item_id` set** — only workbench traces exist. Task 6's `setComplexityTriggerReason(...)` call therefore is structurally correct but a *no-op* on chat today. Until this is fixed, the routing decision still applies (chat prompts still route to multi-agent when the spec LLM says so), but the observability — *why* a given chat run was routed — is missing. A separate plan should wrap the chat-side codegen invocation in `runWithTrace(traceBuilder, async () => { ... })` and add the chat-item-id linkage on trace persist. Touches `query.service.ts` + `trace-persistence.service.ts`; small scope but cross-cutting.
 - **Tune the spec LLM decomposition prompt** based on Task 8 findings (if too conservative or too eager).
 - **Extend eval to chat** so chat-side routing also has score data, not just routing-distribution stats.
 - **Per-category cost dashboard** to track multi-agent uptake over time once it's in production.
