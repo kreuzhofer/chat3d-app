@@ -35,7 +35,7 @@ import {
 } from "./generation-settings.service.js";
 import { PipelineTimeoutError } from "../utils/pipeline-errors.js";
 import { storeSpecAndEmbedding } from "./workbench-embeddings.service.js";
-import { generateSpec, deriveComplexity, resolveComplexityFromSpec, type SpecResult } from "./spec-generation.service.js";
+import { generateSpec, resolveComplexityFromSpec, type SpecResult } from "./spec-generation.service.js";
 import { enrichSpec } from "./spec-enrichment.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
 import { insertExample, persistWorkbenchFiles } from "./workbench-persist.service.js";
@@ -257,6 +257,10 @@ async function _runPipeline(
   // 2b. Spec generation — reuse cached spec if available to save tokens
   let specResult: SpecResult | null = null;
   let enrichmentResult: import("./spec-enrichment.service.js").EnrichmentResult | null = null;
+  // When the cached spec predates the requires_decomposition field, we route
+  // single-agent for this run but must not overwrite the NULL with the
+  // defaulted false — the backfill script needs to be able to find these rows.
+  let specCameFromNullDecompositionCache = false;
   const specEnabled = await isSpecGenerationEnabled("workbench");
   if (specEnabled) {
     const hasCachedSpec = ctx.cachedSpec.constructionSpec && ctx.cachedSpec.specInterpretation;
@@ -264,6 +268,13 @@ async function _runPipeline(
     if (hasCachedSpec) {
       // Reuse cached spec — skip LLM call
       traceBuilder.startPhase("spec", "spec_generation", "Spec Generation (cached)");
+      // Track whether the cached row predates the requires_decomposition field
+      // so the persist step below preserves NULL instead of writing a defaulted
+      // false back — that lock-out is what hid the spec LLM's decomposition
+      // decision on every pre-N1 prompt (see scripts/backfill-decomposition.sh).
+      const cachedReqDecomposition = ctx.cachedSpec.requiresDecomposition;
+      const cachedDecompositionMissing = cachedReqDecomposition == null;
+      const effectiveReqDecomposition = cachedReqDecomposition === true;
       specResult = {
         interpretation: ctx.cachedSpec.specInterpretation!,
         constructionSpec: ctx.cachedSpec.constructionSpec!,
@@ -272,7 +283,14 @@ async function _runPipeline(
         verificationCriteria: ctx.cachedSpec.verificationCriteria ?? [],
         disambiguationNeeded: false,
         disambiguationQuestions: [],
-        complexity: deriveComplexity(ctx.prompt, ctx.cachedSpec.specInterpretation!),
+        // Use the full resolver instead of deriveComplexity — the legacy helper
+        // hardcoded requiresDecomposition=false, so cached prompts with the
+        // field populated by backfill would still route single-agent here.
+        complexity: resolveComplexityFromSpec({
+          promptText: ctx.prompt,
+          interpretation: ctx.cachedSpec.specInterpretation!,
+          requiresDecomposition: effectiveReqDecomposition,
+        }).complexity,
         semanticContext: "",
         promptTokens: 0,
         completionTokens: 0,
@@ -281,10 +299,13 @@ async function _runPipeline(
         // overwriting with NULL (regression in data-quality td:spec count).
         rawResponse: ctx.cachedSpec.specRawResponse ?? undefined,
         systemPrompt: ctx.cachedSpec.specSystemPrompt ?? undefined,
-        requiresDecomposition: ctx.cachedSpec.requiresDecomposition ?? false,
+        requiresDecomposition: effectiveReqDecomposition,
         decompositionReasoning: ctx.cachedSpec.decompositionReasoning ?? "",
       };
-      logger.info({ promptId: ctx.promptId }, "reusing cached spec — skipping spec LLM call");
+      // Surface the read-from-null case on the local function scope so the
+      // persistence branch below can skip writing the decomposition fields back.
+      specCameFromNullDecompositionCache = cachedDecompositionMissing;
+      logger.info({ promptId: ctx.promptId, cachedDecompositionMissing }, "reusing cached spec — skipping spec LLM call");
       traceBuilder.endPhase("completed");
       updateTraceIncremental(traceId, traceBuilder.snapshot());
     } else {
@@ -769,8 +790,12 @@ async function _runPipeline(
           constructionSpec: specResult.constructionSpec || null,
           specRawResponse: specResult.rawResponse ?? null,
           specSystemPrompt: specResult.systemPrompt ?? null,
-          requiresDecomposition: specResult.requiresDecomposition,
-          decompositionReasoning: specResult.decompositionReasoning,
+          // Preserve NULL when this run reused a pre-N1 cached spec — otherwise
+          // we'd lock the prompt out of the backfill (silent default-false).
+          ...(specCameFromNullDecompositionCache ? {} : {
+            requiresDecomposition: specResult.requiresDecomposition,
+            decompositionReasoning: specResult.decompositionReasoning,
+          }),
           ...(enrichmentResult ? {
             enrichmentRawResponse: enrichmentResult.rawResponse ?? null,
             enrichmentSystemPrompt: enrichmentResult.systemPrompt ?? null,
