@@ -32,7 +32,8 @@ import { runFullEvaluation } from "./eval-orchestrator.service.js";
 import { generateSpec, formatDisambiguationResponse, resolveComplexityFromSpec } from "./spec-generation.service.js";
 import { updateProjectCode, updateProjectFiles, getProjectCode } from "./code-project.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
-import { getTraceBuilder } from "./trace-builder.service.js";
+import { TraceBuilder, runWithTrace, getTraceBuilder } from "./trace-builder.service.js";
+import { createTraceEarly, updateTraceIncremental, finalizeTrace } from "./trace-persistence.service.js";
 import {
   getModelForPurpose,
   createProviderModel as createProviderModelFromConfig,
@@ -1440,16 +1441,37 @@ async function executeQueryPipelineInner(input: {
       ]);
       const useMultiAgent = epSpecComplexity === "complex" && !agIsModification;
 
+      // ── Trace capture setup ──────────────────────────────────────────
+      // Create the trace builder before routing so setComplexityTriggerReason
+      // and setPipelineType calls below land in the active context.
+      const chatTraceBuilder = new TraceBuilder("single_agent");
+      chatTraceBuilder.startPhase("root", "root", "Chat Generation Pipeline");
+      let chatTraceId: string | null = null;
+      try {
+        chatTraceId = await createTraceEarly({
+          chatItemId: assistantItemId,
+          pipelineType: "single_agent",
+          trace: chatTraceBuilder.snapshot(),
+        });
+      } catch (err) {
+        queryLogger.warn({ err }, "trace early-create failed; chat run will not be traced");
+      }
+
       // Persist routing reason for observability (mirror of workbench-codegen logic).
+      // These are called inside runWithTrace below so they land in the builder context.
       if (epSpecComplexity !== undefined) {
         const { reason } = resolveComplexityFromSpec({
           promptText: prompt,
           interpretation: epSpecInterpretation,
           requiresDecomposition: epSpecRequiresDecomposition,
         });
-        getTraceBuilder()?.setComplexityTriggerReason(reason);
+        chatTraceBuilder.setComplexityTriggerReason(reason);
       } else {
-        getTraceBuilder()?.setComplexityTriggerReason("spec_unavailable");
+        chatTraceBuilder.setComplexityTriggerReason("spec_unavailable");
+      }
+
+      if (useMultiAgent) {
+        chatTraceBuilder.setPipelineType("multi_agent");
       }
 
       const agMode = useMultiAgent ? "multi-agent" : "single-agent";
@@ -1490,9 +1512,21 @@ async function executeQueryPipelineInner(input: {
         constructionSpec: epConstructionSpec,
       };
 
-      const agResult = useMultiAgent
-        ? await runMultiAgentCodegen(agentInput)
-        : await runAgentCodegen(agentInput);
+      // Wrap agent invocation in runWithTrace so inner services can contribute
+      // trace data via getTraceBuilder() without parameter drilling.
+      const agResult = await runWithTrace(chatTraceBuilder, async () => {
+        try {
+          return useMultiAgent
+            ? await runMultiAgentCodegen(agentInput)
+            : await runAgentCodegen(agentInput);
+        } catch (err) {
+          chatTraceBuilder.endPhaseWithError(err);
+          try {
+            updateTraceIncremental(chatTraceId, chatTraceBuilder.snapshot(), chatTraceBuilder.computeSummary());
+          } catch { /* trace-flush failures must not mask the original error */ }
+          throw err;
+        }
+      });
 
       // Track usage
       epTotalPromptTokens += agResult.usage.promptTokens;
@@ -1679,6 +1713,14 @@ async function executeQueryPipelineInner(input: {
         promptTokens: epTotalPromptTokens,
         completionTokens: epTotalCompletionTokens,
         estimatedCostUsd: Number(epTotalCostUsd.toFixed(8)),
+      });
+
+      // Finalize trace with the completed pipeline state
+      chatTraceBuilder.endPhase("completed");
+      await finalizeTrace(chatTraceId, {
+        chatItemId: assistantItemId,
+        trace: chatTraceBuilder.build(),
+        summary: chatTraceBuilder.computeSummary(),
       });
 
       await publishQueryState({ userId: input.userId, contextId: input.contextId, assistantItemId, state: "completed" });

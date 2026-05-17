@@ -52,6 +52,7 @@ export async function persistTrace(params: PersistTraceParams): Promise<string> 
 // ── Incremental persistence ─────────────────────────────────────────
 
 interface CreateTraceEarlyParams {
+  chatItemId?: string;
   promptId?: string;
   pipelineType: string;
   trace: GenerationTrace;
@@ -65,6 +66,7 @@ export async function createTraceEarly(params: CreateTraceEarlyParams): Promise<
   try {
     const row = await prisma.generationTrace.create({
       data: {
+        chatItemId: params.chatItemId ?? null,
         promptId: params.promptId ?? null,
         finalStatus: "running",
         pipelineType: params.pipelineType,
@@ -73,7 +75,7 @@ export async function createTraceEarly(params: CreateTraceEarlyParams): Promise<
       },
       select: { id: true },
     });
-    logger.info({ traceId: row.id, promptId: params.promptId }, "trace created early");
+    logger.info({ traceId: row.id, chatItemId: params.chatItemId, promptId: params.promptId }, "trace created early");
     return row.id;
   } catch (err) {
     logger.warn({ err }, "failed to create early trace (degrading gracefully)");
