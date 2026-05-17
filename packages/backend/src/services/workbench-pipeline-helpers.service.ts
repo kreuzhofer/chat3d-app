@@ -23,6 +23,8 @@ export interface CachedSpec {
   // codegen persist step doesn't overwrite them with NULL on re-generation.
   specRawResponse: string | null;
   specSystemPrompt: string | null;
+  requiresDecomposition: boolean | null;
+  decompositionReasoning: string | null;
 }
 
 export interface PromptContext {
@@ -66,6 +68,8 @@ export async function loadPromptContext(promptId: string): Promise<PromptContext
       verificationCriteria: row.verificationCriteria as AnnotatedCriterion[] | null,
       specRawResponse: row.specRawResponse,
       specSystemPrompt: row.specSystemPrompt,
+      requiresDecomposition: row.requiresDecomposition ?? null,
+      decompositionReasoning: row.decompositionReasoning ?? null,
     },
   };
 }

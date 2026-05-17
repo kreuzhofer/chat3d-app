@@ -35,7 +35,7 @@ import {
 } from "./generation-settings.service.js";
 import { PipelineTimeoutError } from "../utils/pipeline-errors.js";
 import { storeSpecAndEmbedding } from "./workbench-embeddings.service.js";
-import { generateSpec, deriveComplexity, type SpecResult } from "./spec-generation.service.js";
+import { generateSpec, deriveComplexity, resolveComplexityFromSpec, type SpecResult } from "./spec-generation.service.js";
 import { enrichSpec } from "./spec-enrichment.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
 import { insertExample, persistWorkbenchFiles } from "./workbench-persist.service.js";
@@ -274,6 +274,8 @@ async function _runPipeline(
         // overwriting with NULL (regression in data-quality td:spec count).
         rawResponse: ctx.cachedSpec.specRawResponse ?? undefined,
         systemPrompt: ctx.cachedSpec.specSystemPrompt ?? undefined,
+        requiresDecomposition: ctx.cachedSpec.requiresDecomposition ?? false,
+        decompositionReasoning: ctx.cachedSpec.decompositionReasoning ?? "",
       };
       logger.info({ promptId: ctx.promptId }, "reusing cached spec — skipping spec LLM call");
       traceBuilder.endPhase("completed");
@@ -410,6 +412,24 @@ async function _runPipeline(
   const wbAgentModelConfig = codegenModelConfig;
   const wbAgMaxSteps = await getAgentMaxSteps("workbench");
   const wbUseMultiAgent = specResult?.complexity === "complex";
+
+  // Persist routing reason on trace. The complexity field already encodes the
+  // decision; we derive the reason from the same inputs the resolver used.
+  if (specResult) {
+    const { reason } = resolveComplexityFromSpec({
+      promptText: ctx.prompt,
+      interpretation: specResult.interpretation,
+      requiresDecomposition: specResult.requiresDecomposition,
+    });
+    traceBuilder.setComplexityTriggerReason(reason);
+  } else {
+    traceBuilder.setComplexityTriggerReason("spec_unavailable");
+  }
+  logger.info(
+    { useMultiAgent: wbUseMultiAgent, complexity: specResult?.complexity, requiresDecomposition: specResult?.requiresDecomposition },
+    "multi-agent routing decision",
+  );
+
   if (wbUseMultiAgent) {
     traceBuilder.setPipelineType("multi_agent");
     // Multi-agent decomposition + parallel sub-agents + assembly is much
@@ -739,6 +759,8 @@ async function _runPipeline(
           constructionSpec: specResult.constructionSpec || null,
           specRawResponse: specResult.rawResponse ?? null,
           specSystemPrompt: specResult.systemPrompt ?? null,
+          requiresDecomposition: specResult.requiresDecomposition,
+          decompositionReasoning: specResult.decompositionReasoning,
           ...(enrichmentResult ? {
             enrichmentRawResponse: enrichmentResult.rawResponse ?? null,
             enrichmentSystemPrompt: enrichmentResult.systemPrompt ?? null,
