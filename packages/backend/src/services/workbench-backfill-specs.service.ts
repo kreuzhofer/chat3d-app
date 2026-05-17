@@ -21,7 +21,12 @@ import {
 
 const logger = createLogger("workbench-backfill-specs");
 
-export async function startBatchBackfillSpecs(categoryId: string, regenerate?: boolean, missingTraining?: boolean): Promise<BatchJobSummary> {
+export async function startBatchBackfillSpecs(
+  categoryId: string,
+  regenerate?: boolean,
+  missingTraining?: boolean,
+  missingDecomposition?: boolean,
+): Promise<BatchJobSummary> {
   const existing = getRunningJobForCategory(categoryId);
   if (existing) {
     const err = new Error("A batch job is already running for this category");
@@ -38,12 +43,17 @@ export async function startBatchBackfillSpecs(categoryId: string, regenerate?: b
   // Find prompts based on mode:
   // - regenerate: all prompts (re-run spec gen for everything)
   // - missingTraining: have spec but missing training data (spec_raw_response)
+  // - missingDecomposition: have spec but missing requires_decomposition. Used
+  //   to backfill the N1 routing field on prompts whose cached spec predates
+  //   the spec-LLM decomposition-decision change.
   // - default: only prompts with no spec at all
   const filter = regenerate
     ? {}
     : missingTraining
       ? { specInterpretation: { not: null }, specRawResponse: null }
-      : { specInterpretation: null };
+      : missingDecomposition
+        ? { specInterpretation: { not: null }, requiresDecomposition: null }
+        : { specInterpretation: null };
 
   const promptRows = await prisma.workbenchExamplePrompt.findMany({
     where: { categoryId, ...filter },
@@ -56,7 +66,9 @@ export async function startBatchBackfillSpecs(categoryId: string, regenerate?: b
       ? "No prompts found in this category"
       : missingTraining
         ? "All prompts in this category already have spec training data"
-        : "All prompts in this category already have spec data";
+        : missingDecomposition
+          ? "All prompts in this category already have a decomposition decision"
+          : "All prompts in this category already have spec data";
     throw new Error(msg);
   }
 
@@ -84,9 +96,9 @@ export async function startBatchBackfillSpecs(categoryId: string, regenerate?: b
   };
 
   jobs.set(jobId, job);
-  void runBatchBackfillSpecs(job, promptRows, missingTraining);
+  void runBatchBackfillSpecs(job, promptRows, missingTraining, missingDecomposition);
 
-  logger.info({ jobId, categoryId, total: promptRows.length }, "batch backfill specs started");
+  logger.info({ jobId, categoryId, total: promptRows.length, mode: regenerate ? "regenerate" : missingTraining ? "missing-training" : missingDecomposition ? "missing-decomposition" : "missing-spec" }, "batch backfill specs started");
   return toSummary(job);
 }
 
@@ -94,6 +106,7 @@ async function runBatchBackfillSpecs(
   job: BatchJob,
   prompts: Array<{ id: string; prompt: string; index: number }>,
   missingTraining?: boolean,
+  missingDecomposition?: boolean,
 ): Promise<void> {
   for (const prompt of prompts) {
     if (job.status === "cancelled") break;
@@ -105,31 +118,40 @@ async function runBatchBackfillSpecs(
     try {
       const specResult = await generateSpec(prompt.prompt);
 
-      // In missingTraining mode: only persist training data (raw response + system prompt),
-      // preserve existing spec fields (checklist, assertions, etc.) to avoid
-      // overwriting curated data with potentially different regenerated values.
+      // Narrow-scope modes preserve existing spec data and only write the
+      // fields the mode is meant to backfill. This avoids overwriting curated
+      // checklist/assertions data with potentially different regenerated values.
       const updateData = missingTraining
         ? {
             specRawResponse: specResult.rawResponse ?? null,
             specSystemPrompt: specResult.systemPrompt ?? null,
           }
-        : {
-            specInterpretation: specResult.interpretation,
-            constructionSpec: specResult.constructionSpec,
-            codeAssertions: specResult.codeAssertions as unknown as undefined,
-            verificationChecklist: specResult.verificationChecklist,
-            verificationCriteria: specResult.verificationCriteria as unknown as undefined,
-            specRawResponse: specResult.rawResponse ?? null,
-            specSystemPrompt: specResult.systemPrompt ?? null,
-          };
+        : missingDecomposition
+          ? {
+              requiresDecomposition: specResult.requiresDecomposition,
+              decompositionReasoning: specResult.decompositionReasoning,
+            }
+          : {
+              specInterpretation: specResult.interpretation,
+              constructionSpec: specResult.constructionSpec,
+              codeAssertions: specResult.codeAssertions as unknown as undefined,
+              verificationChecklist: specResult.verificationChecklist,
+              verificationCriteria: specResult.verificationCriteria as unknown as undefined,
+              specRawResponse: specResult.rawResponse ?? null,
+              specSystemPrompt: specResult.systemPrompt ?? null,
+              requiresDecomposition: specResult.requiresDecomposition,
+              decompositionReasoning: specResult.decompositionReasoning,
+            };
 
       await prisma.workbenchExamplePrompt.update({
         where: { id: prompt.id },
         data: updateData,
       });
 
-      // Store spec embedding for remix matching
-      if (specResult.constructionSpec) {
+      // Store spec embedding for remix matching. Skipped on narrow-scope modes
+      // (missingTraining, missingDecomposition) — the existing embedding already
+      // matches the existing constructionSpec, which we didn't overwrite.
+      if (!missingTraining && !missingDecomposition && specResult.constructionSpec) {
         await storeSpecAndEmbedding(prompt.id, specResult.constructionSpec)
           .catch((err) => logger.warn({ err, promptId: prompt.id }, "spec embedding failed (non-fatal)"));
       }

@@ -586,12 +586,17 @@ workbenchRouter.post("/re-evaluate/batch", async (req, res) => {
 
 workbenchRouter.post("/backfill-specs/batch", async (req, res) => {
   try {
-    const { categoryId, regenerate, missingTraining } = req.body as { categoryId?: string; regenerate?: boolean; missingTraining?: boolean };
+    const { categoryId, regenerate, missingTraining, missingDecomposition } = req.body as {
+      categoryId?: string;
+      regenerate?: boolean;
+      missingTraining?: boolean;
+      missingDecomposition?: boolean;
+    };
     if (!categoryId || typeof categoryId !== "string") {
       res.status(400).json({ error: "categoryId is required" });
       return;
     }
-    const job = await startBatchBackfillSpecs(categoryId, regenerate, missingTraining);
+    const job = await startBatchBackfillSpecs(categoryId, regenerate, missingTraining, missingDecomposition);
     res.status(202).json(job);
   } catch (error) {
     const statusCode = (error as { statusCode?: number }).statusCode;
