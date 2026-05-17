@@ -81,10 +81,14 @@ export function ModelFormDialog({ model, providers, token, saving, onSave, onClo
   const [form, setForm] = useState<ModelFormData>(() => (model ? modelToForm(model) : emptyForm(defaultProvider)));
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [fetchingModels, setFetchingModels] = useState(false);
+  // In add mode, mirror modelName → displayName until the user types in displayName.
+  // In edit mode, the existing display name is authoritative — never overwrite it.
+  const [displayNameTouched, setDisplayNameTouched] = useState(model !== null);
 
   // Reset form when model prop changes
   useEffect(() => {
     setForm(model ? modelToForm(model) : emptyForm(defaultProvider));
+    setDisplayNameTouched(model !== null);
   }, [model, defaultProvider]);
 
   // Auto-fetch available models when provider changes
@@ -157,7 +161,13 @@ export function ModelFormDialog({ model, providers, token, saving, onSave, onClo
                 list="model-name-suggestions"
                 value={form.modelName}
                 placeholder="e.g. gpt-4o-mini"
-                onChange={(e) => patch({ modelName: e.target.value })}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  patch({
+                    modelName: next,
+                    ...(displayNameTouched ? {} : { displayName: next }),
+                  });
+                }}
               />
               {fetchingModels && (
                 <Loader2 className="absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[hsl(var(--muted-foreground))]" />
@@ -181,7 +191,10 @@ export function ModelFormDialog({ model, providers, token, saving, onSave, onClo
             id="model-display-name"
             value={form.displayName}
             placeholder="e.g. qwen3-27b-thinking-low"
-            onChange={(e) => patch({ displayName: e.target.value })}
+            onChange={(e) => {
+              setDisplayNameTouched(true);
+              patch({ displayName: e.target.value });
+            }}
           />
         </FormField>
 
