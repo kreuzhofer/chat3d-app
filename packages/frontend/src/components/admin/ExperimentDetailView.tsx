@@ -116,7 +116,7 @@ export function ExperimentDetailView({ token, experimentId, onBack }: Props) {
 
       {comparison && comparison.length > 0 && (
         <>
-          <ComparisonTable runs={comparison} />
+          <ComparisonTable runs={comparison} baseline={baseline} />
           <ComparisonCharts runs={comparison} baseline={baseline} />
           <ExperimentFewShotChart runs={comparison} />
           {promptData && <ExperimentOutliers data={promptData} />}
@@ -254,29 +254,45 @@ function ExperimentHeader({ experiment, status, token, onRefresh, setError, onEd
 
 // ── Comparison Table ────────────────────────────────────────────────
 
-function ComparisonTable({ runs }: { runs: RunMetrics[] }) {
-  const metrics: Array<{ label: string; key: keyof RunMetrics; format: (v: number | null) => string; higherBetter: boolean }> = [
-    { label: "Success Rate", key: "successRate", format: (v) => v != null ? `${(v * 100).toFixed(1)}%` : "-", higherBetter: true },
-    { label: "Avg Eval Score", key: "avgEvalScore", format: (v) => v != null ? v.toFixed(1) : "-", higherBetter: true },
-    { label: "Avg Visual Score", key: "avgVisualScore", format: (v) => v != null ? v.toFixed(1) : "-", higherBetter: true },
-    { label: "Avg Code Score", key: "avgCodeEvalScore", format: (v) => v != null ? v.toFixed(1) : "-", higherBetter: true },
-    { label: "Auto-Approval Rate", key: "autoApprovalRate", format: (v) => v != null ? `${(v * 100).toFixed(1)}%` : "-", higherBetter: true },
-    { label: "Avg Steps", key: "avgSteps", format: (v) => v != null ? v.toFixed(1) : "-", higherBetter: false },
-    { label: "Avg Duration", key: "avgDurationMs", format: (v) => v != null ? `${(v / 1000).toFixed(1)}s` : "-", higherBetter: false },
-    { label: "Avg Cost", key: "avgCostUsd", format: (v) => v != null ? `$${v.toFixed(4)}` : "-", higherBetter: false },
-    { label: "Total Cost", key: "totalCostUsd", format: (v) => v != null ? `$${v.toFixed(4)}` : "-", higherBetter: false },
-    { label: "Avg LLM Calls", key: "avgLlmCalls", format: (v) => v != null ? v.toFixed(1) : "-", higherBetter: false },
-    { label: "Avg Output TPS", key: "avgOutputTps", format: (v) => v != null ? v.toFixed(1) : "-", higherBetter: true },
+function ComparisonTable({ runs, baseline }: { runs: RunMetrics[]; baseline: BaselineMetrics | null }) {
+  const BASELINE_ID = "__baseline__";
+  const BASELINE_COLOR = "#6b7280";
+
+  const metrics: Array<{
+    label: string;
+    key: keyof RunMetrics;
+    format: (v: number | null) => string;
+    higherBetter: boolean;
+    baselineValue: (b: BaselineMetrics) => number | null;
+  }> = [
+    { label: "Success Rate", key: "successRate", format: (v) => v != null ? `${(v * 100).toFixed(1)}%` : "-", higherBetter: true, baselineValue: (b) => b.successRate },
+    { label: "Avg Eval Score", key: "avgEvalScore", format: (v) => v != null ? v.toFixed(1) : "-", higherBetter: true, baselineValue: (b) => b.avgEvalScore },
+    { label: "Avg Visual Score", key: "avgVisualScore", format: (v) => v != null ? v.toFixed(1) : "-", higherBetter: true, baselineValue: (b) => b.avgVisualScore },
+    { label: "Avg Code Score", key: "avgCodeEvalScore", format: (v) => v != null ? v.toFixed(1) : "-", higherBetter: true, baselineValue: (b) => b.avgCodeEvalScore },
+    { label: "Auto-Approval Rate", key: "autoApprovalRate", format: (v) => v != null ? `${(v * 100).toFixed(1)}%` : "-", higherBetter: true, baselineValue: () => null },
+    { label: "Avg Steps", key: "avgSteps", format: (v) => v != null ? v.toFixed(1) : "-", higherBetter: false, baselineValue: () => null },
+    { label: "Avg Duration", key: "avgDurationMs", format: (v) => v != null ? `${(v / 1000).toFixed(1)}s` : "-", higherBetter: false, baselineValue: (b) => b.avgDurationMs },
+    { label: "Avg Cost", key: "avgCostUsd", format: (v) => v != null ? `$${v.toFixed(4)}` : "-", higherBetter: false, baselineValue: (b) => b.avgCostUsd },
+    { label: "Total Cost", key: "totalCostUsd", format: (v) => v != null ? `$${v.toFixed(4)}` : "-", higherBetter: false, baselineValue: () => null },
+    { label: "Avg LLM Calls", key: "avgLlmCalls", format: (v) => v != null ? v.toFixed(1) : "-", higherBetter: false, baselineValue: () => null },
+    { label: "Avg Output TPS", key: "avgOutputTps", format: (v) => v != null ? v.toFixed(1) : "-", higherBetter: true, baselineValue: () => null },
   ];
 
-  const findBest = (key: keyof RunMetrics, higherBetter: boolean): string | null => {
-    const values = runs.map((r) => ({ id: r.runId, val: r[key] as number | null })).filter((v) => v.val != null);
+  const findBest = (key: keyof RunMetrics, baselineVal: number | null, higherBetter: boolean): string | null => {
+    const values: Array<{ id: string; val: number }> = [];
+    for (const r of runs) {
+      const v = r[key] as number | null;
+      if (v != null) values.push({ id: r.runId, val: v });
+    }
+    if (baselineVal != null) values.push({ id: BASELINE_ID, val: baselineVal });
     if (values.length === 0) return null;
     const best = higherBetter
-      ? values.reduce((a, b) => ((a.val ?? 0) > (b.val ?? 0) ? a : b))
-      : values.reduce((a, b) => ((a.val ?? Infinity) < (b.val ?? Infinity) ? a : b));
+      ? values.reduce((a, b) => (a.val > b.val ? a : b))
+      : values.reduce((a, b) => (a.val < b.val ? a : b));
     return best.id;
   };
+
+  const baselineLabel = baseline?.llmModel ? baseline.llmModel.split("/").pop() : "baseline";
 
   return (
     <SectionCard title="Aggregate Comparison">
@@ -285,6 +301,11 @@ function ComparisonTable({ runs }: { runs: RunMetrics[] }) {
           <thead>
             <tr className="border-b-2 border-[hsl(var(--border))]">
               <th className="p-2 text-left text-[hsl(var(--muted-foreground))]">Metric</th>
+              {baseline && (
+                <th className="p-2 text-right" style={{ color: BASELINE_COLOR }}>
+                  baseline{baselineLabel ? ` (${baselineLabel})` : ""}
+                </th>
+              )}
               {runs.map((r, i) => (
                 <th key={r.runId} className="p-2 text-right" style={{ color: COLORS[i % COLORS.length] }}>
                   {r.modelLabel.split("/").pop()}
@@ -294,10 +315,19 @@ function ComparisonTable({ runs }: { runs: RunMetrics[] }) {
           </thead>
           <tbody>
             {metrics.map((m) => {
-              const bestId = findBest(m.key, m.higherBetter);
+              const baselineVal = baseline ? m.baselineValue(baseline) : null;
+              const bestId = findBest(m.key, baselineVal, m.higherBetter);
               return (
                 <tr key={m.key} className="border-b border-[hsl(var(--border)_/_0.4)]">
                   <td className="p-2 font-medium">{m.label}</td>
+                  {baseline && (
+                    <td className="p-2 text-right" style={{
+                      fontWeight: bestId === BASELINE_ID ? 700 : 400,
+                      color: bestId === BASELINE_ID ? "hsl(var(--success))" : undefined,
+                    }}>
+                      {m.format(baselineVal)}
+                    </td>
+                  )}
                   {runs.map((r) => (
                     <td key={r.runId} className="p-2 text-right" style={{
                       fontWeight: r.runId === bestId ? 700 : 400,
