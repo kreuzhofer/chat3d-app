@@ -42,7 +42,9 @@ MODEL_ID=$(curl -s "$BASE_URL/api/admin/llm-models" -H "Authorization: Bearer $T
   | python3 -c "
 import sys, json
 target = '$MODEL_DISPLAY_NAME'
-for m in json.load(sys.stdin):
+resp = json.load(sys.stdin)
+models = resp.get('models', resp) if isinstance(resp, dict) else resp
+for m in models:
     if m.get('display_name') == target or m.get('model_name') == target:
         print(m['id']); sys.exit(0)
 sys.exit(1)
