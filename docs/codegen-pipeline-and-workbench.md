@@ -131,7 +131,7 @@ The agent decides the workflow: create code → validate → fix issues → rend
 
 `agent-multi.service.ts`
 
-For `complex` prompts (6+ detected operations):
+A run is routed to multi-agent decomposition when the spec LLM emits `requiresDecomposition: true`, OR when the prompt matches the multi-part safety-net regex (`snap-fit`, `hinged lid`, `clamshell`, ...). The routing reason is persisted on the trace's top-level field `complexityTriggerReason` ∈ `{spec_llm_decision, multi_part_pattern, single_agent_default, spec_unavailable}`. The legacy operation-count threshold is retired (production data showed it almost never fired — see `docs/codegen-harness-audit.md` §6.4.5 N1).
 
 1. **Decomposition LLM** splits the prompt into 2–6 independent components
 2. **Sub-agents** run sequentially, each with isolated filesystem + component-specific prompt. Validate-only (no render) to save cycles.
