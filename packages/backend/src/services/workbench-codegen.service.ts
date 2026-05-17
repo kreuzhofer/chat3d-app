@@ -47,6 +47,8 @@ import {
   NULL_SCREENSHOTS,
   type PromptContext,
 } from "./workbench-pipeline-helpers.service.js";
+import { RagRetrievalCollector } from "./rag-retrieval-collector.service.js";
+import { detectUsage, extractIdentifiers } from "./rag-attribution.service.js";
 import { persistAbortedPipeline, persistRejectedPrompt } from "./workbench-pipeline-persist.service.js";
 import crypto from "node:crypto";
 
@@ -226,6 +228,8 @@ async function _runPipeline(
   rearmPipelineTimeout: (totalBudgetMs: number) => void,
 ): Promise<GenerateResult> {
   const onProgress = options?.onProgress;
+  const retrievalCollector = new RagRetrievalCollector();
+
   // 2. Validate prompt
   traceBuilder.startPhase("validation", "prompt_validation", "Prompt Validation");
   onProgress?.("validating", "Validating prompt...");
@@ -352,6 +356,28 @@ async function _runPipeline(
     updateTraceIncremental(traceId, traceBuilder.snapshot());
   }
 
+  // Record pre-retrieved research package items into the collector
+  if (researchPackage) {
+    for (const ex of researchPackage.examples) {
+      retrievalCollector.push({
+        source: "preretrieved_example",
+        snippetRef: ex.promptId ?? null,
+        snippetSummary: (ex.prompt ?? "").slice(0, 200),
+        identifiers: extractIdentifiers(ex.code ?? ""),
+        retrievalStep: null,
+      });
+    }
+    for (const k of researchPackage.knowledge) {
+      retrievalCollector.push({
+        source: "preretrieved_knowledge",
+        snippetRef: k.id ?? k.sourceUrl ?? null,
+        snippetSummary: (k.title ?? k.description ?? "").slice(0, 200),
+        identifiers: extractIdentifiers(k.code ?? k.description ?? ""),
+        retrievalStep: null,
+      });
+    }
+  }
+
   // 3b. Enrichment pass — refine constructionSpec with researched dimensions
   if (specResult && researchPackage && researchPackage.knowledge.length > 0 && !pipelineSignal.aborted) {
     const enrichmentEnabled = await isSpecEnrichmentEnabled();
@@ -427,6 +453,7 @@ async function _runPipeline(
     categoryName: ctx.categoryName,
     promptComplexity: ctx.complexity,
     codeEvalWeight: agCodeEvalWeight,
+    retrievalCollector,
   };
 
   const agResult = wbUseMultiAgent
@@ -564,6 +591,7 @@ async function _runPipeline(
           traceNodeId: `fix-agent-${fixAttempt}`,
           traceLabel: `Fix Agent ${fixAttempt}`,
           traceSkipAutoEdge: true,
+          retrievalCollector,
         });
 
         if (pipelineSignal.aborted) {
@@ -618,6 +646,39 @@ async function _runPipeline(
         updateTraceIncremental(traceId, traceBuilder.snapshot());
         break;
       }
+    }
+  }
+
+  // Post-loop: attribute RAG retrievals against the final code + conversation
+  if (retrievalCollector.size() > 0) {
+    const finalCode = currentResult?.code ?? "";
+    const convoText = JSON.stringify(agResult?.conversationHistory ?? []);
+    const promptText = ctx.prompt ?? "";
+    const specText = specResult?.constructionSpec ?? specResult?.interpretation ?? "";
+    const events = retrievalCollector.list();
+    const rows = events.map((e) => {
+      const ids = Array.isArray(e.identifiers) ? e.identifiers : [];
+      const { used, evidence } = detectUsage(ids, finalCode, convoText, promptText, specText);
+      return {
+        workbenchExampleId: earlyExampleId!,
+        source: e.source,
+        snippetRef: e.snippetRef,
+        snippetSummary: e.snippetSummary,
+        identifiers: ids as any,
+        retrievalStep: e.retrievalStep,
+        used,
+        useEvidence: evidence,
+      };
+    });
+    try {
+      await prisma.ragRetrievalEvent.createMany({ data: rows });
+      const usedCount = rows.filter(r => r.used).length;
+      logger.info(
+        { exampleId: earlyExampleId, total: rows.length, used: usedCount, hitRate: rows.length ? usedCount / rows.length : 0 },
+        "rag retrieval attribution complete",
+      );
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, "rag retrieval persistence failed (non-fatal)");
     }
   }
 
