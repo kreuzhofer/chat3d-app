@@ -126,12 +126,16 @@ export type TracePipelineType = "single_agent" | "multi_agent" | "chat";
  * - `single_agent_default`: none of the above — routed single-agent
  * - `spec_unavailable`: spec generation was disabled or failed; routing defaulted
  *   to single-agent without any signal
+ * - `forced_override`: caller passed `forceMultiAgent: true` — bypasses the spec
+ *   resolver entirely. Used by debug probes (scripts/probe-multi-agent.ts) to
+ *   measure counterfactual "what if this prompt had been decomposed?" results.
  */
 export type ComplexityTriggerReason =
   | "spec_llm_decision"
   | "multi_part_pattern"
   | "single_agent_default"
-  | "spec_unavailable";
+  | "spec_unavailable"
+  | "forced_override";
 
 export interface GenerationTrace {
   version: 1;

@@ -77,6 +77,13 @@ export interface GenerateOptions {
   excludePromptIds?: string[];
   /** Pipeline timeout in ms — passed to LLM calls so they don't have a tighter inner wall. */
   pipelineTimeoutMs?: number;
+  /**
+   * Debug-only override: when true, routes to multi-agent regardless of what the
+   * spec resolver decided. The trace will carry `complexityTriggerReason="forced_override"`
+   * so probe runs are clearly distinguishable from production routing. Used by
+   * `scripts/probe-multi-agent.ts` to measure counterfactual decomposition outcomes.
+   */
+  forceMultiAgent?: boolean;
 }
 
 export interface GenerateResult {
@@ -411,11 +418,14 @@ async function _runPipeline(
   const dynAutoApprove = await getAutoApproveThreshold("workbench");
   const wbAgentModelConfig = codegenModelConfig;
   const wbAgMaxSteps = await getAgentMaxSteps("workbench");
-  const wbUseMultiAgent = specResult?.complexity === "complex";
+  const specWouldRouteComplex = specResult?.complexity === "complex";
+  const wbUseMultiAgent = options?.forceMultiAgent === true || specWouldRouteComplex;
 
-  // Persist routing reason on trace. The complexity field already encodes the
-  // decision; we derive the reason from the same inputs the resolver used.
-  if (specResult) {
+  // Persist routing reason on trace. forced_override wins so probe runs are
+  // distinguishable in SQL from production routing.
+  if (options?.forceMultiAgent === true && !specWouldRouteComplex) {
+    traceBuilder.setComplexityTriggerReason("forced_override");
+  } else if (specResult) {
     const { reason } = resolveComplexityFromSpec({
       promptText: ctx.prompt,
       interpretation: specResult.interpretation,
@@ -426,7 +436,7 @@ async function _runPipeline(
     traceBuilder.setComplexityTriggerReason("spec_unavailable");
   }
   logger.info(
-    { useMultiAgent: wbUseMultiAgent, complexity: specResult?.complexity, requiresDecomposition: specResult?.requiresDecomposition },
+    { useMultiAgent: wbUseMultiAgent, complexity: specResult?.complexity, requiresDecomposition: specResult?.requiresDecomposition, forced: options?.forceMultiAgent === true },
     "multi-agent routing decision",
   );
 

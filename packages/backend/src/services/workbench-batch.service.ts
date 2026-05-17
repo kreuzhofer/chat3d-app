@@ -439,6 +439,14 @@ export async function startBatchReEvaluate(categoryId: string, mode: "all" | "mi
   return toSummary(job);
 }
 
+/** Debug-only probe options for forcing routing/model on a single-prompt job. */
+export interface SingleJobProbeOptions {
+  /** When true, force multi-agent codegen regardless of spec LLM decision. */
+  forceMultiAgent?: boolean;
+  /** When set, override the codegen model (id from llm_models table). */
+  codegenModelId?: string;
+}
+
 /**
  * Start a single-prompt job (generate, retry, re-render, or re-evaluate).
  * Creates a "batch of 1" in the unified job store so the same polling
@@ -449,6 +457,7 @@ export async function startSingleJob(
   type: "generate" | "retry" | "re-render" | "re-evaluate",
   exampleId?: string,
   userId?: string,
+  probe?: SingleJobProbeOptions,
 ): Promise<BatchJobSummary> {
   evictStaleJobs();
 
@@ -497,10 +506,10 @@ export async function startSingleJob(
   jobs.set(jobId, job);
 
   // Run in background — don't await
-  void runSingleJob(job, promptId, promptText, type, exampleId);
+  void runSingleJob(job, promptId, promptText, type, exampleId, probe);
 
   logger.info(
-    { jobId, type, promptId, exampleId },
+    { jobId, type, promptId, exampleId, probe: probe ?? null },
     "single-prompt job started",
   );
 
@@ -737,6 +746,7 @@ async function runSingleJob(
   promptText: string,
   type: "generate" | "retry" | "re-render" | "re-evaluate",
   exampleId?: string,
+  probe?: SingleJobProbeOptions,
 ): Promise<void> {
   try {
     // Re-evaluate: run eval pipeline on existing example, update in place
@@ -760,10 +770,17 @@ async function runSingleJob(
     if (type === "re-render" && exampleId) {
       result = await reRenderForExample(exampleId, onProgress);
     } else {
+      let codegenModelOverride: import("./llm-config.service.js").LlmModelConfig | undefined;
+      if (probe?.codegenModelId) {
+        const { resolveModelConfigById } = await import("./llm-config.service.js");
+        codegenModelOverride = await resolveModelConfigById(probe.codegenModelId);
+      }
       result = await generateForPrompt(promptId, {
         onProgress,
         tracePublisher: buildTracePublisher(job, promptId),
         externalSignal: job.abortController.signal,
+        forceMultiAgent: probe?.forceMultiAgent === true,
+        codegenModelOverride,
       });
     }
 

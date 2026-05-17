@@ -283,12 +283,21 @@ workbenchRouter.post("/prompts/:id/improve", async (req, res) => {
 
 workbenchRouter.post("/generate", async (req, res) => {
   try {
-    const { promptId } = req.body as { promptId?: string };
+    const { promptId, forceMultiAgent, codegenModelId } = req.body as {
+      promptId?: string;
+      forceMultiAgent?: boolean;
+      codegenModelId?: string;
+    };
     if (!promptId || typeof promptId !== "string") {
       res.status(400).json({ error: "promptId is required" });
       return;
     }
-    const job = await startSingleJob(promptId, "generate", undefined, req.authUser!.id);
+    // Debug probe fields are optional; passed through to override spec routing /
+    // codegen model for counterfactual measurements (see scripts/probe-multi-agent.sh).
+    const probe = (forceMultiAgent === true || typeof codegenModelId === "string")
+      ? { forceMultiAgent: forceMultiAgent === true, codegenModelId }
+      : undefined;
+    const job = await startSingleJob(promptId, "generate", undefined, req.authUser!.id, probe);
     res.status(202).json(job);
   } catch (error) {
     if (error instanceof WorkbenchCatalogError) {
