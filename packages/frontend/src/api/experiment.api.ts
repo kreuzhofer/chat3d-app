@@ -19,6 +19,8 @@ async function request<T>(token: string, path: string, init: RequestInit = {}): 
 
 // ── Types ───────────────────────────────────────────────────────────
 
+export type RoutingOverride = "auto" | "force_decompose" | "force_single";
+
 export interface ExperimentRun {
   id: string;
   modelId?: string;
@@ -26,6 +28,7 @@ export interface ExperimentRun {
   model?: { id: string; displayName: string | null; modelName: string; provider: string };
   runOrder: number;
   fewShotCount?: number | null;
+  routingOverride: RoutingOverride;
   status: string;
   startedAt?: string;
   completedAt?: string;
@@ -177,6 +180,7 @@ export async function createExperiment(token: string, data: {
   testedPurpose?: string;
   modelIds: string[];
   fewShotCounts?: number[];
+  routingOverride?: RoutingOverride;
 }) {
   return request<Experiment>(token, "", { method: "POST", body: JSON.stringify(data) });
 }
@@ -188,8 +192,16 @@ export async function updateExperiment(token: string, id: string, data: {
   promptSeed?: number;
   modelIds?: string[];
   fewShotCounts?: number[];
+  routingOverride?: RoutingOverride;
 }) {
   return request<Experiment>(token, `/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+
+export async function updateExperimentRun(token: string, experimentId: string, runId: string, patch: { routingOverride?: RoutingOverride }) {
+  return request<ExperimentRun>(token, `/${experimentId}/runs/${runId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
 }
 
 export async function deleteExperiment(token: string, id: string) {

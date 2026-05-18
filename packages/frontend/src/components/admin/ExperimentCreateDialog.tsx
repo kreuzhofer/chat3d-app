@@ -7,13 +7,21 @@ import { Badge } from "../ui/badge";
 import {
   createExperiment,
   updateExperiment,
+  updateExperimentRun,
   deleteExperimentRun,
   retryExperimentRun,
   listWorkbenchCategories,
   listLlmModels,
   previewPrompts,
   type Experiment,
+  type RoutingOverride,
 } from "../../api/experiment.api";
+
+const ROUTING_OVERRIDE_OPTIONS: Array<{ value: RoutingOverride; label: string }> = [
+  { value: "auto", label: "Auto (use decider)" },
+  { value: "force_decompose", label: "Force decompose" },
+  { value: "force_single", label: "Force single-agent" },
+];
 
 interface Props {
   token: string;
@@ -35,6 +43,9 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
   );
   const [selectedFewShotCounts, setSelectedFewShotCounts] = useState<number[]>(
     experiment?.fewShotCounts ?? [],
+  );
+  const [defaultRoutingOverride, setDefaultRoutingOverride] = useState<RoutingOverride>(
+    (experiment?.runs[0]?.routingOverride as RoutingOverride | undefined) ?? "auto",
   );
   const [categories, setCategories] = useState<Array<{ id: string; name: string; promptCount: number; approvedPromptCount: number }>>([]);
   const [models, setModels] = useState<Array<{ id: string; provider: string; modelName: string; displayName: string | null; isActive: boolean }>>([]);
@@ -60,6 +71,18 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
       setExistingRuns((prev) => prev.map((r) => r.id === runId ? { ...r, status: "pending" } : r));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to retry run");
+    }
+  };
+
+  const handleRunRoutingOverrideChange = async (runId: string, value: RoutingOverride) => {
+    if (!experiment) return;
+    const prevRuns = existingRuns;
+    setExistingRuns((rs) => rs.map((r) => r.id === runId ? { ...r, routingOverride: value } : r));
+    try {
+      await updateExperimentRun(token, experiment.id, runId, { routingOverride: value });
+    } catch (err) {
+      setExistingRuns(prevRuns);
+      setError(err instanceof Error ? err.message : "Failed to update routing override");
     }
   };
 
@@ -129,6 +152,7 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
           promptSeed,
           modelIds: selectedModelIds,
           fewShotCounts: selectedFewShotCounts.length > 0 ? selectedFewShotCounts : undefined,
+          routingOverride: defaultRoutingOverride,
         });
       } else {
         await createExperiment(token, {
@@ -138,6 +162,7 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
           promptSeed,
           modelIds: selectedModelIds,
           fewShotCounts: selectedFewShotCounts.length > 0 ? selectedFewShotCounts : undefined,
+          routingOverride: defaultRoutingOverride,
         });
       }
       onSaved();
@@ -220,11 +245,22 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
         {isEdit && existingRuns.length > 0 && (
           <div>
             <Label>Existing Runs</Label>
-            <div className="max-h-[200px] overflow-auto rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] p-2">
+            <div className="max-h-[260px] overflow-auto rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] p-2">
               {existingRuns.map((run) => (
-                <div key={run.id} className="flex items-center justify-between rounded px-1 py-1">
-                  <span className="text-sm text-[hsl(var(--foreground))]">{run.modelLabel}</span>
+                <div key={run.id} className="flex items-center justify-between gap-2 rounded px-1 py-1">
+                  <span className="truncate text-sm text-[hsl(var(--foreground))]">{run.modelLabel}</span>
                   <div className="flex items-center gap-1.5">
+                    <select
+                      value={run.routingOverride ?? "auto"}
+                      onChange={(e) => handleRunRoutingOverrideChange(run.id, e.target.value as RoutingOverride)}
+                      disabled={run.status === "running"}
+                      className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] px-1.5 py-0.5 text-[0.65rem] text-[hsl(var(--foreground))] disabled:opacity-50"
+                      title="Routing override for this run"
+                    >
+                      {ROUTING_OVERRIDE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
                     <Badge variant={run.status === "completed" ? "secondary" : run.status === "failed" ? "destructive" : "outline"} className="text-[0.65rem]">
                       {run.status}
                     </Badge>
@@ -246,6 +282,22 @@ export function ExperimentCreateDialog({ token, onClose, onSaved, experiment }: 
             </div>
           </div>
         )}
+
+        <div>
+          <Label>Routing Override {isEdit && <span className="text-[hsl(var(--muted-foreground))]">(applied to newly created runs)</span>}</Label>
+          <p className="mb-2 text-xs text-[hsl(var(--muted-foreground))]">
+            Controls whether the multi-agent decomposer runs. "Auto" lets the routing decider choose per-prompt.
+          </p>
+          <select
+            value={defaultRoutingOverride}
+            onChange={(e) => setDefaultRoutingOverride(e.target.value as RoutingOverride)}
+            className="w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] px-2 py-1.5 text-sm text-[hsl(var(--foreground))]"
+          >
+            {ROUTING_OVERRIDE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
 
         <div>
           <Label>Few-Shot Example Counts (optional)</Label>
