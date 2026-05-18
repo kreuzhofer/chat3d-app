@@ -136,6 +136,16 @@ export function ModelsTab({ token }: ModelsTabProps) {
     }
   };
 
+  const handleTierChange = async (model: LlmModelRow, value: string) => {
+    const tier = value === "" ? null : (value as "frontier" | "mid" | "small");
+    try {
+      await updateLlmModel(token, model.id, { tier });
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update tier");
+    }
+  };
+
   const handleSaveModel = async (data: ModelFormData) => {
     setSaving(true);
     try {
@@ -247,6 +257,7 @@ export function ModelsTab({ token }: ModelsTabProps) {
                 <th className="pb-2 pr-3 font-medium">Context</th>
                 <th className="pb-2 pr-3 font-medium">Thinking</th>
                 <th className="pb-2 pr-3 font-medium">Vision</th>
+                <th className="pb-2 pr-3 font-medium">Tier</th>
                 <th className="pb-2 pr-3 font-medium">Status</th>
                 <th className="pb-2 font-medium">Actions</th>
               </tr>
@@ -286,6 +297,18 @@ export function ModelsTab({ token }: ModelsTabProps) {
                     )}
                   </td>
                   <td className="py-2 pr-3">
+                    <select
+                      className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1 text-xs"
+                      value={model.tier ?? ""}
+                      onChange={(e) => handleTierChange(model, e.target.value)}
+                    >
+                      <option value="">—</option>
+                      <option value="frontier">Frontier</option>
+                      <option value="mid">Mid</option>
+                      <option value="small">Small</option>
+                    </select>
+                  </td>
+                  <td className="py-2 pr-3">
                     <Badge
                       tone={model.is_active ? "success" : "neutral"}
                       className="cursor-pointer"
@@ -316,7 +339,7 @@ export function ModelsTab({ token }: ModelsTabProps) {
               ))}
               {models.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-[hsl(var(--muted-foreground))]">
+                  <td colSpan={10} className="py-8 text-center text-[hsl(var(--muted-foreground))]">
                     No models configured. Click "Add Model" to create one.
                   </td>
                 </tr>

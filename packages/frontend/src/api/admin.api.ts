@@ -275,6 +275,7 @@ export interface LlmModelRow {
   supports_embeddings: boolean;
   streaming_enabled: boolean;
   vlm_eval_preamble: string | null;
+  tier: "frontier" | "mid" | "small" | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -305,6 +306,7 @@ export interface CreateLlmModelInput {
   supportsEmbeddings?: boolean;
   streamingEnabled?: boolean;
   vlmEvalPreamble?: string | null;
+  tier?: "frontier" | "mid" | "small" | null;
 }
 
 export async function listAdminLlmModels(token: string): Promise<LlmModelRow[]> {
