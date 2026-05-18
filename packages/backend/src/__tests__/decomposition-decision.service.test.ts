@@ -82,3 +82,31 @@ describe("decomposition-decision cache helpers", () => {
     });
   });
 });
+
+import { parseDeciderResponse } from "../services/decomposition-decision.service.js";
+
+describe("parseDeciderResponse", () => {
+  it("parses well-formed JSON", () => {
+    const r = parseDeciderResponse('{"decompose": true, "reasoning": "multi-part with mating hinge"}');
+    expect(r).toEqual({ decompose: true, reasoning: "multi-part with mating hinge" });
+  });
+
+  it("strips markdown code fences before parsing", () => {
+    const r = parseDeciderResponse('```json\n{"decompose": false, "reasoning": "simple primitive"}\n```');
+    expect(r).toEqual({ decompose: false, reasoning: "simple primitive" });
+  });
+
+  it("throws on invalid JSON", () => {
+    expect(() => parseDeciderResponse("not json")).toThrow(/decider response/i);
+  });
+
+  it("throws when 'decompose' is missing or non-boolean", () => {
+    expect(() => parseDeciderResponse('{"reasoning": "no decompose field"}')).toThrow(/decompose/);
+    expect(() => parseDeciderResponse('{"decompose": "yes", "reasoning": "x"}')).toThrow(/decompose/);
+  });
+
+  it("falls back to empty reasoning when missing", () => {
+    const r = parseDeciderResponse('{"decompose": true}');
+    expect(r).toEqual({ decompose: true, reasoning: "" });
+  });
+});
