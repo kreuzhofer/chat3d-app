@@ -36,6 +36,7 @@ import {
 import { PipelineTimeoutError } from "../utils/pipeline-errors.js";
 import { storeSpecAndEmbedding } from "./workbench-embeddings.service.js";
 import { generateSpec, resolveComplexityFromSpec, type SpecResult } from "./spec-generation.service.js";
+import { routeGeneration } from "./routing.service.js";
 import { enrichSpec } from "./spec-enrichment.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
 import { insertExample, persistWorkbenchFiles } from "./workbench-persist.service.js";
@@ -439,25 +440,46 @@ async function _runPipeline(
   const dynAutoApprove = await getAutoApproveThreshold("workbench");
   const wbAgentModelConfig = codegenModelConfig;
   const wbAgMaxSteps = await getAgentMaxSteps("workbench");
-  const specWouldRouteComplex = specResult?.complexity === "complex";
-  const wbUseMultiAgent = options?.forceMultiAgent === true || specWouldRouteComplex;
+  // Look up per-run override (auto for non-experiment paths) + the target model's tier.
+  // Both queries are tiny (single row each) and happen once per generation.
+  const [runRow, modelRow] = await Promise.all([
+    options?.experimentRunId
+      ? prisma.experimentRun.findUnique({
+          where: { id: options.experimentRunId },
+          select: { routingOverride: true },
+        })
+      : Promise.resolve(null),
+    prisma.llmModel.findUnique({
+      where: { id: wbAgentModelConfig.id },
+      select: { tier: true },
+    }),
+  ]);
 
-  // Persist routing reason on trace. forced_override wins so probe runs are
-  // distinguishable in SQL from production routing.
-  if (options?.forceMultiAgent === true && !specWouldRouteComplex) {
-    traceBuilder.setComplexityTriggerReason("forced_override");
-  } else if (specResult) {
-    const { reason } = resolveComplexityFromSpec({
-      promptText: ctx.prompt,
-      interpretation: specResult.interpretation,
-      requiresDecomposition: specResult.requiresDecomposition,
-    });
-    traceBuilder.setComplexityTriggerReason(reason);
-  } else {
-    traceBuilder.setComplexityTriggerReason("spec_unavailable");
-  }
+  // The `forceMultiAgent` debug option (used by scripts/probe-multi-agent.ts)
+  // takes precedence over the per-run override — it's a one-off probe knob.
+  const effectiveOverride: import("@chat3d/shared").RoutingOverride =
+    options?.forceMultiAgent === true
+      ? "force_decompose"
+      : ((runRow?.routingOverride as import("@chat3d/shared").RoutingOverride | undefined) ?? "auto");
+
+  const routeResult = await routeGeneration({
+    promptId: ctx.promptId,
+    promptText: ctx.prompt,
+    modelId: wbAgentModelConfig.id,
+    modelTier: (modelRow?.tier as import("@chat3d/shared").ModelTier | null) ?? null,
+    routingOverride: effectiveOverride,
+    specInterpretation: specResult?.interpretation,
+  });
+  const wbUseMultiAgent = routeResult.useMultiAgent;
+  traceBuilder.setComplexityTriggerReason(routeResult.triggerReason);
   logger.info(
-    { useMultiAgent: wbUseMultiAgent, complexity: specResult?.complexity, requiresDecomposition: specResult?.requiresDecomposition, forced: options?.forceMultiAgent === true },
+    {
+      useMultiAgent: wbUseMultiAgent,
+      triggerReason: routeResult.triggerReason,
+      override: effectiveOverride,
+      modelTier: modelRow?.tier ?? null,
+      deciderReasoning: routeResult.reasoning,
+    },
     "multi-agent routing decision",
   );
 
