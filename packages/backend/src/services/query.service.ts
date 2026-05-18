@@ -32,6 +32,7 @@ import { runFullEvaluation } from "./eval-orchestrator.service.js";
 import { generateSpec, formatDisambiguationResponse, resolveComplexityFromSpec } from "./spec-generation.service.js";
 import { updateProjectCode, updateProjectFiles, getProjectCode } from "./code-project.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
+import { routeGeneration } from "./routing.service.js";
 import { TraceBuilder, runWithTrace, getTraceBuilder } from "./trace-builder.service.js";
 import { createTraceEarly, updateTraceIncremental, finalizeTrace } from "./trace-persistence.service.js";
 import {
@@ -1439,11 +1440,38 @@ async function executeQueryPipelineInner(input: {
         getAgentMaxSteps("chat"),
         getAutoApproveThreshold("chat"),
       ]);
-      const useMultiAgent = epSpecComplexity === "complex" && !agIsModification;
+      // ── Routing decision via unified router ──────────────────────────
+      // Chat path: no experiment_run, so no per-run override applies. Look up
+      // the target codegen model's tier (small/mid/frontier) so the decider
+      // calibrates its decompose threshold. Modifications bypass routing
+      // entirely and stay single-agent — that's a chat-specific invariant.
+      const chatModelRow = agIsModification
+        ? null
+        : await prisma.llmModel.findUnique({
+            where: { id: agentModelConfig.id },
+            select: { tier: true },
+          });
+
+      let useMultiAgent: boolean;
+      let routingTriggerReason: import("@chat3d/shared").ComplexityTriggerReason;
+
+      if (agIsModification) {
+        useMultiAgent = false;
+        routingTriggerReason = "single_agent_default";
+      } else {
+        const routeResult = await routeGeneration({
+          promptId: null, // chat path: no workbench prompt UUID; decider runs live every time
+          promptText: prompt,
+          modelId: agentModelConfig.id,
+          modelTier: (chatModelRow?.tier as import("@chat3d/shared").ModelTier | null) ?? null,
+          routingOverride: "auto", // chat path has no per-run override
+          specInterpretation: epSpecInterpretation,
+        });
+        useMultiAgent = routeResult.useMultiAgent;
+        routingTriggerReason = routeResult.triggerReason;
+      }
 
       // ── Trace capture setup ──────────────────────────────────────────
-      // Create the trace builder before routing so setComplexityTriggerReason
-      // and setPipelineType calls below land in the active context.
       const chatTraceBuilder = new TraceBuilder("single_agent");
       chatTraceBuilder.startPhase("root", "root", "Chat Generation Pipeline");
       let chatTraceId: string | null = null;
@@ -1457,19 +1485,7 @@ async function executeQueryPipelineInner(input: {
         queryLogger.warn({ err }, "trace early-create failed; chat run will not be traced");
       }
 
-      // Persist routing reason for observability (mirror of workbench-codegen logic).
-      // These are called inside runWithTrace below so they land in the builder context.
-      if (epSpecComplexity !== undefined) {
-        const { reason } = resolveComplexityFromSpec({
-          promptText: prompt,
-          interpretation: epSpecInterpretation,
-          requiresDecomposition: epSpecRequiresDecomposition,
-        });
-        chatTraceBuilder.setComplexityTriggerReason(reason);
-      } else {
-        chatTraceBuilder.setComplexityTriggerReason("spec_unavailable");
-      }
-
+      chatTraceBuilder.setComplexityTriggerReason(routingTriggerReason);
       if (useMultiAgent) {
         chatTraceBuilder.setPipelineType("multi_agent");
       }
