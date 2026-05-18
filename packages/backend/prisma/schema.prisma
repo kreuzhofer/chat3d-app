@@ -735,7 +735,7 @@ model LlmModel {
   supportsEmbeddings    Boolean  @default(false) @map("supports_embeddings")
   streamingEnabled      Boolean  @default(true) @map("streaming_enabled")
   vlmEvalPreamble       String?  @map("vlm_eval_preamble")
-  tier                  String?  @map("tier") @db.VarChar(20)
+  tier                  String?  @db.VarChar(20)
   isActive              Boolean  @default(true) @map("is_active")
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz()
