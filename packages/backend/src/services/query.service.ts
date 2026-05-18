@@ -29,7 +29,7 @@ import {
   getMultiAgentPipelineTimeoutMs,
 } from "./generation-settings.service.js";
 import { runFullEvaluation } from "./eval-orchestrator.service.js";
-import { generateSpec, formatDisambiguationResponse, resolveComplexityFromSpec } from "./spec-generation.service.js";
+import { generateSpec, formatDisambiguationResponse } from "./spec-generation.service.js";
 import { updateProjectCode, updateProjectFiles, getProjectCode } from "./code-project.service.js";
 import { runAgentCodegen, runMultiAgentCodegen } from "./agent-codegen.service.js";
 import { routeGeneration } from "./routing.service.js";
@@ -1351,7 +1351,6 @@ async function executeQueryPipelineInner(input: {
     let epCodeAssertions: import("./spec-generation.service.js").CodeAssertion[] = [];
     let epSpecInterpretation: string | undefined;
     let epSpecComplexity: "simple" | "medium" | "complex" | undefined;
-    let epSpecRequiresDecomposition: boolean | undefined;
     let epConstructionSpec: string | undefined;
     const specEnabled = await isSpecGenerationEnabled("chat");
     if (specEnabled) {
@@ -1418,7 +1417,6 @@ async function executeQueryPipelineInner(input: {
       epCodeAssertions = specResult.codeAssertions;
       epSpecInterpretation = specResult.interpretation;
       epSpecComplexity = specResult.complexity;
-      epSpecRequiresDecomposition = specResult.requiresDecomposition;
       epConstructionSpec = specResult.constructionSpec || undefined;
 
       queryLogger.info({ interpretation: specResult.interpretation.slice(0, 100), checklistCount: epVerificationChecklist.length, complexity: specResult.complexity }, "spec generated");
