@@ -142,7 +142,7 @@ The previous `spec_llm_decision` trigger reason is deprecated; the spec LLM stil
 
 Tuning the decider's criteria is a code/prompt change with zero data migration — bump `DECIDER_VERSION` (e.g. `v1.0.0` → `v1.1.0`) when editing `DECIDER_SYSTEM_PROMPT`.
 
-The routing reason is persisted on the trace's top-level field `complexityTriggerReason` ∈ `{spec_llm_decision, multi_part_pattern, single_agent_default, spec_unavailable}`. The legacy operation-count threshold is retired (production data showed it almost never fired — see `docs/codegen-harness-audit.md` §6.4.5 N1).
+The routing reason is persisted on the trace's top-level field `complexityTriggerReason` ∈ `{forced_override, multi_part_pattern, live_decider, live_decider_cached, spec_unavailable, single_agent_default, spec_llm_decision (deprecated)}`. The legacy operation-count threshold is retired (production data showed it almost never fired — see `docs/codegen-harness-audit.md` §6.4.5 N1).
 
 1. **Decomposition LLM** splits the prompt into 2–6 independent components
 2. **Sub-agents** run sequentially, each with isolated filesystem + component-specific prompt. Validate-only (no render) to save cycles.
