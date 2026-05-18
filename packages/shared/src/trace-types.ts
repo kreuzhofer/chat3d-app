@@ -120,7 +120,8 @@ export type TracePipelineType = "single_agent" | "multi_agent" | "chat";
 /**
  * Why a generation run was routed to single-agent vs multi-agent.
  *
- * - `spec_llm_decision`: the spec LLM emitted `requiresDecomposition: true`
+ * - `spec_llm_decision`: DEPRECATED — kept for old trace compatibility; use
+ *   `live_decider` / `live_decider_cached` instead.
  * - `multi_part_pattern`: prompt or interpretation matched the multi-part regex
  *   (snap-fit, hinged lid, clamshell, etc.) — fires without paying the LLM cost
  * - `single_agent_default`: none of the above — routed single-agent
@@ -129,19 +130,22 @@ export type TracePipelineType = "single_agent" | "multi_agent" | "chat";
  * - `forced_override`: caller passed `forceMultiAgent: true` — bypasses the spec
  *   resolver entirely. Used by debug probes (scripts/probe-multi-agent.ts) to
  *   measure counterfactual "what if this prompt had been decomposed?" results.
+ * - `live_decider`: live LLM call, not cached.
+ * - `live_decider_cached`: live LLM call result reused from cache.
  */
 export type ComplexityTriggerReason =
-  | "spec_llm_decision"      // DEPRECATED — kept for old trace compatibility
+  | "spec_llm_decision"
   | "multi_part_pattern"
   | "single_agent_default"
   | "spec_unavailable"
   | "forced_override"
-  | "live_decider"           // NEW — live LLM call, not cached
-  | "live_decider_cached";   // NEW — live LLM call result reused from cache
+  | "live_decider"
+  | "live_decider_cached";
 
 /**
  * Model capability tier consumed by the decomposition decider's system
- * prompt to set decompose thresholds. `null`/unset → treated as `mid`.
+ * prompt to set decompose thresholds. Consumers SHOULD treat `null`/unset
+ * as `mid`.
  */
 export type ModelTier = "frontier" | "mid" | "small";
 
