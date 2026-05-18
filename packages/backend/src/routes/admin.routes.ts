@@ -464,6 +464,8 @@ adminRouter.delete("/waitlist/:entryId", async (req, res) => {
 
 // ── LLM Model Configuration ────────────────────────────────────────
 
+const ALLOWED_LLM_MODEL_TIERS = new Set(["frontier", "mid", "small"]);
+
 adminRouter.get("/llm-models", async (_req, res) => {
   try {
     const models = await listAllModels();
@@ -486,6 +488,16 @@ adminRouter.post("/llm-models", async (req, res) => {
     return;
   }
 
+  let tier: string | null | undefined;
+  if ("tier" in body) {
+    const t = body.tier;
+    if (t !== null && (typeof t !== "string" || !ALLOWED_LLM_MODEL_TIERS.has(t))) {
+      res.status(400).json({ error: "tier must be one of frontier|mid|small or null" });
+      return;
+    }
+    tier = t as string | null;
+  }
+
   try {
     const model = await createModel({
       provider: body.provider,
@@ -501,6 +513,7 @@ adminRouter.post("/llm-models", async (req, res) => {
       supportsEmbeddings: typeof body.supportsEmbeddings === "boolean" ? body.supportsEmbeddings : undefined,
       streamingEnabled: typeof body.streamingEnabled === "boolean" ? body.streamingEnabled : undefined,
       vlmEvalPreamble: typeof body.vlmEvalPreamble === "string" ? body.vlmEvalPreamble : (body.vlmEvalPreamble === null ? null : undefined),
+      tier,
     });
     res.status(201).json(model);
   } catch (error) {
@@ -515,8 +528,17 @@ adminRouter.patch("/llm-models/:id", async (req, res) => {
     return;
   }
 
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  if ("tier" in body) {
+    const t = body.tier;
+    if (t !== null && (typeof t !== "string" || !ALLOWED_LLM_MODEL_TIERS.has(t))) {
+      res.status(400).json({ error: "tier must be one of frontier|mid|small or null" });
+      return;
+    }
+  }
+
   try {
-    const updated = await updateModel(modelId, req.body as Record<string, unknown>);
+    const updated = await updateModel(modelId, body);
     if (!updated) {
       res.status(404).json({ error: "Model not found" });
       return;

@@ -63,6 +63,7 @@ export interface LlmModelRow {
   supports_embeddings: boolean;
   streaming_enabled: boolean;
   vlm_eval_preamble: string | null;
+  tier: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -215,6 +216,7 @@ interface PrismaModelShape {
   supportsEmbeddings: boolean;
   streamingEnabled: boolean;
   vlmEvalPreamble: string | null;
+  tier: string | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -236,6 +238,7 @@ function toModelRow(m: PrismaModelShape): LlmModelRow {
     supports_embeddings: m.supportsEmbeddings,
     streaming_enabled: m.streamingEnabled,
     vlm_eval_preamble: m.vlmEvalPreamble,
+    tier: m.tier,
     is_active: m.isActive,
     created_at: m.createdAt.toISOString(),
     updated_at: m.updatedAt.toISOString(),
@@ -800,6 +803,7 @@ export async function createModel(input: {
   supportsEmbeddings?: boolean;
   streamingEnabled?: boolean;
   vlmEvalPreamble?: string | null;
+  tier?: string | null;
 }): Promise<LlmModelRow> {
   const displayName = input.displayName.trim();
   if (!displayName) {
@@ -822,6 +826,7 @@ export async function createModel(input: {
         supportsEmbeddings: input.supportsEmbeddings ?? false,
         streamingEnabled: input.streamingEnabled ?? true,
         vlmEvalPreamble: input.vlmEvalPreamble ?? null,
+        tier: input.tier ?? null,
       },
     });
     return toModelRow(row);
@@ -860,6 +865,7 @@ export async function updateModel(
     supportsEmbeddings: "supportsEmbeddings",
     streamingEnabled: "streamingEnabled",
     vlmEvalPreamble: "vlmEvalPreamble",
+    tier: "tier",
     isActive: "isActive",
   };
 
