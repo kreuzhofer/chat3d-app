@@ -13,6 +13,13 @@
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import type { ModelTier } from "@chat3d/shared";
+import { trackedGenerateText } from "./tracked-llm.service.js";
+import {
+  getModelForPurpose,
+  createProviderModel,
+  buildGenerateOptions,
+  maxOutputWithThinking,
+} from "./llm-config.service.js";
 
 const logger = createLogger("decomp-decider");
 
@@ -22,6 +29,12 @@ const logger = createLogger("decomp-decider");
  * as misses, so the next call refreshes them.
  */
 export const DECIDER_VERSION = "v1.0.0";
+
+/** Default tier when the target model's tier is unset/null. */
+const DEFAULT_TIER: ModelTier = "mid";
+
+/** Max chars of spec interpretation passed to the decider as a hint. */
+const SPEC_INTERPRETATION_MAX_CHARS = 500;
 
 export interface CachedDecision {
   decompose: boolean;
@@ -148,21 +161,13 @@ export function parseDeciderResponse(raw: string): ParsedDeciderResponse {
 
 // ── Orchestrator ───────────────────────────────────────────────────────
 
-import { trackedGenerateText } from "./tracked-llm.service.js";
-import {
-  getModelForPurpose,
-  createProviderModel,
-  buildGenerateOptions,
-  maxOutputWithThinking,
-} from "./llm-config.service.js";
-
 export interface DecomposeDecisionInput {
   promptId: string;
   promptText: string;
   modelId: string;
   /** Tier of the **target codegen** model (not the decider's model). `null` → treated as "mid". */
   modelTier: ModelTier | null;
-  /** Optional cached spec interpretation as context. Truncated to 500 chars to keep input small. */
+  /** Optional cached spec interpretation as context. Truncated to SPEC_INTERPRETATION_MAX_CHARS chars to keep input small. */
   specInterpretation?: string;
 }
 
@@ -178,13 +183,13 @@ function buildUserMessage(
   modelTier: ModelTier | null,
   specInterpretation?: string,
 ): string {
-  const tier = modelTier ?? "mid";
+  const tier = modelTier ?? DEFAULT_TIER;
   const parts = [
     `Prompt: ${promptText}`,
     `TIER: ${tier}`,
   ];
   if (specInterpretation && specInterpretation.trim().length > 0) {
-    parts.push(`Spec interpretation: ${specInterpretation.slice(0, 500)}`);
+    parts.push(`Spec interpretation: ${specInterpretation.slice(0, SPEC_INTERPRETATION_MAX_CHARS)}`);
   }
   return parts.join("\n\n");
 }
@@ -222,7 +227,7 @@ export async function decideDecomposition(
   const userMessage = buildUserMessage(input.promptText, input.modelTier, input.specInterpretation);
 
   logger.info(
-    { promptId: input.promptId, modelId: input.modelId, modelTier: input.modelTier ?? "mid", decider: config.label },
+    { promptId: input.promptId, modelId: input.modelId, modelTier: input.modelTier ?? DEFAULT_TIER, decider: config.label },
     "calling decomposition decider",
   );
 

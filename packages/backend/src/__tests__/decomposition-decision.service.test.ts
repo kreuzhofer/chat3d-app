@@ -188,6 +188,21 @@ describe("decideDecomposition orchestrator", () => {
     });
     expect(mockTrackedGenerateText).toHaveBeenCalledTimes(1);
     expect(mockPrismaDecomp.upsert).toHaveBeenCalledTimes(1);
+    expect(mockPrismaDecomp.upsert).toHaveBeenCalledWith({
+      where: { promptId_modelId: { promptId: "p2", modelId: "m1" } },
+      create: {
+        promptId: "p2",
+        modelId: "m1",
+        deciderVersion: DECIDER_VERSION,
+        decompose: true,
+        reasoning: "lathe + grooves on small tier",
+      },
+      update: {
+        deciderVersion: DECIDER_VERSION,
+        decompose: true,
+        reasoning: "lathe + grooves on small tier",
+      },
+    });
   });
 
   it("treats null modelTier as 'mid' in the user-message payload", async () => {
