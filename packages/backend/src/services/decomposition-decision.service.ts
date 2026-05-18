@@ -146,5 +146,119 @@ export function parseDeciderResponse(raw: string): ParsedDeciderResponse {
   return { decompose: obj.decompose, reasoning };
 }
 
-// NOTE: `logger` and the `ModelTier` import above are referenced by the
-// decideDecomposition orchestrator added in task 6c.
+// ── Orchestrator ───────────────────────────────────────────────────────
+
+import { trackedGenerateText } from "./tracked-llm.service.js";
+import {
+  getModelForPurpose,
+  createProviderModel,
+  buildGenerateOptions,
+  maxOutputWithThinking,
+} from "./llm-config.service.js";
+
+export interface DecomposeDecisionInput {
+  promptId: string;
+  promptText: string;
+  modelId: string;
+  /** Tier of the **target codegen** model (not the decider's model). `null` → treated as "mid". */
+  modelTier: ModelTier | null;
+  /** Optional cached spec interpretation as context. Truncated to 500 chars to keep input small. */
+  specInterpretation?: string;
+}
+
+export interface DecomposeDecisionResult {
+  decompose: boolean;
+  reasoning: string;
+  triggerReason: "live_decider" | "live_decider_cached";
+  deciderVersion: string;
+}
+
+function buildUserMessage(
+  promptText: string,
+  modelTier: ModelTier | null,
+  specInterpretation?: string,
+): string {
+  const tier = modelTier ?? "mid";
+  const parts = [
+    `Prompt: ${promptText}`,
+    `TIER: ${tier}`,
+  ];
+  if (specInterpretation && specInterpretation.trim().length > 0) {
+    parts.push(`Spec interpretation: ${specInterpretation.slice(0, 500)}`);
+  }
+  return parts.join("\n\n");
+}
+
+/**
+ * Decide whether to route to multi-agent for the given prompt + target model.
+ *
+ * Order:
+ *  1. Cache hit on (promptId, modelId, DECIDER_VERSION) → return cached.
+ *  2. Cache miss → call LLM, parse response, upsert row, return.
+ *
+ * On LLM error (network, parse failure, etc.): rethrow. The caller (the
+ * router) catches and falls back to single-agent with trigger
+ * `spec_unavailable`.
+ */
+export async function decideDecomposition(
+  input: DecomposeDecisionInput,
+): Promise<DecomposeDecisionResult> {
+  const cached = await lookupCachedDecision(input.promptId, input.modelId);
+  if (cached) {
+    logger.debug(
+      { promptId: input.promptId, modelId: input.modelId, decompose: cached.decompose },
+      "decomposition decision cache hit",
+    );
+    return {
+      decompose: cached.decompose,
+      reasoning: cached.reasoning,
+      triggerReason: "live_decider_cached",
+      deciderVersion: DECIDER_VERSION,
+    };
+  }
+
+  const config = await getModelForPurpose("decomposition_decision");
+  const model = createProviderModel(config);
+  const userMessage = buildUserMessage(input.promptText, input.modelTier, input.specInterpretation);
+
+  logger.info(
+    { promptId: input.promptId, modelId: input.modelId, modelTier: input.modelTier ?? "mid", decider: config.label },
+    "calling decomposition decider",
+  );
+
+  const result = await trackedGenerateText({
+    model,
+    system: DECIDER_SYSTEM_PROMPT,
+    prompt: userMessage,
+    ...buildGenerateOptions(config),
+    maxOutputTokens: maxOutputWithThinking(256, config),
+    temperature: 0,
+  }, {
+    purpose: "decomposition_decision",
+    providerName: config.provider,
+    modelId: config.id,
+    modelName: config.modelName,
+    modelConfig: { costPer1mInput: config.costPer1mInput, costPer1mOutput: config.costPer1mOutput },
+  });
+
+  const parsed = parseDeciderResponse(result.text);
+
+  await upsertDecision({
+    promptId: input.promptId,
+    modelId: input.modelId,
+    decompose: parsed.decompose,
+    reasoning: parsed.reasoning,
+  });
+
+  logger.info(
+    { promptId: input.promptId, modelId: input.modelId, decompose: parsed.decompose, reasoning: parsed.reasoning },
+    "decomposition decider verdict",
+  );
+
+  return {
+    decompose: parsed.decompose,
+    reasoning: parsed.reasoning,
+    triggerReason: "live_decider",
+    deciderVersion: DECIDER_VERSION,
+  };
+}

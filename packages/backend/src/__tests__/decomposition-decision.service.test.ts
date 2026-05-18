@@ -110,3 +110,148 @@ describe("parseDeciderResponse", () => {
     expect(r).toEqual({ decompose: true, reasoning: "" });
   });
 });
+
+import { decideDecomposition } from "../services/decomposition-decision.service.js";
+
+// Mock the LLM call layer + model resolver
+const { mockTrackedGenerateText, mockGetModelForPurpose, mockCreateProviderModel } = vi.hoisted(() => ({
+  mockTrackedGenerateText: vi.fn(),
+  mockGetModelForPurpose: vi.fn(),
+  mockCreateProviderModel: vi.fn(() => ({ __sentinel: "stub-model" })),
+}));
+vi.mock("../services/tracked-llm.service.js", () => ({
+  trackedGenerateText: (...args: unknown[]) => mockTrackedGenerateText(...args),
+}));
+vi.mock("../services/llm-config.service.js", async () => {
+  const actual = await vi.importActual<typeof import("../services/llm-config.service.js")>(
+    "../services/llm-config.service.js",
+  );
+  return {
+    ...actual,
+    getModelForPurpose: (...args: unknown[]) => mockGetModelForPurpose(...args),
+    createProviderModel: (...args: unknown[]) => mockCreateProviderModel(...args),
+  };
+});
+
+beforeEach(() => {
+  mockTrackedGenerateText.mockReset();
+  mockGetModelForPurpose.mockReset();
+  mockGetModelForPurpose.mockResolvedValue({
+    id: "decider-model-id",
+    provider: "bedrock",
+    modelName: "claude-haiku-4-5",
+    label: "Haiku 4.5",
+    costPer1mInput: 0.25,
+    costPer1mOutput: 1.25,
+    maxConcurrent: 5,
+  });
+});
+
+describe("decideDecomposition orchestrator", () => {
+  it("returns cached result with live_decider_cached when row matches version", async () => {
+    mockPrismaDecomp.findUnique.mockResolvedValue({
+      decompose: true,
+      reasoning: "cached: snap-fit lid",
+      deciderVersion: DECIDER_VERSION,
+    });
+    const r = await decideDecomposition({
+      promptId: "p1",
+      promptText: "a box with a snap-fit lid",
+      modelId: "m1",
+      modelTier: "frontier",
+    });
+    expect(r.decompose).toBe(true);
+    expect(r.reasoning).toBe("cached: snap-fit lid");
+    expect(r.triggerReason).toBe("live_decider_cached");
+    expect(r.deciderVersion).toBe(DECIDER_VERSION);
+    expect(mockTrackedGenerateText).not.toHaveBeenCalled();
+  });
+
+  it("calls LLM and upserts on cache miss, returns live_decider", async () => {
+    mockPrismaDecomp.findUnique.mockResolvedValue(null);
+    mockPrismaDecomp.upsert.mockResolvedValue({});
+    mockTrackedGenerateText.mockResolvedValue({
+      text: '{"decompose": true, "reasoning": "lathe + grooves on small tier"}',
+      usage: { inputTokens: 200, outputTokens: 30 },
+    });
+    const r = await decideDecomposition({
+      promptId: "p2",
+      promptText: "A lathe-turned handle: complex profile with gripping grooves",
+      modelId: "m1",
+      modelTier: "small",
+    });
+    expect(r).toEqual({
+      decompose: true,
+      reasoning: "lathe + grooves on small tier",
+      triggerReason: "live_decider",
+      deciderVersion: DECIDER_VERSION,
+    });
+    expect(mockTrackedGenerateText).toHaveBeenCalledTimes(1);
+    expect(mockPrismaDecomp.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats null modelTier as 'mid' in the user-message payload", async () => {
+    mockPrismaDecomp.findUnique.mockResolvedValue(null);
+    mockPrismaDecomp.upsert.mockResolvedValue({});
+    mockTrackedGenerateText.mockResolvedValue({
+      text: '{"decompose": false, "reasoning": "simple primitive"}',
+      usage: { inputTokens: 100, outputTokens: 20 },
+    });
+    await decideDecomposition({
+      promptId: "p3",
+      promptText: "a 10mm cube",
+      modelId: "m1",
+      modelTier: null,
+    });
+    const llmCall = mockTrackedGenerateText.mock.calls[0]![0] as { prompt: string };
+    expect(llmCall.prompt).toMatch(/TIER: mid/);
+  });
+
+  it("includes spec_interpretation in the user message when provided", async () => {
+    mockPrismaDecomp.findUnique.mockResolvedValue(null);
+    mockPrismaDecomp.upsert.mockResolvedValue({});
+    mockTrackedGenerateText.mockResolvedValue({
+      text: '{"decompose": false, "reasoning": "single piece"}',
+      usage: { inputTokens: 150, outputTokens: 20 },
+    });
+    await decideDecomposition({
+      promptId: "p4",
+      promptText: "lathe handle",
+      modelId: "m1",
+      modelTier: "frontier",
+      specInterpretation: "A turned cylindrical handle with surface grooves.",
+    });
+    const llmCall = mockTrackedGenerateText.mock.calls[0]![0] as { prompt: string };
+    expect(llmCall.prompt).toMatch(/Spec interpretation:/);
+    expect(llmCall.prompt).toMatch(/A turned cylindrical handle with surface grooves\./);
+  });
+
+  it("rethrows when the LLM call fails (router handles fallback)", async () => {
+    mockPrismaDecomp.findUnique.mockResolvedValue(null);
+    mockTrackedGenerateText.mockRejectedValue(new Error("upstream timeout"));
+    await expect(
+      decideDecomposition({
+        promptId: "p5",
+        promptText: "x",
+        modelId: "m1",
+        modelTier: "mid",
+      }),
+    ).rejects.toThrow(/upstream timeout/);
+  });
+
+  it("rethrows when the LLM response is unparseable", async () => {
+    mockPrismaDecomp.findUnique.mockResolvedValue(null);
+    mockTrackedGenerateText.mockResolvedValue({
+      text: "I'm sorry I can't help with that.",
+      usage: { inputTokens: 100, outputTokens: 10 },
+    });
+    await expect(
+      decideDecomposition({
+        promptId: "p6",
+        promptText: "x",
+        modelId: "m1",
+        modelTier: "mid",
+      }),
+    ).rejects.toThrow(/JSON/);
+  });
+});
