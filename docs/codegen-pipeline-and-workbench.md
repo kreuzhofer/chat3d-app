@@ -131,7 +131,18 @@ The agent decides the workflow: create code → validate → fix issues → rend
 
 `agent-multi.service.ts`
 
-A run is routed to multi-agent decomposition when the spec LLM emits `requiresDecomposition: true`, OR when the prompt matches the multi-part safety-net regex (`snap-fit`, `hinged lid`, `clamshell`, ...). The routing reason is persisted on the trace's top-level field `complexityTriggerReason` ∈ `{spec_llm_decision, multi_part_pattern, single_agent_default, spec_unavailable}`. The legacy operation-count threshold is retired (production data showed it almost never fired — see `docs/codegen-harness-audit.md` §6.4.5 N1).
+A run is routed to multi-agent decomposition by a four-step precedence:
+
+1. **Per-run override** (`experiment_runs.routing_override` ∈ `auto | force_decompose | force_single`) — bypasses everything when set to `force_*`.
+2. **Multi-part regex** (`MULTI_PART_PATTERN` in `spec-generation.service.ts`) — cheap deterministic safety net for prompts containing "snap-fit", "hinged lid", "clamshell", etc.
+3. **Live decomposition decider** (`decomposition-decision.service.ts`) — one LLM call per generation, model-tier-aware, results cached in `decomposition_decisions` keyed by `(prompt_id, model_id)` with a `decider_version` stamp. Bumping `DECIDER_VERSION` (in code) auto-invalidates all cached rows.
+4. **Fallback** when the decider errors — single-agent with trigger `spec_unavailable`.
+
+The previous `spec_llm_decision` trigger reason is deprecated; the spec LLM still emits `requires_decomposition` for training-data purposes but no routing code reads it.
+
+Tuning the decider's criteria is a code/prompt change with zero data migration — bump `DECIDER_VERSION` (e.g. `v1.0.0` → `v1.1.0`) when editing `DECIDER_SYSTEM_PROMPT`.
+
+The routing reason is persisted on the trace's top-level field `complexityTriggerReason` ∈ `{spec_llm_decision, multi_part_pattern, single_agent_default, spec_unavailable}`. The legacy operation-count threshold is retired (production data showed it almost never fired — see `docs/codegen-harness-audit.md` §6.4.5 N1).
 
 1. **Decomposition LLM** splits the prompt into 2–6 independent components
 2. **Sub-agents** run sequentially, each with isolated filesystem + component-specific prompt. Validate-only (no render) to save cycles.
