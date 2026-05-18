@@ -131,11 +131,27 @@ export type TracePipelineType = "single_agent" | "multi_agent" | "chat";
  *   measure counterfactual "what if this prompt had been decomposed?" results.
  */
 export type ComplexityTriggerReason =
-  | "spec_llm_decision"
+  | "spec_llm_decision"      // DEPRECATED — kept for old trace compatibility
   | "multi_part_pattern"
   | "single_agent_default"
   | "spec_unavailable"
-  | "forced_override";
+  | "forced_override"
+  | "live_decider"           // NEW — live LLM call, not cached
+  | "live_decider_cached";   // NEW — live LLM call result reused from cache
+
+/**
+ * Model capability tier consumed by the decomposition decider's system
+ * prompt to set decompose thresholds. `null`/unset → treated as `mid`.
+ */
+export type ModelTier = "frontier" | "mid" | "small";
+
+/**
+ * Per-run override of the live decomposition decider.
+ *  - `auto`: use the live decider
+ *  - `force_decompose`: route to multi-agent regardless of decider verdict
+ *  - `force_single`: route to single-agent regardless of decider verdict
+ */
+export type RoutingOverride = "auto" | "force_decompose" | "force_single";
 
 export interface GenerationTrace {
   version: 1;
