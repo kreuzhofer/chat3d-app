@@ -162,7 +162,8 @@ export function parseDeciderResponse(raw: string): ParsedDeciderResponse {
 // ── Orchestrator ───────────────────────────────────────────────────────
 
 export interface DecomposeDecisionInput {
-  promptId: string;
+  /** Workbench prompt UUID. When null/undefined (chat path), skip cache entirely. */
+  promptId: string | null;
   promptText: string;
   modelId: string;
   /** Tier of the **target codegen** model (not the decider's model). `null` → treated as "mid". */
@@ -208,18 +209,20 @@ function buildUserMessage(
 export async function decideDecomposition(
   input: DecomposeDecisionInput,
 ): Promise<DecomposeDecisionResult> {
-  const cached = await lookupCachedDecision(input.promptId, input.modelId);
-  if (cached) {
-    logger.debug(
-      { promptId: input.promptId, modelId: input.modelId, decompose: cached.decompose },
-      "decomposition decision cache hit",
-    );
-    return {
-      decompose: cached.decompose,
-      reasoning: cached.reasoning,
-      triggerReason: "live_decider_cached",
-      deciderVersion: DECIDER_VERSION,
-    };
+  if (input.promptId) {
+    const cached = await lookupCachedDecision(input.promptId, input.modelId);
+    if (cached) {
+      logger.debug(
+        { promptId: input.promptId, modelId: input.modelId, decompose: cached.decompose },
+        "decomposition decision cache hit",
+      );
+      return {
+        decompose: cached.decompose,
+        reasoning: cached.reasoning,
+        triggerReason: "live_decider_cached",
+        deciderVersion: DECIDER_VERSION,
+      };
+    }
   }
 
   const config = await getModelForPurpose("decomposition_decision");
@@ -248,12 +251,14 @@ export async function decideDecomposition(
 
   const parsed = parseDeciderResponse(result.text);
 
-  await upsertDecision({
-    promptId: input.promptId,
-    modelId: input.modelId,
-    decompose: parsed.decompose,
-    reasoning: parsed.reasoning,
-  });
+  if (input.promptId) {
+    await upsertDecision({
+      promptId: input.promptId,
+      modelId: input.modelId,
+      decompose: parsed.decompose,
+      reasoning: parsed.reasoning,
+    });
+  }
 
   logger.info(
     { promptId: input.promptId, modelId: input.modelId, decompose: parsed.decompose, reasoning: parsed.reasoning },

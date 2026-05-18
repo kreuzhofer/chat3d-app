@@ -25,7 +25,7 @@ import { MULTI_PART_PATTERN } from "./spec-generation.service.js";
 const logger = createLogger("routing");
 
 export interface RouteGenerationInput {
-  promptId: string;
+  promptId: string | null;
   promptText: string;
   modelId: string;
   modelTier: ModelTier | null;

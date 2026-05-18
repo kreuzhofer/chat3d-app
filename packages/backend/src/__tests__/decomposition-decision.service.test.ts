@@ -269,4 +269,20 @@ describe("decideDecomposition orchestrator", () => {
       }),
     ).rejects.toThrow(/JSON/);
   });
+
+  it("skips cache (no findUnique, no upsert) when promptId is null", async () => {
+    mockTrackedGenerateText.mockResolvedValue({
+      text: '{"decompose": true, "reasoning": "x"}',
+      usage: { inputTokens: 100, outputTokens: 10 },
+    });
+    const r = await decideDecomposition({
+      promptId: null,
+      promptText: "chat prompt",
+      modelId: "m1",
+      modelTier: "small",
+    });
+    expect(r.triggerReason).toBe("live_decider");
+    expect(mockPrismaDecomp.findUnique).not.toHaveBeenCalled();
+    expect(mockPrismaDecomp.upsert).not.toHaveBeenCalled();
+  });
 });
