@@ -16,6 +16,7 @@ import {
   rerunExperiment,
   deleteExperimentRun,
   retryExperimentRun,
+  updateExperimentRun,
   retryFailedRuns,
   ExperimentError,
 } from "../services/experiment.service.js";
@@ -43,7 +44,7 @@ function handleError(err: unknown, res: Response) {
 
 experimentRouter.post("/", async (req: Request, res: Response) => {
   try {
-    const { name, categoryIds, promptCount, promptSeed, testedPurpose, modelIds, fewShotCounts } = req.body;
+    const { name, categoryIds, promptCount, promptSeed, testedPurpose, modelIds, fewShotCounts, routingOverride } = req.body;
     const experiment = await createExperiment({
       name,
       categoryIds,
@@ -52,6 +53,7 @@ experimentRouter.post("/", async (req: Request, res: Response) => {
       testedPurpose,
       modelIds,
       fewShotCounts,
+      routingOverride,
       createdBy: req.authUser!.id,
     });
     res.status(201).json(experiment);
@@ -105,8 +107,8 @@ experimentRouter.get("/:id", async (req: Request, res: Response) => {
 
 experimentRouter.patch("/:id", async (req: Request, res: Response) => {
   try {
-    const { name, categoryIds, promptCount, promptSeed, modelIds, fewShotCounts } = req.body;
-    const experiment = await updateExperiment((req.params.id as string), { name, categoryIds, promptCount, promptSeed, modelIds, fewShotCounts });
+    const { name, categoryIds, promptCount, promptSeed, modelIds, fewShotCounts, routingOverride } = req.body;
+    const experiment = await updateExperiment((req.params.id as string), { name, categoryIds, promptCount, promptSeed, modelIds, fewShotCounts, routingOverride });
     res.json(experiment);
   } catch (err) {
     handleError(err, res);
@@ -190,6 +192,20 @@ experimentRouter.get("/:id/runs/:runId/examples", async (req: Request, res: Resp
 });
 
 // ── Run management endpoints ──────────────────────────────────────
+
+experimentRouter.patch("/:id/runs/:runId", async (req: Request, res: Response) => {
+  try {
+    const { routingOverride } = req.body ?? {};
+    const updated = await updateExperimentRun(
+      (req.params.id as string),
+      (req.params.runId as string),
+      { routingOverride },
+    );
+    res.json(updated);
+  } catch (err) {
+    handleError(err, res);
+  }
+});
 
 experimentRouter.delete("/:id/runs/:runId", async (req: Request, res: Response) => {
   try {

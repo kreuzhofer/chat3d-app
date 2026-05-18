@@ -44,6 +44,15 @@ const APPROVED_PROMPT_FILTER = {
 
 const EDITABLE_STATUSES = ["created", "cancelled", "completed", "failed"];
 
+export const ALLOWED_ROUTING_OVERRIDES = new Set(["auto", "force_decompose", "force_single"]);
+
+function validateRoutingOverride(value: unknown): string {
+  if (typeof value !== "string" || !ALLOWED_ROUTING_OVERRIDES.has(value)) {
+    throw new ExperimentError("routingOverride must be auto|force_decompose|force_single", 400);
+  }
+  return value;
+}
+
 // ── Shared validation helpers ───────────────────────────────────────
 
 async function validateCategories(categoryIds: string[]) {
@@ -137,6 +146,7 @@ export interface CreateExperimentInput {
   testedPurpose?: string;
   modelIds: string[];
   fewShotCounts?: number[];
+  routingOverride?: string;
   createdBy: string;
 }
 
@@ -144,6 +154,7 @@ export async function createExperiment(input: CreateExperimentInput) {
   const { name, categoryIds, promptCount, promptSeed = 42, testedPurpose = "workbench_codegen", modelIds, createdBy } = input;
 
   const validatedFsc = validateFewShotCounts(input.fewShotCounts);
+  const defaultRoutingOverride = input.routingOverride !== undefined ? validateRoutingOverride(input.routingOverride) : "auto";
   await validateCategories(categoryIds);
   const { models, uniqueModelIds } = await validateModels(modelIds, validatedFsc);
   const selectedIds = await selectApprovedPrompts(categoryIds, promptCount, promptSeed);
@@ -163,7 +174,7 @@ export async function createExperiment(input: CreateExperimentInput) {
           ? `${model.provider}/${model.displayName} (${fsc} ex)`
           : `${model.provider}/${model.displayName}`;
         await tx.experimentRun.create({
-          data: { experimentId: exp.id, modelId: model.id, modelLabel: label, runOrder, fewShotCount: fsc },
+          data: { experimentId: exp.id, modelId: model.id, modelLabel: label, runOrder, fewShotCount: fsc, routingOverride: defaultRoutingOverride },
         });
       }
     }
@@ -191,6 +202,7 @@ export interface UpdateExperimentInput {
   promptSeed?: number;
   modelIds?: string[];
   fewShotCounts?: number[];
+  routingOverride?: string;
 }
 
 export async function updateExperiment(id: string, input: UpdateExperimentInput) {
@@ -208,6 +220,7 @@ export async function updateExperiment(id: string, input: UpdateExperimentInput)
   const promptSeed = input.promptSeed ?? exp.promptSeed;
   const validatedFsc = input.fewShotCounts !== undefined ? validateFewShotCounts(input.fewShotCounts) : null;
   const effectiveFsc = input.fewShotCounts !== undefined ? validatedFsc : (exp.fewShotCounts.length > 0 ? exp.fewShotCounts : null);
+  const defaultRoutingOverride = input.routingOverride !== undefined ? validateRoutingOverride(input.routingOverride) : "auto";
 
   // Validate changed fields
   if (input.categoryIds) await validateCategories(categoryIds);
@@ -264,7 +277,7 @@ export async function updateExperiment(id: string, input: UpdateExperimentInput)
         if (!exists) {
           nextOrder++;
           await tx.experimentRun.create({
-            data: { experimentId: id, modelId: desired.modelId, modelLabel: desired.label, runOrder: nextOrder, fewShotCount: desired.fsc },
+            data: { experimentId: id, modelId: desired.modelId, modelLabel: desired.label, runOrder: nextOrder, fewShotCount: desired.fsc, routingOverride: defaultRoutingOverride },
           });
         }
       }
@@ -329,7 +342,7 @@ export async function listExperiments(filters?: { status?: string; categoryId?: 
   const [rows, total] = await Promise.all([
     prisma.experiment.findMany({
       where,
-      include: { runs: { orderBy: { runOrder: "asc" }, select: { id: true, modelLabel: true, status: true } } },
+      include: { runs: { orderBy: { runOrder: "asc" }, select: { id: true, modelLabel: true, status: true, routingOverride: true } } },
       orderBy: { createdAt: "desc" },
       take: filters?.limit ?? 50,
       skip: filters?.offset ?? 0,
@@ -349,7 +362,7 @@ export async function listExperiments(filters?: { status?: string; categoryId?: 
       promptCount: r.promptCount,
       testedPurpose: r.testedPurpose,
       status: r.status,
-      runs: r.runs.map((run) => ({ id: run.id, modelLabel: run.modelLabel, status: run.status })),
+      runs: r.runs.map((run) => ({ id: run.id, modelLabel: run.modelLabel, status: run.status, routingOverride: run.routingOverride })),
       createdAt: r.createdAt,
       startedAt: r.startedAt,
       completedAt: r.completedAt,
@@ -377,7 +390,7 @@ export async function rerunExperiment(id: string) {
     include: {
       runs: {
         select: {
-          id: true, modelId: true, runOrder: true, fewShotCount: true,
+          id: true, modelId: true, runOrder: true, fewShotCount: true, routingOverride: true,
           model: { select: { provider: true, displayName: true } },
         },
       },
@@ -397,7 +410,7 @@ export async function rerunExperiment(id: string) {
         ? `${run.model.provider}/${run.model.displayName} (${run.fewShotCount} ex)`
         : `${run.model.provider}/${run.model.displayName}`;
       await tx.experimentRun.create({
-        data: { experimentId: id, modelId: run.modelId, modelLabel: label, runOrder: run.runOrder, fewShotCount: run.fewShotCount },
+        data: { experimentId: id, modelId: run.modelId, modelLabel: label, runOrder: run.runOrder, fewShotCount: run.fewShotCount, routingOverride: run.routingOverride },
       });
     }
     await tx.experiment.update({ where: { id }, data: { status: "created", startedAt: null, completedAt: null } });
@@ -419,6 +432,30 @@ export async function deleteExperimentRun(experimentId: string, runId: string) {
   // Cascade deletes examples automatically
   await prisma.experimentRun.delete({ where: { id: runId } });
   logger.info({ experimentId, runId, modelLabel: run.modelLabel }, "experiment run deleted");
+}
+
+export interface UpdateExperimentRunInput {
+  routingOverride?: string;
+}
+
+export async function updateExperimentRun(experimentId: string, runId: string, input: UpdateExperimentRunInput) {
+  const exp = await prisma.experiment.findUnique({ where: { id: experimentId }, select: { status: true } });
+  if (!exp) throw new ExperimentError("Experiment not found", 404);
+  if (exp.status === "running") throw new ExperimentError("Cannot modify runs of a running experiment", 409);
+
+  const run = await prisma.experimentRun.findFirst({ where: { id: runId, experimentId } });
+  if (!run) throw new ExperimentError("Run not found", 404);
+
+  const data: Record<string, unknown> = {};
+  if (input.routingOverride !== undefined) {
+    data.routingOverride = validateRoutingOverride(input.routingOverride);
+  }
+
+  if (Object.keys(data).length === 0) return run;
+
+  const updated = await prisma.experimentRun.update({ where: { id: runId }, data });
+  logger.info({ experimentId, runId, changes: Object.keys(data) }, "experiment run updated");
+  return updated;
 }
 
 export async function retryExperimentRun(experimentId: string, runId: string) {
@@ -493,7 +530,7 @@ export async function getExperimentStatus(id: string) {
       id: true, status: true, promptCount: true,
       runs: {
         orderBy: { runOrder: "asc" },
-        select: { id: true, modelLabel: true, runOrder: true, fewShotCount: true, status: true, startedAt: true, completedAt: true },
+        select: { id: true, modelLabel: true, runOrder: true, fewShotCount: true, status: true, startedAt: true, completedAt: true, routingOverride: true },
       },
     },
   });
@@ -515,6 +552,7 @@ export async function getExperimentStatus(id: string) {
     runs: exp.runs.map((r) => ({
       id: r.id, modelLabel: r.modelLabel, runOrder: r.runOrder, fewShotCount: r.fewShotCount as number | null, status: r.status,
       completedPrompts: countMap.get(r.id) ?? 0, startedAt: r.startedAt, completedAt: r.completedAt,
+      routingOverride: r.routingOverride,
     })),
   };
 }
@@ -550,6 +588,7 @@ function mapExperiment(exp: any, categories: Array<{ id: string; name: string; c
     runs: exp.runs.map((r: any) => ({  // eslint-disable-line @typescript-eslint/no-explicit-any
       id: r.id, modelId: r.modelId, modelLabel: r.modelLabel, model: r.model,
       runOrder: r.runOrder, fewShotCount: r.fewShotCount, status: r.status, startedAt: r.startedAt, completedAt: r.completedAt,
+      routingOverride: r.routingOverride,
     })),
     promptSelections: exp.promptSelections.map((s: any) => ({  // eslint-disable-line @typescript-eslint/no-explicit-any
       promptId: s.promptId, selectionOrder: s.selectionOrder, prompt: s.prompt.prompt, index: s.prompt.index,
