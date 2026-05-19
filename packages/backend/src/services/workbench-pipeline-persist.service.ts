@@ -7,6 +7,7 @@
 
 import { createLogger } from "../utils/logger.js";
 import { flattenForEval } from "../utils/code-flatten.js";
+import { markTimeoutObserved } from "./decomposition-decision.service.js";
 import { TraceBuilder } from "./trace-builder.service.js";
 import { finalizeTrace } from "./trace-persistence.service.js";
 import { insertExample } from "./workbench-persist.service.js";
@@ -33,6 +34,15 @@ export async function persistAbortedPipeline(
   experimentRunId?: string,
 ): Promise<GenerateResult> {
   logger.info({ promptId: ctx.promptId, stepCount: agResult.stepCount }, "pipeline aborted — skipping screenshots/eval");
+
+  // Failure-aware retro-routing: a single-agent run that aborted on timeout
+  // with zero tool calls is a clear over-reasoning hang. Pin future routing
+  // for this (prompt, model) pair to multi-agent so the next run doesn't
+  // repeat the same dead end. Only fires on the workbench path (promptId set).
+  if (ctx.promptId && agResult.stepCount === 0) {
+    await markTimeoutObserved(ctx.promptId, modelConfig.id);
+  }
+
   const exampleId = crypto.randomUUID();
   const code = flattenForEval(agResult.files.length > 1 ? agResult.files : [{ path: "main.py", content: agResult.code }]);
   const renderError = "Pipeline aborted (timeout or cancellation)";
