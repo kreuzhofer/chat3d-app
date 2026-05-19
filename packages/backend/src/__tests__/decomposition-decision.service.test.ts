@@ -34,11 +34,12 @@ describe("decomposition-decision cache helpers", () => {
     });
   });
 
-  it("lookupCachedDecision returns null on decider_version mismatch (stale row)", async () => {
+  it("lookupCachedDecision returns null on decider_version mismatch (stale row, no override)", async () => {
     mockPrismaDecomp.findUnique.mockResolvedValue({
       decompose: true,
       reasoning: "old reason",
       deciderVersion: "v0.9.0",
+      overrideSource: null,
     });
     const result = await lookupCachedDecision("prompt-1", "model-1");
     expect(result).toBeNull();
@@ -49,11 +50,28 @@ describe("decomposition-decision cache helpers", () => {
       decompose: true,
       reasoning: "lathe profile + grooves; small tier benefits from decomposition",
       deciderVersion: DECIDER_VERSION,
+      overrideSource: null,
     });
     const result = await lookupCachedDecision("prompt-1", "model-1");
     expect(result).toEqual({
       decompose: true,
       reasoning: "lathe profile + grooves; small tier benefits from decomposition",
+      overrideSource: null,
+    });
+  });
+
+  it("lookupCachedDecision returns override row regardless of decider_version", async () => {
+    mockPrismaDecomp.findUnique.mockResolvedValue({
+      decompose: true,
+      reasoning: "single-agent timed out previously with stepCount=0",
+      deciderVersion: "observed-failure",
+      overrideSource: "timeout_observed",
+    });
+    const result = await lookupCachedDecision("prompt-1", "model-1");
+    expect(result).toEqual({
+      decompose: true,
+      reasoning: "single-agent timed out previously with stepCount=0",
+      overrideSource: "timeout_observed",
     });
   });
 
@@ -171,6 +189,7 @@ describe("decideDecomposition orchestrator", () => {
       decompose: true,
       reasoning: "cached: snap-fit lid",
       deciderVersion: DECIDER_VERSION,
+      overrideSource: null,
     });
     const r = await decideDecomposition({
       promptId: "p1",

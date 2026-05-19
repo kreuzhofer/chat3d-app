@@ -39,12 +39,22 @@ const SPEC_INTERPRETATION_MAX_CHARS = 500;
 export interface CachedDecision {
   decompose: boolean;
   reasoning: string;
+  /**
+   * NULL for normal LLM-verdict rows; 'timeout_observed' for sticky override
+   * rows written by the harness after a single-agent timeout-abort with
+   * stepCount=0. Override rows bypass the DECIDER_VERSION check.
+   */
+  overrideSource: string | null;
 }
 
 /**
- * Return the cached decision iff a row exists AND its decider_version matches
- * the current DECIDER_VERSION. Stale rows are treated as a miss (caller
- * recomputes, then overwrites via ON CONFLICT in upsertDecision).
+ * Return the cached decision iff:
+ *   (a) a row exists with `override_source` set (override rows are
+ *       authoritative regardless of decider_version), OR
+ *   (b) a row exists AND its decider_version matches the current
+ *       DECIDER_VERSION.
+ * Stale rows without an override are treated as a miss (caller recomputes,
+ * then overwrites via ON CONFLICT in upsertDecision).
  */
 export async function lookupCachedDecision(
   promptId: string,
@@ -54,8 +64,12 @@ export async function lookupCachedDecision(
     where: { promptId_modelId: { promptId, modelId } },
   });
   if (!row) return null;
-  if (row.deciderVersion !== DECIDER_VERSION) return null;
-  return { decompose: row.decompose, reasoning: row.reasoning };
+  if (row.overrideSource === null && row.deciderVersion !== DECIDER_VERSION) return null;
+  return {
+    decompose: row.decompose,
+    reasoning: row.reasoning,
+    overrideSource: row.overrideSource,
+  };
 }
 
 export interface UpsertDecisionInput {
