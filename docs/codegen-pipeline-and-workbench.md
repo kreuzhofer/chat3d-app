@@ -131,18 +131,19 @@ The agent decides the workflow: create code → validate → fix issues → rend
 
 `agent-multi.service.ts`
 
-A run is routed to multi-agent decomposition by a four-step precedence:
+A run is routed to multi-agent decomposition by a five-step precedence:
 
 1. **Per-run override** (`experiment_runs.routing_override` ∈ `auto | force_decompose | force_single`) — bypasses everything when set to `force_*`.
 2. **Multi-part regex** (`MULTI_PART_PATTERN` in `spec-generation.service.ts`) — cheap deterministic safety net for prompts containing "snap-fit", "hinged lid", "clamshell", etc.
-3. **Live decomposition decider** (`decomposition-decision.service.ts`) — one LLM call per generation, model-tier-aware, results cached in `decomposition_decisions` keyed by `(prompt_id, model_id)` with a `decider_version` stamp. Bumping `DECIDER_VERSION` (in code) auto-invalidates all cached rows.
-4. **Fallback** when the decider errors — single-agent with trigger `spec_unavailable`.
+3. **Timeout-observed override** (`decomposition_decisions.override_source = 'timeout_observed'`) — sticky empirical decision: a previous single-agent run for this `(prompt_id, model_id)` aborted on the pipeline timeout with `stepCount=0`. Future runs route directly to multi-agent without consulting the live decider. Survives `DECIDER_VERSION` bumps (sentinel `decider_version = 'observed-failure'`). Trigger reason: `timeout_observed`. Set inside `persistAbortedPipeline` (`workbench-pipeline-persist.service.ts`).
+4. **Live decomposition decider** (`decomposition-decision.service.ts`) — one LLM call per generation, model-tier-aware, results cached in `decomposition_decisions` keyed by `(prompt_id, model_id)` with a `decider_version` stamp. Bumping `DECIDER_VERSION` (in code) auto-invalidates all NON-override cached rows.
+5. **Fallback** when the decider errors — single-agent with trigger `spec_unavailable`.
 
 The previous `spec_llm_decision` trigger reason is deprecated; the spec LLM still emits `requires_decomposition` for training-data purposes but no routing code reads it.
 
 Tuning the decider's criteria is a code/prompt change with zero data migration — bump `DECIDER_VERSION` (e.g. `v1.0.0` → `v1.1.0`) when editing `DECIDER_SYSTEM_PROMPT`.
 
-The routing reason is persisted on the trace's top-level field `complexityTriggerReason` ∈ `{forced_override, multi_part_pattern, live_decider, live_decider_cached, spec_unavailable, single_agent_default, spec_llm_decision (deprecated)}`. The legacy operation-count threshold is retired (production data showed it almost never fired — see `docs/codegen-harness-audit.md` §6.4.5 N1).
+The routing reason is persisted on the trace's top-level field `complexityTriggerReason` ∈ `{forced_override, multi_part_pattern, timeout_observed, live_decider, live_decider_cached, spec_unavailable, single_agent_default, spec_llm_decision (deprecated)}`. The legacy operation-count threshold is retired (production data showed it almost never fired — see `docs/codegen-harness-audit.md` §6.4.5 N1).
 
 1. **Decomposition LLM** splits the prompt into 2–6 independent components
 2. **Sub-agents** run sequentially, each with isolated filesystem + component-specific prompt. Validate-only (no render) to save cycles.
