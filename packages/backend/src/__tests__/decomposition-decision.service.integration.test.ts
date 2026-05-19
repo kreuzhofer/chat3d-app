@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { prisma } from "../db/prisma.js";
 import {
   DECIDER_VERSION,
+  decideDecomposition,
   lookupCachedDecision,
   markTimeoutObserved,
 } from "../services/decomposition-decision.service.js";
@@ -200,5 +201,55 @@ describe("markTimeoutObserved [integration]", () => {
     });
     expect(row2!.overrideSource).toBe("timeout_observed");
     expect(row2!.decompose).toBe(true);
+  });
+});
+
+describe("decideDecomposition trigger reason for override rows [integration]", () => {
+  beforeEach(async () => {
+    await prisma.decompositionDecision.deleteMany({
+      where: { promptId: PROMPT_ID, modelId: MODEL_ID },
+    });
+  });
+
+  it("returns triggerReason='timeout_observed' when the cache row has override_source='timeout_observed'", async () => {
+    await prisma.decompositionDecision.create({
+      data: {
+        promptId: PROMPT_ID,
+        modelId: MODEL_ID,
+        deciderVersion: "observed-failure",
+        decompose: true,
+        reasoning: "previous timeout",
+        overrideSource: "timeout_observed",
+      },
+    });
+    const r = await decideDecomposition({
+      promptId: PROMPT_ID,
+      promptText: "irrelevant — should be cache-served",
+      modelId: MODEL_ID,
+      modelTier: "small",
+    });
+    expect(r.decompose).toBe(true);
+    expect(r.triggerReason).toBe("timeout_observed");
+    expect(r.reasoning).toBe("previous timeout");
+  });
+
+  it("returns triggerReason='live_decider_cached' for a normal (non-override) cache hit", async () => {
+    await prisma.decompositionDecision.create({
+      data: {
+        promptId: PROMPT_ID,
+        modelId: MODEL_ID,
+        deciderVersion: DECIDER_VERSION,
+        decompose: false,
+        reasoning: "simple cube",
+      },
+    });
+    const r = await decideDecomposition({
+      promptId: PROMPT_ID,
+      promptText: "a 10mm cube",
+      modelId: MODEL_ID,
+      modelTier: "mid",
+    });
+    expect(r.decompose).toBe(false);
+    expect(r.triggerReason).toBe("live_decider_cached");
   });
 });

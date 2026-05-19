@@ -271,7 +271,7 @@ export interface DecomposeDecisionInput {
 export interface DecomposeDecisionResult {
   decompose: boolean;
   reasoning: string;
-  triggerReason: "live_decider" | "live_decider_cached";
+  triggerReason: "live_decider" | "live_decider_cached" | "timeout_observed";
   deciderVersion: string;
 }
 
@@ -308,14 +308,23 @@ export async function decideDecomposition(
   if (input.promptId) {
     const cached = await lookupCachedDecision(input.promptId, input.modelId);
     if (cached) {
+      const triggerReason: DecomposeDecisionResult["triggerReason"] =
+        cached.overrideSource === "timeout_observed"
+          ? "timeout_observed"
+          : "live_decider_cached";
       logger.debug(
-        { promptId: input.promptId, modelId: input.modelId, decompose: cached.decompose },
+        {
+          promptId: input.promptId,
+          modelId: input.modelId,
+          decompose: cached.decompose,
+          triggerReason,
+        },
         "decomposition decision cache hit",
       );
       return {
         decompose: cached.decompose,
         reasoning: cached.reasoning,
-        triggerReason: "live_decider_cached",
+        triggerReason,
         deciderVersion: DECIDER_VERSION,
       };
     }
