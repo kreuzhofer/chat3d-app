@@ -54,6 +54,7 @@ const PURPOSE_LABELS: Record<string, string> = {
   spec_generation: "Spec Generation",
   spec_enrichment: "Spec Enrichment",
   code_review: "Code Review",
+  decomposition_decision: "Decomposition Decision (Routing)",
 };
 
 /** One-liner explaining fallback when a purpose is unassigned. */
@@ -62,6 +63,7 @@ const PURPOSE_FALLBACKS: Record<string, string> = {
   spec_generation: "Falls back to: conversation",
   spec_enrichment: "Falls back to: spec_generation → conversation",
   code_review: "Falls back to: spec_generation → conversation",
+  decomposition_decision: "Unassigned → router falls back to single-agent",
 };
 
 export interface ModelsTabProps {
