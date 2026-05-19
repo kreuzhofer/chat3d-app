@@ -109,6 +109,24 @@ describe("parseDeciderResponse", () => {
     const r = parseDeciderResponse('{"decompose": true}');
     expect(r).toEqual({ decompose: true, reasoning: "" });
   });
+
+  it("ignores trailing markdown commentary after the JSON object", () => {
+    const raw =
+      '{\n  "decompose": true,\n  "reasoning": "Complex revolved profile + multiple grooves exceed mid-tier single-pass capability; decompose into profile body and groove features."\n}\n**Rationale:**\n- **Revolved geometry** with multiple turns\n- **Groove features** require precise positioning';
+    const r = parseDeciderResponse(raw);
+    expect(r.decompose).toBe(true);
+    expect(r.reasoning).toMatch(/Complex revolved profile/);
+  });
+
+  it("ignores leading prose before the JSON object", () => {
+    const r = parseDeciderResponse('Here is my analysis: {"decompose": false, "reasoning": "simple"}');
+    expect(r).toEqual({ decompose: false, reasoning: "simple" });
+  });
+
+  it("respects braces inside string literals", () => {
+    const r = parseDeciderResponse('{"decompose": false, "reasoning": "uses { and } chars"}');
+    expect(r).toEqual({ decompose: false, reasoning: "uses { and } chars" });
+  });
 });
 
 import { decideDecomposition } from "../services/decomposition-decision.service.js";

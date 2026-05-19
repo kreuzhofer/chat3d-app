@@ -129,11 +129,38 @@ export interface ParsedDeciderResponse {
   reasoning: string;
 }
 
+/** Scan for the first balanced `{...}` block, respecting string literals. */
+function extractFirstJsonObject(s: string): string | null {
+  const start = s.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inString) {
+      if (escape) escape = false;
+      else if (ch === "\\") escape = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
 /**
  * Parse the decider LLM's JSON response. Tolerant of markdown code fences
- * (Claude sometimes wraps JSON in ```json ... ```). Throws on hard
- * failure so the caller (decideDecomposition) can fall back to single-agent
- * via the router's catch block.
+ * and trailing commentary (Haiku sometimes emits a JSON block followed by
+ * `**Rationale:** ...` Markdown). Extracts the first balanced top-level
+ * object and parses that. Throws on hard failure so the caller
+ * (decideDecomposition) can fall back to single-agent via the router's
+ * catch block.
  */
 export function parseDeciderResponse(raw: string): ParsedDeciderResponse {
   const stripped = raw
@@ -141,9 +168,11 @@ export function parseDeciderResponse(raw: string): ParsedDeciderResponse {
     .replace(/\s*```\s*$/m, "")
     .trim();
 
+  const candidate = extractFirstJsonObject(stripped) ?? stripped;
+
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripped);
+    parsed = JSON.parse(candidate);
   } catch {
     throw new Error(`decider response is not valid JSON: ${stripped.slice(0, 200)}`);
   }
