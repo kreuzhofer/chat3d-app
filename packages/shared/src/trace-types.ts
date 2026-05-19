@@ -132,6 +132,10 @@ export type TracePipelineType = "single_agent" | "multi_agent" | "chat";
  *   measure counterfactual "what if this prompt had been decomposed?" results.
  * - `live_decider`: live LLM call, not cached.
  * - `live_decider_cached`: live LLM call result reused from cache.
+ * - `timeout_observed`: a previous single-agent run for this (prompt, model)
+ *   aborted on the pipeline timeout with zero tool calls. The harness wrote a
+ *   sticky decompose=true row to the decision cache; this trigger reason
+ *   surfaces that empirical short-circuit in traces.
  */
 export type ComplexityTriggerReason =
   | "spec_llm_decision"
@@ -140,7 +144,8 @@ export type ComplexityTriggerReason =
   | "spec_unavailable"
   | "forced_override"
   | "live_decider"
-  | "live_decider_cached";
+  | "live_decider_cached"
+  | "timeout_observed";
 
 /**
  * Model capability tier consumed by the decomposition decider's system
