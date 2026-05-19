@@ -105,6 +105,59 @@ export async function upsertDecision(input: UpsertDecisionInput): Promise<void> 
   });
 }
 
+/**
+ * Sentinel decider_version for empirical timeout-observed overrides.
+ * Lookups treat any row with `override_source != null` as version-independent,
+ * but persisting a recognizable sentinel makes ad-hoc DB inspection clearer.
+ */
+const TIMEOUT_OBSERVED_VERSION = "observed-failure";
+const TIMEOUT_OBSERVED_REASONING =
+  "Single-agent pipeline previously aborted on timeout with stepCount=0 (over-reasoning hang). Sticky override → multi-agent.";
+
+/**
+ * Mark a (prompt, model) pair as "single-agent timed out with no progress".
+ * Future routing for this pair will short-circuit to multi-agent via the
+ * `timeout_observed` trigger reason, even after `DECIDER_VERSION` bumps.
+ *
+ * Idempotent: re-marking is a no-op upsert.
+ *
+ * Errors are logged but do not throw — the calling persist path is already
+ * on an abort code path and we must not mask the original failure.
+ */
+export async function markTimeoutObserved(
+  promptId: string,
+  modelId: string,
+): Promise<void> {
+  try {
+    await prisma.decompositionDecision.upsert({
+      where: { promptId_modelId: { promptId, modelId } },
+      create: {
+        promptId,
+        modelId,
+        deciderVersion: TIMEOUT_OBSERVED_VERSION,
+        decompose: true,
+        reasoning: TIMEOUT_OBSERVED_REASONING,
+        overrideSource: "timeout_observed",
+      },
+      update: {
+        deciderVersion: TIMEOUT_OBSERVED_VERSION,
+        decompose: true,
+        reasoning: TIMEOUT_OBSERVED_REASONING,
+        overrideSource: "timeout_observed",
+      },
+    });
+    logger.info(
+      { promptId, modelId },
+      "marked (prompt, model) as timeout_observed — future routing pinned to multi-agent",
+    );
+  } catch (err) {
+    logger.error(
+      { err: err instanceof Error ? err.message : String(err), promptId, modelId },
+      "failed to mark timeout_observed — continuing",
+    );
+  }
+}
+
 // ── System prompt (BUMP DECIDER_VERSION above when editing this) ────────
 
 export const DECIDER_SYSTEM_PROMPT = `You decide whether a 3D CAD prompt should be routed to a multi-agent decomposition pipeline or a single-agent codegen pipeline. Multi-agent breaks the model into 2-6 sub-parts that are designed independently and then assembled. It's more expensive (~2-3× tokens) but helps when a model would otherwise fail to produce coherent geometry in one pass.

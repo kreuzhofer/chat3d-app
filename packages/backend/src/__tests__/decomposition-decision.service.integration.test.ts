@@ -3,6 +3,7 @@ import { prisma } from "../db/prisma.js";
 import {
   DECIDER_VERSION,
   lookupCachedDecision,
+  markTimeoutObserved,
 } from "../services/decomposition-decision.service.js";
 
 // Stable fixed UUIDs for the fixtures created/destroyed by this suite.
@@ -150,5 +151,54 @@ describe("lookupCachedDecision (override-aware) [integration]", () => {
       reasoning: "single-agent timed out previously with stepCount=0",
       overrideSource: "timeout_observed",
     });
+  });
+});
+
+describe("markTimeoutObserved [integration]", () => {
+  beforeEach(async () => {
+    await prisma.decompositionDecision.deleteMany({
+      where: { promptId: PROMPT_ID, modelId: MODEL_ID },
+    });
+  });
+
+  it("creates a new row with decompose=true, override_source='timeout_observed', decider_version='observed-failure'", async () => {
+    await markTimeoutObserved(PROMPT_ID, MODEL_ID);
+    const row = await prisma.decompositionDecision.findUnique({
+      where: { promptId_modelId: { promptId: PROMPT_ID, modelId: MODEL_ID } },
+    });
+    expect(row).not.toBeNull();
+    expect(row!.decompose).toBe(true);
+    expect(row!.overrideSource).toBe("timeout_observed");
+    expect(row!.deciderVersion).toBe("observed-failure");
+    expect(row!.reasoning).toMatch(/single-agent.*timeout/i);
+  });
+
+  it("upgrades an existing decompose=false row to an override (idempotent on repeat calls)", async () => {
+    await prisma.decompositionDecision.create({
+      data: {
+        promptId: PROMPT_ID,
+        modelId: MODEL_ID,
+        deciderVersion: DECIDER_VERSION,
+        decompose: false,
+        reasoning: "decider said single",
+      },
+    });
+
+    await markTimeoutObserved(PROMPT_ID, MODEL_ID);
+
+    const row = await prisma.decompositionDecision.findUnique({
+      where: { promptId_modelId: { promptId: PROMPT_ID, modelId: MODEL_ID } },
+    });
+    expect(row!.decompose).toBe(true);
+    expect(row!.overrideSource).toBe("timeout_observed");
+    expect(row!.deciderVersion).toBe("observed-failure");
+
+    // Second call must be a no-op upsert (no throw, row unchanged)
+    await markTimeoutObserved(PROMPT_ID, MODEL_ID);
+    const row2 = await prisma.decompositionDecision.findUnique({
+      where: { promptId_modelId: { promptId: PROMPT_ID, modelId: MODEL_ID } },
+    });
+    expect(row2!.overrideSource).toBe("timeout_observed");
+    expect(row2!.decompose).toBe(true);
   });
 });
