@@ -51,6 +51,7 @@ import {
 import { RagRetrievalCollector } from "./rag-retrieval-collector.service.js";
 import { detectUsage, extractIdentifiers } from "./rag-attribution.service.js";
 import { persistAbortedPipeline, persistRejectedPrompt } from "./workbench-pipeline-persist.service.js";
+import { persistSpecToPrompt } from "./workbench-spec-persist.service.js";
 import crypto from "node:crypto";
 
 export { wrapInTemplate, stripTemplateBoilerplate } from "../utils/workbench-code-utils.js";
@@ -336,6 +337,16 @@ async function _runPipeline(
       });
       traceBuilder.endPhase("completed");
       updateTraceIncremental(traceId, traceBuilder.snapshot());
+
+      // Persist spec to the prompt row immediately. A later pipeline abort
+      // (timeout, render failure) must not be able to drop a freshly-generated
+      // spec — that regression left categories at ~60% spec coverage after
+      // "Regenerate All" runs because the post-insertExample write never ran.
+      await persistSpecToPrompt({
+        promptId: ctx.promptId,
+        specResult,
+        specCameFromNullDecompositionCache,
+      });
     }
   }
 
@@ -422,6 +433,16 @@ async function _runPipeline(
         if (enriched.constructionSpec) {
           specResult = { ...specResult, constructionSpec: enriched.constructionSpec, verificationCriteria: enriched.verificationCriteria };
         }
+        // Re-persist with refined spec + enrichment metadata so an abort after
+        // this point still leaves the enrichment work on the prompt row.
+        // Non-null assertion: outer `if (specResult && ...)` guarantees non-null,
+        // but TS loses the narrowing across the let reassignment above.
+        await persistSpecToPrompt({
+          promptId: ctx.promptId,
+          specResult: specResult!,
+          specCameFromNullDecompositionCache,
+          enrichmentResult,
+        });
         traceBuilder.addUsage({
           inputTokens: enriched.promptTokens,
           outputTokens: enriched.completionTokens,
@@ -796,45 +817,13 @@ async function _runPipeline(
     agentSystemPrompt: agResult?.systemPrompt ?? null,
   });
 
-  // Persist all spec outputs on the prompt for future re-render/re-eval use.
-  // Awaited so the example never lands in DB without its spec — earlier
-  // fire-and-forget pattern produced orphan examples when the update
-  // crashed silently.
-  if (specResult) {
-    try {
-      await prisma.workbenchExamplePrompt.update({
-        where: { id: ctx.promptId },
-        data: {
-          specInterpretation: specResult.interpretation,
-          codeAssertions: specResult.codeAssertions as unknown as undefined,
-          verificationChecklist: specResult.verificationChecklist,
-          verificationCriteria: specResult.verificationCriteria as unknown as undefined,
-          constructionSpec: specResult.constructionSpec || null,
-          specRawResponse: specResult.rawResponse ?? null,
-          specSystemPrompt: specResult.systemPrompt ?? null,
-          // Preserve NULL when this run reused a pre-N1 cached spec — otherwise
-          // we'd lock the prompt out of the backfill (silent default-false).
-          ...(specCameFromNullDecompositionCache ? {} : {
-            requiresDecomposition: specResult.requiresDecomposition,
-            decompositionReasoning: specResult.decompositionReasoning,
-          }),
-          ...(enrichmentResult ? {
-            enrichmentRawResponse: enrichmentResult.rawResponse ?? null,
-            enrichmentSystemPrompt: enrichmentResult.systemPrompt ?? null,
-            enrichmentUserMessage: enrichmentResult.userMessage ?? null,
-          } : {}),
-        },
-      });
-    } catch (err) {
-      logger.warn({ err: err instanceof Error ? err.message : String(err) }, "failed to persist spec fields (non-fatal)");
-    }
-
-    // Spec embedding is independent — leave fire-and-forget since it's only
-    // used by the remix-candidate path and a missing one is recoverable.
-    if (specResult.constructionSpec) {
-      storeSpecAndEmbedding(ctx.promptId, specResult.constructionSpec)
-        .catch(err => logger.warn({ err: err instanceof Error ? err.message : String(err) }, "failed to store spec embedding (non-fatal)"));
-    }
+  // Spec fields were persisted eagerly upstream — once right after
+  // generateSpec() returns, again after enrichment if it ran. The embedding
+  // is independent and stays fire-and-forget since it's only used by the
+  // remix-candidate path and a missing one is recoverable.
+  if (specResult?.constructionSpec) {
+    storeSpecAndEmbedding(ctx.promptId, specResult.constructionSpec)
+      .catch(err => logger.warn({ err: err instanceof Error ? err.message : String(err) }, "failed to store spec embedding (non-fatal)"));
   }
 
   // Finalize trace
