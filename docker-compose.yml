@@ -47,7 +47,6 @@ services:
       start_period: 30s
 
   screenshot-service:
-    platform: linux/amd64
     image: chat3d-screenshot-service:local
     build:
       context: ./services/screenshot-service
