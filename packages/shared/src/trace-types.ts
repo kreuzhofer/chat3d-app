@@ -151,8 +151,17 @@ export type ComplexityTriggerReason =
  * Model capability tier consumed by the decomposition decider's system
  * prompt to set decompose thresholds. Consumers SHOULD treat `null`/unset
  * as `mid`.
+ *
+ * The earlier `"small"` tier was retired 2026-05-23: parameter-count-based
+ * tiering was misleading (a 27B fine-tune isn't "small" in any industry
+ * sense), and the behavioural signal we actually cared about (over-reasoning
+ * timeouts on weak fine-tunes) is now captured empirically by the
+ * `timeout_observed` retro-routing mechanism in
+ * `workbench-pipeline-persist.service.ts`. A model that hangs is auto-routed
+ * to multi-agent for that (prompt, model) thereafter — no a-priori tier
+ * needed.
  */
-export type ModelTier = "frontier" | "mid" | "small";
+export type ModelTier = "frontier" | "mid";
 
 /**
  * Per-run override of the live decomposition decider.

@@ -139,7 +139,7 @@ export function ModelsTab({ token }: ModelsTabProps) {
   };
 
   const handleTierChange = async (model: LlmModelRow, value: string) => {
-    const tier = value === "" ? null : (value as "frontier" | "mid" | "small");
+    const tier = value === "" ? null : (value as "frontier" | "mid");
     try {
       await updateLlmModel(token, model.id, { tier });
       await loadData();
@@ -307,7 +307,6 @@ export function ModelsTab({ token }: ModelsTabProps) {
                       <option value="">—</option>
                       <option value="frontier">Frontier</option>
                       <option value="mid">Mid</option>
-                      <option value="small">Small</option>
                     </select>
                   </td>
                   <td className="py-2 pr-3">

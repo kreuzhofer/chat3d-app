@@ -464,7 +464,7 @@ adminRouter.delete("/waitlist/:entryId", async (req, res) => {
 
 // ── LLM Model Configuration ────────────────────────────────────────
 
-const ALLOWED_LLM_MODEL_TIERS = new Set(["frontier", "mid", "small"]);
+const ALLOWED_LLM_MODEL_TIERS = new Set(["frontier", "mid"]);
 
 adminRouter.get("/llm-models", async (_req, res) => {
   try {

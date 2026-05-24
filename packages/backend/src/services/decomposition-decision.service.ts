@@ -28,7 +28,7 @@ const logger = createLogger("decomp-decider");
  * prompt below is edited — cache rows with a different version are treated
  * as misses, so the next call refreshes them.
  */
-export const DECIDER_VERSION = "v1.0.0";
+export const DECIDER_VERSION = "v1.1.0";
 
 /** Default tier when the target model's tier is unset/null. */
 const DEFAULT_TIER: ModelTier = "mid";
@@ -164,7 +164,7 @@ export const DECIDER_SYSTEM_PROMPT = `You decide whether a 3D CAD prompt should 
 
 You will receive:
 - the user's prompt
-- the target model's TIER ∈ { frontier, mid, small }
+- the target model's TIER ∈ { frontier, mid }
 - (optionally) the spec LLM's interpretation of the prompt
 
 Decision rules — calibrated PER TIER:
@@ -172,19 +172,11 @@ Decision rules — calibrated PER TIER:
 FRONTIER (Claude Sonnet/Opus, GPT-4+, etc.):
   Decompose ONLY when the prompt has clearly multiple independently-designable assembled parts with mating geometry (snap-fit lid, hinged door, separate body+arm with interface points). These models handle complex single-piece geometry solo. Lathe profiles, organic shapes, dense feature counts on one body → single-agent.
 
-MID (mid-tier OSS, larger fine-tunes that aren't tool-trained):
+MID (mid-tier OSS, fine-tunes — anything that isn't frontier):
   Decompose for:
   - Clear multi-part objects with mating geometry
   - Single-piece prompts with ≥4 distinct geometric operations (revolved profile + grooves + fillets + holes, etc.)
   Otherwise single-agent.
-
-SMALL (small fine-tunes like chat3d-build123d-02-synthetic-16k:ma, 27B-and-under):
-  Decompose more eagerly. Decompose for:
-  - Clear multi-part objects
-  - Single-piece prompts with revolved/lathe profiles + surface features (grooves, knurling)
-  - Organic/sculpted shapes
-  - Dense polar or linear arrays (≥6 repeats) — these often fail in one shot
-  - Any prompt with ≥3 distinct geometric features beyond a primitive
 
 Return ONLY a JSON object:
   { "decompose": boolean, "reasoning": "one sentence, max 20 words" }`;

@@ -48,14 +48,14 @@ describe("decomposition-decision cache helpers", () => {
   it("lookupCachedDecision returns row when decider_version matches current", async () => {
     mockPrismaDecomp.findUnique.mockResolvedValue({
       decompose: true,
-      reasoning: "lathe profile + grooves; small tier benefits from decomposition",
+      reasoning: "lathe profile + grooves; multi-feature prompt warrants decomposition",
       deciderVersion: DECIDER_VERSION,
       overrideSource: null,
     });
     const result = await lookupCachedDecision("prompt-1", "model-1");
     expect(result).toEqual({
       decompose: true,
-      reasoning: "lathe profile + grooves; small tier benefits from decomposition",
+      reasoning: "lathe profile + grooves; multi-feature prompt warrants decomposition",
       overrideSource: null,
     });
   });
@@ -208,18 +208,18 @@ describe("decideDecomposition orchestrator", () => {
     mockPrismaDecomp.findUnique.mockResolvedValue(null);
     mockPrismaDecomp.upsert.mockResolvedValue({});
     mockTrackedGenerateText.mockResolvedValue({
-      text: '{"decompose": true, "reasoning": "lathe + grooves on small tier"}',
+      text: '{"decompose": true, "reasoning": "lathe + grooves warrant decomposition"}',
       usage: { inputTokens: 200, outputTokens: 30 },
     });
     const r = await decideDecomposition({
       promptId: "p2",
       promptText: "A lathe-turned handle: complex profile with gripping grooves",
       modelId: "m1",
-      modelTier: "small",
+      modelTier: "mid",
     });
     expect(r).toEqual({
       decompose: true,
-      reasoning: "lathe + grooves on small tier",
+      reasoning: "lathe + grooves warrant decomposition",
       triggerReason: "live_decider",
       deciderVersion: DECIDER_VERSION,
     });
@@ -232,12 +232,12 @@ describe("decideDecomposition orchestrator", () => {
         modelId: "m1",
         deciderVersion: DECIDER_VERSION,
         decompose: true,
-        reasoning: "lathe + grooves on small tier",
+        reasoning: "lathe + grooves warrant decomposition",
       },
       update: {
         deciderVersion: DECIDER_VERSION,
         decompose: true,
-        reasoning: "lathe + grooves on small tier",
+        reasoning: "lathe + grooves warrant decomposition",
       },
     });
   });
@@ -316,7 +316,7 @@ describe("decideDecomposition orchestrator", () => {
       promptId: null,
       promptText: "chat prompt",
       modelId: "m1",
-      modelTier: "small",
+      modelTier: "mid",
     });
     expect(r.triggerReason).toBe("live_decider");
     expect(mockPrismaDecomp.findUnique).not.toHaveBeenCalled();

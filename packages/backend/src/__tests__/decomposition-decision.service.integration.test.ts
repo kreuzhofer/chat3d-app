@@ -226,7 +226,7 @@ describe("decideDecomposition trigger reason for override rows [integration]", (
       promptId: PROMPT_ID,
       promptText: "irrelevant — should be cache-served",
       modelId: MODEL_ID,
-      modelTier: "small",
+      modelTier: "mid",
     });
     expect(r.decompose).toBe(true);
     expect(r.triggerReason).toBe("timeout_observed");

@@ -34,7 +34,7 @@ describe("routeGeneration", () => {
       promptId: "p2",
       promptText: "a box with a snap-fit lid",  // regex would match but override wins
       modelId: "m1",
-      modelTier: "small",
+      modelTier: "mid",
       routingOverride: "force_single",
     });
     expect(r).toEqual({ useMultiAgent: false, triggerReason: "forced_override", reasoning: undefined });
@@ -46,7 +46,7 @@ describe("routeGeneration", () => {
       promptId: "p3",
       promptText: "a box with a snap-fit lid",
       modelId: "m1",
-      modelTier: "small",
+      modelTier: "mid",
       routingOverride: "auto",
     });
     expect(r.useMultiAgent).toBe(true);
@@ -57,7 +57,7 @@ describe("routeGeneration", () => {
   it("calls the decider when regex doesn't match (auto override)", async () => {
     mockDecideDecomposition.mockResolvedValue({
       decompose: true,
-      reasoning: "lathe + grooves on small tier",
+      reasoning: "lathe + grooves warrant decomposition",
       triggerReason: "live_decider",
       deciderVersion: "v1.0.0",
     });
@@ -65,12 +65,12 @@ describe("routeGeneration", () => {
       promptId: "p4",
       promptText: "A lathe-turned handle: complex profile with gripping grooves",
       modelId: "m1",
-      modelTier: "small",
+      modelTier: "mid",
       routingOverride: "auto",
     });
     expect(r.useMultiAgent).toBe(true);
     expect(r.triggerReason).toBe("live_decider");
-    expect(r.reasoning).toBe("lathe + grooves on small tier");
+    expect(r.reasoning).toBe("lathe + grooves warrant decomposition");
     expect(mockDecideDecomposition).toHaveBeenCalledTimes(1);
   });
 
@@ -99,7 +99,7 @@ describe("routeGeneration", () => {
       promptId: "p6",
       promptText: "A lathe-turned handle",
       modelId: "m1",
-      modelTier: "small",
+      modelTier: "mid",
       routingOverride: "auto",
     });
     expect(r).toEqual({ useMultiAgent: false, triggerReason: "spec_unavailable", reasoning: undefined });
