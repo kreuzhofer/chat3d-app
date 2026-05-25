@@ -32,6 +32,7 @@ export async function persistAbortedPipeline(
   traceBuilder: TraceBuilder,
   traceId: string | null,
   experimentRunId?: string,
+  earlyExampleId?: string,
 ): Promise<GenerateResult> {
   logger.info({ promptId: ctx.promptId, stepCount: agResult.stepCount }, "pipeline aborted — skipping screenshots/eval");
 
@@ -43,7 +44,12 @@ export async function persistAbortedPipeline(
     await markTimeoutObserved(ctx.promptId, modelConfig.id);
   }
 
-  const exampleId = crypto.randomUUID();
+  // Reuse the early placeholder ID created at pipeline start when available.
+  // insertExample is an upsert, so this updates the existing `pending` row to
+  // `error` in place instead of inserting a sibling — which previously left
+  // two rows tied to the same (prompt, run) and broke the per-prompt
+  // comparison table's positional column rendering.
+  const exampleId = earlyExampleId ?? crypto.randomUUID();
   const code = flattenForEval(agResult.files.length > 1 ? agResult.files : [{ path: "main.py", content: agResult.code }]);
   const renderError = "Pipeline aborted (timeout or cancellation)";
   await insertExample({
@@ -71,10 +77,12 @@ export async function persistRejectedPrompt(
   traceId: string | null,
   onProgress?: ProgressCallback,
   experimentRunId?: string,
+  earlyExampleId?: string,
 ): Promise<GenerateResult> {
   logger.info({ reason: validation.reason }, "prompt rejected by validation");
   onProgress?.("failed", `Prompt validation failed: ${validation.reason}`);
-  const exampleId = crypto.randomUUID();
+  // Reuse the early placeholder ID for the same reason as persistAbortedPipeline.
+  const exampleId = earlyExampleId ?? crypto.randomUUID();
   const renderError = `Prompt validation failed: ${validation.reason}`;
   await insertExample({
     id: exampleId, promptId: ctx.promptId, iteration: 0,

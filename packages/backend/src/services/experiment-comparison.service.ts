@@ -335,7 +335,17 @@ export async function getPerPromptComparison(experimentId: string): Promise<Prom
     FROM experiment_prompt_selections eps
     CROSS JOIN experiment_runs r
     JOIN workbench_example_prompts p ON p.id = eps.prompt_id
-    LEFT JOIN workbench_examples e ON e.experiment_run_id = r.id AND e.prompt_id = eps.prompt_id
+    LEFT JOIN LATERAL (
+      -- One example per (prompt, run): prefer non-pending, then newest.
+      -- Older aborted runs sometimes left a pending placeholder alongside
+      -- a separately-inserted error row, which inflated the per-row runs
+      -- array and slid cells into the wrong column on the comparison UI.
+      SELECT *
+      FROM workbench_examples we
+      WHERE we.experiment_run_id = r.id AND we.prompt_id = eps.prompt_id
+      ORDER BY (we.render_status = 'pending') ASC, we.created_at DESC
+      LIMIT 1
+    ) e ON true
     LEFT JOIN generation_traces t ON t.workbench_example_id = e.id
     WHERE eps.experiment_id = ${experimentId}::uuid
       AND r.experiment_id = ${experimentId}::uuid

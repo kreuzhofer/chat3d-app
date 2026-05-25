@@ -253,7 +253,7 @@ async function _runPipeline(
   updateTraceIncremental(traceId, traceBuilder.snapshot());
 
   if (!validation.valid) {
-    return persistRejectedPrompt(ctx, validation, llmModelLabel, traceBuilder, traceId, onProgress, options?.experimentRunId);
+    return persistRejectedPrompt(ctx, validation, llmModelLabel, traceBuilder, traceId, onProgress, options?.experimentRunId, earlyExampleId);
   }
 
   // 2b. Spec generation — reuse cached spec if available to save tokens
@@ -556,7 +556,7 @@ async function _runPipeline(
   updateTraceIncremental(traceId, traceBuilder.snapshot());
 
   if (pipelineSignal.aborted) {
-    return persistAbortedPipeline(ctx, agResult, wbAgentModelConfig, traceBuilder, traceId, options?.experimentRunId);
+    return persistAbortedPipeline(ctx, agResult, wbAgentModelConfig, traceBuilder, traceId, options?.experimentRunId, earlyExampleId);
   }
 
   const agAllCode = flattenForEval(agResult.files.length > 1 ? agResult.files : [{ path: "main.py", content: agResult.code }]);
