@@ -17,6 +17,13 @@ class MockResponse {
     this.headers.set(name, value);
   }
 
+  // SseService calls flushHeaders() after setHeader() to commit the
+  // SSE response headers immediately. Express's Response defines it; our
+  // mock just no-ops so the connect() path doesn't throw.
+  flushHeaders() {
+    /* no-op for tests */
+  }
+
   write(chunk: string) {
     this.chunks.push(chunk);
     return true;

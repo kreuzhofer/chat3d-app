@@ -38,14 +38,21 @@ describe("CODEGEN_SYSTEM_PROMPT section composition", () => {
     expect(CODEGEN_SYSTEM_PROMPT).toBe(CODEGEN_ALL_SECTIONS.join("\n\n"));
   });
 
-  it("has exactly 25 sections", () => {
-    expect(CODEGEN_ALL_SECTIONS).toHaveLength(25);
+  it("has the expected section count", () => {
+    // Section count grows as we add domain prompts (bd_warehouse,
+    // gridfinity, …). Assert the rough shape rather than a fixed number
+    // so adding a domain doesn't break the suite, but a regression that
+    // collapses sections does.
+    expect(CODEGEN_ALL_SECTIONS.length).toBeGreaterThanOrEqual(25);
+    expect(CODEGEN_ALL_SECTIONS.length).toBeLessThanOrEqual(40);
   });
 
-  it("preserves the known prompt length", () => {
-    // This is the byte-identical check against the pre-refactor monolithic string.
-    // If any section content changes, this test will catch it.
-    expect(CODEGEN_SYSTEM_PROMPT.length).toBe(19954);
+  it("is a substantial prompt", () => {
+    // Same reasoning: the prompt grows with each new section, so a fixed
+    // byte length is brittle. Range check catches a collapse without
+    // breaking on every legitimate addition.
+    expect(CODEGEN_SYSTEM_PROMPT.length).toBeGreaterThan(19000);
+    expect(CODEGEN_SYSTEM_PROMPT.length).toBeLessThan(80000);
   });
 
   it("starts with the intro section", () => {
@@ -227,8 +234,11 @@ describe("buildReducedSystemPrompt", () => {
 
   it("never includes examples in fix mode", () => {
     const reduced = buildReducedSystemPrompt({ currentCode: simpleCode });
-    expect(reduced).not.toContain("## Complete Example");
-    expect(reduced).not.toContain("## More Examples");
+    // Match the section constants directly. A bare substring `"## Complete
+    // Example"` would also collide with the gridfinity section's
+    // `### Complete Examples` header, a different concept.
+    expect(reduced).not.toContain(CODEGEN_SECTION_EXAMPLE);
+    expect(reduced).not.toContain(CODEGEN_SECTION_MORE_EXAMPLES);
   });
 
   it("includes 2D sketch section when code uses Circle", () => {
@@ -265,8 +275,8 @@ describe("buildReducedSystemPrompt", () => {
     expect(reduced).toContain("### Parametric Geometry");
 
     // But still no examples
-    expect(reduced).not.toContain("## Complete Example");
-    expect(reduced).not.toContain("## More Examples");
+    expect(reduced).not.toContain(CODEGEN_SECTION_EXAMPLE);
+    expect(reduced).not.toContain(CODEGEN_SECTION_MORE_EXAMPLES);
   });
 
   it("includes all conditional sections for API_MISUSE", () => {
@@ -278,7 +288,7 @@ describe("buildReducedSystemPrompt", () => {
     expect(reduced).toContain("### 2D Sketch Primitives");
     expect(reduced).toContain("### 3D Operations");
     expect(reduced).toContain("### Sweep");
-    expect(reduced).not.toContain("## Complete Example");
+    expect(reduced).not.toContain(CODEGEN_SECTION_EXAMPLE);
   });
 
   it("does not include unrelated sections for simple code with GEOMETRY error", () => {

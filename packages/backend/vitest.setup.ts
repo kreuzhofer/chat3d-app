@@ -12,6 +12,13 @@
 // first, then everything else.
 process.env.EMAIL_TRANSPORT = "memory";
 
+// Same reasoning for the query pipeline: docker-compose passes
+// QUERY_LLM_MODE=live and QUERY_RENDER_MODE=live to the backend container,
+// which would have integration tests make real LLM + render calls.
+// Override here so config.ts captures the test-appropriate "mock" mode.
+process.env.QUERY_LLM_MODE = "mock";
+process.env.QUERY_RENDER_MODE = "mock";
+
 const { beforeAll } = await import("vitest");
 const { initializeI18n } = await import("./src/i18n/config.js");
 const { prisma } = await import("./src/db/prisma.js");
