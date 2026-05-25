@@ -11,6 +11,8 @@ RUN npm install
 RUN npx prisma generate
 
 COPY tsconfig.json ./
+COPY vitest.config.ts ./
+COPY vitest.setup.ts ./
 COPY src ./src
 
 # NOTE: `RUN npx tsc --noEmit` is not enabled yet because there are
