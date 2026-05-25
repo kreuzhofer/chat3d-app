@@ -265,7 +265,17 @@ async function _runPipeline(
   let specCameFromNullDecompositionCache = false;
   const specEnabled = await isSpecGenerationEnabled("workbench");
   if (specEnabled) {
-    const hasCachedSpec = ctx.cachedSpec.constructionSpec && ctx.cachedSpec.specInterpretation;
+    // The cached-spec branch reuses construction_spec + spec_interpretation but
+    // ALSO carries spec_raw_response and spec_system_prompt forward as-is. For
+    // prompts whose spec was generated before training-data tracking existed,
+    // those two fields are NULL on the cache row — and stay NULL forever, since
+    // the cached branch never calls the spec LLM. Detect that gap and fall
+    // through to a fresh generation so the eager-persist path can populate the
+    // training fields. One Haiku call per affected prompt, once.
+    const hasCachedSpec = ctx.cachedSpec.constructionSpec
+      && ctx.cachedSpec.specInterpretation
+      && ctx.cachedSpec.specRawResponse
+      && ctx.cachedSpec.specSystemPrompt;
 
     if (hasCachedSpec) {
       // Reuse cached spec — skip LLM call
