@@ -174,6 +174,24 @@ export function maxOutputWithThinking(desiredOutputTokens: number, cfg: { suppor
   return desiredOutputTokens + budget + 256; // 256 = small safety headroom
 }
 
+// ── Adaptive vs enabled thinking detection ──────────────────────────
+// Claude Opus/Sonnet/Haiku 4.7 and later require the new
+// `thinking.type=adaptive` + `output_config.effort` shape on Bedrock
+// and the Anthropic direct API. Earlier models (4.6 and below) still
+// require `thinking.type=enabled` + `budgetTokens` and reject `adaptive`.
+//
+// Match strategy: name contains `claude-(opus|sonnet|haiku)-4-N` where
+// N is a 1–3 digit minor version >= 7 (so 7, 8, 9, 10, 11, …, 999).
+// The 1–3 digit cap distinguishes a real minor from a date suffix like
+// `claude-sonnet-4-20250514` (which is a 4.0 model name, not 4.20250514).
+// Works regardless of provider prefix (`global.anthropic.`, `us.anthropic.`,
+// bare anthropic SDK id).
+const ADAPTIVE_THINKING_PATTERN = /claude-(?:opus|sonnet|haiku)-4-(?:[7-9]|\d{2,3})\b/;
+
+export function useAdaptiveThinking(modelName: string): boolean {
+  return ADAPTIVE_THINKING_PATTERN.test(modelName);
+}
+
 // ── Prisma → API row mappers ────────────────────────────────────────
 
 interface PrismaProviderShape {
