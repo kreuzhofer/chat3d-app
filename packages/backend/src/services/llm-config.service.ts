@@ -139,12 +139,11 @@ export type LlmPurpose = (typeof LLM_PURPOSES)[number];
 
 // ── Thinking budget mapping ──────────────────────────────────────────
 // Effort levels map to thinking-token budgets used by Claude's
-// `thinking: { type: "enabled", budgetTokens: N }` provider option.
-// Both the direct Anthropic SDK and the AWS Bedrock SDK accept this
-// shape (Bedrock as `reasoningConfig`). The previous "adaptive" config
-// (`type: "adaptive"`, `maxReasoningEffort`) was silently dropped by
-// the AI SDK Bedrock provider — see DB evidence: 0 reasoning_tokens
-// across 9k+ Sonnet 4.6 events. Always use `type: "enabled"`.
+// `thinking: { type: "enabled", budgetTokens: N }` provider option
+// (used for Claude 4.6 and earlier). Claude 4.7+ uses the adaptive
+// API and ignores budgetTokens — see useAdaptiveThinking(). The
+// budgets here still drive maxOutputWithThinking() in both modes so
+// max_tokens has headroom for the model to think.
 
 const THINKING_BUDGETS: Record<string, number> = {
   low: 1024,
@@ -567,19 +566,35 @@ export function buildGenerateOptions(cfg: LlmModelConfig): Record<string, unknow
 
   const providerOptions: Record<string, unknown> = {};
 
-  // Anthropic thinking/reasoning (direct API and Bedrock). Always use
-  // the documented `type: "enabled"` shape with an explicit budgetTokens —
-  // this is the only thinking config the @ai-sdk/amazon-bedrock and
-  // @ai-sdk/anthropic providers actually forward to the upstream API.
+  // Anthropic thinking/reasoning (direct API and Bedrock). Claude 4.7+
+  // requires the adaptive API; earlier Claude models require the legacy
+  // budgetTokens API and reject `adaptive`. See useAdaptiveThinking().
   const type = sdkType(cfg);
   if (cfg.supportsThinking && cfg.thinkingEffort) {
+    const adaptive = useAdaptiveThinking(cfg.modelName);
     const budget = thinkingBudget(cfg.thinkingEffort);
-    if (budget > 0) {
+    // budget > 0 also doubles as validation that the effort string is
+    // one of the known values (low/medium/high/max).
+    if (adaptive && budget > 0) {
+      // Effort levels in our DB (`low|medium|high|max`) are a subset of
+      // the SDK's `maxReasoningEffort` enum and pass through unchanged.
+      const effort = cfg.thinkingEffort;
+      if (type === "bedrock") {
+        providerOptions.bedrock = {
+          reasoningConfig: { type: "adaptive", maxReasoningEffort: effort },
+        };
+      } else if (type === "anthropic") {
+        providerOptions.anthropic = {
+          thinking: { type: "adaptive" },
+          effort,
+        };
+      }
+    } else if (budget > 0) {
       if (type === "bedrock") {
         providerOptions.bedrock = {
           reasoningConfig: { type: "enabled", budgetTokens: budget },
         };
-      } else {
+      } else if (type === "anthropic") {
         providerOptions.anthropic = {
           thinking: { type: "enabled", budgetTokens: budget },
         };
