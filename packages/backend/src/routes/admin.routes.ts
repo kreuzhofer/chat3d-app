@@ -99,10 +99,13 @@ import {
   LlmConfigError,
 } from "../services/llm-config.service.js";
 import { fetchProviderModels } from "../services/llm-provider-models.service.js";
+import { renderErrorsRouter } from "./admin/render-errors.routes.js";
 
 export const adminRouter = Router();
 
 adminRouter.use(requireAuth, requireRole("admin"));
+
+adminRouter.use("/render-errors", renderErrorsRouter);
 
 function parseOptionalSearch(value: unknown): string | undefined {
   if (typeof value !== "string") {
