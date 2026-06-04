@@ -20,6 +20,8 @@ export async function insertExample(data: {
   code: string;
   renderStatus: string;
   renderError: string | null;
+  renderErrorCategory?: string | null;
+  renderErrorDetail?: string | null;
   stlPath: string | null;
   stepPath: string | null;
   threemfPath: string | null;
@@ -66,6 +68,8 @@ export async function insertExample(data: {
       code: data.code,
       renderStatus: data.renderStatus,
       renderError: data.renderError,
+      renderErrorCategory: data.renderErrorCategory ?? null,
+      renderErrorDetail: data.renderErrorDetail ?? null,
       stlPath: data.stlPath,
       stepPath: data.stepPath,
       threemfPath: data.threemfPath,
@@ -108,6 +112,8 @@ export async function insertExample(data: {
       code: data.code,
       renderStatus: data.renderStatus,
       renderError: data.renderError,
+      renderErrorCategory: data.renderErrorCategory ?? null,
+      renderErrorDetail: data.renderErrorDetail ?? null,
       stlPath: data.stlPath,
       stepPath: data.stepPath,
       threemfPath: data.threemfPath,
