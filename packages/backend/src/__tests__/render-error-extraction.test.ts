@@ -97,6 +97,31 @@ describe("extractAndClassifyLastRenderError", () => {
     expect(result?.category).toBe(RenderErrorCategory.UNKNOWN);
   });
 
+  it("handles {type: 'text', value: ...} live SDK shape", () => {
+    // Mirrors the actual Vercel AI SDK production shape verified against
+    // chat_context row ec27bbbe-aa76-4474-8725-b52d56bea005 (PCB Cases).
+    const convo = [
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolName: "validate_and_render",
+            toolCallId: "tooluse_E1uvu4fNzWgNJNJcpPq1Xb",
+            output: {
+              type: "text",
+              value:
+                "Validation PASSED but Render FAILED.\n\nError: 3mf mesh is invalid\n\nThis means your geometry has self-intersections or degenerate faces. Common fixes:\n- Reduce fillet/chamfer radii\n- Increase wall thickness in offset/shell operations\nPlease fix the code and validate again before re-rendering.",
+            },
+          },
+        ],
+      },
+    ];
+    const result = extractAndClassifyLastRenderError(convo);
+    expect(result).not.toBeNull();
+    expect(result?.rawMessage).toContain("3mf mesh is invalid");
+  });
+
   it("survives malformed conversation input (non-array, non-object)", () => {
     expect(extractAndClassifyLastRenderError("garbage")).toBeNull();
     expect(extractAndClassifyLastRenderError(42)).toBeNull();

@@ -54,9 +54,16 @@ function extractToolOutputString(output: unknown): string | null {
       .join("\n");
     return text || null;
   }
-  if (typeof output === "object" && output !== null && "text" in output) {
-    const text = (output as { text?: unknown }).text;
-    return typeof text === "string" ? text : null;
+  if (typeof output === "object" && output !== null) {
+    // Live Vercel AI SDK shape: { type: "text", value: "..." }
+    if ("value" in output) {
+      const value = (output as { value?: unknown }).value;
+      if (typeof value === "string") return value;
+    }
+    if ("text" in output) {
+      const text = (output as { text?: unknown }).text;
+      if (typeof text === "string") return text;
+    }
   }
   return null;
 }
