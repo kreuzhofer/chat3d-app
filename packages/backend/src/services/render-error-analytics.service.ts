@@ -7,7 +7,7 @@ import { RenderErrorCategory } from "../utils/render-errors.js";
 
 export type RenderErrorHistogram = Record<
   | "infrastructure" | "api_misuse" | "geometry" | "type_error"
-  | "kernel_error" | "syntax" | "unknown",
+  | "kernel_error" | "syntax" | "prompt_validation" | "unknown",
   number
 >;
 
@@ -18,6 +18,7 @@ const EMPTY_HISTOGRAM = (): RenderErrorHistogram => ({
   type_error: 0,
   kernel_error: 0,
   syntax: 0,
+  prompt_validation: 0,
   unknown: 0,
 });
 

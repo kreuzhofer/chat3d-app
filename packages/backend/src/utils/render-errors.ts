@@ -24,6 +24,8 @@ export enum RenderErrorCategory {
   KERNEL_ERROR = "kernel_error",
   /** Pre-render validation failures — syntax errors, missing root_part */
   SYNTAX = "syntax",
+  /** Spec LLM rejected the prompt before code generation (not a code error) */
+  PROMPT_VALIDATION = "prompt_validation",
   /** Unrecognized errors — raw message passed through */
   UNKNOWN = "unknown",
 }
@@ -68,6 +70,33 @@ const CLASSIFICATION_RULES: ClassificationRule[] = [
     pattern: /service timeout|timed out|AbortError/i,
     category: RenderErrorCategory.INFRASTRUCTURE,
     guidance: null,
+  },
+
+  // ── Pipeline aborts (infrastructure: timeout, cancellation) ───────────────
+  {
+    pattern: /^Pipeline aborted/i,
+    category: RenderErrorCategory.INFRASTRUCTURE,
+    guidance: null,
+  },
+
+  // ── Prompt validation failures (pre-codegen rejection by spec LLM) ────────
+  {
+    pattern: /^Prompt validation failed/i,
+    category: RenderErrorCategory.PROMPT_VALIDATION,
+    guidance:
+      "The spec LLM rejected the prompt before code generation. This is not a code error — " +
+      "the prompt itself has contradictions, missing constraints, or geometric impossibilities. " +
+      "Surface the rejection to the user for prompt repair rather than retrying generation.",
+  },
+
+  // ── 3mf mesh / boolean topology failures (kernel error) ───────────────────
+  {
+    pattern: /3mf mesh is invalid|mesh is (?:not )?invalid/i,
+    category: RenderErrorCategory.KERNEL_ERROR,
+    guidance:
+      "The 3MF export found degenerate mesh faces — usually a sign of boolean / self-intersection problems. " +
+      "Reduce fillet/chamfer radii, increase wall thickness in offset/shell operations, add clearance between boolean cuts, " +
+      "or simplify complex boolean chains.",
   },
 
   // ── API Misuse (wrong function/attribute names) ───────────────────────────

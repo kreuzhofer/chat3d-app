@@ -155,6 +155,27 @@ describe("classifyRenderError", () => {
     });
   });
 
+  describe("newly classified previously-unknown errors", () => {
+    it("classifies 'Pipeline aborted (timeout or cancellation)' as INFRASTRUCTURE", () => {
+      const r = classifyRenderError("Pipeline aborted (timeout or cancellation)");
+      expect(r.category).toBe(RenderErrorCategory.INFRASTRUCTURE);
+      expect(r.isInfrastructure).toBe(true);
+    });
+
+    it("classifies 'Prompt validation failed: ...' as PROMPT_VALIDATION", () => {
+      const r = classifyRenderError("Prompt validation failed: Contradictory constraints: the plate is too small");
+      expect(r.category).toBe(RenderErrorCategory.PROMPT_VALIDATION);
+      expect(r.isInfrastructure).toBe(false);
+      expect(r.fixGuidance).toContain("spec LLM rejected");
+    });
+
+    it("classifies '3mf mesh is invalid' as KERNEL_ERROR", () => {
+      const r = classifyRenderError("Execution error: 3mf mesh is invalid\nTraceback...");
+      expect(r.category).toBe(RenderErrorCategory.KERNEL_ERROR);
+      expect(r.fixGuidance).toContain("3MF");
+    });
+  });
+
   describe("unknown errors", () => {
     it("classifies unrecognized errors as UNKNOWN", () => {
       const result = classifyRenderError(new Error("Something completely unexpected happened"));

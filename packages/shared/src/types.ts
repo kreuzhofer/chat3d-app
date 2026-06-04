@@ -79,6 +79,7 @@ export type RenderErrorCategoryName =
   | "type_error"
   | "kernel_error"
   | "syntax"
+  | "prompt_validation"
   | "unknown";
 
 export interface RenderErrorHistogram {
@@ -88,6 +89,7 @@ export interface RenderErrorHistogram {
   type_error: number;
   kernel_error: number;
   syntax: number;
+  prompt_validation: number;
   unknown: number;
 }
 

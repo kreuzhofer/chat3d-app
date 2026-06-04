@@ -28,6 +28,7 @@ const CATEGORY_NAMES: RenderErrorCategoryName[] = [
   "api_misuse",
   "syntax",
   "infrastructure",
+  "prompt_validation",
   "unknown",
 ];
 
@@ -52,6 +53,7 @@ function emptyHistogram(): RenderErrorHistogram {
     type_error: 0,
     kernel_error: 0,
     syntax: 0,
+    prompt_validation: 0,
     unknown: 0,
   };
 }
