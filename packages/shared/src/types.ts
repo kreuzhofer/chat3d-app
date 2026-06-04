@@ -69,3 +69,34 @@ export interface GalleryModelDetail extends GalleryModelSummary {
 export interface GallerySearchResult extends GalleryModelSummary {
   similarity: number;
 }
+
+// ── Render error classification ────────────────────────────────────
+
+export type RenderErrorCategoryName =
+  | "infrastructure"
+  | "api_misuse"
+  | "geometry"
+  | "type_error"
+  | "kernel_error"
+  | "syntax"
+  | "unknown";
+
+export interface RenderErrorHistogram {
+  infrastructure: number;
+  api_misuse: number;
+  geometry: number;
+  type_error: number;
+  kernel_error: number;
+  syntax: number;
+  unknown: number;
+}
+
+export interface RenderErrorExample {
+  id: string;
+  promptId: string;
+  promptText: string;
+  renderError: string | null;
+  renderErrorDetail: string | null;
+  renderErrorCategory: RenderErrorCategoryName;
+  createdAt: string; // ISO datetime
+}
