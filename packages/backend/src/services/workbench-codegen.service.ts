@@ -34,6 +34,7 @@ import {
   getMultiAgentPipelineTimeoutMs,
 } from "./generation-settings.service.js";
 import { PipelineTimeoutError } from "../utils/pipeline-errors.js";
+import { extractAndClassifyLastRenderError } from "../utils/render-error-extraction.js";
 import { storeSpecAndEmbedding } from "./workbench-embeddings.service.js";
 import { generateSpec, resolveComplexityFromSpec, type SpecResult } from "./spec-generation.service.js";
 import { routeGeneration } from "./routing.service.js";
@@ -797,13 +798,21 @@ async function _runPipeline(
 
   const mergedIssues = [...(agFullEval?.vlmIssues ?? []), ...(agFullEval?.codeIssues ?? [])];
   const renderStatus = currentResult.renderSuccess ? "success" as const : "error" as const;
-  const renderError = currentResult.renderSuccess ? null : "Agent codegen failed to render";
+  const classified = currentResult.renderSuccess
+    ? null
+    : extractAndClassifyLastRenderError(currentResult.conversationHistory ?? agResult?.conversationHistory ?? null);
+  const renderError = currentResult.renderSuccess
+    ? null
+    : (classified?.rawMessage ?? "Agent codegen failed to render");
+  const renderErrorCategory = classified?.category ?? null;
+  const renderErrorDetail = classified?.capturedDetail ?? null;
   const approvalStatus = finalApproved ? "auto_approved" as const : "pending" as const;
   const evalIssues = mergedIssues.length > 0 ? mergedIssues : null;
 
   await insertExample({
     id: exampleId, promptId: ctx.promptId, iteration: currentResult.stepCount, code: storedCode,
     renderStatus, renderError,
+    renderErrorCategory, renderErrorDetail,
     stlPath: filePaths.stlPath, stepPath: filePaths.stepPath, threemfPath: filePaths.threemfPath,
     screenshotFront: filePaths.screenshotFrontPath, screenshotBack: filePaths.screenshotBackPath,
     screenshotLeft: filePaths.screenshotLeftPath, screenshotRight: filePaths.screenshotRightPath,
