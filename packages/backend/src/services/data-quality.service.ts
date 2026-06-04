@@ -7,6 +7,7 @@
 
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
+import { getRenderErrorHistogramForCategory, type RenderErrorHistogram } from "./render-error-analytics.service.js";
 
 const logger = createLogger("data-quality");
 
@@ -35,6 +36,8 @@ export interface DataQualityStats {
   trainingAgentCodegen: number;
   trainingSpecGen: number;
   trainingSpecEnrich: number;
+  // Render error breakdown (per-category only; not aggregated in overall)
+  renderErrorCategoryHistogram?: RenderErrorHistogram;
 }
 
 export interface CategoryDataQuality {
@@ -171,11 +174,19 @@ export async function getDataQualityReport(): Promise<DataQualityReport> {
     ORDER BY c.rank
   `;
 
-  const categories: CategoryDataQuality[] = rows.map((row) => ({
-    categoryId: row.category_id,
-    categoryName: row.category_name,
-    stats: toStats(row),
-  }));
+  const categories: CategoryDataQuality[] = await Promise.all(
+    rows.map(async (row) => {
+      const renderErrorCategoryHistogram = await getRenderErrorHistogramForCategory(row.category_id);
+      return {
+        categoryId: row.category_id,
+        categoryName: row.category_name,
+        stats: {
+          ...toStats(row),
+          renderErrorCategoryHistogram,
+        },
+      };
+    }),
+  );
 
   const overall = sumStats(rows);
 
