@@ -79,6 +79,10 @@ const AdminDataQualityPage = lazy(async () => {
   const module = await import("./pages/admin/AdminDataQualityPage");
   return { default: module.AdminDataQualityPage };
 });
+const AdminRenderErrorsPage = lazy(async () => {
+  const module = await import("./pages/admin/AdminRenderErrorsPage");
+  return { default: module.AdminRenderErrorsPage };
+});
 const AdminExperimentsPage = lazy(async () => {
   const module = await import("./pages/admin/AdminExperimentsPage");
   return { default: module.AdminExperimentsPage };
@@ -184,6 +188,7 @@ function AuthenticatedApp() {
             <Route path="costs" element={<AdminCostsPage />} />
             <Route path="pipeline" element={<AdminPipelinePage />} />
             <Route path="data-quality" element={<AdminDataQualityPage />} />
+            <Route path="render-errors" element={<AdminRenderErrorsPage />} />
             <Route path="experiments" element={<AdminExperimentsPage />} />
             <Route path="experiments/:experimentId" element={<AdminExperimentsPage />} />
           </Route>
