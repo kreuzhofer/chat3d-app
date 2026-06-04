@@ -453,6 +453,8 @@ model WorkbenchExample {
   code                  String   @db.Text
   renderStatus          String   @default("pending") @map("render_status") @db.VarChar(20)
   renderError           String?  @map("render_error") @db.Text
+  renderErrorCategory   String?  @map("render_error_category") @db.Text
+  renderErrorDetail     String?  @map("render_error_detail") @db.Text
   stlPath               String?  @map("stl_path") @db.Text
   stepPath              String?  @map("step_path") @db.Text
   threemfPath           String?  @map("threemf_path") @db.Text
