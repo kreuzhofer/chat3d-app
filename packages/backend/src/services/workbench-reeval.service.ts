@@ -149,6 +149,7 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
       codeEvalScore: evalResult.codeScore,
       assertionPassRate: evalResult.assertionPassRate,
       evalSource: evalResult.source,
+      compositeWeightSource: evalResult.compositeWeightSource ?? null,
       evalIssues: mergedIssues.length > 0 ? mergedIssues : undefined,
       evalSuggestions: evalResult.vlmSuggestions.length > 0 ? evalResult.vlmSuggestions : undefined,
       evalChecklistResults: evalResult.checklistResults ?? undefined,
