@@ -12,7 +12,7 @@
 import { evaluateModel, type LabeledImage, type ChecklistResult } from "./visual-eval.service.js";
 import { evaluateCode, type CodeEvalInput } from "./code-eval.service.js";
 import { checkAssertions, type AssertionCheckSummary } from "./code-eval-assertions.service.js";
-import { computeCompositeScore } from "./code-eval-composite.service.js";
+import { computeCompositeScore, resolveCodeEvalWeight, type ResolvedWeight } from "./code-eval-composite.service.js";
 import { renderHighResScreenshots, resolveUncertainItems } from "./visual-eval-zoom.service.js";
 import { isUncertain } from "./visual-eval-parser.service.js";
 import type { CodeAssertion } from "./spec-generation.service.js";
@@ -60,6 +60,8 @@ export interface FullEvalResult {
   assertionPassRate: number | null;
   assertionsFailed: boolean;
   source: string;
+  /** Which branch of the weight resolver produced the effective code-eval weight. */
+  compositeWeightSource: "eval_plan" | "adaptive" | "global" | null;
   vlmIssues: string[];
   vlmSuggestions: string[];
   codeIssues: string[];
@@ -90,6 +92,7 @@ function buildResult(opts: {
   assertionPassRate: number | null;
   assertionsFailed: boolean;
   codeEvalWeight: number;
+  compositeWeightSource: ResolvedWeight["source"] | null;
   vlmIssues: string[];
   vlmSuggestions: string[];
   codeIssues: string[];
@@ -118,6 +121,7 @@ function buildResult(opts: {
     assertionPassRate: opts.assertionPassRate,
     assertionsFailed: opts.assertionsFailed,
     source: composite.source,
+    compositeWeightSource: opts.compositeWeightSource,
     vlmIssues: opts.vlmIssues,
     vlmSuggestions: opts.vlmSuggestions,
     codeIssues: opts.codeIssues,
@@ -144,11 +148,25 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
 
   tb?.startPhase("eval", "eval_orchestration", "Evaluation Pipeline");
 
+  // Resolve the effective code-eval weight once, up front. The orchestrator's
+  // caller passes the global default via `codeEvalWeight`; per-prompt evalPlan
+  // and visibility-annotated criteria can override or adapt it.
+  const adaptiveEnabled = await isAdaptiveWeightEnabled();
+  const adaptiveRange = adaptiveEnabled ? await getAdaptiveWeightRange() : 0;
+  const resolvedWeight: ResolvedWeight = resolveCodeEvalWeight({
+    globalDefault: input.codeEvalWeight,
+    evalPlan: input.evalPlan ?? null,
+    annotatedCriteria: input.annotatedCriteria ?? null,
+    adaptiveWeightRange: adaptiveRange,
+  });
+
   logger.info(
     {
       imageCount: input.images.length,
       assertionCount: input.codeAssertions?.length ?? 0,
       codeEvalWeight: input.codeEvalWeight,
+      effectiveWeight: resolvedWeight.weight,
+      weightSource: resolvedWeight.source,
     },
     "starting evaluation pipeline (assertions → code review → VLM)",
   );
@@ -187,7 +205,8 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
       const result = buildResult({
         visualScore: null, codeScore: null,
         assertionPassRate: assertionSummary.passRate, assertionsFailed: true,
-        codeEvalWeight: input.codeEvalWeight,
+        codeEvalWeight: resolvedWeight.weight,
+        compositeWeightSource: resolvedWeight.source,
         vlmIssues: [], vlmSuggestions: [], codeIssues: assertionSummary.issues,
         vlmModel: null, codeReviewModel: null,
         totalPromptTokens: 0, totalCompletionTokens: 0,
@@ -272,7 +291,8 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
     const result = buildResult({
       visualScore: null, codeScore,
       assertionPassRate: assertionSummary?.passRate ?? null, assertionsFailed: false,
-      codeEvalWeight: input.codeEvalWeight,
+      codeEvalWeight: resolvedWeight.weight,
+      compositeWeightSource: resolvedWeight.source,
       vlmIssues: [], vlmSuggestions: [], codeIssues,
       vlmModel: null, codeReviewModel,
       totalPromptTokens: codePromptTokens, totalCompletionTokens: codeCompletionTokens,
@@ -438,18 +458,18 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
   // ── Composite score ─────────────────────────────────────────────────
   tb?.endPhase("completed"); // close eval orchestration
   const assertionPassRate = assertionSummary?.passRate ?? null;
-  const adaptiveEnabled = await isAdaptiveWeightEnabled();
-  const adaptiveRange = adaptiveEnabled ? await getAdaptiveWeightRange() : undefined;
+  // Pass the already-resolved weight straight through; resolveCodeEvalWeight
+  // already applied adaptive adjustment when applicable, so we deliberately
+  // skip the per-call adaptive recomputation in computeCompositeScore.
   const result = buildResult({
     visualScore, codeScore,
     assertionPassRate, assertionsFailed: false,
-    codeEvalWeight: input.codeEvalWeight,
+    codeEvalWeight: resolvedWeight.weight,
+    compositeWeightSource: resolvedWeight.source,
     vlmIssues, vlmSuggestions, codeIssues,
     checklistResults, vlmModel, codeReviewModel,
     totalPromptTokens: vlmPromptTokens + codePromptTokens,
     totalCompletionTokens: vlmCompletionTokens + codeCompletionTokens,
-    annotatedCriteria: input.annotatedCriteria,
-    adaptiveWeightRange: adaptiveRange,
     vlmRawResponse, vlmReasoning, vlmSystemPrompt,
     codeReviewRawResponse, codeReviewReasoning, codeReviewSystemPrompt,
   });

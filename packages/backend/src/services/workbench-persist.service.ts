@@ -49,6 +49,7 @@ export async function insertExample(data: {
   codeEvalScore?: number | null;
   assertionPassRate?: number | null;
   evalSource?: string | null;
+  compositeWeightSource?: string | null;
   experimentRunId?: string | null;
   vlmRawResponse?: string | null;
   vlmReasoning?: string | null;
@@ -97,6 +98,7 @@ export async function insertExample(data: {
       codeEvalScore: data.codeEvalScore ?? null,
       assertionPassRate: data.assertionPassRate ?? null,
       evalSource: data.evalSource ?? null,
+      compositeWeightSource: data.compositeWeightSource ?? null,
       experimentRunId: data.experimentRunId ?? null,
       vlmRawResponse: data.vlmRawResponse ?? null,
       vlmReasoning: data.vlmReasoning ?? null,
@@ -141,6 +143,7 @@ export async function insertExample(data: {
       codeEvalScore: data.codeEvalScore ?? null,
       assertionPassRate: data.assertionPassRate ?? null,
       evalSource: data.evalSource ?? null,
+      compositeWeightSource: data.compositeWeightSource ?? null,
       experimentRunId: data.experimentRunId ?? null,
       vlmRawResponse: data.vlmRawResponse ?? null,
       vlmReasoning: data.vlmReasoning ?? null,

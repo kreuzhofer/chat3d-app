@@ -617,6 +617,7 @@ async function _runPipeline(
       assertionPassRate: agResult.evalResult.assertionPassRate,
       assertionsFailed: false, // agent wouldn't have submitted if assertions failed
       source: "agent_submitted",
+      compositeWeightSource: null,
       vlmIssues: agResult.evalResult.issues.filter(i => !i.startsWith("[CODE]")),
       vlmSuggestions: agResult.evalResult.suggestions,
       codeIssues: agResult.evalResult.issues.filter(i => i.startsWith("[CODE]")),
@@ -828,6 +829,7 @@ async function _runPipeline(
     promptTokens: totalPipelinePromptTokens, completionTokens: totalPipelineCompletionTokens,
     visualScore: agFullEval?.visualScore ?? null, codeEvalScore: agFullEval?.codeScore ?? null,
     assertionPassRate: agFullEval?.assertionPassRate ?? null, evalSource: agFullEval?.source ?? null,
+    compositeWeightSource: agFullEval?.compositeWeightSource ?? null,
     experimentRunId: options?.experimentRunId,
     vlmRawResponse: agFullEval?.vlmRawResponse ?? null,
     vlmReasoning: agFullEval?.vlmReasoning ?? null,
