@@ -59,6 +59,9 @@ export async function persistSpecToPrompt({
           requiresDecomposition: specResult.requiresDecomposition,
           decompositionReasoning: specResult.decompositionReasoning,
         }),
+        evalPlan: specResult.evalPlan === null
+          ? null
+          : (specResult.evalPlan as unknown as undefined),
         ...(enrichmentResult ? {
           enrichmentRawResponse: enrichmentResult.rawResponse ?? null,
           enrichmentSystemPrompt: enrichmentResult.systemPrompt ?? null,
