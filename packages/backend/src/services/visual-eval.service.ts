@@ -139,10 +139,17 @@ export async function evaluateModelWithConfig(
 
   const vlmModelLabel = vlmConfig.label;
   const providedAngles = images.map(img => img.angle);
-  const systemPrompt = buildEvaluationSystemPrompt(
-    userPrompt, categoryName, complexity, input.verificationChecklist,
-    false, providedAngles, input.constructionSpec, vlmConfig.vlmEvalPreamble ?? undefined,
-  );
+  const systemPrompt = buildEvaluationSystemPrompt({
+    userPrompt,
+    categoryName,
+    complexity,
+    checklist: input.verificationChecklist ?? [],
+    hasZoomTool: false,
+    providedAngles,
+    constructionSpec: input.constructionSpec ?? "",
+    evalPreamble: vlmConfig.vlmEvalPreamble ?? "",
+    evalPlan: null,
+  });
 
   const userContent = buildImageUserContent(images);
   const providerModel = createProviderModelFromConfig(vlmConfig);
