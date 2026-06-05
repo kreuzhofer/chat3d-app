@@ -155,9 +155,15 @@ Given a user's prompt describing a 3D model, produce:
    - **systemPrompt** (string, 800-2500 chars): A VLM system prompt tailored to THIS object. State what features it must verify visually vs which it should defer to code-eval. Call out occlusions, ambiguous angles, and prompt-specific calibration. Do NOT restate generic score bands or JSON output instructions — the runtime wraps them in. For sealed enclosures, explicitly say to defer interior features (standoffs, internal cutouts, lid-mating geometry) to code-eval. For visually salient features (vents, surface patterns, profiles), instruct the VLM to verify them directly.
    - **inspectionPlan.angles** (array of strings): The smallest sufficient set of render angles, chosen from: front, back, left, right, top, bottom, ortho_45, ortho_45_bottom, isometric, isometric_back. Use 3 angles for simple shapes; up to 8 for complex assemblies. Prefer isometric over orthographic when both could work.
    - **inspectionPlan.focus** (object, optional): Map of angle name → inspection note. Use only when one specific angle has a specific verification job. Example: { "isometric_back": "verify port cutouts on the +Y wall" }. Keys MUST be a subset of inspectionPlan.angles.
-   - **suggestedCodeWeight** (number in [0,1]): How much the composite score should weight code-eval relative to VLM-eval. Use 0.2-0.4 when most checklist items are visual (vents, surface patterns, profiles). 0.5-0.7 for balanced prompts (dimensions + visual features). 0.8-0.95 for prompts where most features are dimensional, hidden, or inside the object (sealed enclosures, threaded bores, internal standoffs).
+   - **suggestedCodeWeight** (number in [0,1]): How much the composite score should weight code-eval relative to VLM-eval. Choose ONE of these four bands based on the prompt's dominant character:
+     - **0.2–0.4 (visual-heavy)**: most checklist items are visual — surface patterns, vents, profiles, proportions of a single visible piece. Code is just sanity-checking dimensions.
+     - **0.5–0.7 (balanced)**: dimensional features mixed with visual features, single object, mostly visible. Standard primitives + holes/cuts.
+     - **0.8–0.95 (sealed/hidden)**: most features are dimensional, hidden, or inside the object — sealed enclosures, threaded bores, internal standoffs, parts where the interior is occluded in all renderable views.
+     - **0.30–0.45 (assembly/mechanism)**: hinges, gears, sprockets, joints, multi-part kinematic structures, any prompt where "does it assemble into the described mechanism" matters more than dimensional accuracy. Code-eval validates parameters but CANNOT detect structural assembly failures (e.g., hinge leaves perpendicular instead of coplanar, knuckles not interleaved, gear teeth not engaging). Defer to the VLM for structural correctness.
 
-   Example for a sealed PCB enclosure:
+   Pick the band that best matches the prompt's primary character, then choose a value within that band. Do not split the difference between bands — commit to one.
+
+   Example for a sealed PCB enclosure (sealed/hidden band, 0.85):
    \`\`\`json
    {
      "systemPrompt": "Evaluate a 90×65×25mm sealed PCB enclosure with port cutouts on one short wall and four M2.5 standoffs inside. Verify visually: overall outer footprint, lid-vs-case dimensional parity, side-by-side display orientation. DEFER to code-eval: standoff positions, port cutout dimensions, interior wall thickness — all interior features are occluded in 7 of 8 outer views. Do not penalise the VLM for missing standoff details — they are not visible.",
@@ -177,6 +183,21 @@ Given a user's prompt describing a 3D model, produce:
      "systemPrompt": "Verify a rectangular block with one through-hole. Visually check the overall block proportions, the hole's position on the top face, and the hole's circularity. Dimensions are checked separately via code-eval.",
      "inspectionPlan": { "angles": ["isometric", "front", "top"] },
      "suggestedCodeWeight": 0.4
+   }
+   \`\`\`
+
+   Example for an assembly/mechanism (concealed cup hinge):
+   \`\`\`json
+   {
+     "systemPrompt": "Evaluate a European concealed cup hinge: a 35mm-diameter cylindrical cup with a 2mm flange rim, a single 55mm arm extending to a flat mounting plate with two elongated slots. Verify visually: the cup-and-arm geometry, the arm-to-cup attachment, the mounting plate position relative to the arm, slot positions and shapes. Code-eval cannot verify structural assembly of multi-part mechanisms — defer to visual.",
+     "inspectionPlan": {
+       "angles": ["isometric", "front", "top", "left"],
+       "focus": {
+         "front": "verify the arm-to-cup connection is structurally correct",
+         "top": "verify two slots are symmetric about the plate centerline"
+       }
+     },
+     "suggestedCodeWeight": 0.40
    }
    \`\`\`
 
