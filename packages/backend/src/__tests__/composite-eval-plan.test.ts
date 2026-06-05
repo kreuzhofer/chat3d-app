@@ -75,3 +75,23 @@ describe("computeCompositeScore clamp gating", () => {
     expect(r.compositeScore).toBeLessThanOrEqual(3);
   });
 });
+
+describe("computeCompositeScore clamp suppression by weightSource", () => {
+  it("suppresses ±4 clamp when weightSource = eval_plan, even at low weight", () => {
+    // visual=8, code=4, weight=0.40 (assembly band), gap=4
+    // Without v3 fix: clamp fires → min(8,4)+1 = 5
+    // With v3 fix: weighted average = 8*0.60 + 4*0.40 = 6.4
+    const r = computeCompositeScore(8, 4, null, 0.40, undefined, undefined, "eval_plan");
+    expect(r.compositeScore).toBeCloseTo(6.4, 1);
+  });
+
+  it("still applies the clamp when weightSource = adaptive", () => {
+    const r = computeCompositeScore(8, 4, null, 0.40, undefined, undefined, "adaptive");
+    expect(r.compositeScore).toBeLessThanOrEqual(5);
+  });
+
+  it("still applies the clamp when weightSource = global", () => {
+    const r = computeCompositeScore(8, 4, null, 0.40, undefined, undefined, "global");
+    expect(r.compositeScore).toBeLessThanOrEqual(5);
+  });
+});

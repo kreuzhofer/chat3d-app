@@ -113,6 +113,7 @@ function buildResult(opts: {
   const composite = computeCompositeScore(
     opts.visualScore, opts.codeScore, opts.assertionPassRate, opts.codeEvalWeight,
     opts.annotatedCriteria, opts.adaptiveWeightRange,
+    opts.compositeWeightSource ?? undefined,
   );
   return {
     compositeScore: composite.compositeScore,

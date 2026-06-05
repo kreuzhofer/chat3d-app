@@ -109,6 +109,7 @@ export function computeCompositeScore(
   codeEvalWeight: number,
   annotatedCriteria?: AnnotatedCriterion[],
   adaptiveWeightRange?: number,
+  weightSource?: "eval_plan" | "adaptive" | "global",
 ): CompositeEvaluation {
   // Adaptive weight adjustment
   const effectiveWeight = (annotatedCriteria && annotatedCriteria.length > 0 && adaptiveWeightRange)
@@ -159,9 +160,14 @@ export function computeCompositeScore(
     composite = Math.max(1, Math.min(10, round1(blended)));
 
     // If visual and code strongly disagree, take the lower score — but only
-    // when code review is NOT carrying the majority of the signal. At high
-    // effective code weight we trust the weighted blend even on large gaps.
-    if (effectiveWeight < HIGH_CODE_WEIGHT_THRESHOLD && Math.abs(visualScore! - codeScore!) >= 4) {
+    // when code review is NOT carrying the majority of the signal, AND the
+    // spec-LLM has not explicitly directed weighting via eval_plan. v3:
+    // when weightSource === "eval_plan" the spec-LLM has declared which
+    // signal to trust for this prompt, so the safety net defers to that
+    // declaration bidirectionally (low or high weight). v2 high-weight
+    // bypass is preserved unconditionally for non-eval_plan sources.
+    const skipClamp = weightSource === "eval_plan" || effectiveWeight >= HIGH_CODE_WEIGHT_THRESHOLD;
+    if (!skipClamp && Math.abs(visualScore! - codeScore!) >= 4) {
       const lower = Math.min(visualScore!, codeScore!);
       composite = Math.min(composite, round1(lower + 1));
     }
