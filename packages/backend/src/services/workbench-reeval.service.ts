@@ -16,6 +16,7 @@ import { shouldAutoApprove } from "./workbench-pipeline-helpers.service.js";
 import { flattenStoredCode } from "../utils/code-flatten.js";
 import type { LabeledImage } from "./visual-eval.service.js";
 import type { CodeAssertion, AnnotatedCriterion } from "./spec-generation.service.js";
+import { parseEvalPlan } from "../utils/eval-plan.js";
 
 const logger = createLogger("workbench-reeval");
 
@@ -73,6 +74,7 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
           codeAssertions: true,
           verificationChecklist: true,
           verificationCriteria: true,
+          evalPlan: true,
           category: { select: { name: true, complexity: true } },
         },
       },
@@ -110,6 +112,7 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
       codeAssertions: (example.promptRef.codeAssertions as CodeAssertion[] | null) ?? undefined,
       verificationChecklist: (example.promptRef.verificationChecklist as string[] | null) ?? undefined,
       annotatedCriteria: (example.promptRef.verificationCriteria as AnnotatedCriterion[] | null) ?? undefined,
+      evalPlan: parseEvalPlan(example.promptRef.evalPlan ?? null),
     }),
     );
   } catch (err) {

@@ -87,6 +87,8 @@ export interface AgentCodegenInput {
   verificationChecklist?: string[];
   /** Annotated criteria with visibility routing (for full eval in submit_result). */
   annotatedCriteria?: import("./spec-generation.service.js").AnnotatedCriterion[];
+  /** Per-prompt eval directive — narrows VLM angles + drives dynamic VLM prompt in submit_result. */
+  evalPlan?: import("../utils/eval-plan.js").EvalPlan | null;
   /** Category name (for eval context). */
   categoryName?: string;
   /** Prompt complexity (for eval context). */
@@ -264,6 +266,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       constructionSpec: input.constructionSpec,
       verificationChecklist: input.verificationChecklist,
       annotatedCriteria: input.annotatedCriteria,
+      evalPlan: input.evalPlan ?? null,
       categoryName: input.categoryName,
       complexity: input.promptComplexity,
       codeEvalWeight: input.codeEvalWeight,

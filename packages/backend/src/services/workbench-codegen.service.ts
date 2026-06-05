@@ -555,6 +555,7 @@ async function _runPipeline(
     constructionSpec: specResult?.constructionSpec,
     verificationChecklist: specResult?.verificationChecklist,
     annotatedCriteria: specResult?.verificationCriteria,
+    evalPlan: specResult?.evalPlan ?? null,
     categoryName: ctx.categoryName,
     promptComplexity: ctx.complexity,
     codeEvalWeight: agCodeEvalWeight,
@@ -647,6 +648,7 @@ async function _runPipeline(
       annotatedCriteria: specResult?.verificationCriteria,
       stlBase64: agStlFile?.contentBase64, modelFormat: "stl",
       codeEvalWeight: agCodeEvalWeight,
+      evalPlan: specResult?.evalPlan ?? null,
     });
     updateTraceIncremental(traceId, traceBuilder.snapshot());
   }
@@ -721,6 +723,7 @@ async function _runPipeline(
           annotatedCriteria: specResult?.verificationCriteria,
           stlBase64: fixStl?.contentBase64, modelFormat: "stl",
           codeEvalWeight: fixCodeEvalWeight,
+          evalPlan: specResult?.evalPlan ?? null,
         });
 
         totalPipelinePromptTokens += fixResult.usage.promptTokens + (fixEval?.totalPromptTokens ?? 0);

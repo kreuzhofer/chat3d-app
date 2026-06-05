@@ -23,6 +23,7 @@ import {
 } from "./visual-eval-parser.service.js";
 import { buildEvaluationSystemPrompt } from "./visual-eval-prompt.service.js";
 import type { ModelFormat } from "./stl-rendering-client.service.js";
+import type { EvalPlan } from "../utils/eval-plan.js";
 
 const logger = createLogger("vlm-eval");
 const EVAL_MAX_RETRIES = 2;
@@ -69,6 +70,8 @@ export interface EvaluateModelInput {
   stlBase64?: string;
   /** Model format (kept for interface compat). */
   modelFormat?: ModelFormat;
+  /** Per-prompt eval directive: drives dynamic system prompt + per-angle focus labels. Null = legacy template. */
+  evalPlan?: EvalPlan | null;
 }
 
 // ── Angle labels ─────────────────────────────────────────────────────
@@ -89,13 +92,23 @@ const ANGLE_LABELS: Record<string, string> = {
 
 type ContentPart = { type: "text"; text: string } | { type: "image"; image: string };
 
-function buildImageUserContent(images: LabeledImage[]): ContentPart[] {
+function buildImageUserContent(
+  images: LabeledImage[],
+  focusByAngle?: Record<string, string>,
+): ContentPart[] {
   const parts: ContentPart[] = [
     { type: "text", text: "Please evaluate the following 3D model images:" },
   ];
   for (const img of images) {
     const label = ANGLE_LABELS[img.angle] ?? img.angle;
-    parts.push({ type: "text", text: `${label}:` });
+    const focus = focusByAngle?.[img.angle];
+    // Prepend the per-angle focus note when the eval plan asked for one.
+    // Format: "[angle] focus note" — agnostic of the human-readable label
+    // so the VLM keys the note to the canonical angle name.
+    const headline = focus
+      ? `[${img.angle}] ${focus}\n${label}:`
+      : `${label}:`;
+    parts.push({ type: "text", text: headline });
     parts.push({ type: "image", image: img.base64 });
   }
   return parts;
@@ -139,6 +152,7 @@ export async function evaluateModelWithConfig(
 
   const vlmModelLabel = vlmConfig.label;
   const providedAngles = images.map(img => img.angle);
+  const evalPlan = input.evalPlan ?? null;
   const systemPrompt = buildEvaluationSystemPrompt({
     userPrompt,
     categoryName,
@@ -148,10 +162,10 @@ export async function evaluateModelWithConfig(
     providedAngles,
     constructionSpec: input.constructionSpec ?? "",
     evalPreamble: vlmConfig.vlmEvalPreamble ?? "",
-    evalPlan: null,
+    evalPlan,
   });
 
-  const userContent = buildImageUserContent(images);
+  const userContent = buildImageUserContent(images, evalPlan?.inspectionPlan?.focus);
   const providerModel = createProviderModelFromConfig(vlmConfig);
   const trackingMeta: TrackingMeta = {
     purpose: "vlm_evaluation",

@@ -24,6 +24,7 @@ import { insertExample, persistWorkbenchFiles } from "./workbench-persist.servic
 import { wrapInTemplate, findFileByExtension } from "../utils/workbench-code-utils.js";
 import { flattenStoredCode } from "../utils/code-flatten.js";
 import type { GenerateResult, ProgressCallback } from "./workbench-codegen.service.js";
+import { parseEvalPlan } from "../utils/eval-plan.js";
 
 const logger = createLogger("workbench-rerender");
 
@@ -46,6 +47,7 @@ async function loadPromptContext(promptId: string) {
     codeAssertions: (row.codeAssertions as unknown[] | null) ?? undefined,
     verificationChecklist: (row.verificationChecklist as string[] | null) ?? undefined,
     verificationCriteria: (row.verificationCriteria as unknown[] | null) ?? undefined,
+    evalPlan: parseEvalPlan(row.evalPlan ?? null),
   };
 }
 
@@ -148,6 +150,7 @@ export async function reRenderForExample(
         codeAssertions: ctx.codeAssertions as CodeAssertion[] | undefined,
         verificationChecklist: ctx.verificationChecklist,
         annotatedCriteria: ctx.verificationCriteria as AnnotatedCriterion[] | undefined,
+        evalPlan: ctx.evalPlan,
       });
     }
     return rrFullEval;

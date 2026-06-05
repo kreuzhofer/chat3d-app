@@ -21,6 +21,7 @@ import { createLogger } from "../utils/logger.js";
 import { getTraceBuilder } from "./trace-builder.service.js";
 import { getModelForPurposeWithFallback, calculateCostUsd } from "./llm-config.service.js";
 import { isZoomFollowUpEnabled, getZoomResolution, getZoomMaxFollowUps, isAdaptiveWeightEnabled, getAdaptiveWeightRange } from "./generation-settings.service.js";
+import { RENDER_ANGLE_NAMES, type EvalPlan } from "../utils/eval-plan.js";
 
 const logger = createLogger("eval-orchestrator");
 
@@ -48,6 +49,8 @@ export interface FullEvalInput {
   annotatedCriteria?: import("./spec-generation.service.js").AnnotatedCriterion[];
   /** Pre-filled VLM score from agent eval — skip VLM call if provided. */
   agentVlmScore?: { score: number; issues: string[]; suggestions: string[]; vlmModel: string };
+  /** Per-prompt eval directive: narrows VLM angles + drives dynamic VLM prompt. Null = legacy global pipeline. */
+  evalPlan?: EvalPlan | null;
 }
 
 export interface FullEvalResult {
@@ -304,25 +307,40 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
   } else if (hasImages) {
     tb?.startPhase("eval-vlm", "eval_vlm", "VLM Visual Evaluation", "eval");
     try {
-      // Filter images to critical angles if code review provided recommendations.
-      // Always include ortho_45 as baseline. Fall back to all images if < 3 remain.
-      let vlmImages = input.images;
+      // Filter images by inspection plan, then narrow further by code-review critical angles.
+      // Precedence:
+      //   1. evalPlan.inspectionPlan.angles: the spec's smallest sufficient set (default = all angles)
+      //   2. criticalAngles ∩ candidateAngles: code review's narrowing within that set
+      //   3. Always include ortho_45 baseline when criticalAngles narrows
+      //   4. Fall back to candidate set when intersection < 3 images
+      const allAngles: string[] = [...RENDER_ANGLE_NAMES];
+      const candidateAngles = input.evalPlan?.inspectionPlan?.angles ?? allAngles;
+      const candidateSet = new Set<string>(candidateAngles);
+
+      const candidateFiltered = input.images.filter(img => candidateSet.has(img.angle));
+      let vlmImages = candidateFiltered.length > 0 ? candidateFiltered : input.images;
+
       if (criticalAngles.length > 0) {
-        const angleSet = new Set(criticalAngles);
-        angleSet.add("ortho_45"); // always include baseline overview
-        const filtered = input.images.filter(img => angleSet.has(img.angle));
+        const angleSet = new Set(criticalAngles.filter(a => candidateSet.has(a)));
+        if (candidateSet.has("ortho_45")) angleSet.add("ortho_45"); // baseline overview when in plan
+        const filtered = vlmImages.filter(img => angleSet.has(img.angle));
         if (filtered.length >= 3) {
           vlmImages = filtered;
           logger.info(
             { criticalAngles: [...angleSet], originalCount: input.images.length, filteredCount: filtered.length },
-            "filtered VLM images to critical angles",
+            "filtered VLM images to critical angles ∩ inspection plan",
           );
         } else {
           logger.info(
-            { criticalAngles, filteredCount: filtered.length },
-            "critical angles yielded < 3 images, using all images",
+            { criticalAngles, candidateAngles, filteredCount: filtered.length },
+            "critical angles ∩ inspection plan yielded < 3 images, using candidate set",
           );
         }
+      } else if (candidateFiltered.length > 0 && candidateFiltered.length < input.images.length) {
+        logger.info(
+          { candidateAngles, originalCount: input.images.length, filteredCount: candidateFiltered.length },
+          "filtered VLM images to inspection plan angles",
+        );
       }
 
       // Build effective checklist: filter annotated criteria by visibility (visual + both only)
@@ -347,6 +365,7 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
         constructionSpec: input.constructionSpec,
         stlBase64: input.stlBase64,
         modelFormat: input.modelFormat,
+        evalPlan: input.evalPlan ?? null,
       });
 
       visualScore = vlmResult.score;

@@ -98,6 +98,8 @@ export interface AgentToolDeps {
   verificationChecklist?: string[];
   /** Annotated criteria with visibility routing (for eval routing) */
   annotatedCriteria?: import("./spec-generation.service.js").AnnotatedCriterion[];
+  /** Per-prompt eval directive — narrows VLM angles + drives dynamic VLM prompt. */
+  evalPlan?: import("../utils/eval-plan.js").EvalPlan | null;
   /** Category name (for VLM context — avoids hardcoded "User Generated") */
   categoryName?: string;
   /** Prompt complexity (for VLM context — avoids hardcoded 5) */
@@ -384,6 +386,7 @@ export function buildAgentTools(
             stlBase64: stlFile?.contentBase64,
             modelFormat: "stl",
             codeEvalWeight: deps.codeEvalWeight ?? 0.5,
+            evalPlan: deps.evalPlan ?? null,
           });
 
           const compositeScore = fullEval.compositeScore;
