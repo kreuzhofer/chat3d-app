@@ -430,6 +430,7 @@ model WorkbenchExamplePrompt {
   enrichmentUserMessage    String?                        @map("enrichment_user_message") @db.Text
   requiresDecomposition    Boolean?                       @map("requires_decomposition")
   decompositionReasoning   String?                        @db.Text @map("decomposition_reasoning")
+  evalPlan                Json?                          @map("eval_plan") @db.JsonB
 
   // Relations
   category                   WorkbenchCategory    @relation(fields: [categoryId], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -455,6 +456,7 @@ model WorkbenchExample {
   renderError           String?  @map("render_error") @db.Text
   renderErrorCategory   String?  @map("render_error_category") @db.Text
   renderErrorDetail     String?  @map("render_error_detail") @db.Text
+  compositeWeightSource String?  @map("composite_weight_source") @db.VarChar(20)
   stlPath               String?  @map("stl_path") @db.Text
   stepPath              String?  @map("step_path") @db.Text
   threemfPath           String?  @map("threemf_path") @db.Text
