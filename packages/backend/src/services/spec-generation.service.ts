@@ -150,6 +150,36 @@ Given a user's prompt describing a 3D model, produce:
 
 10. **decompositionReasoning**: One sentence (≤25 words) explaining the requiresDecomposition decision. Required regardless of true/false. Example: "Two distinct parts with mating dovetail geometry — independent design then assembly is appropriate." or "Single revolved profile; no decomposition needed."
 
+11. **evalPlan**: A nested object describing how the rendered output should be evaluated.
+
+   - **systemPrompt** (string, 800-2500 chars): A VLM system prompt tailored to THIS object. State what features it must verify visually vs which it should defer to code-eval. Call out occlusions, ambiguous angles, and prompt-specific calibration. Do NOT restate generic score bands or JSON output instructions — the runtime wraps them in. For sealed enclosures, explicitly say to defer interior features (standoffs, internal cutouts, lid-mating geometry) to code-eval. For visually salient features (vents, surface patterns, profiles), instruct the VLM to verify them directly.
+   - **inspectionPlan.angles** (array of strings): The smallest sufficient set of render angles, chosen from: front, back, left, right, top, bottom, ortho_45, ortho_45_bottom, isometric, isometric_back. Use 3 angles for simple shapes; up to 8 for complex assemblies. Prefer isometric over orthographic when both could work.
+   - **inspectionPlan.focus** (object, optional): Map of angle name → inspection note. Use only when one specific angle has a specific verification job. Example: { "isometric_back": "verify port cutouts on the +Y wall" }. Keys MUST be a subset of inspectionPlan.angles.
+   - **suggestedCodeWeight** (number in [0,1]): How much the composite score should weight code-eval relative to VLM-eval. Use 0.2-0.4 when most checklist items are visual (vents, surface patterns, profiles). 0.5-0.7 for balanced prompts (dimensions + visual features). 0.8-0.95 for prompts where most features are dimensional, hidden, or inside the object (sealed enclosures, threaded bores, internal standoffs).
+
+   Example for a sealed PCB enclosure:
+   \`\`\`json
+   {
+     "systemPrompt": "Evaluate a 90×65×25mm sealed PCB enclosure with port cutouts on one short wall and four M2.5 standoffs inside. Verify visually: overall outer footprint, lid-vs-case dimensional parity, side-by-side display orientation. DEFER to code-eval: standoff positions, port cutout dimensions, interior wall thickness — all interior features are occluded in 7 of 8 outer views. Do not penalise the VLM for missing standoff details — they are not visible.",
+     "inspectionPlan": {
+       "angles": ["isometric", "isometric_back", "front", "top"],
+       "focus": {
+         "isometric_back": "verify the port-side wall and that all stated cutouts are visible"
+       }
+     },
+     "suggestedCodeWeight": 0.85
+   }
+   \`\`\`
+
+   Example for a simple primitive (block with hole):
+   \`\`\`json
+   {
+     "systemPrompt": "Verify a rectangular block with one through-hole. Visually check the overall block proportions, the hole's position on the top face, and the hole's circularity. Dimensions are checked separately via code-eval.",
+     "inspectionPlan": { "angles": ["isometric", "front", "top"] },
+     "suggestedCodeWeight": 0.4
+   }
+   \`\`\`
+
 Be LENIENT about disambiguation. Most prompts should NOT need disambiguation. Only flag when multiple fundamentally different interpretations exist (e.g., "container with lid" — is the lid attached with a hinge, threaded, or snap-fit?).
 
 Return JSON only:
@@ -163,7 +193,12 @@ Return JSON only:
   "constructionSpec": "- step 1\\n- step 2\\n...",
   "verificationCriteria": [{"text": "...", "visibility": "visual|code|both"}],
   "requiresDecomposition": true|false,
-  "decompositionReasoning": "..."
+  "decompositionReasoning": "...",
+  "evalPlan": {
+    "systemPrompt": "...",
+    "inspectionPlan": { "angles": ["isometric", "front", "top"], "focus": { "front": "..." } },
+    "suggestedCodeWeight": 0.5
+  }
 }`;
 
 // ── Response parsing ─────────────────────────────────────────────────
