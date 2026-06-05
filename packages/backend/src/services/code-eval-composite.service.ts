@@ -7,6 +7,16 @@
  */
 
 import type { AnnotatedCriterion } from "./spec-generation.service.js";
+import type { EvalPlan } from "../utils/eval-plan.js";
+
+// ── Constants ─────────────────────────────────────────────────────────
+
+/**
+ * Effective code-eval weight at or above which the ±4 visual/code disagreement
+ * clamp is suppressed. When code review carries the majority of the signal we
+ * trust the weighted blend even on large gaps.
+ */
+export const HIGH_CODE_WEIGHT_THRESHOLD = 0.75;
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -50,6 +60,44 @@ export function computeAdaptiveWeight(
   const shift = (codeRatio - 0.5) * range * 2; // range=0.2 → max shift ±0.2
 
   return Math.max(0.1, Math.min(0.9, baseWeight + shift));
+}
+
+// ── Weight Resolution ────────────────────────────────────────────────
+
+export interface ResolvedWeight {
+  weight: number;
+  source: "eval_plan" | "adaptive" | "global";
+}
+
+export interface ResolveCodeEvalWeightArgs {
+  globalDefault: number;
+  evalPlan: EvalPlan | null;
+  annotatedCriteria: AnnotatedCriterion[] | null;
+  adaptiveWeightRange: number;
+}
+
+/**
+ * Resolve the code-eval weight for a prompt using the precedence:
+ *   1. evalPlan.suggestedCodeWeight (clamped to [0,1])
+ *   2. adaptive weight derived from annotated criteria
+ *   3. global default
+ */
+export function resolveCodeEvalWeight(args: ResolveCodeEvalWeightArgs): ResolvedWeight {
+  if (args.evalPlan && typeof args.evalPlan.suggestedCodeWeight === "number") {
+    const clamped = Math.max(0, Math.min(1, args.evalPlan.suggestedCodeWeight));
+    return { weight: clamped, source: "eval_plan" };
+  }
+  if (args.annotatedCriteria && args.annotatedCriteria.length > 0) {
+    return {
+      weight: computeAdaptiveWeight(
+        args.globalDefault,
+        args.adaptiveWeightRange,
+        args.annotatedCriteria,
+      ),
+      source: "adaptive",
+    };
+  }
+  return { weight: args.globalDefault, source: "global" };
 }
 
 // ── Composite Score ───────────────────────────────────────────────────
@@ -110,8 +158,10 @@ export function computeCompositeScore(
     const blended = visualScore! * visualWeight + codeScore! * effectiveWeight;
     composite = Math.max(1, Math.min(10, round1(blended)));
 
-    // If visual and code strongly disagree, take the lower score
-    if (Math.abs(visualScore! - codeScore!) >= 4) {
+    // If visual and code strongly disagree, take the lower score — but only
+    // when code review is NOT carrying the majority of the signal. At high
+    // effective code weight we trust the weighted blend even on large gaps.
+    if (effectiveWeight < HIGH_CODE_WEIGHT_THRESHOLD && Math.abs(visualScore! - codeScore!) >= 4) {
       const lower = Math.min(visualScore!, codeScore!);
       composite = Math.min(composite, round1(lower + 1));
     }

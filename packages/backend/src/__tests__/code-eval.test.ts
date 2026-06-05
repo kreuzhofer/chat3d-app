@@ -95,8 +95,9 @@ describe("computeCompositeScore", () => {
 
   it("handles edge case: full code weight", () => {
     const result = computeCompositeScore(3, 9, null, 1);
-    // blend = 3*0 + 9*1 = 9, but diff ≥ 4, cap = 3+1 = 4
-    expect(result.compositeScore).toBe(4);
+    // blend = 3*0 + 9*1 = 9; at full code weight (>= HIGH_CODE_WEIGHT_THRESHOLD)
+    // the ±4 disagreement clamp is suppressed and the weighted blend stands.
+    expect(result.compositeScore).toBe(9);
   });
 
   it("assertion fail with low base score caps at base score", () => {
