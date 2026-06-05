@@ -21,6 +21,7 @@ import {
   type LlmModelConfig,
 } from "./llm-config.service.js";
 import { createLogger } from "../utils/logger.js";
+import { type EvalPlan, parseEvalPlan } from "../utils/eval-plan.js";
 import type { ComplexityTriggerReason } from "@chat3d/shared";
 
 const logger = createLogger("spec-gen");
@@ -68,6 +69,8 @@ export interface SpecResult {
   requiresDecomposition: boolean;
   /** One-sentence rationale for the requiresDecomposition decision. */
   decompositionReasoning: string;
+  /** Per-prompt eval directive (system prompt + inspection plan + weight). Null when LLM omitted or malformed. */
+  evalPlan: EvalPlan | null;
   rawResponse?: string;
   reasoning?: string;
   systemPrompt?: string;
@@ -176,6 +179,7 @@ interface ParsedSpec {
   verificationCriteria: AnnotatedCriterion[];
   requiresDecomposition: boolean;
   decompositionReasoning: string;
+  evalPlan: EvalPlan | null;
 }
 
 const EMPTY_SPEC: ParsedSpec = {
@@ -189,6 +193,7 @@ const EMPTY_SPEC: ParsedSpec = {
   verificationCriteria: [],
   requiresDecomposition: false,
   decompositionReasoning: "",
+  evalPlan: null,
 };
 
 function parseCodeAssertions(raw: unknown): CodeAssertion[] {
@@ -248,6 +253,7 @@ function buildSpecFromParsed(raw: Partial<ParsedSpec>): ParsedSpec {
   const decompositionReasoning = typeof rawRecord.decompositionReasoning === "string"
     ? rawRecord.decompositionReasoning.trim()
     : "";
+  const evalPlan = parseEvalPlan((raw as Record<string, unknown>).evalPlan);
 
   return {
     interpretation: typeof raw.interpretation === "string" ? raw.interpretation : "",
@@ -262,6 +268,7 @@ function buildSpecFromParsed(raw: Partial<ParsedSpec>): ParsedSpec {
     verificationCriteria: effectiveCriteria,
     requiresDecomposition,
     decompositionReasoning,
+    evalPlan,
   };
 }
 
@@ -301,6 +308,7 @@ export function parseSpecResponse(content: string): ParsedSpec {
       verificationCriteria: [],
       requiresDecomposition: false,
       decompositionReasoning: "",
+      evalPlan: null,
     };
   }
 
