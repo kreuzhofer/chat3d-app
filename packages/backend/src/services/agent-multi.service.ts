@@ -171,11 +171,14 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   const componentFiles = new Map<string, string>();
   const subAgentMaxSteps = await getSubAgentMaxSteps("workbench");
 
-  // Per-component verification snapshots captured via onChecklistEvaluated.
-  // - Read by Task 8 (assembler metadata) and Task 9 (workbench_examples persistence).
-  // - If a sub-agent fails its initial eval and is retried (COMPONENT_EVAL_THRESHOLD),
-  //   the second run's onChecklistEvaluated overwrites the first. Last write wins.
-  //   Absence of a key means no checklist eval ran for that component.
+  // Per-component verification snapshots captured via the ASSEMBLER's onChecklistEvaluated.
+  // - Read by Task 9's workbench_examples persistence (sub_agent_verifications JSONB column).
+  // - Populated when the assembler's forced gate runs at submit. Reset on each gate call so
+  //   the most recent attempt is the persisted state.
+  // - Absence of a key means the assembler never ran a gate for that component
+  //   (e.g., decomposition emitted no checklist for it).
+  // - DB column name kept as "sub_agent_verifications" for stability — the data is now
+  //   sourced from the assembler, despite the legacy name.
   const subAgentVerifications: Record<string, SubAgentVerificationSnapshot> = {};
 
   const overallContext = `This is part of a larger model: "${promptText}".\n\nAll components:\n${decomposition.components.map(c => `- ${c.name}: ${c.description}`).join("\n")}\n\nAssembly plan: ${decomposition.assemblyNotes}`;
@@ -226,18 +229,6 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
         retrievalCollector: input.retrievalCollector,
         onProgress: (state, detail) => {
           onProgress?.(state, `[${component.name}] ${detail}`);
-        },
-        componentChecklist: component.componentChecklist ?? [],
-        componentName: component.name,
-        onChecklistEvaluated: (verification) => {
-          subAgentVerifications[component.name] = {
-            passedCount: verification.passedCount,
-            failedCount: verification.failedCount,
-            uncertainCount: verification.uncertainCount,
-            failedItems: verification.results
-              .filter((r) => r.verdict === "FAIL")
-              .map((r) => ({ item: r.item, reasoning: r.reasoning })),
-          };
         },
       });
   }
