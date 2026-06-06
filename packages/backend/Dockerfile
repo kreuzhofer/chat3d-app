@@ -14,6 +14,7 @@ COPY tsconfig.json ./
 COPY vitest.config.ts ./
 COPY vitest.setup.ts ./
 COPY src ./src
+COPY scripts ./scripts
 
 # NOTE: `RUN npx tsc --noEmit` is not enabled yet because there are
 # pre-existing type errors in code-project.service.ts, gallery.service.ts,
