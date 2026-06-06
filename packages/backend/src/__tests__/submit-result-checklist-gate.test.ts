@@ -1,182 +1,111 @@
-/**
- * Tests for the forced component-checklist verification gate in submit_result.
- *
- * The gate fires only when:
- *   - options.disableRender is true (sub-agent path), AND
- *   - deps.componentChecklist is populated (multi-agent sub-agents only), AND
- *   - deps.getLastRenderedFiles() returns at least one file
- *
- * FAIL verdict blocks submission; UNCERTAIN does not; empty checklist skips the gate.
- */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-// ── Mock checklist-eval.service BEFORE any module imports it ──────────────────
-// vi.mock is hoisted by vitest to the top of the file, so this mock is in
-// effect when agent-tools.service.ts is first loaded.
-const { mockRunChecklistEval } = vi.hoisted(() => ({
-  mockRunChecklistEval: vi.fn(),
-}));
+const mockRunChecklistEval = vi.hoisted(() => vi.fn());
+const mockRenderModelScreenshots = vi.hoisted(() => vi.fn());
+const mockRunFullEvaluation = vi.hoisted(() => vi.fn());
 
-vi.mock("../services/checklist-eval.service.js", async (importActual) => {
-  const actual = (await importActual()) as Record<string, unknown>;
+vi.mock("../services/checklist-eval.service.js", async (orig) => {
+  const mod = (await orig()) as any;
   return {
-    ...actual,
+    ...mod,
     runChecklistEval: mockRunChecklistEval,
+    verifyChecklistItemVisual: vi.fn(),
+    verifyChecklistItemCode: vi.fn(),
   };
 });
 
-import { buildAgentTools } from "../services/agent-tools.service.js";
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-const mkFs = (code = "x = 1") => ({
-  getMainCode: () => code,
-  getAllFiles: () => [],
-  writeFile: () => {},
-  listFiles: () => [],
-  getFiles: () => [],
+vi.mock("../services/stl-rendering-client.service.js", async (orig) => {
+  const mod = (await orig()) as any;
+  return {
+    ...mod,
+    renderModelScreenshots: mockRenderModelScreenshots,
+  };
 });
 
-const mkDeps = (overrides: Record<string, unknown> = {}) => ({
-  fs: mkFs(),
+vi.mock("../services/eval-orchestrator.service.js", async (orig) => {
+  const mod = (await orig()) as any;
+  return {
+    ...mod,
+    runFullEvaluation: mockRunFullEvaluation,
+  };
+});
+
+const mkDeps = (overrides: any = {}) => ({
+  fs: { getMainCode: () => "x = 1", getAllFiles: () => [], writeFile: () => {}, listFiles: () => [], getFiles: () => [] },
   wrapProjectFiles: () => [],
   baseFileName: "x",
   onRenderSuccess: () => {},
   onSubmit: vi.fn(),
-  getLastRenderedFiles: () => [{ filename: "front.png", contentBase64: "f" }],
+  getLastRenderedFiles: () => [{ filename: "model.stl", contentBase64: "f" }],
   userPrompt: "p",
   evalThreshold: 5,
-  componentChecklist: [{ item: "x", visibility: "visual" }],
+  componentChecklist: [
+    { item: "Body is hollow", visibility: "visual" as const, componentName: "body" },
+  ],
+  evalPlan: null,
   ...overrides,
 });
 
-beforeEach(() => {
-  mockRunChecklistEval.mockReset();
+const mkPassingFullEval = () => ({
+  compositeScore: 8,
+  codeScore: 8,
+  visualScore: 8,
+  assertionPassRate: 1,
+  assertionsFailed: false,
+  vlmModel: "test-vlm",
+  codeReviewModel: "test-code",
+  codeIssues: [],
+  vlmIssues: [],
+  vlmSuggestions: [],
+  vlmRawResponse: "",
+  vlmReasoning: "",
+  vlmSystemPrompt: "",
+  codeReviewRawResponse: "",
+  codeReviewReasoning: "",
+  codeReviewSystemPrompt: "",
 });
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+describe("submit_result forced checklist gate — assembler path (non-disableRender)", () => {
+  beforeEach(() => {
+    mockRunChecklistEval.mockReset();
+    mockRenderModelScreenshots.mockReset();
+    mockRunFullEvaluation.mockReset();
+    // Default: screenshots succeed, full eval passes
+    mockRenderModelScreenshots.mockResolvedValue({
+      images: [{ angle: "front", base64: "imgdata" }],
+    });
+    mockRunFullEvaluation.mockResolvedValue(mkPassingFullEval());
+  });
 
-describe("submit_result forced checklist gate", () => {
-  it("rejects submission when any component item FAILs", async () => {
+  it("rejects submission when any item FAILs and uses component-grouped output", async () => {
     mockRunChecklistEval.mockResolvedValue({
-      results: [{ index: 0, item: "x", visibility: "visual", verdict: "FAIL", reasoning: "not visible" }],
+      results: [
+        {
+          index: 0,
+          item: "Body is hollow",
+          visibility: "visual",
+          verdict: "FAIL",
+          reasoning: "top view shows solid block",
+        },
+      ],
       passedCount: 0,
       failedCount: 1,
       uncertainCount: 0,
     });
-
+    const { buildAgentTools } = await import("../services/agent-tools.service.js");
     const onSubmit = vi.fn();
-    const tools = buildAgentTools(mkDeps({ onSubmit }) as any, { disableRender: true });
-    const result = await tools.submit_result.execute({ summary: "test" } as any, {} as any);
+    // Note: { disableRender: undefined } — the assembler path, NOT sub-agent
+    const tools = buildAgentTools(mkDeps({ onSubmit }) as any, {});
+    const result = String(await tools.submit_result.execute({} as any, {} as any));
 
-    expect(String(result)).toMatch(/SUBMISSION REJECTED/);
-    expect(String(result)).toMatch(/component checklist/i);
+    expect(result).toMatch(/SUBMISSION REJECTED/);
+    expect(result).toMatch(/Component "body"/);
+    expect(result).toMatch(/Body is hollow/);
+    expect(result).toMatch(/top view shows solid block/);
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("includes failed item details in the rejection message", async () => {
-    mockRunChecklistEval.mockResolvedValue({
-      results: [{ index: 0, item: "has 4 holes", visibility: "visual", verdict: "FAIL", reasoning: "no holes visible" }],
-      passedCount: 0,
-      failedCount: 1,
-      uncertainCount: 0,
-    });
-
-    const tools = buildAgentTools(mkDeps() as any, { disableRender: true });
-    const result = await tools.submit_result.execute({ summary: "test" } as any, {} as any);
-
-    expect(String(result)).toMatch(/has 4 holes/);
-    expect(String(result)).toMatch(/no holes visible/);
-  });
-
-  it("does NOT reject when only UNCERTAIN items present", async () => {
-    mockRunChecklistEval.mockResolvedValue({
-      results: [{ index: 0, item: "x", visibility: "visual", verdict: "UNCERTAIN", reasoning: "occluded" }],
-      passedCount: 0,
-      failedCount: 0,
-      uncertainCount: 1,
-    });
-
-    const onSubmit = vi.fn();
-    const tools = buildAgentTools(mkDeps({ onSubmit }) as any, { disableRender: true });
-    const result = await tools.submit_result.execute({ summary: "test" } as any, {} as any);
-
-    expect(String(result)).not.toMatch(/SUBMISSION REJECTED/);
-    expect(onSubmit).toHaveBeenCalledOnce();
-  });
-
-  it("does NOT reject when all items PASS", async () => {
-    mockRunChecklistEval.mockResolvedValue({
-      results: [{ index: 0, item: "x", visibility: "visual", verdict: "PASS", reasoning: "clearly visible" }],
-      passedCount: 1,
-      failedCount: 0,
-      uncertainCount: 0,
-    });
-
-    const onSubmit = vi.fn();
-    const tools = buildAgentTools(mkDeps({ onSubmit }) as any, { disableRender: true });
-    const result = await tools.submit_result.execute({ summary: "test" } as any, {} as any);
-
-    expect(String(result)).not.toMatch(/SUBMISSION REJECTED/);
-    expect(onSubmit).toHaveBeenCalledOnce();
-  });
-
-  it("skips the gate when componentChecklist is undefined", async () => {
-    const onSubmit = vi.fn();
-    const tools = buildAgentTools(
-      mkDeps({ onSubmit, componentChecklist: undefined }) as any,
-      { disableRender: true },
-    );
-    await tools.submit_result.execute({ summary: "test" } as any, {} as any);
-
-    expect(mockRunChecklistEval).not.toHaveBeenCalled();
-    expect(onSubmit).toHaveBeenCalledOnce();
-  });
-
-  it("skips the gate when componentChecklist is empty", async () => {
-    const onSubmit = vi.fn();
-    const tools = buildAgentTools(
-      mkDeps({ onSubmit, componentChecklist: [] }) as any,
-      { disableRender: true },
-    );
-    await tools.submit_result.execute({ summary: "test" } as any, {} as any);
-
-    expect(mockRunChecklistEval).not.toHaveBeenCalled();
-    expect(onSubmit).toHaveBeenCalledOnce();
-  });
-
-  it("falls through (no gate) when no rendered files are cached", async () => {
-    const onSubmit = vi.fn();
-    const tools = buildAgentTools(
-      mkDeps({ onSubmit, getLastRenderedFiles: () => [] }) as any,
-      { disableRender: true },
-    );
-    await tools.submit_result.execute({ summary: "test" } as any, {} as any);
-
-    expect(mockRunChecklistEval).not.toHaveBeenCalled();
-    expect(onSubmit).toHaveBeenCalledOnce();
-  });
-
-  it("invokes onChecklistEvaluated callback after running the gate", async () => {
-    const verification = {
-      results: [{ index: 0, item: "x", visibility: "visual", verdict: "PASS", reasoning: "ok" }],
-      passedCount: 1,
-      failedCount: 0,
-      uncertainCount: 0,
-    };
-    mockRunChecklistEval.mockResolvedValue(verification);
-
-    const onChecklistEvaluated = vi.fn();
-    const tools = buildAgentTools(
-      mkDeps({ onChecklistEvaluated }) as any,
-      { disableRender: true },
-    );
-    await tools.submit_result.execute({ summary: "test" } as any, {} as any);
-
-    expect(onChecklistEvaluated).toHaveBeenCalledWith(verification);
-  });
-
-  it("includes all failed items in the rejection message (not just the first)", async () => {
+  it("groups multiple failed components separately", async () => {
     mockRunChecklistEval.mockResolvedValue({
       results: [
         { index: 0, item: "a", visibility: "visual", verdict: "FAIL", reasoning: "bad a" },
@@ -186,24 +115,58 @@ describe("submit_result forced checklist gate", () => {
       failedCount: 2,
       uncertainCount: 0,
     });
-    const onSubmit = vi.fn();
+    const { buildAgentTools } = await import("../services/agent-tools.service.js");
     const tools = buildAgentTools(
       mkDeps({
-        onSubmit,
         componentChecklist: [
-          { item: "a", visibility: "visual" },
-          { item: "b", visibility: "code" },
+          { item: "a", visibility: "visual" as const, componentName: "body" },
+          { item: "b", visibility: "code" as const, componentName: "pin" },
         ],
       }) as any,
-      { disableRender: true },
+      {},
     );
     const result = String(await tools.submit_result.execute({} as any, {} as any));
-    expect(result).toMatch(/SUBMISSION REJECTED/);
-    expect(result).toMatch(/"a"/);
-    expect(result).toMatch(/"b"/);
-    expect(result).toMatch(/bad a/);
-    expect(result).toMatch(/bad b/);
+    expect(result).toMatch(/Component "body"/);
+    expect(result).toMatch(/Component "pin"/);
     expect(result).toMatch(/2 of 2/);
+  });
+
+  it("does NOT reject when only UNCERTAIN items present", async () => {
+    mockRunChecklistEval.mockResolvedValue({
+      results: [
+        {
+          index: 0,
+          item: "x",
+          visibility: "visual",
+          verdict: "UNCERTAIN",
+          reasoning: "occluded",
+        },
+      ],
+      passedCount: 0,
+      failedCount: 0,
+      uncertainCount: 1,
+    });
+    const { buildAgentTools } = await import("../services/agent-tools.service.js");
+    const tools = buildAgentTools(mkDeps() as any, {});
+    const result = String(await tools.submit_result.execute({} as any, {} as any));
+    expect(result).not.toMatch(/SUBMISSION REJECTED/);
+  });
+
+  it("does NOT fire the gate when componentChecklist is empty (single-agent)", async () => {
+    const { buildAgentTools } = await import("../services/agent-tools.service.js");
+    const tools = buildAgentTools(
+      mkDeps({ componentChecklist: undefined }) as any,
+      {},
+    );
+    await tools.submit_result.execute({} as any, {} as any);
+    expect(mockRunChecklistEval).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire the gate on the sub-agent path (disableRender:true)", async () => {
+    const { buildAgentTools } = await import("../services/agent-tools.service.js");
+    const tools = buildAgentTools(mkDeps() as any, { disableRender: true });
+    await tools.submit_result.execute({} as any, {} as any);
+    expect(mockRunChecklistEval).not.toHaveBeenCalled();
   });
 
   it("fires onChecklistEvaluated even when verdict is FAIL", async () => {
@@ -214,10 +177,8 @@ describe("submit_result forced checklist gate", () => {
       uncertainCount: 0,
     });
     const onChecklistEvaluated = vi.fn();
-    const tools = buildAgentTools(
-      mkDeps({ onChecklistEvaluated }) as any,
-      { disableRender: true },
-    );
+    const { buildAgentTools } = await import("../services/agent-tools.service.js");
+    const tools = buildAgentTools(mkDeps({ onChecklistEvaluated }) as any, {});
     await tools.submit_result.execute({} as any, {} as any);
     expect(onChecklistEvaluated).toHaveBeenCalledTimes(1);
   });

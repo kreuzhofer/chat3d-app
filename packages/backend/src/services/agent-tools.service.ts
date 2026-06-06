@@ -326,54 +326,6 @@ export function buildAgentTools(
             return "ERROR: No code in main.py. Write your component code first.";
           }
 
-          // Forced component-checklist verification (multi-agent sub-agents only).
-          // Fires only when deps.componentChecklist is populated (Task 7 wires this).
-          // UNCERTAIN does NOT block; only FAIL blocks submission.
-          if (deps.componentChecklist && deps.componentChecklist.length > 0) {
-            const renderedFiles = deps.getLastRenderedFiles();
-            if (renderedFiles && renderedFiles.length > 0) {
-              try {
-                const verification = await runChecklistEval({
-                  checklist: deps.componentChecklist,
-                  originalIndices: deps.componentChecklist.map((_, i) => i),
-                  code: deps.fs.getMainCode(),
-                  renderedFiles,
-                  evalPlan: deps.evalPlan ?? null,
-                  visualVerify: verifyChecklistItemVisual,
-                  codeVerify: verifyChecklistItemCode,
-                });
-
-                deps.onChecklistEvaluated?.(verification);
-
-                const failed = verification.results.filter((r) => r.verdict === "FAIL");
-                if (failed.length > 0) {
-                  logger.info(
-                    { failed: failed.length, total: verification.results.length, componentName: deps.componentName },
-                    "submission rejected — component checklist failures",
-                  );
-                  const lines = [
-                    `SUBMISSION REJECTED — ${failed.length} of ${verification.results.length} component checklist item(s) failed:`,
-                    ...failed.map(
-                      (f) => `  Item ${f.index} [${f.visibility.toUpperCase()}]: "${f.item}"\n    ${f.reasoning}`,
-                    ),
-                    ``,
-                    `Fix these issues and try submit_result again. UNCERTAIN items are allowed; FAIL items are not.`,
-                  ];
-                  return lines.join("\n");
-                }
-                logger.debug(
-                  { passedCount: verification.passedCount, uncertainCount: verification.uncertainCount, componentName: deps.componentName },
-                  "sub-agent checklist gate passed",
-                );
-              } catch (err) {
-                logger.warn({ err, componentName: deps.componentName }, "checklist gate eval threw; proceeding to submit");
-                // Fall through to onSubmit — gate failure should not permanently block.
-              }
-            } else {
-              // No cached renders — cannot run checklist gate. Submit anyway (renders not required in component mode).
-            }
-          }
-
           onSubmit();
           logger.info({ summary }, "sub-agent submitted component code");
           return `Component submitted: ${summary}`;
@@ -403,6 +355,74 @@ export function buildAgentTools(
               logger.warn({ err: err instanceof Error ? err.message : String(err) }, "assertion check failed during submit (continuing)");
             }
           }
+        }
+
+        // Forced component-checklist gate (assembler path only — fires when componentChecklist populated).
+        // Runs after assertions pass + renders confirmed, but before expensive VLM full-eval.
+        // UNCERTAIN does NOT block; only FAIL blocks submission.
+        if (deps.componentChecklist && deps.componentChecklist.length > 0) {
+          if (renderedFiles && renderedFiles.length > 0) {
+            try {
+              const verification = await runChecklistEval({
+                checklist: deps.componentChecklist,
+                originalIndices: deps.componentChecklist.map((_, i) => i),
+                code: deps.fs.getMainCode(),
+                renderedFiles,
+                evalPlan: deps.evalPlan ?? null,
+                visualVerify: verifyChecklistItemVisual,
+                codeVerify: verifyChecklistItemCode,
+              });
+
+              deps.onChecklistEvaluated?.(verification);
+
+              const failed = verification.results.filter((r) => r.verdict === "FAIL");
+              if (failed.length > 0) {
+                logger.info(
+                  { failed: failed.length, total: verification.results.length, componentName: deps.componentName },
+                  "submission rejected — component checklist failures",
+                );
+
+                // Group failed items by their source component (via index lookup back into deps.componentChecklist).
+                const byComponent: Record<string, typeof failed> = {};
+                for (const f of failed) {
+                  const sourceItem = deps.componentChecklist[f.index];
+                  const cname = sourceItem?.componentName ?? "unknown";
+                  (byComponent[cname] ??= []).push(f);
+                }
+
+                const sections: string[] = [];
+                for (const [cname, items] of Object.entries(byComponent)) {
+                  sections.push(`  Component "${cname}":`);
+                  for (const f of items) {
+                    sections.push(
+                      `    Item ${f.index} [${f.visibility.toUpperCase()}]: "${f.item}"\n      ${f.reasoning}`,
+                    );
+                  }
+                }
+
+                const lines = [
+                  `SUBMISSION REJECTED — ${failed.length} of ${verification.results.length} component-checklist item(s) failed:`,
+                  ``,
+                  ...sections,
+                  ``,
+                  `Fix these and try submit_result again. UNCERTAIN items are allowed; FAIL items are not.`,
+                ];
+                return lines.join("\n");
+              }
+              logger.debug(
+                { passedCount: verification.passedCount, uncertainCount: verification.uncertainCount, componentName: deps.componentName },
+                "assembler checklist gate passed",
+              );
+            } catch (err) {
+              logger.warn(
+                { err, componentName: deps.componentName },
+                "assembler checklist gate threw; proceeding to submit",
+              );
+              // Fall through to the canonical eval — gate failure should not permanently block.
+            }
+          }
+          // If no cached renders, fall through. The assembler is expected to have rendered before submit;
+          // in practice this branch is rare and the canonical eval below will catch issues.
         }
 
         // Run full evaluation pipeline (assertions + code review + VLM + composite)
