@@ -4,10 +4,9 @@ import type { ComponentChecklistItem } from "../utils/component-checklist.js";
 import type { RenderedFile } from "../services/rendering.service.js";
 
 const FAKE_IMG: RenderedFile = {
-  fileName: "front.png",
+  filename: "front.png",
   contentBase64: "abc",
-  mimeType: "image/png",
-} as RenderedFile;
+};
 
 describe("runChecklistEval", () => {
   it("dispatches visual-only items to the VLM and skips code path", async () => {
@@ -150,9 +149,9 @@ describe("runChecklistEval", () => {
     const visualVerify = vi.fn().mockResolvedValue({ verdict: "PASS", reasoning: "ok" });
     const codeVerify = vi.fn();
 
-    const front: RenderedFile = { fileName: "front.png", contentBase64: "f", mimeType: "image/png" } as RenderedFile;
-    const back: RenderedFile = { fileName: "back.png", contentBase64: "b", mimeType: "image/png" } as RenderedFile;
-    const top: RenderedFile = { fileName: "top.png", contentBase64: "t", mimeType: "image/png" } as RenderedFile;
+    const front: RenderedFile = { filename: "front.png", contentBase64: "f" };
+    const back: RenderedFile = { filename: "back.png", contentBase64: "b" };
+    const top: RenderedFile = { filename: "top.png", contentBase64: "t" };
 
     await runChecklistEval({
       checklist: [{ item: "x", visibility: "visual" }],
@@ -168,7 +167,7 @@ describe("runChecklistEval", () => {
     });
 
     const calledWith = visualVerify.mock.calls[0][0];
-    const fileNames = calledWith.images.map((i: RenderedFile) => i.fileName);
+    const fileNames = calledWith.images.map((i: RenderedFile) => i.filename);
     expect(fileNames).toEqual(["front.png", "top.png"]);
   });
 });

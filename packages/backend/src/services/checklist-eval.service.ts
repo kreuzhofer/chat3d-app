@@ -49,10 +49,10 @@ const ANGLE_FROM_FILENAME = (fileName: string): string => {
 function filterImagesByPlan(files: RenderedFile[], evalPlan: EvalPlan | null): RenderedFile[] {
   if (!evalPlan?.inspectionPlan?.angles?.length) return files;
   const wanted = new Set<string>(evalPlan.inspectionPlan.angles);
-  const filtered = files.filter((f) => wanted.has(ANGLE_FROM_FILENAME(f.fileName)));
+  const filtered = files.filter((f) => wanted.has(ANGLE_FROM_FILENAME(f.filename)));
   if (filtered.length === 0) {
     logger.warn(
-      { wantedAngles: [...wanted], actualFiles: files.map((f) => f.fileName) },
+      { wantedAngles: [...wanted], actualFiles: files.map((f) => f.filename) },
       "filterImagesByPlan: no files matched evalPlan angles; falling back to all files",
     );
     return files;
@@ -141,9 +141,8 @@ export function parseChecklistVerdictText(text: string): ChecklistFocusedEvalRes
   const trimmed = text.trim();
   const upper = trimmed.toUpperCase();
   let verdict: ChecklistVerdict = "UNCERTAIN";
-  if (/^PASS\b|\bPASS\b/.test(upper.slice(0, 32))) verdict = "PASS";
-  else if (/^FAIL\b|\bFAIL\b/.test(upper.slice(0, 32))) verdict = "FAIL";
-  else if (/^UNCERTAIN\b/.test(upper)) verdict = "UNCERTAIN";
+  if (/\bPASS\b/.test(upper.slice(0, 32))) verdict = "PASS";
+  else if (/\bFAIL\b/.test(upper.slice(0, 32))) verdict = "FAIL";
   return { verdict, reasoning: trimmed.slice(0, 600) };
 }
 
@@ -161,45 +160,36 @@ const CODE_SYS_PROMPT = (item: string): string =>
   `Then add 1-3 sentences of reasoning. PASS only when the code clearly satisfies the item; ` +
   `UNCERTAIN when the code is ambiguous; FAIL when it contradicts the item.`;
 
-async function resolveVlmConfig(): Promise<LlmModelConfig> {
-  return getModelForPurpose("vlm_eval");
-}
-
-async function resolveCodeReviewConfig(): Promise<{ config: LlmModelConfig }> {
-  for (const purpose of ["code_review", "spec_generation", "conversation"] as const) {
-    try {
-      const config = await getModelForPurpose(purpose);
-      if (purpose !== "code_review") {
-        logger.info({ purpose }, "code_review purpose not configured, falling back for checklist eval");
-      }
-      return { config };
-    } catch {
-      continue;
-    }
+async function resolveCodeReviewConfig(): Promise<LlmModelConfig> {
+  try {
+    return await getModelForPurpose("code_review");
+  } catch (err) {
+    logger.info({ err }, "code_review purpose not configured, falling back");
   }
-  throw new Error("No LLM model configured for code review (tried code_review, spec_generation, conversation)");
+  try { return await getModelForPurpose("spec_generation"); } catch { /* try next */ }
+  return getModelForPurpose("conversation");
 }
 
 export async function verifyChecklistItemVisual(
   args: ChecklistFocusedEvalArgs,
 ): Promise<ChecklistFocusedEvalResult> {
-  const vlmConfig = await resolveVlmConfig();
+  const vlmConfig = await getModelForPurpose("vlm_eval");
   // Cap at 3 images defensively (dispatcher already slices, but be explicit)
   const images = args.images.slice(0, 3);
 
-  const userContent: Array<{ type: "text"; text: string } | { type: "image"; image: string; mimeType: string }> = [
+  type ContentPart = { type: "text"; text: string } | { type: "image"; image: string };
+  const userContent: ContentPart[] = [
     { type: "text", text: "Verify this feature from the views below." },
     ...images.map((img) => ({
       type: "image" as const,
       image: img.contentBase64,
-      mimeType: img.mimeType ?? "image/png",
     })),
   ];
 
-  const providerModel = createProviderModelFromConfig(vlmConfig);
   const semaphore = getLlmSemaphore(vlmConfig.provider, vlmConfig.maxConcurrent);
 
   return semaphore.run(async () => {
+    const providerModel = createProviderModelFromConfig(vlmConfig);
     logger.info({ item: args.item, model: vlmConfig.label, imageCount: images.length }, "verifyChecklistItemVisual calling VLM");
 
     const stream = trackedStreamText({
@@ -230,13 +220,17 @@ export async function verifyChecklistItemVisual(
 export async function verifyChecklistItemCode(
   args: ChecklistFocusedEvalArgs,
 ): Promise<ChecklistFocusedEvalResult> {
-  const { config } = await resolveCodeReviewConfig();
+  if (!args.code.trim()) {
+    return { verdict: "UNCERTAIN", reasoning: "no code provided" };
+  }
+
+  const config = await resolveCodeReviewConfig();
 
   const userContent = `Verify this spec item against the Build123d code below.\n\n\`\`\`python\n${args.code}\n\`\`\``;
-  const providerModel = createProviderModelFromConfig(config);
   const semaphore = getLlmSemaphore(config.provider, config.maxConcurrent);
 
   return semaphore.run(async () => {
+    const providerModel = createProviderModelFromConfig(config);
     logger.info({ item: args.item, model: config.label }, "verifyChecklistItemCode calling LLM");
 
     const stream = trackedStreamText({
