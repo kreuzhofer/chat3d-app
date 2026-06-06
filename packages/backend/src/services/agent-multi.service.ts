@@ -27,7 +27,12 @@ import { evaluateCode, type CodeReviewResult } from "./code-eval.service.js";
 import { withLlmRetry } from "../utils/llm-retry.js";
 import { filterResearchForComponent, type ResearchPackage } from "./research-agent.service.js";
 import { formatResearchSection } from "./research-format.service.js";
-import { type SubAgentVerificationSnapshot } from "../utils/component-checklist.js";
+import {
+  type SubAgentVerificationSnapshot,
+  type ChecklistItemResult,
+  type ComponentVerificationResult,
+  type ComponentChecklistItem,
+} from "../utils/component-checklist.js";
 import {
   decomposePrompt,
   type DecomposedComponent,
@@ -37,6 +42,22 @@ import {
 export type { DecomposedComponent, DecompositionResult } from "./agent-multi-parser.js";
 
 const logger = createLogger("agent-multi");
+
+/**
+ * Flattens per-component checklists into a single list, tagging each item
+ * with its source componentName. Used to feed the assembler's evaluate_checklist
+ * tool + forced gate (which see the aggregated list as a single checklist).
+ */
+export function aggregateChecklistForAssembler(
+  components: DecomposedComponent[],
+): ComponentChecklistItem[] {
+  return components.flatMap((c) =>
+    (c.componentChecklist ?? []).map((item) => ({
+      ...item,
+      componentName: c.name,
+    })),
+  );
+}
 
 /** Minimum code review score for a component to pass to assembly. */
 const COMPONENT_EVAL_THRESHOLD = 5;
@@ -380,6 +401,34 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   const componentFileList = Array.from(componentFiles.keys()).map(p => `- ${p}`).join("\n");
   const assemblyUserMessage = `Create the final model matching this user request:\n\n"${promptText}"\n\nAvailable component files:\n${componentFileList}\n\nAssembly notes: ${decomposition.assemblyNotes}\n\nView each component file to understand its function signature and dimensions, then write main.py that imports and positions them EXACTLY as the user prompt describes. Validate, render, and submit when the render succeeds.`;
 
+  // Aggregate per-component checklists into a flat list for the assembler gate.
+  const assemblerChecklist = aggregateChecklistForAssembler(decomposition.components);
+
+  // Rebuild subAgentVerifications from the assembler's flat evaluation results,
+  // grouping by componentName via index-zip against the source assemblerChecklist.
+  const assemblerOnChecklistEvaluated = (verification: ComponentVerificationResult) => {
+    // Reset the accumulator — the assembler's gate is the canonical source now.
+    for (const key of Object.keys(subAgentVerifications)) {
+      delete subAgentVerifications[key];
+    }
+    const grouped: Record<string, ChecklistItemResult[]> = {};
+    for (const r of verification.results) {
+      const sourceItem = assemblerChecklist[r.index];
+      const componentName = sourceItem?.componentName ?? "unknown";
+      (grouped[componentName] ??= []).push(r);
+    }
+    for (const [componentName, results] of Object.entries(grouped)) {
+      subAgentVerifications[componentName] = {
+        passedCount: results.filter((x) => x.verdict === "PASS").length,
+        failedCount: results.filter((x) => x.verdict === "FAIL").length,
+        uncertainCount: results.filter((x) => x.verdict === "UNCERTAIN").length,
+        failedItems: results
+          .filter((x) => x.verdict === "FAIL")
+          .map((x) => ({ item: x.item, reasoning: x.reasoning })),
+      };
+    }
+  };
+
   const assemblyResult = await runAgentCodegen({
     promptText: assemblyUserMessage,
     isModification: false,
@@ -397,6 +446,9 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     onProgress: (state, detail) => {
       onProgress?.(state, `[assembly] ${detail}`);
     },
+    componentChecklist: assemblerChecklist,
+    componentName: "assembler",
+    onChecklistEvaluated: assemblerOnChecklistEvaluated,
   });
 
   totalPromptTokens += assemblyResult.usage.promptTokens;
