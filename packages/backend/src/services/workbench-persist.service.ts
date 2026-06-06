@@ -59,6 +59,8 @@ export async function insertExample(data: {
   codeReviewSystemPrompt?: string | null;
   agentConversation?: unknown | null;
   agentSystemPrompt?: string | null;
+  subAgentVerifications?: unknown | null;
+  preSubmitVerification?: unknown | null;
 }): Promise<string> {
   const created = await prisma.workbenchExample.upsert({
     where: { id: data.id },
@@ -108,6 +110,8 @@ export async function insertExample(data: {
       codeReviewSystemPrompt: data.codeReviewSystemPrompt ?? null,
       agentConversation: data.agentConversation ?? null,
       agentSystemPrompt: data.agentSystemPrompt ?? null,
+      subAgentVerifications: data.subAgentVerifications ?? undefined,
+      preSubmitVerification: data.preSubmitVerification ?? undefined,
     },
     update: {
       iteration: data.iteration,
@@ -153,6 +157,8 @@ export async function insertExample(data: {
       codeReviewSystemPrompt: data.codeReviewSystemPrompt ?? null,
       agentConversation: data.agentConversation ?? null,
       agentSystemPrompt: data.agentSystemPrompt ?? null,
+      subAgentVerifications: data.subAgentVerifications ?? undefined,
+      preSubmitVerification: data.preSubmitVerification ?? undefined,
     },
     select: { id: true },
   });

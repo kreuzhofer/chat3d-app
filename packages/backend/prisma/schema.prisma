@@ -467,6 +467,8 @@ model WorkbenchExample {
   evalIssues            Json?    @map("eval_issues") @db.JsonB
   evalSuggestions       Json?    @map("eval_suggestions") @db.JsonB
   evalChecklistResults  Json?    @map("eval_checklist_results") @db.JsonB
+  subAgentVerifications Json?    @map("sub_agent_verifications") @db.JsonB
+  preSubmitVerification Json?    @map("pre_submit_verification") @db.JsonB
   approvalStatus        String   @default("pending") @map("approval_status") @db.VarChar(20)
   rejectionNote         String?  @map("rejection_note") @db.Text
   llmModel              String?  @map("llm_model") @db.VarChar(255)

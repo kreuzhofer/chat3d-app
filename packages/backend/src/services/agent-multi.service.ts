@@ -436,6 +436,7 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     screenshots: assemblyResult.screenshots,
     conversationHistory: assemblyResult.conversationHistory,
     systemPrompt: assemblyResult.systemPrompt,
+    subAgentVerifications: Object.keys(subAgentVerifications).length > 0 ? subAgentVerifications : undefined,
   };
 }
 

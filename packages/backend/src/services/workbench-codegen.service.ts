@@ -530,6 +530,15 @@ async function _runPipeline(
 
   const agCodeEvalWeight = await getCodeEvalWeight("workbench");
 
+  // Accumulator for single-agent evaluate_checklist tool calls.
+  // Only populated on the single-agent path; multi-agent uses subAgentVerifications instead.
+  let preSubmitVerification: {
+    callCount: number;
+    totalPassed: number;
+    totalFailed: number;
+    totalUncertain: number;
+  } | null = null;
+
   onProgress?.("codegen", wbUseMultiAgent
     ? "Orchestrating multi-agent build for complex model..."
     : "Agent is working on your model...");
@@ -560,6 +569,16 @@ async function _runPipeline(
     promptComplexity: ctx.complexity,
     codeEvalWeight: agCodeEvalWeight,
     retrievalCollector,
+    // Single-agent: accumulate evaluate_checklist tool calls for preSubmitVerification.
+    // Multi-agent ignores this callback — sub-agents write to subAgentVerifications instead.
+    onChecklistEvaluated: wbUseMultiAgent ? undefined : (verification: import("../utils/component-checklist.js").ComponentVerificationResult) => {
+      preSubmitVerification = {
+        callCount: (preSubmitVerification?.callCount ?? 0) + 1,
+        totalPassed: (preSubmitVerification?.totalPassed ?? 0) + verification.passedCount,
+        totalFailed: (preSubmitVerification?.totalFailed ?? 0) + verification.failedCount,
+        totalUncertain: (preSubmitVerification?.totalUncertain ?? 0) + verification.uncertainCount,
+      };
+    },
   };
 
   const agResult = wbUseMultiAgent
@@ -839,6 +858,8 @@ async function _runPipeline(
     codeReviewSystemPrompt: agFullEval?.codeReviewSystemPrompt ?? null,
     agentConversation: agResult?.conversationHistory ?? null,
     agentSystemPrompt: agResult?.systemPrompt ?? null,
+    subAgentVerifications: agResult?.subAgentVerifications ?? null,
+    preSubmitVerification: wbUseMultiAgent ? null : (preSubmitVerification ?? null),
   });
 
   // Spec fields were persisted eagerly upstream — once right after
