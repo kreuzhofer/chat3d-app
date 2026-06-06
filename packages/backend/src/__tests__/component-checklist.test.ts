@@ -54,3 +54,33 @@ describe("parseComponentChecklist", () => {
     expect(parseComponentChecklist(null)).toBeNull();
   });
 });
+
+describe("ComponentChecklistItem with componentName tag", () => {
+  it("accepts an item with componentName", () => {
+    const r = ComponentChecklistItemSchema.safeParse({
+      item: "Body is hollow",
+      visibility: "visual",
+      componentName: "body",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.componentName).toBe("body");
+  });
+
+  it("accepts an item without componentName (still valid)", () => {
+    const r = ComponentChecklistItemSchema.safeParse({
+      item: "x",
+      visibility: "code",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.componentName).toBeUndefined();
+  });
+
+  it("rejects a non-string componentName", () => {
+    const r = ComponentChecklistItemSchema.safeParse({
+      item: "x",
+      visibility: "code",
+      componentName: 42,
+    });
+    expect(r.success).toBe(false);
+  });
+});
