@@ -114,7 +114,9 @@ interface FinalizeTraceParams {
 }
 
 /**
- * Final update: sets workbenchExampleId, terminal finalStatus, and full trace + summary.
+ * Final update: sets workbenchExampleId, terminal finalStatus, real pipelineType, and full trace + summary.
+ * pipelineType is written here (not just at createTraceEarly) because it may change mid-pipeline
+ * (e.g. single_agent → multi_agent after complexity routing).
  */
 export async function finalizeTrace(traceId: string | null, params: FinalizeTraceParams): Promise<void> {
   if (!traceId) return;
@@ -129,11 +131,12 @@ export async function finalizeTrace(traceId: string | null, params: FinalizeTrac
         totalSteps: params.summary.totalSteps,
         totalLlmCalls: params.summary.totalLlmCalls,
         finalStatus: params.summary.finalStatus,
+        pipelineType: params.trace.pipelineType,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         trace: params.trace as any,
       },
     });
-    logger.info({ traceId, exampleId: params.workbenchExampleId }, "trace finalized");
+    logger.info({ traceId, exampleId: params.workbenchExampleId, pipelineType: params.trace.pipelineType }, "trace finalized");
   } catch (err) {
     logger.warn({ err, traceId }, "trace finalization failed");
   }
