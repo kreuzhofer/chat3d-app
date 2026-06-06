@@ -99,6 +99,12 @@ export interface AgentCodegenInput {
   previousMessages?: CoreMessage[];
   /** Optional collector — when present, tools log retrieval events here. */
   retrievalCollector?: import("./rag-retrieval-collector.service.js").RagRetrievalCollector;
+  /** Per-component verification checklist (multi-agent sub-agents only). */
+  componentChecklist?: import("../utils/component-checklist.js").ComponentChecklistItem[];
+  /** Component name — for logging/diagnostics in multi-agent context. */
+  componentName?: string;
+  /** Callback when the sub-agent's checklist evaluation completes. */
+  onChecklistEvaluated?: (result: import("../utils/component-checklist.js").ComponentVerificationResult) => void;
 }
 
 export interface AgentCodegenResult {
@@ -270,6 +276,9 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       categoryName: input.categoryName,
       complexity: input.promptComplexity,
       codeEvalWeight: input.codeEvalWeight,
+      componentChecklist: input.componentChecklist,
+      componentName: input.componentName,
+      onChecklistEvaluated: input.onChecklistEvaluated,
     },
     { disableRender, enableSearch: resolvedEnableSearch, ragMaxExamplesOverride: input.ragMaxExamplesOverride, excludePromptIds: input.excludePromptIds, retrievalCollector: input.retrievalCollector, getCurrentStep: () => currentStep },
   );

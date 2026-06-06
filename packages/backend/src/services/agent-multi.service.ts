@@ -231,6 +231,10 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   const componentFiles = new Map<string, string>();
   const subAgentMaxSteps = await getSubAgentMaxSteps("workbench");
 
+  // Per-component checklist verification snapshots — consumed by Task 8 assembler metadata.
+  type SubAgentVerification = { passedCount: number; failedCount: number; uncertainCount: number; failedItems: { item: string; reasoning: string }[] };
+  const subAgentVerifications: Record<string, SubAgentVerification> = {};
+
   const overallContext = `This is part of a larger model: "${promptText}".\n\nAll components:\n${decomposition.components.map(c => `- ${c.name}: ${c.description}`).join("\n")}\n\nAssembly plan: ${decomposition.assemblyNotes}`;
 
   onProgress?.("component", `Building ${decomposition.components.length} components in parallel...`);
@@ -279,6 +283,18 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
         retrievalCollector: input.retrievalCollector,
         onProgress: (state, detail) => {
           onProgress?.(state, `[${component.name}] ${detail}`);
+        },
+        componentChecklist: component.componentChecklist ?? [],
+        componentName: component.name,
+        onChecklistEvaluated: (verification) => {
+          subAgentVerifications[component.name] = {
+            passedCount: verification.passedCount,
+            failedCount: verification.failedCount,
+            uncertainCount: verification.uncertainCount,
+            failedItems: verification.results
+              .filter((r) => r.verdict === "FAIL")
+              .map((r) => ({ item: r.item, reasoning: r.reasoning })),
+          };
         },
       });
   }
