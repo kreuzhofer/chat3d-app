@@ -10,7 +10,6 @@ import {
   buildTieredSystemPrompt,
   CODEGEN_SYSTEM_PROMPT,
 } from "./system-prompts.js";
-import type { SubAgentVerificationSnapshot } from "../utils/component-checklist.js";
 
 const AGENT_PREAMBLE = `You are a Build123d CAD modeling agent. You create and edit Python code to generate 3D models using the Build123d library. You have access to a project directory where you can create and edit files, plus specialized tools for validating and rendering Build123d code.
 
@@ -341,72 +340,32 @@ root_part = b.fuse(h)
 - For separate parts: add a visible gap (5-10mm) between them so both parts are clearly distinguishable in screenshots
 `;
 
-/** Shape of per-component verification data delivered to the assembler. */
-export interface AssemblerComponentVerification {
-  name: string;
-  verification?: SubAgentVerificationSnapshot | null;
-}
-
-/**
- * Formats the verification advisory paragraph for the assembler system prompt.
- *
- * Default when `verification` is absent (undefined/null): treated as "all passed"
- * because the sub-agent gate would have blocked it otherwise; no checklist simply
- * means the eval step was skipped or produced no results.
- */
-function buildVerificationParagraph(components: AssemblerComponentVerification[]): string {
-  // UNCERTAIN items are advisory-only; only FAIL items surface to the assembler.
-  const failedComponents = components.filter(
-    (c) => c.verification != null && c.verification.failedCount > 0,
-  );
-
-  if (failedComponents.length === 0) {
-    return "\n\nAll sub-components passed their per-component verification.";
-  }
-
-  const sections = failedComponents
-    .map((c) => {
-      const items = c.verification!.failedItems
-        .map((f) => `  - ${f.item} — ${f.reasoning}`)
-        .join("\n");
-      return `Component "${c.name}" — ${c.verification!.failedCount} failed item(s):\n${items}`;
-    })
-    .join("\n\n");
-
-  return (
-    `\n\nSome sub-components arrived with failed verification items:\n\n${sections}\n\n` +
-    `Attempt to assemble anyway (best-effort). Note in your output any failures that may surface in the final result. ` +
-    `Do NOT try to repair sub-component issues yourself — your job is composition.`
-  );
-}
-
 /**
  * Build system prompt for the assembly agent that combines components.
  * Reuses the full main agent prompt (coding principles, tool strategy,
- * error recovery, pitfalls) and appends assembly-specific context.
+ * error recovery, pitfalls) and appends assembly-specific context plus
+ * the v2 repair-authority block (replaces v1 advisory verificationParagraph).
  */
-export function buildAssemblyAgentSystemPrompt(options: {
-  originalPrompt: string;
-  assemblyNotes: string;
-  componentSummary: string;
-  /** Optional per-component verification snapshots (advisory only — assembler is not gated). */
-  components?: AssemblerComponentVerification[];
-}): string {
+export function buildAssemblyAgentSystemPrompt(
+  originalPrompt: string,
+  assemblyNotes: string,
+  componentSummary: string,
+): string {
   // Start with the full main agent prompt (includes all tool guidance, pitfalls, etc.)
   const basePrompt = buildAgentSystemPrompt({
-    promptText: options.originalPrompt,
+    promptText: originalPrompt,
     isModification: false,
   });
 
   const assemblySection = `${ASSEMBLY_CONTEXT}
 ## Original Request
-${options.originalPrompt}
+${originalPrompt}
 
 ## Assembly Notes
-${options.assemblyNotes}
+${assemblyNotes}
 
 ## Available Components
-${options.componentSummary}
+${componentSummary}
 
 View the component files to see their exact function signatures and dimensions, then write main.py to assemble them.
 
@@ -420,9 +379,27 @@ Use text_editor to view and edit the component file directly. Common fixes:
 - Import errors: check the function name matches what main.py imports
 `;
 
-  const verificationParagraph = options.components
-    ? buildVerificationParagraph(options.components)
-    : "\n\nAll sub-components passed their per-component verification.";
+  const repairAuthorityBlock = `
 
-  return basePrompt + "\n" + assemblySection + verificationParagraph;
+You are the assembly agent. You have RENDER access and the evaluate_checklist tool.
+Your job is not just composition — you are the final author of the result.
+
+Per-component verification checklists are attached via your evaluate_checklist tool.
+Each item has a componentName indicating which sub-component it targets.
+You may modify any sub-component's code to satisfy these items — the original
+sub-agent code is a starting point, not sacred. Composition fixes are also fair game.
+
+Workflow:
+1. Compose the assembly from the sub-component code.
+2. validate_and_render.
+3. Call evaluate_checklist proactively to verify items against the rendered view.
+4. Fix failures by editing sub-component code or composition logic.
+5. Re-render and re-verify.
+6. submit_result when confident.
+
+On submit, a forced verification will run on the full checklist. Any FAIL item
+blocks submission with feedback on which component and what failed.
+UNCERTAIN items pass through. Use the feedback to target your next fix.`;
+
+  return basePrompt + "\n" + assemblySection + repairAuthorityBlock;
 }

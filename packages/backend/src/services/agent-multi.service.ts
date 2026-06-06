@@ -353,30 +353,11 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     })
     .join("\n");
 
-  // Attach per-component verification snapshots (advisory metadata for the assembler).
-  // Components without a snapshot (checklist skipped) are passed with verification: null,
-  // which the prompt builder treats as "all passed" — consistent with the gate semantics.
-  const componentsForAssembler = decomposition.components.map((c) => ({
-    name: c.name,
-    verification: subAgentVerifications[c.name] ?? null,
-  }));
-
-  const failedComponentNames = componentsForAssembler
-    .filter((c) => c.verification && c.verification.failedCount > 0)
-    .map((c) => c.name);
-  if (failedComponentNames.length > 0) {
-    logger.info(
-      { failedComponents: failedComponentNames },
-      "assembler received components with verification failures",
-    );
-  }
-
-  let assemblyPrompt = buildAssemblyAgentSystemPrompt({
-    originalPrompt: promptText,
-    assemblyNotes: decomposition.assemblyNotes,
+  let assemblyPrompt = buildAssemblyAgentSystemPrompt(
+    promptText,
+    decomposition.assemblyNotes,
     componentSummary,
-    components: componentsForAssembler,
-  });
+  );
 
   // Inject research package into assembly prompt (it uses systemPromptOverride,
   // so the agent-codegen pre-retrieval path is skipped)
