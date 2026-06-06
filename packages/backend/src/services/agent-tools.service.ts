@@ -332,35 +332,46 @@ export function buildAgentTools(
           if (deps.componentChecklist && deps.componentChecklist.length > 0) {
             const renderedFiles = deps.getLastRenderedFiles();
             if (renderedFiles && renderedFiles.length > 0) {
-              const verification = await runChecklistEval({
-                checklist: deps.componentChecklist,
-                code: deps.fs.getMainCode(),
-                renderedFiles,
-                evalPlan: deps.evalPlan ?? null,
-                visualVerify: verifyChecklistItemVisual,
-                codeVerify: verifyChecklistItemCode,
-              });
+              try {
+                const verification = await runChecklistEval({
+                  checklist: deps.componentChecklist,
+                  originalIndices: deps.componentChecklist.map((_, i) => i),
+                  code: deps.fs.getMainCode(),
+                  renderedFiles,
+                  evalPlan: deps.evalPlan ?? null,
+                  visualVerify: verifyChecklistItemVisual,
+                  codeVerify: verifyChecklistItemCode,
+                });
 
-              deps.onChecklistEvaluated?.(verification);
+                deps.onChecklistEvaluated?.(verification);
 
-              const failed = verification.results.filter((r) => r.verdict === "FAIL");
-              if (failed.length > 0) {
-                logger.info(
-                  { failed: failed.length, total: verification.results.length, summary },
-                  "sub-agent submission rejected — component checklist failures",
+                const failed = verification.results.filter((r) => r.verdict === "FAIL");
+                if (failed.length > 0) {
+                  logger.info(
+                    { failed: failed.length, total: verification.results.length, componentName: deps.componentName },
+                    "submission rejected — component checklist failures",
+                  );
+                  const lines = [
+                    `SUBMISSION REJECTED — ${failed.length} of ${verification.results.length} component checklist item(s) failed:`,
+                    ...failed.map(
+                      (f) => `  Item ${f.index} [${f.visibility.toUpperCase()}]: "${f.item}"\n    ${f.reasoning}`,
+                    ),
+                    ``,
+                    `Fix these issues and try submit_result again. UNCERTAIN items are allowed; FAIL items are not.`,
+                  ];
+                  return lines.join("\n");
+                }
+                logger.debug(
+                  { passedCount: verification.passedCount, uncertainCount: verification.uncertainCount, componentName: deps.componentName },
+                  "sub-agent checklist gate passed",
                 );
-                const lines = [
-                  `SUBMISSION REJECTED — ${failed.length} of ${verification.results.length} component checklist item(s) failed:`,
-                  ...failed.map(
-                    (f) => `  Item ${f.index} [${f.visibility.toUpperCase()}]: "${f.item}"\n    ${f.reasoning}`,
-                  ),
-                  ``,
-                  `Fix these issues and try submit_result again. UNCERTAIN items are allowed; FAIL items are not.`,
-                ];
-                return lines.join("\n");
+              } catch (err) {
+                logger.warn({ err, componentName: deps.componentName }, "checklist gate eval threw; proceeding to submit");
+                // Fall through to onSubmit — gate failure should not permanently block.
               }
+            } else {
+              // No cached renders — cannot run checklist gate. Submit anyway (renders not required in component mode).
             }
-            // If no rendered files cached, fall through — submit without gate check.
           }
 
           onSubmit();

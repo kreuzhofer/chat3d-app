@@ -121,7 +121,7 @@ describe("submit_result forced checklist gate", () => {
     expect(onSubmit).toHaveBeenCalledOnce();
   });
 
-  it("does NOT fire the gate when componentChecklist is undefined (single-agent path)", async () => {
+  it("skips the gate when componentChecklist is undefined", async () => {
     const onSubmit = vi.fn();
     const tools = buildAgentTools(
       mkDeps({ onSubmit, componentChecklist: undefined }) as any,
@@ -133,7 +133,7 @@ describe("submit_result forced checklist gate", () => {
     expect(onSubmit).toHaveBeenCalledOnce();
   });
 
-  it("does NOT fire the gate when componentChecklist is empty (single-agent path)", async () => {
+  it("skips the gate when componentChecklist is empty", async () => {
     const onSubmit = vi.fn();
     const tools = buildAgentTools(
       mkDeps({ onSubmit, componentChecklist: [] }) as any,
@@ -174,5 +174,51 @@ describe("submit_result forced checklist gate", () => {
     await tools.submit_result.execute({ summary: "test" } as any, {} as any);
 
     expect(onChecklistEvaluated).toHaveBeenCalledWith(verification);
+  });
+
+  it("includes all failed items in the rejection message (not just the first)", async () => {
+    mockRunChecklistEval.mockResolvedValue({
+      results: [
+        { index: 0, item: "a", visibility: "visual", verdict: "FAIL", reasoning: "bad a" },
+        { index: 1, item: "b", visibility: "code", verdict: "FAIL", reasoning: "bad b" },
+      ],
+      passedCount: 0,
+      failedCount: 2,
+      uncertainCount: 0,
+    });
+    const onSubmit = vi.fn();
+    const tools = buildAgentTools(
+      mkDeps({
+        onSubmit,
+        componentChecklist: [
+          { item: "a", visibility: "visual" },
+          { item: "b", visibility: "code" },
+        ],
+      }) as any,
+      { disableRender: true },
+    );
+    const result = String(await tools.submit_result.execute({} as any, {} as any));
+    expect(result).toMatch(/SUBMISSION REJECTED/);
+    expect(result).toMatch(/"a"/);
+    expect(result).toMatch(/"b"/);
+    expect(result).toMatch(/bad a/);
+    expect(result).toMatch(/bad b/);
+    expect(result).toMatch(/2 of 2/);
+  });
+
+  it("fires onChecklistEvaluated even when verdict is FAIL", async () => {
+    mockRunChecklistEval.mockResolvedValue({
+      results: [{ index: 0, item: "x", visibility: "visual", verdict: "FAIL", reasoning: "bad" }],
+      passedCount: 0,
+      failedCount: 1,
+      uncertainCount: 0,
+    });
+    const onChecklistEvaluated = vi.fn();
+    const tools = buildAgentTools(
+      mkDeps({ onChecklistEvaluated }) as any,
+      { disableRender: true },
+    );
+    await tools.submit_result.execute({} as any, {} as any);
+    expect(onChecklistEvaluated).toHaveBeenCalledTimes(1);
   });
 });
