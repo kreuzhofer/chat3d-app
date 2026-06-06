@@ -10,7 +10,7 @@ export const ComponentChecklistItemSchema = z.object({
   item: z.string().min(1),
   visibility: ChecklistVisibilityEnum,
   /** Source component name (assembler-aggregated checklists only). */
-  componentName: z.string().optional(),
+  componentName: z.string().min(1).optional(),
 });
 export type ComponentChecklistItem = z.infer<typeof ComponentChecklistItemSchema>;
 

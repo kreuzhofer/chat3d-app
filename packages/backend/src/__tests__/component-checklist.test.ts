@@ -83,4 +83,13 @@ describe("ComponentChecklistItem with componentName tag", () => {
     });
     expect(r.success).toBe(false);
   });
+
+  it("rejects an empty string componentName", () => {
+    const r = ComponentChecklistItemSchema.safeParse({
+      item: "x",
+      visibility: "code",
+      componentName: "",
+    });
+    expect(r.success).toBe(false);
+  });
 });
