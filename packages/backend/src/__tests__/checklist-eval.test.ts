@@ -131,6 +131,21 @@ describe("runChecklistEval", () => {
     expect(r.results).toEqual([]);
   });
 
+  it("returns UNCERTAIN and embeds the error message when a callback throws", async () => {
+    const visualVerify = vi.fn().mockRejectedValue(new Error("timeout"));
+    const r = await runChecklistEval({
+      checklist: [{ item: "x", visibility: "visual" }],
+      code: "",
+      renderedFiles: [FAKE_IMG],
+      evalPlan: null,
+      visualVerify,
+      codeVerify: vi.fn(),
+    });
+    expect(r.results[0].verdict).toBe("UNCERTAIN");
+    expect(r.results[0].reasoning).toContain("timeout");
+    expect(r.uncertainCount).toBe(1);
+  });
+
   it("filters images by evalPlan.inspectionPlan.angles for visual items", async () => {
     const visualVerify = vi.fn().mockResolvedValue({ verdict: "PASS", reasoning: "ok" });
     const codeVerify = vi.fn();

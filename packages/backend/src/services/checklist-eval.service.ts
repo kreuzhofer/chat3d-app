@@ -41,11 +41,21 @@ const ANGLE_FROM_FILENAME = (fileName: string): string => {
 
 function filterImagesByPlan(files: RenderedFile[], evalPlan: EvalPlan | null): RenderedFile[] {
   if (!evalPlan?.inspectionPlan?.angles?.length) return files;
-  const wanted = new Set(evalPlan.inspectionPlan.angles);
-  const filtered = files.filter((f) => wanted.has(ANGLE_FROM_FILENAME(f.fileName) as never));
-  return filtered.length > 0 ? filtered : files;
+  const wanted = new Set<string>(evalPlan.inspectionPlan.angles);
+  const filtered = files.filter((f) => wanted.has(ANGLE_FROM_FILENAME(f.fileName)));
+  if (filtered.length === 0) {
+    logger.warn(
+      { wantedAngles: [...wanted], actualFiles: files.map((f) => f.fileName) },
+      "filterImagesByPlan: no files matched evalPlan angles; falling back to all files",
+    );
+    return files;
+  }
+  return filtered;
 }
 
+// Combines visual + code verdicts. At least one must be non-null; the dispatcher's
+// visibility guard guarantees this. With both null the function returns PASS via
+// vacuous truth — do not call without a non-null argument.
 function combine(
   visual: ChecklistFocusedEvalResult | null,
   code: ChecklistFocusedEvalResult | null,
