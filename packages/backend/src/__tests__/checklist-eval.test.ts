@@ -170,6 +170,39 @@ describe("runChecklistEval", () => {
     const fileNames = calledWith.images.map((i: RenderedFile) => i.filename);
     expect(fileNames).toEqual(["front.png", "top.png"]);
   });
+
+  it("preserves originalIndices in results when provided", async () => {
+    const visualVerify = vi.fn().mockResolvedValue({ verdict: "PASS", reasoning: "ok" });
+    const r = await runChecklistEval({
+      checklist: [
+        { item: "a", visibility: "visual" },
+        { item: "b", visibility: "visual" },
+      ],
+      originalIndices: [3, 7],
+      code: "",
+      renderedFiles: [FAKE_IMG],
+      evalPlan: null,
+      visualVerify,
+      codeVerify: vi.fn(),
+    });
+    expect(r.results.map((x) => x.index)).toEqual([3, 7]);
+  });
+
+  it("defaults to 0..N-1 indices when originalIndices is omitted", async () => {
+    const visualVerify = vi.fn().mockResolvedValue({ verdict: "PASS", reasoning: "ok" });
+    const r = await runChecklistEval({
+      checklist: [
+        { item: "a", visibility: "visual" },
+        { item: "b", visibility: "visual" },
+      ],
+      code: "",
+      renderedFiles: [FAKE_IMG],
+      evalPlan: null,
+      visualVerify,
+      codeVerify: vi.fn(),
+    });
+    expect(r.results.map((x) => x.index)).toEqual([0, 1]);
+  });
 });
 
 describe("evaluate_checklist tool integration", () => {
@@ -205,6 +238,48 @@ describe("evaluate_checklist tool integration", () => {
     } as any, { disableRender: true });
     const result = await tools.evaluate_checklist.execute({} as any, {} as any);
     expect(String(result)).toMatch(/no rendered files/i);
+  });
+
+  it("includes a warning line when all indices are out of range", async () => {
+    const { buildAgentTools } = await import("../services/agent-tools.service.js");
+    const tools = buildAgentTools({
+      fs: { getMainCode: () => "x = 1", getAllFiles: () => [], writeFile: () => {}, listFiles: () => [], getFiles: () => [] } as any,
+      wrapProjectFiles: () => [],
+      baseFileName: "x",
+      onRenderSuccess: () => {},
+      onSubmit: () => {},
+      getLastRenderedFiles: () => [{ filename: "front.png", contentBase64: "f" }],
+      userPrompt: "p",
+      evalThreshold: 5,
+      componentChecklist: [{ item: "a", visibility: "code" }],
+    } as any, { disableRender: true });
+
+    // Indices 5 and 10 are both out of range for a 1-item checklist
+    const result = await tools.evaluate_checklist.execute(
+      { itemIndices: [5, 10] } as any,
+      {} as any,
+    );
+    expect(String(result)).toMatch(/out of range/i);
+  });
+
+  it("returns an explicit message when itemIndices is empty array", async () => {
+    const { buildAgentTools } = await import("../services/agent-tools.service.js");
+    const tools = buildAgentTools({
+      fs: { getMainCode: () => "", getAllFiles: () => [], writeFile: () => {}, listFiles: () => [], getFiles: () => [] } as any,
+      wrapProjectFiles: () => [],
+      baseFileName: "x",
+      onRenderSuccess: () => {},
+      onSubmit: () => {},
+      getLastRenderedFiles: () => [{ filename: "front.png", contentBase64: "f" }],
+      userPrompt: "p",
+      evalThreshold: 5,
+      componentChecklist: [{ item: "a", visibility: "code" }],
+    } as any, { disableRender: true });
+    const result = await tools.evaluate_checklist.execute(
+      { itemIndices: [] } as any,
+      {} as any,
+    );
+    expect(String(result)).toMatch(/empty itemindices/i);
   });
 });
 

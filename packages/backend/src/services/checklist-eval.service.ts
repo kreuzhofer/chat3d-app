@@ -30,6 +30,10 @@ export interface ChecklistFocusedEvalResult {
 
 export interface RunChecklistEvalInput {
   checklist: ComponentChecklistItem[];
+  /** When provided, must be the same length as `checklist`. Each entry is the original
+   * checklist index (before any subset selection). Results will use these indices
+   * instead of 0..N-1 so the agent sees the correct positions. */
+  originalIndices?: number[];
   code: string;
   renderedFiles: RenderedFile[];
   evalPlan: EvalPlan | null;
@@ -81,7 +85,7 @@ function combine(
 export async function runChecklistEval(
   input: RunChecklistEvalInput,
 ): Promise<ComponentVerificationResult> {
-  const { checklist, code, renderedFiles, evalPlan, visualVerify, codeVerify } = input;
+  const { checklist, originalIndices, code, renderedFiles, evalPlan, visualVerify, codeVerify } = input;
   if (checklist.length === 0) {
     return { results: [], passedCount: 0, failedCount: 0, uncertainCount: 0 };
   }
@@ -89,7 +93,9 @@ export async function runChecklistEval(
   const visualImages = filterImagesByPlan(renderedFiles, evalPlan);
 
   const results: ChecklistItemResult[] = await Promise.all(
-    checklist.map(async (entry, index): Promise<ChecklistItemResult> => {
+    checklist.map(async (entry, i): Promise<ChecklistItemResult> => {
+      // Use the caller-provided original index when available; fall back to positional index
+      const index = originalIndices?.[i] ?? i;
       try {
         const wantVisual = entry.visibility === "visual" || entry.visibility === "both";
         const wantCode = entry.visibility === "code" || entry.visibility === "both";

@@ -477,53 +477,83 @@ export function buildAgentTools(
       }),
     ),
     execute: async ({ itemIndices }: { itemIndices?: number[] }) => {
-      const checklist = deps.componentChecklist ?? [];
-      if (checklist.length === 0) {
-        return "No verification checklist is configured for this agent. Use evaluate_model for whole-model eval.";
-      }
-      const renderedFiles = deps.getLastRenderedFiles();
-      if (!renderedFiles || renderedFiles.length === 0) {
-        return "No rendered files available. Call validate_and_render first.";
-      }
-      const selected =
-        itemIndices && itemIndices.length > 0
-          ? itemIndices
-              .filter((i) => i >= 0 && i < checklist.length)
-              .map((i) => checklist[i])
-          : checklist;
+      try {
+        const checklist = deps.componentChecklist ?? [];
+        if (checklist.length === 0) {
+          return "No verification checklist is configured for this agent. Use evaluate_model for whole-model eval.";
+        }
+        const renderedFiles = deps.getLastRenderedFiles();
+        if (!renderedFiles || renderedFiles.length === 0) {
+          return "No rendered files available. Call validate_and_render first.";
+        }
 
-      if (selected.length === 0) {
-        return (
-          "All provided indices were out of range. Checklist has " +
-          checklist.length +
-          " items (indices 0.." +
-          (checklist.length - 1) +
-          ")."
+        // Explicit empty-array guard (distinct from "omit to evaluate all")
+        if (itemIndices !== undefined && itemIndices.length === 0) {
+          return "Empty itemIndices array provided — omit the argument to evaluate all items, or pass specific indices.";
+        }
+
+        // Collect dropped out-of-range indices for the warning
+        const droppedIndices = (itemIndices ?? []).filter(
+          (i) => i < 0 || i >= checklist.length,
         );
-      }
 
-      const result = await runChecklistEval({
-        checklist: selected,
-        code: deps.fs.getMainCode(),
-        renderedFiles,
-        evalPlan: deps.evalPlan ?? null,
-        visualVerify: verifyChecklistItemVisual,
-        codeVerify: verifyChecklistItemCode,
-      });
+        // Build pairs preserving original positions
+        const selectedPairs =
+          itemIndices && itemIndices.length > 0
+            ? itemIndices
+                .filter((i) => i >= 0 && i < checklist.length)
+                .map((i) => ({ item: checklist[i], originalIndex: i }))
+            : checklist.map((item, i) => ({ item, originalIndex: i }));
 
-      deps.onChecklistEvaluated?.(result);
+        if (selectedPairs.length === 0) {
+          return (
+            "All provided indices were out of range. Checklist has " +
+            checklist.length +
+            " items (indices 0.." +
+            (checklist.length - 1) +
+            ")."
+          );
+        }
 
-      const lines: string[] = [];
-      for (const r of result.results) {
+        const selectedItems = selectedPairs.map((p) => p.item);
+        const selectedOriginalIndices = selectedPairs.map((p) => p.originalIndex);
+
+        const result = await runChecklistEval({
+          checklist: selectedItems,
+          originalIndices: selectedOriginalIndices,
+          code: deps.fs.getMainCode(),
+          renderedFiles,
+          evalPlan: deps.evalPlan ?? null,
+          visualVerify: verifyChecklistItemVisual,
+          codeVerify: verifyChecklistItemCode,
+        });
+
+        deps.onChecklistEvaluated?.(result);
+
+        const lines: string[] = [];
+        for (const r of result.results) {
+          lines.push(
+            `Item ${r.index} [${r.visibility.toUpperCase()}]: "${r.item}"\n  ${r.verdict} — ${r.reasoning}`,
+          );
+        }
+        lines.push("");
         lines.push(
-          `Item ${r.index} [${r.visibility.toUpperCase()}]: "${r.item}"\n  ${r.verdict} — ${r.reasoning}`,
+          `Summary: ${result.passedCount} PASS, ${result.failedCount} FAIL, ${result.uncertainCount} UNCERTAIN`,
         );
+
+        // Prepend warning for partially-dropped indices
+        if (droppedIndices.length > 0) {
+          lines.unshift(
+            `Warning: indices [${droppedIndices.join(", ")}] were out of range (checklist has ${checklist.length} items) and were skipped.`,
+            "",
+          );
+        }
+
+        return lines.join("\n");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return `Checklist eval failed: ${msg}. Try again after a successful validate_and_render.`;
       }
-      lines.push("");
-      lines.push(
-        `Summary: ${result.passedCount} PASS, ${result.failedCount} FAIL, ${result.uncertainCount} UNCERTAIN`,
-      );
-      return lines.join("\n");
     },
   };
 
