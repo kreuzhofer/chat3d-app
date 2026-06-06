@@ -345,10 +345,55 @@ root_part = b.fuse(h)
  * Reuses the full main agent prompt (coding principles, tool strategy,
  * error recovery, pitfalls) and appends assembly-specific context.
  */
+/** Shape of per-component verification data passed to the assembler. */
+export interface AssemblerComponentVerification {
+  name: string;
+  verification?: {
+    passedCount: number;
+    failedCount: number;
+    uncertainCount: number;
+    failedItems: { item: string; reasoning: string }[];
+  } | null;
+}
+
+/**
+ * Formats the verification advisory paragraph for the assembler system prompt.
+ *
+ * Default when `verification` is absent (undefined/null): treated as "all passed"
+ * because the sub-agent gate would have blocked it otherwise; no checklist simply
+ * means the eval step was skipped or produced no results.
+ */
+function buildVerificationParagraph(components: AssemblerComponentVerification[]): string {
+  const failedComponents = components.filter(
+    (c) => c.verification != null && c.verification.failedCount > 0,
+  );
+
+  if (failedComponents.length === 0) {
+    return "\n\nAll sub-components passed their per-component verification.";
+  }
+
+  const sections = failedComponents
+    .map((c) => {
+      const items = c.verification!.failedItems
+        .map((f) => `  - ${f.item} — ${f.reasoning}`)
+        .join("\n");
+      return `Component "${c.name}" — ${c.verification!.failedCount} failed item(s):\n${items}`;
+    })
+    .join("\n\n");
+
+  return (
+    `\n\nSome sub-components arrived with failed verification items:\n\n${sections}\n\n` +
+    `Attempt to assemble anyway (best-effort). Note in your output any failures that may surface in the final result. ` +
+    `Do NOT try to repair sub-component issues yourself — your job is composition.`
+  );
+}
+
 export function buildAssemblyAgentSystemPrompt(options: {
   originalPrompt: string;
   assemblyNotes: string;
   componentSummary: string;
+  /** Optional per-component verification snapshots (advisory only — assembler is not gated). */
+  components?: AssemblerComponentVerification[];
 }): string {
   // Start with the full main agent prompt (includes all tool guidance, pitfalls, etc.)
   const basePrompt = buildAgentSystemPrompt({
@@ -378,5 +423,9 @@ Use text_editor to view and edit the component file directly. Common fixes:
 - Import errors: check the function name matches what main.py imports
 `;
 
-  return basePrompt + "\n" + assemblySection;
+  const verificationParagraph = options.components
+    ? buildVerificationParagraph(options.components)
+    : "\n\nAll sub-components passed their per-component verification.";
+
+  return basePrompt + "\n" + assemblySection + verificationParagraph;
 }
