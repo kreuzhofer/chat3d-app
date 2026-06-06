@@ -385,7 +385,7 @@ export function buildAgentTools(
                 // Group failed items by their source component (via index lookup back into deps.componentChecklist).
                 const byComponent: Record<string, typeof failed> = {};
                 for (const f of failed) {
-                  const sourceItem = deps.componentChecklist[f.index];
+                  const sourceItem: ComponentChecklistItem | undefined = deps.componentChecklist[f.index];
                   const cname = sourceItem?.componentName ?? "unknown";
                   (byComponent[cname] ??= []).push(f);
                 }
