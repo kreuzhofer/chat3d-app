@@ -140,16 +140,6 @@ export interface AgentCodegenResult {
    * Populated by runMultiAgentCodegen; undefined on single-agent runs.
    */
   subAgentVerifications?: Record<string, import("../utils/component-checklist.js").SubAgentVerificationSnapshot>;
-  /**
-   * Single-agent pre-submit checklist evaluation stats (preSubmitVerification).
-   * Populated when the single-agent calls the evaluate_checklist tool.
-   */
-  preSubmitVerification?: {
-    callCount: number;
-    totalPassed: number;
-    totalFailed: number;
-    totalUncertain: number;
-  } | null;
 }
 
 // Re-export multi-agent orchestration so consumers don't need to change imports

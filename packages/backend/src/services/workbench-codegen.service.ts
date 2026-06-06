@@ -51,6 +51,7 @@ import {
 } from "./workbench-pipeline-helpers.service.js";
 import { RagRetrievalCollector } from "./rag-retrieval-collector.service.js";
 import { detectUsage, extractIdentifiers } from "./rag-attribution.service.js";
+import type { PreSubmitVerificationStats } from "../utils/component-checklist.js";
 import { persistAbortedPipeline, persistRejectedPrompt } from "./workbench-pipeline-persist.service.js";
 import { persistSpecToPrompt } from "./workbench-spec-persist.service.js";
 import crypto from "node:crypto";
@@ -532,12 +533,7 @@ async function _runPipeline(
 
   // Accumulator for single-agent evaluate_checklist tool calls.
   // Only populated on the single-agent path; multi-agent uses subAgentVerifications instead.
-  let preSubmitVerification: {
-    callCount: number;
-    totalPassed: number;
-    totalFailed: number;
-    totalUncertain: number;
-  } | null = null;
+  let preSubmitVerification: PreSubmitVerificationStats | null = null;
 
   onProgress?.("codegen", wbUseMultiAgent
     ? "Orchestrating multi-agent build for complex model..."

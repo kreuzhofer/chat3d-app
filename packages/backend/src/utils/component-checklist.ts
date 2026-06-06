@@ -44,6 +44,17 @@ export interface ComponentVerificationResult {
 }
 
 /**
+ * Accumulated stats from single-agent evaluate_checklist tool calls.
+ * Owned by the workbench-codegen pipeline accumulator; never set on AgentCodegenResult.
+ */
+export interface PreSubmitVerificationStats {
+  callCount: number;
+  totalPassed: number;
+  totalFailed: number;
+  totalUncertain: number;
+}
+
+/**
  * Snapshot of a sub-agent's checklist evaluation captured via onChecklistEvaluated.
  * Shared by Tasks 8 (assembler metadata) and 9 (workbench_examples DB persistence).
  */
