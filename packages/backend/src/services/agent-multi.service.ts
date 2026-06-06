@@ -7,13 +7,8 @@
 
 import { createLogger } from "../utils/logger.js";
 import { getSubAgentMaxSteps, getRagSimilarityThreshold, getRagGapThreshold, getRagMaxExamples, isAgentSearchToolsEnabled } from "./generation-settings.service.js";
-import { trackedGenerateText } from "./tracked-llm.service.js";
 import {
-  createProviderModel,
   calculateCostUsd,
-  buildGenerateOptions,
-  maxOutputWithThinking,
-  type LlmModelConfig,
 } from "./llm-config.service.js";
 import {
   buildSubAgentSystemPrompt,
@@ -32,11 +27,11 @@ import { evaluateCode, type CodeReviewResult } from "./code-eval.service.js";
 import { withLlmRetry } from "../utils/llm-retry.js";
 import { filterResearchForComponent, type ResearchPackage } from "./research-agent.service.js";
 import { formatResearchSection } from "./research-format.service.js";
+import { type SubAgentVerificationSnapshot } from "../utils/component-checklist.js";
 import {
-  parseDecompositionResponse,
+  decomposePrompt,
   type DecomposedComponent,
   type DecompositionResult,
-  DECOMPOSE_CHECKLIST_ADDENDUM,
 } from "./agent-multi-parser.js";
 
 export type { DecomposedComponent, DecompositionResult } from "./agent-multi-parser.js";
@@ -47,82 +42,6 @@ const logger = createLogger("agent-multi");
 const COMPONENT_EVAL_THRESHOLD = 5;
 
 // RAG thresholds loaded from global settings at runtime
-
-// ── Decomposition ──────────────────────────────────────────────────────
-
-async function decomposePrompt(
-  promptText: string,
-  interpretation: string | undefined,
-  modelConfig: LlmModelConfig,
-  constructionSpec?: string,
-): Promise<DecompositionResult> {
-  const model = createProviderModel(modelConfig);
-
-  const systemPrompt = `You are a 3D CAD architect. Given a description of a complex 3D model, decompose it into independent components that can be built separately and assembled.
-
-Rules:
-- Each component must be a self-contained 3D part (solid body)
-- Components should be geometrically independent (buildable without reference to others)
-- Include key dimensions in each component description (keep descriptions under 100 words)
-- Keep the number of components between 2 and 5
-- Each component name must be a valid Python identifier (snake_case, no spaces)
-- Assembly notes: brief positioning instructions (under 50 words)
-
-${DECOMPOSE_CHECKLIST_ADDENDUM}
-
-Respond with raw JSON only. No markdown, no code fences, no explanation:
-{"components":[{"name":"component_name","description":"Brief description with dimensions","componentChecklist":[{"item":"verification item","visibility":"visual"}]}],"assemblyNotes":"Brief positioning instructions"}`;
-
-  // Prefer constructionSpec for decomposition — it contains precise geometric
-  // operations which map better to component boundaries than semantic descriptions
-  let fullPrompt: string;
-  if (constructionSpec) {
-    fullPrompt = `User request: ${promptText}\n\nConstruction Specification:\n${constructionSpec}`;
-  } else if (interpretation) {
-    fullPrompt = `User request: ${promptText}\n\nInterpretation: ${interpretation}`;
-  } else {
-    fullPrompt = promptText;
-  }
-
-  const result = await trackedGenerateText({
-    model,
-    system: systemPrompt,
-    prompt: fullPrompt,
-    ...buildGenerateOptions(modelConfig),
-    maxOutputTokens: maxOutputWithThinking(2048, modelConfig),
-  }, {
-    purpose: "agent_decomposition",
-    providerName: modelConfig.provider,
-    modelId: modelConfig.id,
-    modelName: modelConfig.modelName,
-    modelConfig: { costPer1mInput: modelConfig.costPer1mInput, costPer1mOutput: modelConfig.costPer1mOutput },
-  });
-
-  const promptTokens = result.usage?.inputTokens ?? 0;
-  const completionTokens = result.usage?.outputTokens ?? 0;
-
-  try {
-    const decomposed = parseDecompositionResponse(result.text);
-
-    if (decomposed.components.length < 2) {
-      throw new Error("Decomposition produced fewer than 2 components");
-    }
-
-    logger.info(
-      { componentCount: decomposed.components.length, components: decomposed.components.map(c => c.name) },
-      "prompt decomposed into components",
-    );
-
-    return {
-      ...decomposed,
-      promptTokens,
-      completionTokens,
-    };
-  } catch (err) {
-    logger.warn({ err: err instanceof Error ? err.message : String(err), text: result.text.slice(0, 200) }, "decomposition parsing failed");
-    throw new Error(`Failed to decompose prompt: ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
 
 // ── Multi-agent orchestration ──────────────────────────────────────────
 
@@ -231,9 +150,12 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   const componentFiles = new Map<string, string>();
   const subAgentMaxSteps = await getSubAgentMaxSteps("workbench");
 
-  // Per-component checklist verification snapshots — consumed by Task 8 assembler metadata.
-  type SubAgentVerification = { passedCount: number; failedCount: number; uncertainCount: number; failedItems: { item: string; reasoning: string }[] };
-  const subAgentVerifications: Record<string, SubAgentVerification> = {};
+  // Per-component verification snapshots captured via onChecklistEvaluated.
+  // - Read by Task 8 (assembler metadata) and Task 9 (workbench_examples persistence).
+  // - If a sub-agent fails its initial eval and is retried (COMPONENT_EVAL_THRESHOLD),
+  //   the second run's onChecklistEvaluated overwrites the first. Last write wins.
+  //   Absence of a key means no checklist eval ran for that component.
+  const subAgentVerifications: Record<string, SubAgentVerificationSnapshot> = {};
 
   const overallContext = `This is part of a larger model: "${promptText}".\n\nAll components:\n${decomposition.components.map(c => `- ${c.name}: ${c.description}`).join("\n")}\n\nAssembly plan: ${decomposition.assemblyNotes}`;
 

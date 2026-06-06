@@ -42,3 +42,14 @@ export interface ComponentVerificationResult {
   failedCount: number;
   uncertainCount: number;
 }
+
+/**
+ * Snapshot of a sub-agent's checklist evaluation captured via onChecklistEvaluated.
+ * Shared by Tasks 8 (assembler metadata) and 9 (workbench_examples DB persistence).
+ */
+export interface SubAgentVerificationSnapshot {
+  passedCount: number;
+  failedCount: number;
+  uncertainCount: number;
+  failedItems: { item: string; reasoning: string }[];
+}
