@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { runChecklistEval } from "../services/checklist-eval.service.js";
+import { runChecklistEval, parseChecklistVerdictText } from "../services/checklist-eval.service.js";
 import type { ComponentChecklistItem } from "../utils/component-checklist.js";
 import type { RenderedFile } from "../services/rendering.service.js";
 
@@ -170,5 +170,24 @@ describe("runChecklistEval", () => {
     const calledWith = visualVerify.mock.calls[0][0];
     const fileNames = calledWith.images.map((i: RenderedFile) => i.fileName);
     expect(fileNames).toEqual(["front.png", "top.png"]);
+  });
+});
+
+describe("parseChecklistVerdictText", () => {
+  it("parses PASS + reasoning from a typical LLM response", () => {
+    const parsed = parseChecklistVerdictText("PASS\nFront view shows 4 holes at the corners.");
+    expect(parsed.verdict).toBe("PASS");
+    expect(parsed.reasoning).toContain("Front view");
+  });
+
+  it("parses FAIL + reasoning", () => {
+    const parsed = parseChecklistVerdictText("FAIL — body not hollow");
+    expect(parsed.verdict).toBe("FAIL");
+    expect(parsed.reasoning).toContain("body not hollow");
+  });
+
+  it("defaults to UNCERTAIN when verdict not detected", () => {
+    const parsed = parseChecklistVerdictText("hmm I am not sure");
+    expect(parsed.verdict).toBe("UNCERTAIN");
   });
 });

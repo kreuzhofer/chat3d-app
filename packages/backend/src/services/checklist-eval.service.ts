@@ -7,6 +7,13 @@ import type {
   ChecklistVerdict,
 } from "../utils/component-checklist.js";
 import { createLogger } from "../utils/logger.js";
+import {
+  getModelForPurpose,
+  createProviderModel as createProviderModelFromConfig,
+  type LlmModelConfig,
+} from "./llm-config.service.js";
+import { trackedStreamText } from "./tracked-llm.service.js";
+import { getLlmSemaphore } from "../utils/resource-limits.js";
 
 const logger = createLogger("checklist-eval");
 
@@ -122,4 +129,137 @@ export async function runChecklistEval(
   const uncertainCount = results.filter((r) => r.verdict === "UNCERTAIN").length;
 
   return { results, passedCount, failedCount, uncertainCount };
+}
+
+// ── Focused checklist verifiers ───────────────────────────────────────
+
+/**
+ * Parse a verdict text response from an LLM into a ChecklistFocusedEvalResult.
+ * Looks for PASS / FAIL / UNCERTAIN on the first ~32 characters of the response.
+ */
+export function parseChecklistVerdictText(text: string): ChecklistFocusedEvalResult {
+  const trimmed = text.trim();
+  const upper = trimmed.toUpperCase();
+  let verdict: ChecklistVerdict = "UNCERTAIN";
+  if (/^PASS\b|\bPASS\b/.test(upper.slice(0, 32))) verdict = "PASS";
+  else if (/^FAIL\b|\bFAIL\b/.test(upper.slice(0, 32))) verdict = "FAIL";
+  else if (/^UNCERTAIN\b/.test(upper)) verdict = "UNCERTAIN";
+  return { verdict, reasoning: trimmed.slice(0, 600) };
+}
+
+const VISUAL_SYS_PROMPT = (item: string): string =>
+  `You are verifying ONE specific feature of a 3D model from rendered images.\n` +
+  `The feature to verify: "${item}"\n\n` +
+  `Reply on the first line with exactly one of: PASS, FAIL, UNCERTAIN.\n` +
+  `Then add 1-3 sentences of reasoning. Use PASS only when the images clearly show the feature; ` +
+  `UNCERTAIN when the views don't show it clearly; FAIL when the images contradict it.`;
+
+const CODE_SYS_PROMPT = (item: string): string =>
+  `You are verifying ONE specific spec item against Python Build123d code.\n` +
+  `The spec item to verify: "${item}"\n\n` +
+  `Reply on the first line with exactly one of: PASS, FAIL, UNCERTAIN.\n` +
+  `Then add 1-3 sentences of reasoning. PASS only when the code clearly satisfies the item; ` +
+  `UNCERTAIN when the code is ambiguous; FAIL when it contradicts the item.`;
+
+async function resolveVlmConfig(): Promise<LlmModelConfig> {
+  return getModelForPurpose("vlm_eval");
+}
+
+async function resolveCodeReviewConfig(): Promise<{ config: LlmModelConfig }> {
+  for (const purpose of ["code_review", "spec_generation", "conversation"] as const) {
+    try {
+      const config = await getModelForPurpose(purpose);
+      if (purpose !== "code_review") {
+        logger.info({ purpose }, "code_review purpose not configured, falling back for checklist eval");
+      }
+      return { config };
+    } catch {
+      continue;
+    }
+  }
+  throw new Error("No LLM model configured for code review (tried code_review, spec_generation, conversation)");
+}
+
+export async function verifyChecklistItemVisual(
+  args: ChecklistFocusedEvalArgs,
+): Promise<ChecklistFocusedEvalResult> {
+  const vlmConfig = await resolveVlmConfig();
+  // Cap at 3 images defensively (dispatcher already slices, but be explicit)
+  const images = args.images.slice(0, 3);
+
+  const userContent: Array<{ type: "text"; text: string } | { type: "image"; image: string; mimeType: string }> = [
+    { type: "text", text: "Verify this feature from the views below." },
+    ...images.map((img) => ({
+      type: "image" as const,
+      image: img.contentBase64,
+      mimeType: img.mimeType ?? "image/png",
+    })),
+  ];
+
+  const providerModel = createProviderModelFromConfig(vlmConfig);
+  const semaphore = getLlmSemaphore(vlmConfig.provider, vlmConfig.maxConcurrent);
+
+  return semaphore.run(async () => {
+    logger.info({ item: args.item, model: vlmConfig.label, imageCount: images.length }, "verifyChecklistItemVisual calling VLM");
+
+    const stream = trackedStreamText({
+      model: providerModel,
+      system: VISUAL_SYS_PROMPT(args.item),
+      messages: [{ role: "user" as const, content: userContent }],
+      maxOutputTokens: 256,
+      temperature: 0,
+    }, {
+      purpose: "vlm_evaluation",
+      providerName: vlmConfig.provider,
+      modelId: vlmConfig.id,
+      modelName: vlmConfig.modelName,
+      modelConfig: { costPer1mInput: vlmConfig.costPer1mInput, costPer1mOutput: vlmConfig.costPer1mOutput },
+    });
+
+    let text = "";
+    for await (const part of stream.fullStream) {
+      if (part.type === "text-delta") text += part.text;
+    }
+    await stream;
+
+    logger.debug({ item: args.item, response: text }, "verifyChecklistItemVisual raw response");
+    return parseChecklistVerdictText(text);
+  });
+}
+
+export async function verifyChecklistItemCode(
+  args: ChecklistFocusedEvalArgs,
+): Promise<ChecklistFocusedEvalResult> {
+  const { config } = await resolveCodeReviewConfig();
+
+  const userContent = `Verify this spec item against the Build123d code below.\n\n\`\`\`python\n${args.code}\n\`\`\``;
+  const providerModel = createProviderModelFromConfig(config);
+  const semaphore = getLlmSemaphore(config.provider, config.maxConcurrent);
+
+  return semaphore.run(async () => {
+    logger.info({ item: args.item, model: config.label }, "verifyChecklistItemCode calling LLM");
+
+    const stream = trackedStreamText({
+      model: providerModel,
+      system: CODE_SYS_PROMPT(args.item),
+      messages: [{ role: "user" as const, content: userContent }],
+      maxOutputTokens: 256,
+      temperature: 0,
+    }, {
+      purpose: "code_evaluation",
+      providerName: config.provider,
+      modelId: config.id,
+      modelName: config.modelName,
+      modelConfig: { costPer1mInput: config.costPer1mInput, costPer1mOutput: config.costPer1mOutput },
+    });
+
+    let text = "";
+    for await (const part of stream.fullStream) {
+      if (part.type === "text-delta") text += part.text;
+    }
+    await stream;
+
+    logger.debug({ item: args.item, response: text }, "verifyChecklistItemCode raw response");
+    return parseChecklistVerdictText(text);
+  });
 }
