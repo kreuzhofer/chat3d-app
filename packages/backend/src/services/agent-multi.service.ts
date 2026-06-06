@@ -401,7 +401,12 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   const componentFileList = Array.from(componentFiles.keys()).map(p => `- ${p}`).join("\n");
   const assemblyUserMessage = `Create the final model matching this user request:\n\n"${promptText}"\n\nAvailable component files:\n${componentFileList}\n\nAssembly notes: ${decomposition.assemblyNotes}\n\nView each component file to understand its function signature and dimensions, then write main.py that imports and positions them EXACTLY as the user prompt describes. Validate, render, and submit when the render succeeds.`;
 
-  // Aggregate per-component checklists into a flat list for the assembler gate.
+  // Note: this wiring is INERT until v2 Task 4 moves the forced gate from the
+  // disableRender:true branch (sub-agent path) to the non-disableRender branch
+  // (assembler path). The assembler's onChecklistEvaluated callback below only
+  // fires when the gate runs at submit_result; that gate currently lives in the
+  // sub-agent path and skips the assembler. Tasks 3 + 4 + 5 land together to
+  // activate this wiring.
   const assemblerChecklist = aggregateChecklistForAssembler(decomposition.components);
 
   // Rebuild subAgentVerifications from the assembler's flat evaluation results,
@@ -414,7 +419,16 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     const grouped: Record<string, ChecklistItemResult[]> = {};
     for (const r of verification.results) {
       const sourceItem = assemblerChecklist[r.index];
-      const componentName = sourceItem?.componentName ?? "unknown";
+      let componentName: string;
+      if (sourceItem?.componentName) {
+        componentName = sourceItem.componentName;
+      } else {
+        componentName = "unknown";
+        logger.warn(
+          { resultIndex: r.index, item: r.item, checklistLength: assemblerChecklist.length },
+          "assemblerOnChecklistEvaluated: source componentName missing; bucketing under 'unknown'",
+        );
+      }
       (grouped[componentName] ??= []).push(r);
     }
     for (const [componentName, results] of Object.entries(grouped)) {
