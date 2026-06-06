@@ -13,6 +13,12 @@ import type { ProjectFile, RenderedFile } from "./rendering.service.js";
 import { doValidate, doRender, runVlmEval, type AgentEvalResult } from "./agent-render-helpers.service.js";
 import { checkAssertions } from "./code-eval-assertions.service.js";
 import { evaluateCode } from "./code-eval.service.js";
+import type { ComponentChecklistItem, ComponentVerificationResult } from "../utils/component-checklist.js";
+import {
+  runChecklistEval,
+  verifyChecklistItemVisual,
+  verifyChecklistItemCode,
+} from "./checklist-eval.service.js";
 import { runFullEvaluation } from "./eval-orchestrator.service.js";
 import { renderModelScreenshots } from "./stl-rendering-client.service.js";
 import { flattenForEval } from "../utils/code-flatten.js";
@@ -106,6 +112,12 @@ export interface AgentToolDeps {
   complexity?: number;
   /** Code eval weight for composite scoring */
   codeEvalWeight?: number;
+  /** Component-level verification checklist (for evaluate_checklist tool) */
+  componentChecklist?: ComponentChecklistItem[];
+  /** Component name — for logging/diagnostics in multi-agent context */
+  componentName?: string;
+  /** Callback when checklist evaluation completes */
+  onChecklistEvaluated?: (result: ComponentVerificationResult) => void;
 }
 
 export function buildAgentTools(
@@ -450,6 +462,70 @@ export function buildAgentTools(
         });
       },
     };
+
+  tools.evaluate_checklist = {
+    type: "function" as const,
+    description:
+      "Verify SPECIFIC verification-checklist items against the current rendered model. " +
+      "Cheaper and clearer than evaluate_model. Call after a successful render. " +
+      "Pass item indices to check a subset; omit to verify ALL items. " +
+      "Reuses cached screenshots; call validate_and_render first if your code changed.",
+    // @ts-expect-error AI SDK 6 + Zod input inference exceeds depth limit; tools schema is validated at runtime
+    inputSchema: zodSchema(
+      z.object({
+        itemIndices: z.array(z.number().int().nonnegative()).optional(),
+      }),
+    ),
+    execute: async ({ itemIndices }: { itemIndices?: number[] }) => {
+      const checklist = deps.componentChecklist ?? [];
+      if (checklist.length === 0) {
+        return "No verification checklist is configured for this agent. Use evaluate_model for whole-model eval.";
+      }
+      const renderedFiles = deps.getLastRenderedFiles();
+      if (!renderedFiles || renderedFiles.length === 0) {
+        return "No rendered files available. Call validate_and_render first.";
+      }
+      const selected =
+        itemIndices && itemIndices.length > 0
+          ? itemIndices
+              .filter((i) => i >= 0 && i < checklist.length)
+              .map((i) => checklist[i])
+          : checklist;
+
+      if (selected.length === 0) {
+        return (
+          "All provided indices were out of range. Checklist has " +
+          checklist.length +
+          " items (indices 0.." +
+          (checklist.length - 1) +
+          ")."
+        );
+      }
+
+      const result = await runChecklistEval({
+        checklist: selected,
+        code: deps.fs.getMainCode(),
+        renderedFiles,
+        evalPlan: deps.evalPlan ?? null,
+        visualVerify: verifyChecklistItemVisual,
+        codeVerify: verifyChecklistItemCode,
+      });
+
+      deps.onChecklistEvaluated?.(result);
+
+      const lines: string[] = [];
+      for (const r of result.results) {
+        lines.push(
+          `Item ${r.index} [${r.visibility.toUpperCase()}]: "${r.item}"\n  ${r.verdict} — ${r.reasoning}`,
+        );
+      }
+      lines.push("");
+      lines.push(
+        `Summary: ${result.passedCount} PASS, ${result.failedCount} FAIL, ${result.uncertainCount} UNCERTAIN`,
+      );
+      return lines.join("\n");
+    },
+  };
 
   tools.evaluate_code = {
       type: "function" as const,

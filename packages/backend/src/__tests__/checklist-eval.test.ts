@@ -172,6 +172,42 @@ describe("runChecklistEval", () => {
   });
 });
 
+describe("evaluate_checklist tool integration", () => {
+  it("returns 'no checklist configured' when deps.componentChecklist is empty", async () => {
+    const { buildAgentTools } = await import("../services/agent-tools.service.js");
+    const tools = buildAgentTools({
+      fs: { getMainCode: () => "", getAllFiles: () => [], writeFile: () => {}, listFiles: () => [], getFiles: () => [] } as any,
+      wrapProjectFiles: () => [],
+      baseFileName: "x",
+      onRenderSuccess: () => {},
+      onSubmit: () => {},
+      getLastRenderedFiles: () => [{ filename: "front.png", contentBase64: "f" }],
+      userPrompt: "p",
+      evalThreshold: 5,
+      componentChecklist: [],
+    } as any, { disableRender: true });
+    const result = await tools.evaluate_checklist.execute({ itemIndices: undefined } as any, {} as any);
+    expect(String(result)).toMatch(/no verification checklist/i);
+  });
+
+  it("returns 'no rendered files' when render cache empty", async () => {
+    const { buildAgentTools } = await import("../services/agent-tools.service.js");
+    const tools = buildAgentTools({
+      fs: { getMainCode: () => "x = 1", getAllFiles: () => [], writeFile: () => {}, listFiles: () => [], getFiles: () => [] } as any,
+      wrapProjectFiles: () => [],
+      baseFileName: "x",
+      onRenderSuccess: () => {},
+      onSubmit: () => {},
+      getLastRenderedFiles: () => [],
+      userPrompt: "p",
+      evalThreshold: 5,
+      componentChecklist: [{ item: "x", visibility: "visual" }],
+    } as any, { disableRender: true });
+    const result = await tools.evaluate_checklist.execute({} as any, {} as any);
+    expect(String(result)).toMatch(/no rendered files/i);
+  });
+});
+
 describe("parseChecklistVerdictText", () => {
   it("parses PASS + reasoning from a typical LLM response", () => {
     const parsed = parseChecklistVerdictText("PASS\nFront view shows 4 holes at the corners.");
