@@ -29,4 +29,13 @@ describe("assembler system prompt — v2 repair-authority block", () => {
     const prompt = buildAssemblyAgentSystemPrompt("p", "a", "c");
     expect(prompt).not.toMatch(/all sub-components passed/i);
   });
+
+  it("repair-authority block appears after the assembly-section content", () => {
+    const prompt = buildAssemblyAgentSystemPrompt("p", "a", "c");
+    const assemblyIdx = prompt.indexOf("Assembly Instructions");
+    const repairIdx = prompt.indexOf("final author of the result");
+    expect(assemblyIdx).toBeGreaterThan(-1);
+    expect(repairIdx).toBeGreaterThan(-1);
+    expect(repairIdx).toBeGreaterThan(assemblyIdx);
+  });
 });

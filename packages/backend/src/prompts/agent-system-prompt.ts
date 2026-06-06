@@ -291,11 +291,6 @@ const ASSEMBLY_CONTEXT = `
 
 You are assembling pre-built components into a complete model. Component files are already in the project.
 
-**Your workflow:**
-1. View all component files to understand their function signatures and dimensions
-2. Write main.py that imports and assembles them
-3. Validate → evaluate_code → render → submit
-
 ## CRITICAL — Separate Parts vs Fused Parts
 
 Multi-part models have parts that are **physically separate objects** (lid + box, top + bottom, cover + base).
