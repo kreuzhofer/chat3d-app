@@ -14,6 +14,15 @@ export type ComponentChecklistItem = z.infer<typeof ComponentChecklistItemSchema
 
 export const ComponentChecklistSchema = z.array(ComponentChecklistItemSchema);
 
+/**
+ * Parse a component checklist. All-or-nothing: if any item is invalid (bad visibility,
+ * missing field, etc.) the whole array is rejected and null is returned.
+ *
+ * This is deliberate — Task 6 design treats the checklist as a single object emitted by
+ * the decomposition LLM. Partial-valid scenarios are rare and easier to detect as "no
+ * checklist" than as "silently truncated checklist". If the all-or-nothing rejection rate
+ * proves high in practice, switch to per-item filtering here without changing callers.
+ */
 export function parseComponentChecklist(input: unknown): ComponentChecklistItem[] | null {
   const r = ComponentChecklistSchema.safeParse(input);
   return r.success ? r.data : null;

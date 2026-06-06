@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDecompositionResponse } from "../services/agent-multi.service.js";
+import { parseDecompositionResponse } from "../services/agent-multi-parser.js";
 
 describe("decomposePrompt response parsing with componentChecklist", () => {
   it("parses componentChecklist when present", () => {
