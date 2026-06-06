@@ -16,6 +16,7 @@ import { createLogger } from "../src/utils/logger.js";
 const logger = createLogger("close-stale-traces");
 
 const STALE_THRESHOLD_DAYS = 7;
+const NOTE = "stale; closed by hygiene pass 2026-06-06";
 
 export interface CloseReport {
   candidateCount: number;
@@ -42,16 +43,21 @@ export async function closeStaleTraces(commit: boolean): Promise<CloseReport> {
     };
   }
 
-  const result = await prisma.generationTrace.updateMany({
-    where: { finalStatus: "running", updatedAt: { lt: cutoff } },
-    data: { finalStatus: "failed" },
-  });
+  const cutoffIso = cutoff.toISOString();
 
-  logger.info({ closedCount: result.count }, "closed stale running traces");
+  const updateCount = await prisma.$executeRaw`
+    UPDATE generation_traces
+    SET final_status = 'failed',
+        trace = jsonb_set(COALESCE(trace, '{}'::jsonb), '{hygiene}', to_jsonb(${NOTE}::text))
+    WHERE final_status = 'running'
+      AND updated_at < ${cutoffIso}::timestamptz
+  `;
+
+  logger.info({ closedCount: updateCount }, "closed stale running traces");
 
   return {
     candidateCount: candidates.length,
-    closedCount: result.count,
+    closedCount: Number(updateCount),
     sample: candidates.slice(0, 5),
   };
 }
