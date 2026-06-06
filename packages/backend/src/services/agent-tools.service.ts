@@ -325,6 +325,44 @@ export function buildAgentTools(
           if (!code || !code.trim()) {
             return "ERROR: No code in main.py. Write your component code first.";
           }
+
+          // Forced component-checklist verification (multi-agent sub-agents only).
+          // Fires only when deps.componentChecklist is populated (Task 7 wires this).
+          // UNCERTAIN does NOT block; only FAIL blocks submission.
+          if (deps.componentChecklist && deps.componentChecklist.length > 0) {
+            const renderedFiles = deps.getLastRenderedFiles();
+            if (renderedFiles && renderedFiles.length > 0) {
+              const verification = await runChecklistEval({
+                checklist: deps.componentChecklist,
+                code: deps.fs.getMainCode(),
+                renderedFiles,
+                evalPlan: deps.evalPlan ?? null,
+                visualVerify: verifyChecklistItemVisual,
+                codeVerify: verifyChecklistItemCode,
+              });
+
+              deps.onChecklistEvaluated?.(verification);
+
+              const failed = verification.results.filter((r) => r.verdict === "FAIL");
+              if (failed.length > 0) {
+                logger.info(
+                  { failed: failed.length, total: verification.results.length, summary },
+                  "sub-agent submission rejected — component checklist failures",
+                );
+                const lines = [
+                  `SUBMISSION REJECTED — ${failed.length} of ${verification.results.length} component checklist item(s) failed:`,
+                  ...failed.map(
+                    (f) => `  Item ${f.index} [${f.visibility.toUpperCase()}]: "${f.item}"\n    ${f.reasoning}`,
+                  ),
+                  ``,
+                  `Fix these issues and try submit_result again. UNCERTAIN items are allowed; FAIL items are not.`,
+                ];
+                return lines.join("\n");
+              }
+            }
+            // If no rendered files cached, fall through — submit without gate check.
+          }
+
           onSubmit();
           logger.info({ summary }, "sub-agent submitted component code");
           return `Component submitted: ${summary}`;
