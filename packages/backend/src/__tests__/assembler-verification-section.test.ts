@@ -107,4 +107,20 @@ describe("assembler system prompt verification section", () => {
     expect(prompt).toMatch(/width=10mm/);
     expect(prompt).toMatch(/height=5mm/);
   });
+
+  it("treats UNCERTAIN-only components as 'all passed' (uncertain items don't surface)", () => {
+    const prompt = buildAssemblyAgentSystemPrompt({
+      originalPrompt: "a box",
+      assemblyNotes: "stack them",
+      componentSummary: "- `components/body.py`: def body()",
+      components: [
+        {
+          name: "body",
+          verification: { passedCount: 0, failedCount: 0, uncertainCount: 3, failedItems: [] },
+        },
+      ],
+    });
+    expect(prompt).toMatch(/all sub-components passed/i);
+    expect(prompt).not.toMatch(/failed verification items/i);
+  });
 });

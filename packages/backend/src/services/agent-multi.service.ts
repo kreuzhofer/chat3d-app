@@ -349,6 +349,16 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     verification: subAgentVerifications[c.name] ?? null,
   }));
 
+  const failedComponentNames = componentsForAssembler
+    .filter((c) => c.verification && c.verification.failedCount > 0)
+    .map((c) => c.name);
+  if (failedComponentNames.length > 0) {
+    logger.info(
+      { failedComponents: failedComponentNames },
+      "assembler received components with verification failures",
+    );
+  }
+
   let assemblyPrompt = buildAssemblyAgentSystemPrompt({
     originalPrompt: promptText,
     assemblyNotes: decomposition.assemblyNotes,

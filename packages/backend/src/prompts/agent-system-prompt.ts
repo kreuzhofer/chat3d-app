@@ -10,6 +10,7 @@ import {
   buildTieredSystemPrompt,
   CODEGEN_SYSTEM_PROMPT,
 } from "./system-prompts.js";
+import type { SubAgentVerificationSnapshot } from "../utils/component-checklist.js";
 
 const AGENT_PREAMBLE = `You are a Build123d CAD modeling agent. You create and edit Python code to generate 3D models using the Build123d library. You have access to a project directory where you can create and edit files, plus specialized tools for validating and rendering Build123d code.
 
@@ -340,20 +341,10 @@ root_part = b.fuse(h)
 - For separate parts: add a visible gap (5-10mm) between them so both parts are clearly distinguishable in screenshots
 `;
 
-/**
- * Build system prompt for the assembly agent that combines components.
- * Reuses the full main agent prompt (coding principles, tool strategy,
- * error recovery, pitfalls) and appends assembly-specific context.
- */
-/** Shape of per-component verification data passed to the assembler. */
+/** Shape of per-component verification data delivered to the assembler. */
 export interface AssemblerComponentVerification {
   name: string;
-  verification?: {
-    passedCount: number;
-    failedCount: number;
-    uncertainCount: number;
-    failedItems: { item: string; reasoning: string }[];
-  } | null;
+  verification?: SubAgentVerificationSnapshot | null;
 }
 
 /**
@@ -364,6 +355,7 @@ export interface AssemblerComponentVerification {
  * means the eval step was skipped or produced no results.
  */
 function buildVerificationParagraph(components: AssemblerComponentVerification[]): string {
+  // UNCERTAIN items are advisory-only; only FAIL items surface to the assembler.
   const failedComponents = components.filter(
     (c) => c.verification != null && c.verification.failedCount > 0,
   );
@@ -388,6 +380,11 @@ function buildVerificationParagraph(components: AssemblerComponentVerification[]
   );
 }
 
+/**
+ * Build system prompt for the assembly agent that combines components.
+ * Reuses the full main agent prompt (coding principles, tool strategy,
+ * error recovery, pitfalls) and appends assembly-specific context.
+ */
 export function buildAssemblyAgentSystemPrompt(options: {
   originalPrompt: string;
   assemblyNotes: string;
