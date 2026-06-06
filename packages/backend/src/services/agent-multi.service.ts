@@ -32,6 +32,7 @@ import { evaluateCode, type CodeReviewResult } from "./code-eval.service.js";
 import { withLlmRetry } from "../utils/llm-retry.js";
 import { filterResearchForComponent, type ResearchPackage } from "./research-agent.service.js";
 import { formatResearchSection } from "./research-format.service.js";
+import { parseComponentChecklist, type ComponentChecklistItem } from "../utils/component-checklist.js";
 
 const logger = createLogger("agent-multi");
 
@@ -42,16 +43,55 @@ const COMPONENT_EVAL_THRESHOLD = 5;
 
 // ── Types ──────────────────────────────────────────────────────────────
 
-interface DecomposedComponent {
+export interface DecomposedComponent {
   name: string;
   description: string;
+  componentChecklist?: ComponentChecklistItem[];
 }
 
-interface DecompositionResult {
+export interface DecompositionResult {
   components: DecomposedComponent[];
   assemblyNotes: string;
-  promptTokens: number;
-  completionTokens: number;
+  promptTokens?: number;
+  completionTokens?: number;
+}
+
+// ── Decomposition helpers ──────────────────────────────────────────────
+
+const DECOMPOSE_CHECKLIST_ADDENDUM = `
+For each component, also emit a "componentChecklist" — 3–6 short verification items that this component ALONE (before assembly) must satisfy. Each item should be checkable against just this component's geometry, not the assembled whole. Annotate each item with "visibility": "visual" | "code" | "both" using the same rules as the top-level verificationChecklist (visual = visible from rendered views; code = checkable in source; both = both). Include items that catch failures specific to this component's role (e.g. "is hollow", "has N standoffs", "wall thickness X mm"). Do NOT include items that depend on the relationship between components (those belong in assemblyNotes).
+`.trim();
+
+/**
+ * Parse a raw JSON string returned by the decomposition LLM into a
+ * DecompositionResult. Exported for unit testing.
+ */
+export function parseDecompositionResponse(rawText: string): DecompositionResult {
+  const cleanText = rawText
+    .replace(/^```(?:json)?\s*/m, "")
+    .replace(/\s*```\s*$/m, "")
+    .trim();
+  const parsed = JSON.parse(cleanText) as { components: unknown[]; assemblyNotes: unknown };
+
+  if (!Array.isArray(parsed.components) || parsed.components.length < 1) {
+    throw new Error("Decomposition produced no components");
+  }
+
+  const components: DecomposedComponent[] = (parsed.components as any[]).map((c: any) => {
+    const name = String(c.name ?? "").replace(/[^a-z0-9_]/gi, "_").toLowerCase();
+    const description = String(c.description ?? "").trim();
+    const checklistRaw = parseComponentChecklist(c.componentChecklist);
+    return {
+      name,
+      description,
+      ...(checklistRaw !== null ? { componentChecklist: checklistRaw } : {}),
+    };
+  });
+
+  return {
+    components,
+    assemblyNotes: String(parsed.assemblyNotes ?? ""),
+  };
 }
 
 // ── Decomposition ──────────────────────────────────────────────────────
@@ -74,8 +114,10 @@ Rules:
 - Each component name must be a valid Python identifier (snake_case, no spaces)
 - Assembly notes: brief positioning instructions (under 50 words)
 
+${DECOMPOSE_CHECKLIST_ADDENDUM}
+
 Respond with raw JSON only. No markdown, no code fences, no explanation:
-{"components":[{"name":"component_name","description":"Brief description with dimensions"}],"assemblyNotes":"Brief positioning instructions"}`;
+{"components":[{"name":"component_name","description":"Brief description with dimensions","componentChecklist":[{"item":"verification item","visibility":"visual"}]}],"assemblyNotes":"Brief positioning instructions"}`;
 
   // Prefer constructionSpec for decomposition — it contains precise geometric
   // operations which map better to component boundaries than semantic descriptions
@@ -106,28 +148,19 @@ Respond with raw JSON only. No markdown, no code fences, no explanation:
   const completionTokens = result.usage?.outputTokens ?? 0;
 
   try {
-    const cleanText = result.text
-      .replace(/^```(?:json)?\s*/m, "")
-      .replace(/\s*```\s*$/m, "")
-      .trim();
-    const parsed = JSON.parse(cleanText) as { components: DecomposedComponent[]; assemblyNotes: string };
+    const decomposed = parseDecompositionResponse(result.text);
 
-    if (!Array.isArray(parsed.components) || parsed.components.length < 2) {
+    if (decomposed.components.length < 2) {
       throw new Error("Decomposition produced fewer than 2 components");
     }
 
-    for (const c of parsed.components) {
-      c.name = c.name.replace(/[^a-z0-9_]/gi, "_").toLowerCase();
-    }
-
     logger.info(
-      { componentCount: parsed.components.length, components: parsed.components.map(c => c.name) },
+      { componentCount: decomposed.components.length, components: decomposed.components.map(c => c.name) },
       "prompt decomposed into components",
     );
 
     return {
-      components: parsed.components,
-      assemblyNotes: parsed.assemblyNotes || "",
+      ...decomposed,
       promptTokens,
       completionTokens,
     };
@@ -171,9 +204,9 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   try {
     decomposition = await decomposePrompt(promptText, interpretation, modelConfig, input.constructionSpec);
     tb?.addUsage({
-      inputTokens: decomposition.promptTokens,
-      outputTokens: decomposition.completionTokens,
-      costUsd: calculateCostUsd(modelConfig, decomposition.promptTokens, decomposition.completionTokens),
+      inputTokens: decomposition.promptTokens ?? 0,
+      outputTokens: decomposition.completionTokens ?? 0,
+      costUsd: calculateCostUsd(modelConfig, decomposition.promptTokens ?? 0, decomposition.completionTokens ?? 0),
     });
     tb?.setModel(modelConfig.label, modelConfig.provider);
     tb?.endPhase("completed");
@@ -183,8 +216,8 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     return runAgentCodegen(input);
   }
 
-  totalPromptTokens += decomposition.promptTokens;
-  totalCompletionTokens += decomposition.completionTokens;
+  totalPromptTokens += decomposition.promptTokens ?? 0;
+  totalCompletionTokens += decomposition.completionTokens ?? 0;
 
   // Step 2: Route research results to components, or fall back to per-component search
   const examplesByComponent = new Map<string, SubAgentExample[]>();
