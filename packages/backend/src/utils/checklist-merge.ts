@@ -17,15 +17,15 @@ export function mergeAssemblyChecklist(
   const result: ComponentChecklistItem[] = [];
 
   for (const item of topLevel) {
-    const key = item.item.trim().toLowerCase();
-    if (!seen.has(key)) {
+    const key = (item.item ?? "").trim().toLowerCase();
+    if (key && !seen.has(key)) {
       seen.add(key);
       result.push(item);
     }
   }
   for (const item of assemblyChecklist) {
-    const key = item.item.trim().toLowerCase();
-    if (!seen.has(key)) {
+    const key = (item.item ?? "").trim().toLowerCase();
+    if (key && !seen.has(key)) {
       seen.add(key);
       result.push(item);
     }
