@@ -1,5 +1,7 @@
 import { prisma } from "../db/prisma.js";
+import { deleteStorageFile, FileStorageError } from "./file-storage.service.js";
 import { embedAndStorePrompt } from "./workbench-embeddings.service.js";
+import { collectFilePaths, type CleanupExampleRow } from "./workbench-examples.service.js";
 import { createLogger } from "../utils/logger.js";
 
 const logger = createLogger("catalog");
@@ -249,6 +251,22 @@ export async function deleteCategory(id: string) {
   });
   const promptIds = prompts.map((p) => p.id);
 
+  // Collect storage file paths BEFORE deleting DB rows (excludes experiment runs)
+  const exampleRows = promptIds.length > 0
+    ? await prisma.$queryRaw<CleanupExampleRow[]>`
+        SELECT e.id, e.stl_path, e.step_path, e.threemf_path,
+               e.screenshot_front, e.screenshot_back, e.screenshot_left, e.screenshot_right,
+               e.screenshot_top, e.screenshot_bottom, e.screenshot_ortho_45, e.screenshot_ortho_45_bottom,
+               e.screenshot_iso, e.screenshot_iso_back,
+               p.category_id, e.approval_status, e.eval_score, e.created_at,
+               (e.agent_conversation IS NOT NULL) AS has_agent_trace
+        FROM workbench_examples e
+        JOIN workbench_example_prompts p ON p.id = e.prompt_id
+        WHERE p.category_id = ${id}::uuid AND e.experiment_run_id IS NULL
+      `
+    : [];
+  const allFilePaths = exampleRows.flatMap(collectFilePaths);
+
   const deletedExamples = promptIds.length > 0
     ? await prisma.workbenchExample.deleteMany({ where: { promptId: { in: promptIds } } })
     : { count: 0 };
@@ -257,8 +275,24 @@ export async function deleteCategory(id: string) {
   await prisma.workbenchExamplePrompt.deleteMany({ where: { categoryId: id } });
   await prisma.workbenchCategory.delete({ where: { id } });
 
-  logger.info({ id, deletedPrompts: promptIds.length, deletedExamples: deletedExamples.count }, "deleted workbench category");
-  return { deletedPrompts: promptIds.length, deletedExamples: deletedExamples.count };
+  // Unlink storage files after DB rows are gone
+  let filesDeleted = 0;
+  for (const relativePath of allFilePaths) {
+    try {
+      await deleteStorageFile({ relativePath });
+      filesDeleted++;
+    } catch (err) {
+      // FileStorageError with 404 = file already missing — silently skip
+      if (err instanceof FileStorageError && err.statusCode === 404) continue;
+      logger.warn({ err, relativePath }, "failed to delete file during category delete");
+    }
+  }
+
+  logger.info(
+    { id, deletedPrompts: promptIds.length, deletedExamples: deletedExamples.count, filesDeleted },
+    "deleted workbench category",
+  );
+  return { deletedPrompts: promptIds.length, deletedExamples: deletedExamples.count, filesDeleted };
 }
 
 export async function createPrompts(categoryId: string, prompts: string[]): Promise<number> {

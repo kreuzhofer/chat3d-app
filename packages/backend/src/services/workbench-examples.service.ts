@@ -296,7 +296,7 @@ export async function deleteExamplesForCategory(categoryId: string): Promise<{ d
 
 // ── Cleanup (keep best, purge rest) ──────────────────────────────────
 
-interface CleanupExampleRow {
+export interface CleanupExampleRow {
   id: string;
   stl_path: string | null;
   step_path: string | null;
@@ -320,8 +320,9 @@ interface CleanupExampleRow {
 
 /**
  * Collect all non-null file paths from an example row, including the .b123d code file.
+ * All paths are relative to the storage root (e.g. "workbench/{catId}/artifacts/{id}.stl").
  */
-function collectFilePaths(row: CleanupExampleRow): string[] {
+export function collectFilePaths(row: CleanupExampleRow): string[] {
   const paths: string[] = [];
   if (row.stl_path) paths.push(row.stl_path);
   if (row.step_path) paths.push(row.step_path);
@@ -336,8 +337,8 @@ function collectFilePaths(row: CleanupExampleRow): string[] {
   if (row.screenshot_ortho_45_bottom) paths.push(row.screenshot_ortho_45_bottom);
   if (row.screenshot_iso) paths.push(row.screenshot_iso);
   if (row.screenshot_iso_back) paths.push(row.screenshot_iso_back);
-  // .b123d code file follows the same prefix pattern
-  paths.push(`workbench/${row.category_id}/${row.id}.b123d`);
+  // .b123d code file is stored under the code/ sub-directory (see persistWorkbenchFiles)
+  paths.push(`workbench/${row.category_id}/code/${row.id}.b123d`);
   return paths;
 }
 
