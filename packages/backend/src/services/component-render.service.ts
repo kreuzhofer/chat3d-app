@@ -1,0 +1,70 @@
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("component-render");
+
+/**
+ * Returns true if the source contains a `def <componentName>(` definition
+ * at the start of a line. Tolerates `-> Part:` annotation or no annotation.
+ */
+export function hasComponentFunction(code: string, componentName: string): boolean {
+  const re = new RegExp(`^def\\s+${componentName}\\s*\\(`, "m");
+  return re.test(code);
+}
+
+/**
+ * Strips a trailing `if __name__ == "__main__":` block (with everything after it).
+ * Handles single OR double quotes. Idempotent.
+ */
+export function stripMainBlock(code: string): string {
+  // Match the start of an __main__ guard to end of file
+  const re = /\n*if\s+__name__\s*==\s*["']__main__["']\s*:[\s\S]*$/;
+  return code.replace(re, "").trimEnd();
+}
+
+export interface WrapInput {
+  code: string;
+  componentName: string;
+  outputStlPath: string;
+  output3mfPath: string;
+}
+
+/**
+ * Wrap the sub-agent's component code for standalone rendering.
+ * 1. Strip any existing __main__ block (defensive — sub-agent shouldn't write one).
+ * 2. Verify the expected `def <componentName>(` function exists; throw if not.
+ * 3. Append a generated __main__ block that calls the function and exports STL/3MF.
+ *
+ * The wrapped output is sent to the Build123d service. The on-disk source file
+ * (stored at component-storage prefix) keeps the UNWRAPPED version — the assembler
+ * imports the function directly without the wrapper.
+ */
+export function wrapSubAgentCode(input: WrapInput): string {
+  const stripped = stripMainBlock(input.code);
+
+  if (!hasComponentFunction(stripped, input.componentName)) {
+    throw new Error(
+      `Sub-agent code does not define function \`${input.componentName}\`. ` +
+      `Expected \`def ${input.componentName}() -> Part:\` at the start of a line.`,
+    );
+  }
+
+  const wrapper = `
+
+if __name__ == "__main__":
+    _result = ${input.componentName}()
+    _result.export_stl("${input.outputStlPath}")
+    _result.export_3mf("${input.output3mfPath}")
+`;
+
+  return stripped + wrapper;
+}
+
+/**
+ * Audit-log a wrap operation. Useful telemetry for A/B observability.
+ */
+export function logWrap(componentName: string, codeLen: number, wrappedLen: number): void {
+  logger.debug(
+    { componentName, codeLen, wrappedLen },
+    "wrapped sub-agent code for standalone render",
+  );
+}
