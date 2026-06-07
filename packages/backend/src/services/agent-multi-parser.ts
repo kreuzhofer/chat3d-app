@@ -38,7 +38,26 @@ export interface DecompositionResult {
 export const DECOMPOSE_CHECKLIST_ADDENDUM = `
 ## Component Checklist — REQUIRED
 
-For each component, emit a "componentChecklist" — 3–6 short verification items that this component ALONE (before assembly) must satisfy. Each item should be checkable against just this component's geometry, not the assembled whole. Annotate each item with "visibility": "visual" | "code" | "both" using the same rules as the top-level verificationChecklist (visual = visible from rendered views; code = checkable in source; both = both). Include items that catch failures specific to this component's role (e.g. "is hollow", "has N standoffs", "wall thickness X mm"). Do NOT include items that depend on the relationship between components (those belong in assemblyNotes).
+For each component, emit a "componentChecklist" — 3–6 short verification items that this component ALONE (before assembly) must satisfy. Each item should be checkable against just this component's geometry, not the assembled whole. Annotate each item with "visibility": "visual" | "code" | "both" using the same rules as the top-level verificationChecklist (visual = visible from rendered views; code = checkable in source; both = both). Include items that catch failures specific to this component's role (e.g. "is hollow", "has N standoffs", "wall thickness X mm").
+
+Each componentChecklist item MUST be verifiable against this component's own geometry ALONE —
+i.e., when the component is rendered in isolation, without any other components.
+
+GOOD component items (verifiable alone):
+  - "Body is a hollow box 50×75×2 mm with 2mm walls"     (geometry of the body)
+  - "Three countersunk holes spaced 25mm apart"          (features on the body)
+  - "Pin diameter is 4mm, length 75mm"                   (geometry of the pin)
+  - "Knuckle is a cylindrical lobe at +Z=20mm"           (one lobe's position)
+
+BAD component items (require assembly context — put these in assemblyChecklist):
+  - "Knuckles alternate with the other leaf"             ← belongs in assemblyChecklist
+  - "Pin slides through all 5 aligned knuckles"          ← belongs in assemblyChecklist
+  - "Lid sits 0.5mm above body top edge"                 ← belongs in assemblyChecklist
+  - "PCB rests flush against the standoffs"              ← belongs in assemblyChecklist
+
+If a verification item depends on the relationship BETWEEN components, put it
+in "assemblyChecklist" instead. Those items are verified at the assembler stage
+against the assembled render.
 
 ## assemblyVisibility — MUST be set on EVERY checklist item
 
@@ -66,8 +85,10 @@ Examples of "visible" items (visible in assembled view):
   {"item": "Hinge knuckles alternate left/right", "visibility": "visual", "assemblyVisibility": "visible"}
     — Knuckle pattern is visible from the side view.
 
-The dispatcher uses assemblyVisibility to skip VLM verification for occluded items
-(visual evaluation cannot see hidden features) and rely on code-eval instead.
+This field is used for training-data labels and analytics. The actual verification
+happens per-component in isolation — your sub-agent will see this component's
+own rendered views, so occlusion in the assembled context doesn't affect
+verification.
 `.trim();
 
 // ── Parser ─────────────────────────────────────────────────────────────
@@ -148,7 +169,7 @@ Rules:
 ${DECOMPOSE_CHECKLIST_ADDENDUM}
 
 Respond with raw JSON only. No markdown, no code fences, no explanation:
-{"components":[{"name":"component_name","description":"Brief description with dimensions","componentChecklist":[{"item":"verification item","visibility":"visual","assemblyVisibility":"visible"}]}],"assemblyNotes":"Brief positioning instructions"}`;
+{"components":[{"name":"component_name","description":"Brief description with dimensions","componentChecklist":[{"item":"verification item","visibility":"visual","assemblyVisibility":"visible"}]}],"assemblyChecklist":[{"item":"knuckles interlock without overlap","visibility":"visual","assemblyVisibility":"visible"}],"assemblyNotes":"Brief positioning instructions"}`;
 
   // Prefer constructionSpec for decomposition — it contains precise geometric
   // operations which map better to component boundaries than semantic descriptions

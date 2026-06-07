@@ -101,7 +101,7 @@ describe("parseDecompositionResponse — assemblyChecklist (Phase 2)", () => {
   });
 });
 
-describe("DECOMPOSE_CHECKLIST_ADDENDUM — Phase 1 occlusion guidance", () => {
+describe("DECOMPOSE_CHECKLIST_ADDENDUM — occlusion guidance", () => {
   it("instructs the LLM to emit assemblyVisibility", () => {
     expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/assemblyVisibility/);
     expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/visible/);
@@ -110,10 +110,6 @@ describe("DECOMPOSE_CHECKLIST_ADDENDUM — Phase 1 occlusion guidance", () => {
 
   it("provides example types of occluded features", () => {
     expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/hidden inside|covered by/i);
-  });
-
-  it("explains the dispatcher routing consequence", () => {
-    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/skip VLM verification|code-eval/);
   });
 
   it("uses required language: MUST and EVERY", () => {
@@ -130,5 +126,26 @@ describe("DECOMPOSE_CHECKLIST_ADDENDUM — Phase 1 occlusion guidance", () => {
   it("instructs to default to visible when unsure and never omit", () => {
     expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/don't know.*choose.*visible|choose.*visible.*don't know/i);
     expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/NEVER omit/);
+  });
+});
+
+describe("DECOMPOSE_CHECKLIST_ADDENDUM — Phase 2 wording", () => {
+  it("instructs the LLM to put assembly-dependent items in assemblyChecklist", () => {
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/assemblyChecklist/);
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/relationship BETWEEN components/i);
+  });
+
+  it("instructs that component items must be checkable in isolation", () => {
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/verifiable.*component.*alone|own geometry/i);
+  });
+
+  it("describes assemblyVisibility as telemetry, not routing", () => {
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/training-data labels|analytics|telemetry/i);
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).not.toMatch(/code-only verification|skip VLM/i);
+  });
+
+  it("provides concrete GOOD and BAD examples", () => {
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/GOOD component items/i);
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/BAD component items/i);
   });
 });
