@@ -283,6 +283,141 @@ describe("evaluate_checklist tool integration", () => {
   });
 });
 
+describe("runChecklistEval — assemblyVisibility occlusion routing", () => {
+  const FAKE_IMG = { filename: "iso.png", contentBase64: "f" } as any;
+
+  it("routes occluded visual-only items to code-only verification", async () => {
+    const visualVerify = vi.fn();
+    const codeVerify = vi.fn().mockResolvedValue({ verdict: "PASS", reasoning: "ok in code" });
+
+    const r = await runChecklistEval({
+      checklist: [
+        {
+          item: "Body interior is hollow",
+          visibility: "visual",
+          assemblyVisibility: "occluded",
+        },
+      ],
+      code: "body = hollow_box(2)",
+      renderedFiles: [FAKE_IMG],
+      evalPlan: null,
+      visualVerify,
+      codeVerify,
+    });
+
+    expect(visualVerify).not.toHaveBeenCalled();
+    expect(codeVerify).toHaveBeenCalledTimes(1);
+    expect(r.results[0].reasoning).toContain("occluded");
+  });
+
+  it("routes occluded both-visibility items to code-only", async () => {
+    const visualVerify = vi.fn();
+    const codeVerify = vi.fn().mockResolvedValue({ verdict: "PASS", reasoning: "wall_thickness=2" });
+
+    const r = await runChecklistEval({
+      checklist: [
+        {
+          item: "Wall thickness is 2mm",
+          visibility: "both",
+          assemblyVisibility: "occluded",
+        },
+      ],
+      code: "wall_thickness = 2",
+      renderedFiles: [FAKE_IMG],
+      evalPlan: null,
+      visualVerify,
+      codeVerify,
+    });
+
+    expect(visualVerify).not.toHaveBeenCalled();
+    expect(codeVerify).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps visible visual items on VLM (unchanged behavior)", async () => {
+    const visualVerify = vi.fn().mockResolvedValue({ verdict: "PASS", reasoning: "looks fine" });
+    const codeVerify = vi.fn();
+
+    await runChecklistEval({
+      checklist: [
+        {
+          item: "Front face has 4 mounting holes",
+          visibility: "visual",
+          assemblyVisibility: "visible",
+        },
+      ],
+      code: "",
+      renderedFiles: [FAKE_IMG],
+      evalPlan: null,
+      visualVerify,
+      codeVerify,
+    });
+
+    expect(visualVerify).toHaveBeenCalledTimes(1);
+    expect(codeVerify).not.toHaveBeenCalled();
+  });
+
+  it("annotates reasoning with [occluded] marker for downgraded items", async () => {
+    const visualVerify = vi.fn();
+    const codeVerify = vi.fn().mockResolvedValue({ verdict: "PASS", reasoning: "wall=2" });
+
+    const r = await runChecklistEval({
+      checklist: [
+        {
+          item: "Wall thickness is 2mm",
+          visibility: "visual",
+          assemblyVisibility: "occluded",
+        },
+      ],
+      code: "wall = 2",
+      renderedFiles: [FAKE_IMG],
+      evalPlan: null,
+      visualVerify,
+      codeVerify,
+    });
+
+    expect(r.results[0].reasoning).toMatch(/\[occluded — code-only/i);
+  });
+
+  it("does NOT annotate code-visibility items (never had visual to begin with)", async () => {
+    const visualVerify = vi.fn();
+    const codeVerify = vi.fn().mockResolvedValue({ verdict: "PASS", reasoning: "param=correct" });
+
+    const r = await runChecklistEval({
+      checklist: [
+        {
+          item: "Parameter is set",
+          visibility: "code",
+          assemblyVisibility: "occluded",
+        },
+      ],
+      code: "x = 1",
+      renderedFiles: [FAKE_IMG],
+      evalPlan: null,
+      visualVerify,
+      codeVerify,
+    });
+
+    expect(r.results[0].reasoning).not.toMatch(/\[occluded/);
+  });
+
+  it("backwards compat: items without assemblyVisibility treated as visible", async () => {
+    const visualVerify = vi.fn().mockResolvedValue({ verdict: "PASS", reasoning: "ok" });
+    const codeVerify = vi.fn();
+
+    await runChecklistEval({
+      checklist: [{ item: "x", visibility: "visual" }], // no assemblyVisibility
+      code: "",
+      renderedFiles: [FAKE_IMG],
+      evalPlan: null,
+      visualVerify,
+      codeVerify,
+    });
+
+    expect(visualVerify).toHaveBeenCalledTimes(1);
+    expect(codeVerify).not.toHaveBeenCalled();
+  });
+});
+
 describe("parseChecklistVerdictText", () => {
   it("parses PASS + reasoning from a typical LLM response", () => {
     const parsed = parseChecklistVerdictText("PASS\nFront view shows 4 holes at the corners.");
