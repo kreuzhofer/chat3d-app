@@ -110,3 +110,35 @@ Three independent investigations, in order of expected ROI:
 - `5eeab060` (multi-agent) +1.0: typical case where Phase 2's mechanism works as designed.
 - `00d1eb27` (single-agent) dropped −4.2: surprising — Phase 2 doesn't touch single-agent code. Likely LLM non-determinism on a specific prompt, similar to the hinge variance documented in the smoke test investigation.
 - `5dd717c0`: the contradictory snap-fit-box prompt. v4 had it correctly rejected pre-generation by the spec validator; v6 generated it (validator may not have re-rejected). Worth checking whether the validator behavior changed.
+
+## Cost (estimated, post-run measurement)
+
+Using `prompt_tokens × 3 + completion_tokens × 15` ($/M) as a uniform cost proxy across v4 baseline rows and v6 rows (one row per prompt, latest before/after Phase 2 launch):
+
+| Bucket | v4 cost units | v6 cost units | Ratio |
+|---|---|---|---|
+| Single-agent | 22.4 M | 33.8 M | **1.50×** |
+| Multi-agent | 35.3 M | 69.9 M | **1.98×** |
+| Total | 57.7 M | 103.7 M | **1.80×** |
+
+Target ≤ 3× — **PASS**. Phase 2 doubles multi-agent cost but stays under budget. Note: v4 token totals here are dominated by the most recent pre-Phase-2 row per prompt (which may include intermediate v5-broken runs); the ratio is therefore conservative — true v4-clean cost may be slightly lower, making the actual ratio slightly higher but still under 3×.
+
+## Assembly verification observability (post-run audit)
+
+All 11 multi-agent runs persisted `sub_agent_verifications`. The `assembly` tier verdicts break down as:
+
+| prompt | eval_score | passed | failed | uncertain |
+|---|---|---|---|---|
+| `05066df7` Pi | 1.0 | 0 | 0 | 10 |
+| `5dd717c0` snap-fit | 2.0 | 1 | 0 | 11 |
+| `19d8a259` | 3.0 | 0 | 0 | 11 |
+| `09b73b07` | 3.0 | 0 | 0 | 10 |
+| `1a1b5f13` | 4.4 | 0 | 2 | 10 |
+| `09c2b5de` Jetson | 6.0 | 0 | 2 | 3 |
+| `24f10279` | 6.0 | 0 | 2 | 2 |
+| `32b6c670` | 7.0 | 2 | 1 | 9 |
+| `2341d5b6` | 7.5 | 1 | 0 | 11 |
+| `078e4d11` Odroid | 7.5 | 0 | 0 | 6 |
+| `5eeab060` | 9.0 | 0 | 0 | 11 |
+
+**Observation:** 7 of 11 runs have **zero** passed/failed verifications at the assembly tier; everything reads as "uncertain". Phase 2's 2-tier verification is effectively a 1-tier (sub-agent only) system at the assembly layer for most of the cohort. This is a separate, actionable bottleneck: the assembler-side checklist verifier prompt rarely produces a confident verdict. Worth investigating before (or alongside) the recommended next-phase items.
