@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { aggregateChecklistForAssembler } from "../services/agent-multi.service.js";
 import { mergeAssemblyChecklist } from "../utils/checklist-merge.js";
-import type { ComponentVerificationResult, ChecklistItemResult } from "../utils/component-checklist.js";
+import type { ComponentVerificationResult, SubAgentVerificationSnapshot } from "../utils/component-checklist.js";
 
 describe("aggregateChecklistForAssembler", () => {
   it("flattens per-component checklists and tags items with componentName", () => {
@@ -52,112 +52,81 @@ describe("aggregateChecklistForAssembler", () => {
 });
 
 /**
- * Reproduces the callback logic from runMultiAgentCodegen for unit testing.
- * If we change the production callback, we update this twin and the tests.
+ * Reproduces the Phase-2 assembler callback logic for unit testing.
+ * Production callback writes ALL verification results to a single "assembly" key
+ * in subAgentVerifications (not grouped per componentName, because merged
+ * top-level + assemblyChecklist items have no componentName).
+ *
+ * If the production callback changes, update this twin AND the tests.
  */
-function buildAssemblerCallback(
-  assemblerChecklist: ReturnType<typeof aggregateChecklistForAssembler>,
-  accumulator: Record<string, {
-    passedCount: number; failedCount: number; uncertainCount: number;
-    failedItems: { item: string; reasoning: string }[];
-  }>,
+function buildAssemblerCallbackPhase2(
+  accumulator: Record<string, SubAgentVerificationSnapshot>,
 ) {
   return (verification: ComponentVerificationResult) => {
+    // Reset all keys (assembler is canonical source for the assembly summary).
     for (const key of Object.keys(accumulator)) delete accumulator[key];
-    const grouped: Record<string, ChecklistItemResult[]> = {};
-    for (const r of verification.results) {
-      const sourceItem = assemblerChecklist[r.index];
-      const componentName = sourceItem?.componentName ?? "unknown";
-      (grouped[componentName] ??= []).push(r);
-    }
-    for (const [componentName, results] of Object.entries(grouped)) {
-      accumulator[componentName] = {
-        passedCount: results.filter((x) => x.verdict === "PASS").length,
-        failedCount: results.filter((x) => x.verdict === "FAIL").length,
-        uncertainCount: results.filter((x) => x.verdict === "UNCERTAIN").length,
-        failedItems: results
-          .filter((x) => x.verdict === "FAIL")
-          .map((x) => ({ item: x.item, reasoning: x.reasoning })),
-      };
-    }
+
+    accumulator["assembly"] = {
+      passedCount: verification.passedCount,
+      failedCount: verification.failedCount,
+      uncertainCount: verification.uncertainCount,
+      failedItems: verification.results
+        .filter(r => r.verdict === "FAIL")
+        .map(r => ({ item: r.item, reasoning: r.reasoning })),
+    };
   };
 }
 
-describe("assemblerOnChecklistEvaluated callback (twin)", () => {
-  const checklist = aggregateChecklistForAssembler([
-    {
-      name: "body",
-      description: "",
-      componentChecklist: [
-        { item: "Body is hollow", visibility: "visual" },
-        { item: "Wall thickness 2mm", visibility: "code" },
-      ],
-    },
-    {
-      name: "pin",
-      description: "",
-      componentChecklist: [{ item: "Pin diameter 3mm", visibility: "code" }],
-    },
-  ]);
-
-  it("groups multi-component results by componentName", () => {
-    const acc: Parameters<typeof buildAssemblerCallback>[1] = {};
-    const cb = buildAssemblerCallback(checklist, acc);
-    cb({
+describe("assemblerOnChecklistEvaluated callback (Phase 2 twin)", () => {
+  it("stores all results under a single 'assembly' key", () => {
+    const acc: Record<string, SubAgentVerificationSnapshot> = {};
+    buildAssemblerCallbackPhase2(acc)({
       results: [
-        { index: 0, item: "Body is hollow", visibility: "visual", verdict: "PASS", reasoning: "ok" },
-        { index: 1, item: "Wall thickness 2mm", visibility: "code", verdict: "FAIL", reasoning: "bad" },
-        { index: 2, item: "Pin diameter 3mm", visibility: "code", verdict: "PASS", reasoning: "ok" },
+        { index: 0, item: "outer dim 50mm", visibility: "code", verdict: "PASS", reasoning: "ok" },
+        { index: 1, item: "knuckles interlock", visibility: "visual", verdict: "FAIL", reasoning: "overlap" },
       ],
-      passedCount: 2,
+      passedCount: 1,
       failedCount: 1,
       uncertainCount: 0,
     });
+    expect(Object.keys(acc)).toEqual(["assembly"]);
+    expect(acc.assembly.passedCount).toBe(1);
+    expect(acc.assembly.failedCount).toBe(1);
+    expect(acc.assembly.failedItems).toEqual([
+      { item: "knuckles interlock", reasoning: "overlap" },
+    ]);
+  });
 
-    expect(acc.body).toEqual({
+  it("resets the accumulator before writing (canonical assembly source)", () => {
+    const acc: Record<string, SubAgentVerificationSnapshot> = {
+      // Pre-existing per-sub-agent entries from Task 6's sub-agent callbacks.
+      body: { passedCount: 3, failedCount: 0, uncertainCount: 0, failedItems: [] },
+      pin: { passedCount: 2, failedCount: 0, uncertainCount: 0, failedItems: [] },
+    };
+    buildAssemblerCallbackPhase2(acc)({
+      results: [{ index: 0, item: "outer dim 50mm", visibility: "code", verdict: "PASS", reasoning: "ok" }],
       passedCount: 1,
-      failedCount: 1,
+      failedCount: 0,
       uncertainCount: 0,
-      failedItems: [{ item: "Wall thickness 2mm", reasoning: "bad" }],
     });
-    expect(acc.pin).toEqual({
-      passedCount: 1,
+    // Sub-agent entries are cleared by the assembler's reset semantics.
+    expect(Object.keys(acc)).toEqual(["assembly"]);
+  });
+
+  it("handles empty verification results", () => {
+    const acc: Record<string, SubAgentVerificationSnapshot> = {};
+    buildAssemblerCallbackPhase2(acc)({
+      results: [],
+      passedCount: 0,
+      failedCount: 0,
+      uncertainCount: 0,
+    });
+    expect(acc.assembly).toEqual({
+      passedCount: 0,
       failedCount: 0,
       uncertainCount: 0,
       failedItems: [],
     });
-  });
-
-  it("resets the accumulator on each call (last write wins)", () => {
-    const acc: Parameters<typeof buildAssemblerCallback>[1] = {
-      stale: { passedCount: 99, failedCount: 99, uncertainCount: 99, failedItems: [] },
-    };
-    const cb = buildAssemblerCallback(checklist, acc);
-    cb({
-      results: [
-        { index: 0, item: "Body is hollow", visibility: "visual", verdict: "PASS", reasoning: "ok" },
-      ],
-      passedCount: 1,
-      failedCount: 0,
-      uncertainCount: 0,
-    });
-    expect(acc.stale).toBeUndefined();
-    expect(Object.keys(acc)).toEqual(["body"]);
-  });
-
-  it("buckets out-of-range indices under 'unknown'", () => {
-    const acc: Parameters<typeof buildAssemblerCallback>[1] = {};
-    const cb = buildAssemblerCallback(checklist, acc);
-    cb({
-      results: [
-        { index: 99, item: "ghost item", visibility: "visual", verdict: "FAIL", reasoning: "no source" },
-      ],
-      passedCount: 0,
-      failedCount: 1,
-      uncertainCount: 0,
-    });
-    expect(acc.unknown).toBeDefined();
-    expect(acc.unknown.failedCount).toBe(1);
   });
 });
 
