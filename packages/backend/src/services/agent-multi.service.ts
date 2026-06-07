@@ -38,6 +38,7 @@ import {
   type DecomposedComponent,
   type DecompositionResult,
 } from "./agent-multi-parser.js";
+import { mergeAssemblyChecklist } from "../utils/checklist-merge.js";
 
 export type { DecomposedComponent, DecompositionResult } from "./agent-multi-parser.js";
 
@@ -47,6 +48,8 @@ const logger = createLogger("agent-multi");
  * Flattens per-component checklists into a single list, tagging each item
  * with its source componentName. Used to feed the assembler's evaluate_checklist
  * tool + forced gate (which see the aggregated list as a single checklist).
+ *
+ * @deprecated Phase 2 replaces this with mergeAssemblyChecklist.
  */
 export function aggregateChecklistForAssembler(
   components: DecomposedComponent[],
@@ -385,46 +388,34 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   const componentFileList = Array.from(componentFiles.keys()).map(p => `- ${p}`).join("\n");
   const assemblyUserMessage = `Create the final model matching this user request:\n\n"${promptText}"\n\nAvailable component files:\n${componentFileList}\n\nAssembly notes: ${decomposition.assemblyNotes}\n\nView each component file to understand its function signature and dimensions, then write main.py that imports and positions them EXACTLY as the user prompt describes. Validate, render, and submit when the render succeeds.`;
 
-  // Note: this wiring is INERT until v2 Task 4 moves the forced gate from the
-  // disableRender:true branch (sub-agent path) to the non-disableRender branch
-  // (assembler path). The assembler's onChecklistEvaluated callback below only
-  // fires when the gate runs at submit_result; that gate currently lives in the
-  // sub-agent path and skips the assembler. Tasks 3 + 4 + 5 land together to
-  // activate this wiring.
-  const assemblerChecklist = aggregateChecklistForAssembler(decomposition.components);
+  // Phase 2: assembler verifies the parent prompt's top-level checklist merged
+  // with the decomposition's assemblyChecklist. Component-local items were
+  // already verified at each sub-agent's submit_result.
+  const topLevelChecklist: ComponentChecklistItem[] = (input.annotatedCriteria ?? []).map(c => ({
+    item: c.text,
+    visibility: c.visibility,
+  }));
+  const assemblerChecklist = mergeAssemblyChecklist(
+    topLevelChecklist,
+    decomposition.assemblyChecklist,
+  );
 
-  // Rebuild subAgentVerifications from the assembler's flat evaluation results,
-  // grouping by componentName via index-zip against the source assemblerChecklist.
+  // Phase 2: the assembler verifies the merged top-level + assemblyChecklist.
+  // Items in this merged list have no componentName (they are cross-assembly criteria),
+  // so all results bucket under the "assembly" key in subAgentVerifications.
   const assemblerOnChecklistEvaluated = (verification: ComponentVerificationResult) => {
     // Reset the accumulator — the assembler's gate is the canonical source now.
     for (const key of Object.keys(subAgentVerifications)) {
       delete subAgentVerifications[key];
     }
-    const grouped: Record<string, ChecklistItemResult[]> = {};
-    for (const r of verification.results) {
-      const sourceItem = assemblerChecklist[r.index];
-      let componentName: string;
-      if (sourceItem?.componentName) {
-        componentName = sourceItem.componentName;
-      } else {
-        componentName = "unknown";
-        logger.warn(
-          { resultIndex: r.index, item: r.item, checklistLength: assemblerChecklist.length },
-          "assemblerOnChecklistEvaluated: source componentName missing; bucketing under 'unknown'",
-        );
-      }
-      (grouped[componentName] ??= []).push(r);
-    }
-    for (const [componentName, results] of Object.entries(grouped)) {
-      subAgentVerifications[componentName] = {
-        passedCount: results.filter((x) => x.verdict === "PASS").length,
-        failedCount: results.filter((x) => x.verdict === "FAIL").length,
-        uncertainCount: results.filter((x) => x.verdict === "UNCERTAIN").length,
-        failedItems: results
-          .filter((x) => x.verdict === "FAIL")
-          .map((x) => ({ item: x.item, reasoning: x.reasoning })),
-      };
-    }
+    subAgentVerifications["assembly"] = {
+      passedCount: verification.results.filter((x) => x.verdict === "PASS").length,
+      failedCount: verification.results.filter((x) => x.verdict === "FAIL").length,
+      uncertainCount: verification.results.filter((x) => x.verdict === "UNCERTAIN").length,
+      failedItems: verification.results
+        .filter((x) => x.verdict === "FAIL")
+        .map((x) => ({ item: x.item, reasoning: x.reasoning })),
+    };
   };
 
   const assemblyResult = await runAgentCodegen({

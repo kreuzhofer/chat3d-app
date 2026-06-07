@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { aggregateChecklistForAssembler } from "../services/agent-multi.service.js";
+import { mergeAssemblyChecklist } from "../utils/checklist-merge.js";
 import type { ComponentVerificationResult, ChecklistItemResult } from "../utils/component-checklist.js";
 
 describe("aggregateChecklistForAssembler", () => {
@@ -157,5 +158,18 @@ describe("assemblerOnChecklistEvaluated callback (twin)", () => {
     });
     expect(acc.unknown).toBeDefined();
     expect(acc.unknown.failedCount).toBe(1);
+  });
+});
+
+describe("assembler input — merged top-level + assemblyChecklist (Phase 2)", () => {
+  it("uses mergeAssemblyChecklist for assembler's componentChecklist", () => {
+    // Smoke: the merged checklist combines top-level + assembly items
+    const merged = mergeAssemblyChecklist(
+      [{ item: "Outer dim 50mm", visibility: "code" }],
+      [{ item: "Knuckles interlock", visibility: "visual" }],
+    );
+    expect(merged).toHaveLength(2);
+    expect(merged.map(i => i.item)).toContain("Outer dim 50mm");
+    expect(merged.map(i => i.item)).toContain("Knuckles interlock");
   });
 });
