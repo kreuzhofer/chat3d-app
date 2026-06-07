@@ -17,7 +17,7 @@ import {
 
 const logger = createLogger("delete-test-categories");
 
-const NAME_PATTERN = /test/i;
+const NAME_PATTERN = /(test|evalplan-persist|reeval-cws)/i;
 const API_BASE = process.env.API_BASE_URL ?? "http://localhost";
 const TOKEN_PATH = "/tmp/chat3d-token.txt";
 const ADMIN_EMAIL = "admin@chat3d.local";
