@@ -2,7 +2,7 @@
  * Delete workbench categories whose names match /test/i.
  *
  * Dry-run mode (default): prints matched categories with prompt/example/file counts.
- * Commit mode (--commit):  calls DELETE /api/workbench/categories/:id for each match,
+ * Commit mode (--commit):  calls DELETE /api/admin/workbench/categories/:id for each match,
  *                          accumulating a final deletion report.
  *
  * Auth: reads token from /tmp/chat3d-token.txt; re-logs in if absent/expired.
@@ -175,7 +175,7 @@ export async function deleteTestCategories(commit: boolean): Promise<DeleteRepor
 
   for (const cat of matches) {
     try {
-      const r = await fetch(`${API_BASE}/api/workbench/categories/${cat.id}`, {
+      const r = await fetch(`${API_BASE}/api/admin/workbench/categories/${cat.id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
