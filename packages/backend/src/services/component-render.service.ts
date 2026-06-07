@@ -16,8 +16,9 @@ export function hasComponentFunction(code: string, componentName: string): boole
  * Handles single OR double quotes. Idempotent.
  */
 export function stripMainBlock(code: string): string {
-  // Match the start of an __main__ guard to end of file
-  const re = /\n*if\s+__name__\s*==\s*["']__main__["']\s*:[\s\S]*$/;
+  // Match the start of an __main__ guard to end of file.
+  // (^|\n) anchors to column 0 so indented occurrences inside functions are not stripped.
+  const re = /(^|\n)if\s+__name__\s*==\s*["']__main__["']\s*:[\s\S]*$/;
   return code.replace(re, "").trimEnd();
 }
 

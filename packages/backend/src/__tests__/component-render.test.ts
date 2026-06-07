@@ -29,6 +29,10 @@ describe("stripMainBlock", () => {
     const code = `def body():\n    return 1`;
     expect(stripMainBlock(code)).toBe(code);
   });
+  it("does not strip indented __main__ blocks inside functions", () => {
+    const code = `def body():\n    if __name__ == "__main__":\n        pass\n    return Box(1, 1, 1)`;
+    expect(stripMainBlock(code)).toBe(code);
+  });
 });
 
 describe("wrapSubAgentCode", () => {
