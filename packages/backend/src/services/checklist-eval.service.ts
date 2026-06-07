@@ -97,11 +97,8 @@ export async function runChecklistEval(
       // Use the caller-provided original index when available; fall back to positional index
       const index = originalIndices?.[i] ?? i;
       try {
-        const isOccluded = entry.assemblyVisibility === "occluded";
-        const wantVisual = (entry.visibility === "visual" || entry.visibility === "both") && !isOccluded;
-        const wantCode = entry.visibility === "code"
-                      || entry.visibility === "both"
-                      || (isOccluded && entry.visibility === "visual");
+        const wantVisual = entry.visibility === "visual" || entry.visibility === "both";
+        const wantCode = entry.visibility === "code" || entry.visibility === "both";
 
         const [v, c] = await Promise.all([
           wantVisual
@@ -113,17 +110,13 @@ export async function runChecklistEval(
         ]);
 
         const combined = combine(v, c);
-        const occludedDowngrade = isOccluded && entry.visibility !== "code";
-        const annotatedReasoning = occludedDowngrade
-          ? `[occluded — code-only verification] ${combined.reasoning}`
-          : combined.reasoning;
 
         return {
           index,
           item: entry.item,
           visibility: entry.visibility,
           verdict: combined.verdict,
-          reasoning: annotatedReasoning,
+          reasoning: combined.reasoning,
         };
       } catch (err) {
         logger.warn({ err, index, item: entry.item }, "checklist item eval failed");
