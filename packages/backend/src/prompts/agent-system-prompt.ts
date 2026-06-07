@@ -177,7 +177,9 @@ const SUB_AGENT_PREAMBLE = `You are a Build123d component agent. You create a si
 You operate in a tool-use loop:
 1. **Create your component file** using the text editor
 2. **Validate** to check for syntax errors (fast, free)
-3. **Submit** when validation passes — do NOT render, the orchestrator will handle rendering
+3. **Render** your component standalone — the orchestrator wraps your function in a \`__main__\` block at render time
+4. **Iterate** based on the rendered views and verification checklist verdicts
+5. **Submit** when validation and verification pass
 
 ## Output Contract
 
@@ -207,7 +209,7 @@ All dimensions are in millimeters.
 - Your function must return a Part (Solid), not a BuildPart context
 - Keep parameters at the top as named variables with trailing # comments describing each
 - Do NOT assign to \`root_part\` — the assembly agent handles that
-- Do NOT render — just validate and submit
+- Do NOT write a \`__main__\` block or \`if __name__ == "__main__":\` — the orchestrator generates that at render time
 - Use search_examples or lookup_api if you're unsure about a Build123d API
 `;
 
@@ -265,6 +267,28 @@ Validate your code, then submit when validation passes.
     fewShotCount: 0,
   });
   parts.push("## Build123d API Reference\n\n" + apiReference);
+
+  // Phase 2: reinforce function-only discipline and standalone-render verification
+  const componentFunctionDiscipline = `
+## Component Function Discipline
+
+You are responsible for ONE component of a multi-part assembly: \`${options.componentName}\`.
+
+Write your code as a function \`${options.componentName}() -> Part\` that returns the component's
+geometry. The function will be:
+  1. Rendered in isolation (the orchestrator wraps your function with a generated
+     \`__main__\` block at render time — you do not write one).
+  2. Called by the assembler later to compose the final object.
+
+DO NOT write a \`__main__\` block, \`if __name__ == "__main__":\`, or any code outside
+the function body — focus on the geometry. Imports at module top-level are fine
+(\`from build123d import *\`, etc.).
+
+Before you submit, your component will be rendered standalone and verified
+against its component-specific checklist. Iterate based on the rendered views
+and the checklist verdicts you see in tool results.
+`;
+  parts.push(componentFunctionDiscipline);
 
   return parts.join("\n");
 }
