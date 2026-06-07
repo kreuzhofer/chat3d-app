@@ -98,6 +98,18 @@ export function parseDecompositionResponse(rawText: string): DecompositionResult
     };
   });
 
+  // Telemetry: log parsed checklist annotations to surface assemblyVisibility usage in production.
+  // Used by the A/B analysis to count occluded vs visible vs absent across multi-agent runs.
+  logger.info(
+    {
+      components: components.map((c) => ({
+        name: c.name,
+        checklist: c.componentChecklist ?? null,
+      })),
+    },
+    "parsed decomposition checklists",
+  );
+
   return {
     components,
     assemblyNotes: String(parsed.assemblyNotes ?? ""),
