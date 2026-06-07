@@ -93,3 +93,42 @@ describe("ComponentChecklistItem with componentName tag", () => {
     expect(r.success).toBe(false);
   });
 });
+
+describe("ComponentChecklistItem with assemblyVisibility", () => {
+  it("accepts an item with assemblyVisibility=visible", () => {
+    const r = ComponentChecklistItemSchema.safeParse({
+      item: "x",
+      visibility: "visual",
+      assemblyVisibility: "visible",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.assemblyVisibility).toBe("visible");
+  });
+
+  it("accepts an item with assemblyVisibility=occluded", () => {
+    const r = ComponentChecklistItemSchema.safeParse({
+      item: "Pin diameter 3mm",
+      visibility: "code",
+      assemblyVisibility: "occluded",
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("accepts an item without assemblyVisibility (backwards compat)", () => {
+    const r = ComponentChecklistItemSchema.safeParse({
+      item: "x",
+      visibility: "visual",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.assemblyVisibility).toBeUndefined();
+  });
+
+  it("rejects unknown assemblyVisibility value", () => {
+    const r = ComponentChecklistItemSchema.safeParse({
+      item: "x",
+      visibility: "visual",
+      assemblyVisibility: "hidden",
+    });
+    expect(r.success).toBe(false);
+  });
+});

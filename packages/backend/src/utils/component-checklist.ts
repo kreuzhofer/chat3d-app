@@ -3,6 +3,9 @@ import { z } from "zod";
 export const ChecklistVisibilityEnum = z.enum(["visual", "code", "both"]);
 export type ChecklistVisibility = z.infer<typeof ChecklistVisibilityEnum>;
 
+export const AssemblyVisibilityEnum = z.enum(["visible", "occluded"]);
+export type AssemblyVisibility = z.infer<typeof AssemblyVisibilityEnum>;
+
 export const ChecklistVerdictEnum = z.enum(["PASS", "FAIL", "UNCERTAIN"]);
 export type ChecklistVerdict = z.infer<typeof ChecklistVerdictEnum>;
 
@@ -11,6 +14,8 @@ export const ComponentChecklistItemSchema = z.object({
   visibility: ChecklistVisibilityEnum,
   /** Source component name (assembler-aggregated checklists only). */
   componentName: z.string().min(1).optional(),
+  /** Whether the feature is visible in the assembled render (Phase 1 — Codex F6 fix). */
+  assemblyVisibility: AssemblyVisibilityEnum.optional(),
 });
 export type ComponentChecklistItem = z.infer<typeof ComponentChecklistItemSchema>;
 
