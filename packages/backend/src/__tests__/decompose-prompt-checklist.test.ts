@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDecompositionResponse } from "../services/agent-multi-parser.js";
+import { parseDecompositionResponse, DECOMPOSE_CHECKLIST_ADDENDUM } from "../services/agent-multi-parser.js";
 
 describe("decomposePrompt response parsing with componentChecklist", () => {
   it("parses componentChecklist when present", () => {
@@ -43,5 +43,40 @@ describe("decomposePrompt response parsing with componentChecklist", () => {
     });
     const r = parseDecompositionResponse(json);
     expect(r.components[0].componentChecklist).toBeUndefined();
+  });
+
+  it("parses assemblyVisibility through parseComponentChecklist", () => {
+    const json = JSON.stringify({
+      components: [
+        {
+          name: "body",
+          description: "the box",
+          componentChecklist: [
+            { item: "Wall thickness 2mm", visibility: "code", assemblyVisibility: "occluded" },
+            { item: "Port cutout visible", visibility: "visual", assemblyVisibility: "visible" },
+          ],
+        },
+      ],
+      assemblyNotes: "n/a",
+    });
+    const r = parseDecompositionResponse(json);
+    expect(r.components[0].componentChecklist?.[0].assemblyVisibility).toBe("occluded");
+    expect(r.components[0].componentChecklist?.[1].assemblyVisibility).toBe("visible");
+  });
+});
+
+describe("DECOMPOSE_CHECKLIST_ADDENDUM — Phase 1 occlusion guidance", () => {
+  it("instructs the LLM to emit assemblyVisibility", () => {
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/assemblyVisibility/);
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/visible/);
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/occluded/);
+  });
+
+  it("provides example types of occluded features", () => {
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/hidden inside|covered by/i);
+  });
+
+  it("explains the dispatcher routing consequence", () => {
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/skip VLM verification|code-eval/);
   });
 });

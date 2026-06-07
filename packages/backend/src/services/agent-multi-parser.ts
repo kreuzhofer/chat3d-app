@@ -36,6 +36,17 @@ export interface DecompositionResult {
 
 export const DECOMPOSE_CHECKLIST_ADDENDUM = `
 For each component, also emit a "componentChecklist" — 3–6 short verification items that this component ALONE (before assembly) must satisfy. Each item should be checkable against just this component's geometry, not the assembled whole. Annotate each item with "visibility": "visual" | "code" | "both" using the same rules as the top-level verificationChecklist (visual = visible from rendered views; code = checkable in source; both = both). Include items that catch failures specific to this component's role (e.g. "is hollow", "has N standoffs", "wall thickness X mm"). Do NOT include items that depend on the relationship between components (those belong in assemblyNotes).
+
+For each item, ALSO emit "assemblyVisibility":
+  - "visible" if the feature remains externally visible in the final assembled object
+    (e.g. external dimensions, port cutouts, surface features on the outer skin).
+  - "occluded" if the feature is hidden inside the assembly or covered by other
+    components (e.g. hollow interior of a case body once the lid is on, screw threads
+    inside a tapped hole, PCB-mounting standoffs covered by the PCB).
+
+Default to "visible" when unsure. The dispatcher uses this to skip VLM verification
+for occluded items (visual evaluation cannot see hidden features) and rely on
+code-eval instead.
 `.trim();
 
 // ── Parser ─────────────────────────────────────────────────────────────
@@ -101,7 +112,7 @@ Rules:
 ${DECOMPOSE_CHECKLIST_ADDENDUM}
 
 Respond with raw JSON only. No markdown, no code fences, no explanation:
-{"components":[{"name":"component_name","description":"Brief description with dimensions","componentChecklist":[{"item":"verification item","visibility":"visual"}]}],"assemblyNotes":"Brief positioning instructions"}`;
+{"components":[{"name":"component_name","description":"Brief description with dimensions","componentChecklist":[{"item":"verification item","visibility":"visual","assemblyVisibility":"visible"}]}],"assemblyNotes":"Brief positioning instructions"}`;
 
   // Prefer constructionSpec for decomposition — it contains precise geometric
   // operations which map better to component boundaries than semantic descriptions
