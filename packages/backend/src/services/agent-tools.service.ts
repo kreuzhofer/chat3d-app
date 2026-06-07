@@ -762,6 +762,11 @@ Always view a file before editing it to see the current line numbers and content
       // @ts-expect-error AI SDK 6 + Zod input inference exceeds depth limit; tools schema is validated at runtime
       inputSchema: zodSchema(z.object({})),
       execute: async () => {
+        const isSubAgentRender = deps.componentName !== undefined && deps.componentName !== "assembler";
+        if (isSubAgentRender) {
+          return "ERROR: Use validate_and_render instead of render_project for component code. " +
+                 "Sub-agents must validate and render their component in one step.";
+        }
         const files = fs.getFiles();
         if (files.length === 0) {
           return "ERROR: No files in the project. Create main.py first.";
