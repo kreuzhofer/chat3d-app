@@ -824,14 +824,17 @@ Always view a file before editing it to see the current line numbers and content
           return `Validation service unavailable: ${err instanceof Error ? err.message : String(err)}`;
         }
 
-        // Step 2: Sub-agent path — wrap the main code with __main__ block for standalone rendering.
+        // Step 2: Sub-agent path — build render files from raw FS content and wrap
+        // main.py with __main__ block for standalone rendering.
+        // wrapProjectFiles() applies wrapInTemplate (assembly-oriented) which is wrong for
+        // sub-agents — sub-agents write functions, not root_part. Build from raw instead.
         // The on-disk source file (stored at component prefix) stays UNWRAPPED for assembler import.
         const isSubAgentRender = deps.componentName !== undefined && deps.componentName !== "assembler";
         if (isSubAgentRender && deps.componentName) {
           const { wrapSubAgentCode, logWrap } = await import("./component-render.service.js");
-          const mainFileName = "main.py";
-          projectFiles = projectFiles.map(f => {
-            if (f.path === mainFileName) {
+          const rawFiles = fs.getFiles();
+          projectFiles = rawFiles.map(f => {
+            if (f.path === "main.py") {
               try {
                 const wrapped = wrapSubAgentCode({
                   code: f.content,
@@ -840,15 +843,17 @@ Always view a file before editing it to see the current line numbers and content
                   output3mfPath: "/tmp/component.3mf",
                 });
                 logWrap(deps.componentName!, f.content.length, wrapped.length);
-                return { ...f, content: wrapped };
+                return { path: f.path, content: wrapped };
               } catch (wrapErr) {
                 logger.warn(
                   { err: wrapErr instanceof Error ? wrapErr.message : String(wrapErr), componentName: deps.componentName },
                   "validate_and_render: wrap failed — proceeding with unwrapped code",
                 );
+                return { path: f.path, content: `from build123d import *\nimport math\n${f.content}` };
               }
             }
-            return f;
+            // Non-main files: add standard imports (same as wrapProjectFiles for non-main)
+            return { path: f.path, content: `from build123d import *\nimport math\n${f.content}` };
           });
         }
 
