@@ -274,8 +274,10 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
         lastRenderedFiles = files;
         renderSuccess = true;
       },
+      onScreenshotsReady: (screenshots) => { lastScreenshots = screenshots; },
       onSubmit: () => { submitted = true; },
       getLastRenderedFiles: () => lastRenderedFiles,
+      getLastScreenshots: () => lastScreenshots,
       userPrompt: promptText,
       evalThreshold,
       onEvalComplete: (result) => { evalResult = result; lastScreenshots = result.screenshots; },

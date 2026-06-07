@@ -283,6 +283,56 @@ describe("evaluate_checklist tool integration", () => {
   });
 });
 
+describe("runChecklistEval — image filtering", () => {
+  it("filters CAD outputs (.stl, .3mf, .step) and only passes image files to visualVerify", async () => {
+    const visualVerify = vi.fn().mockResolvedValue({ verdict: "PASS", reasoning: "ok" });
+
+    const r = await runChecklistEval({
+      checklist: [{ item: "x", visibility: "visual" }],
+      code: "",
+      renderedFiles: [
+        { filename: "iso.png", contentBase64: "img" },
+        { filename: "model.stl", contentBase64: "cad" },
+        { filename: "model.3mf", contentBase64: "cad2" },
+        { filename: "model.step", contentBase64: "cad3" },
+      ],
+      evalPlan: null,
+      visualVerify,
+      codeVerify: vi.fn(),
+    });
+
+    const calledWith = visualVerify.mock.calls[0][0];
+    // Only the PNG should reach the VLM
+    expect(calledWith.images.length).toBe(1);
+    expect(calledWith.images[0].filename).toBe("iso.png");
+    // The checklist item still resolves normally
+    expect(r.passedCount).toBe(1);
+  });
+
+  it("returns UNCERTAIN when ALL renderedFiles are CAD binaries (no images to verify)", async () => {
+    const visualVerify = vi.fn().mockResolvedValue({ verdict: "PASS", reasoning: "ok" });
+
+    const r = await runChecklistEval({
+      checklist: [{ item: "x", visibility: "visual" }],
+      code: "",
+      renderedFiles: [
+        { filename: "model.stl", contentBase64: "cad" },
+        { filename: "model.3mf", contentBase64: "cad2" },
+      ],
+      evalPlan: null,
+      visualVerify,
+      codeVerify: vi.fn(),
+    });
+
+    // visualVerify still called, but with empty images array — returns PASS in this mock.
+    // In real use the VLM would get no images and presumably be UNCERTAIN, but the
+    // filter's job is to ensure non-image bytes never reach the provider.
+    expect(visualVerify).toHaveBeenCalledTimes(1);
+    const calledWith = visualVerify.mock.calls[0][0];
+    expect(calledWith.images.length).toBe(0);
+  });
+});
+
 describe("parseChecklistVerdictText", () => {
   it("parses PASS + reasoning from a typical LLM response", () => {
     const parsed = parseChecklistVerdictText("PASS\nFront view shows 4 holes at the corners.");

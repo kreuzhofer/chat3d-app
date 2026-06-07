@@ -73,6 +73,44 @@ export { doValidate, doRender } from "./agent-render-helpers.service.js";
 
 import { truncateCode } from "../utils/code-truncate.js";
 
+/** Convert screenshot results to the RenderedFile shape expected by checklist-eval. */
+function screenshotsToRenderedFiles(
+  screenshots: import("./stl-rendering-client.service.js").RenderedScreenshot[],
+): RenderedFile[] {
+  return screenshots.map(s => ({
+    filename: `${s.angle}.png`,
+    contentBase64: s.base64,
+  }));
+}
+
+/**
+ * After a successful render, take screenshots and store them via deps.onScreenshotsReady.
+ * Called from both render_project and validate_and_render on success.
+ * Errors are swallowed with a warning — screenshots are best-effort at render time;
+ * submit_result re-takes them (and enforces non-empty) before the full eval.
+ */
+async function takeRenderScreenshots(
+  renderedFiles: RenderedFile[],
+  deps: AgentToolDeps,
+): Promise<void> {
+  if (!deps.onScreenshotsReady) return;
+  const stlFile = renderedFiles.find(f => f.filename.toLowerCase().endsWith(".stl"));
+  const threemfFile = renderedFiles.find(f => f.filename.toLowerCase().endsWith(".3mf"));
+  const source = stlFile ?? threemfFile;
+  if (!source) return;
+  try {
+    const ssResult = await renderModelScreenshots({
+      modelData: source.contentBase64,
+      format: stlFile ? "stl" : "3mf",
+    });
+    if (ssResult.images.length > 0) {
+      deps.onScreenshotsReady(ssResult.images);
+    }
+  } catch (err) {
+    logger.warn({ err: err instanceof Error ? err.message : String(err) }, "takeRenderScreenshots: screenshot failed (non-fatal)");
+  }
+}
+
 const MAX_EXAMPLE_LINES = 20;
 const MAX_KNOWLEDGE_CODE_LINES = 30;
 
@@ -86,6 +124,10 @@ export interface AgentToolDeps {
   onSubmit: () => void;
   /** Getter for the most recently rendered files (for evaluate_model / submit_result) */
   getLastRenderedFiles: () => RenderedFile[];
+  /** Callback when render-time screenshots are ready (stored alongside CAD files) */
+  onScreenshotsReady?: (screenshots: import("./stl-rendering-client.service.js").RenderedScreenshot[]) => void;
+  /** Getter for the most recently taken screenshots (PNG only — for visual checklist eval) */
+  getLastScreenshots?: () => import("./stl-rendering-client.service.js").RenderedScreenshot[];
   /** The user's prompt text (for VLM evaluation context) */
   userPrompt: string;
   /** Minimum VLM score to accept submission (from chat.auto_approve_threshold) */
@@ -364,11 +406,19 @@ export function buildAgentTools(
         // UNCERTAIN does NOT block; only FAIL blocks submission.
         if (deps.componentChecklist && deps.componentChecklist.length > 0) {
           try {
+            // Use screenshots (PNG files) for the visual gate. Falls back to CAD renderedFiles
+            // only when no screenshots are available (defensive: the filter in runChecklistEval
+            // will drop the CAD binaries so visual items will be UNCERTAIN, not erroring).
+            const lastScreenshots = deps.getLastScreenshots?.() ?? [];
+            const checklistFiles = lastScreenshots.length > 0
+              ? screenshotsToRenderedFiles(lastScreenshots)
+              : renderedFiles;
+
             const verification = await runChecklistEval({
               checklist: deps.componentChecklist,
               originalIndices: deps.componentChecklist.map((_, i) => i),
               code: deps.fs.getMainCode(),
-              renderedFiles,
+              renderedFiles: checklistFiles,
               evalPlan: deps.evalPlan ?? null,
               visualVerify: verifyChecklistItemVisual,
               codeVerify: verifyChecklistItemCode,
@@ -552,10 +602,16 @@ export function buildAgentTools(
         if (checklist.length === 0) {
           return "No verification checklist is configured for this agent. Use evaluate_model for whole-model eval.";
         }
-        const renderedFiles = deps.getLastRenderedFiles();
-        if (!renderedFiles || renderedFiles.length === 0) {
+        const cadFiles = deps.getLastRenderedFiles();
+        if (!cadFiles || cadFiles.length === 0) {
           return "No rendered files available. Call validate_and_render first.";
         }
+        // Use screenshots (PNG files) for visual checks — CAD binaries will be filtered out by
+        // runChecklistEval's IMAGE_EXT guard. Prefer cached screenshots from render time.
+        const lastScreenshots = deps.getLastScreenshots?.() ?? [];
+        const renderedFiles = lastScreenshots.length > 0
+          ? screenshotsToRenderedFiles(lastScreenshots)
+          : cadFiles;
 
         // Explicit empty-array guard (distinct from "omit to evaluate all")
         if (itemIndices !== undefined && itemIndices.length === 0) {
@@ -778,6 +834,7 @@ Always view a file before editing it to see the current line numbers and content
         const result = await doRender(wrapProjectFiles(), baseFileName, signal);
         if (result.success) {
           onRenderSuccess(result.files);
+          await takeRenderScreenshots(result.files, deps);
         }
         return result.success
           ? `${result.text}\n\nYou can now call submit_result if you're satisfied, or make further edits.`
@@ -844,8 +901,8 @@ Always view a file before editing it to see the current line numbers and content
                 const wrapped = wrapSubAgentCode({
                   code: f.content,
                   componentName: deps.componentName!,
-                  outputStlPath: "/tmp/component.stl",
-                  output3mfPath: "/tmp/component.3mf",
+                  outputStlPath: `${baseFileName}.stl`,
+                  output3mfPath: `${baseFileName}.3mf`,
                 });
                 logWrap(deps.componentName!, f.content.length, wrapped.length);
                 return { path: f.path, content: wrapped };
@@ -867,6 +924,7 @@ Always view a file before editing it to see the current line numbers and content
         const renderResult = await doRender(projectFiles, baseFileName, signal);
         if (renderResult.success) {
           onRenderSuccess(renderResult.files);
+          await takeRenderScreenshots(renderResult.files, deps);
           return `Validation PASSED.\n${renderResult.text}\n\nYou can now call submit_result if you're satisfied, or make further edits.`;
         }
         return `Validation PASSED but ${renderResult.text}`;

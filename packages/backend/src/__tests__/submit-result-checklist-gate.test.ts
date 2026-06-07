@@ -37,6 +37,7 @@ const mkDeps = (overrides: any = {}) => ({
   onRenderSuccess: () => {},
   onSubmit: vi.fn(),
   getLastRenderedFiles: () => [{ filename: "model.stl", contentBase64: "f" }],
+  getLastScreenshots: () => [{ angle: "front", base64: "imgdata" }],
   userPrompt: "p",
   evalThreshold: 5,
   componentChecklist: [

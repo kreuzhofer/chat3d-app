@@ -82,6 +82,10 @@ function combine(
   return { verdict, reasoning: parts.join(" | ") };
 }
 
+/** Only files with image extensions are safe to send to a VLM. CAD blobs (.stl, .3mf, .step)
+ * will cause provider errors (e.g. Bedrock rejects "image/*" mime type). */
+const IMAGE_EXT = /\.(png|jpe?g|webp|gif)$/i;
+
 export async function runChecklistEval(
   input: RunChecklistEvalInput,
 ): Promise<ComponentVerificationResult> {
@@ -90,7 +94,17 @@ export async function runChecklistEval(
     return { results: [], passedCount: 0, failedCount: 0, uncertainCount: 0 };
   }
 
-  const visualImages = filterImagesByPlan(renderedFiles, evalPlan);
+  // Defensive: strip any CAD binaries that leaked through — the caller should be passing
+  // screenshots, but guard here so VLM providers never receive non-image content.
+  const imageFiles = renderedFiles.filter(f => IMAGE_EXT.test(f.filename));
+  if (imageFiles.length < renderedFiles.length) {
+    logger.warn(
+      { total: renderedFiles.length, images: imageFiles.length, dropped: renderedFiles.filter(f => !IMAGE_EXT.test(f.filename)).map(f => f.filename) },
+      "runChecklistEval: non-image files filtered out — caller should pass screenshots, not CAD outputs",
+    );
+  }
+
+  const visualImages = filterImagesByPlan(imageFiles, evalPlan);
 
   const results: ChecklistItemResult[] = await Promise.all(
     checklist.map(async (entry, i): Promise<ChecklistItemResult> => {
@@ -184,13 +198,23 @@ export async function verifyChecklistItemVisual(
   // Cap at 3 images defensively (dispatcher already slices, but be explicit)
   const images = args.images.slice(0, 3);
 
-  type ContentPart = { type: "text"; text: string } | { type: "image"; image: string };
+  type ContentPart =
+    | { type: "text"; text: string }
+    | { type: "image"; image: string; mediaType: "image/png" | "image/jpeg" | "image/webp" | "image/gif" };
   const userContent: ContentPart[] = [
     { type: "text", text: "Verify this feature from the views below." },
-    ...images.map((img) => ({
-      type: "image" as const,
-      image: img.contentBase64,
-    })),
+    ...images.map((img) => {
+      const mediaType: "image/png" | "image/jpeg" | "image/webp" | "image/gif" =
+        /\.jpe?g$/i.test(img.filename) ? "image/jpeg"
+        : /\.webp$/i.test(img.filename) ? "image/webp"
+        : /\.gif$/i.test(img.filename) ? "image/gif"
+        : "image/png"; // default: png (also catches explicit .png)
+      return {
+        type: "image" as const,
+        image: img.contentBase64,
+        mediaType,
+      };
+    }),
   ];
 
   const semaphore = getLlmSemaphore(vlmConfig.provider, vlmConfig.maxConcurrent);
