@@ -149,8 +149,10 @@ export function buildAgentTools(
         onProgress?.("validating", "Validating code...");
         try {
           const result = await doValidate(wrapProjectFiles());
-          // Sub-agents write functions (no root_part) — filter that specific error
-          if (options.disableRender && !result.valid && result.text.includes("root_part")) {
+          // Sub-agents write functions (no root_part) — filter that specific error.
+          // Detect sub-agent by componentName presence (disableRender is now false for sub-agents).
+          const isSubAgent = deps.componentName !== undefined && deps.componentName !== "assembler";
+          if (isSubAgent && !result.valid && result.text.includes("root_part")) {
             const filtered = result.text
               .split("\n")
               .filter(line => !line.includes("root_part"))
@@ -792,21 +794,65 @@ Always view a file before editing it to see the current line numbers and content
           return "ERROR: No main.py found. The project must have a main.py as the entry point.";
         }
 
-        const projectFiles = wrapProjectFiles();
+        let projectFiles = wrapProjectFiles();
 
         // Step 1: Validate
         onProgress?.("validating", "Validating code...");
         try {
           const valResult = await doValidate(projectFiles);
           if (!valResult.valid) {
-            return valResult.text;
+            // Sub-agents write functions (no root_part) — filter that specific error
+            const isSubAgentVal = deps.componentName !== undefined && deps.componentName !== "assembler";
+            if (isSubAgentVal && valResult.text.includes("root_part")) {
+              const filtered = valResult.text
+                .split("\n")
+                .filter(line => !line.includes("root_part"))
+                .join("\n")
+                .replace(/Errors:\s*\n\s*\n/, "");
+              const hasOtherErrors = filtered.includes("Syntax error") || filtered.includes("severity");
+              if (!hasOtherErrors) {
+                // Only root_part error — treat as valid, proceed to render
+              } else {
+                return filtered;
+              }
+            } else {
+              return valResult.text;
+            }
           }
         } catch (err) {
           logger.warn({ err: err instanceof Error ? err.message : String(err) }, "validate_and_render: validation error");
           return `Validation service unavailable: ${err instanceof Error ? err.message : String(err)}`;
         }
 
-        // Step 2: Render (validation passed)
+        // Step 2: Sub-agent path — wrap the main code with __main__ block for standalone rendering.
+        // The on-disk source file (stored at component prefix) stays UNWRAPPED for assembler import.
+        const isSubAgentRender = deps.componentName !== undefined && deps.componentName !== "assembler";
+        if (isSubAgentRender && deps.componentName) {
+          const { wrapSubAgentCode, logWrap } = await import("./component-render.service.js");
+          const mainFileName = "main.py";
+          projectFiles = projectFiles.map(f => {
+            if (f.path === mainFileName) {
+              try {
+                const wrapped = wrapSubAgentCode({
+                  code: f.content,
+                  componentName: deps.componentName!,
+                  outputStlPath: "/tmp/component.stl",
+                  output3mfPath: "/tmp/component.3mf",
+                });
+                logWrap(deps.componentName!, f.content.length, wrapped.length);
+                return { ...f, content: wrapped };
+              } catch (wrapErr) {
+                logger.warn(
+                  { err: wrapErr instanceof Error ? wrapErr.message : String(wrapErr), componentName: deps.componentName },
+                  "validate_and_render: wrap failed — proceeding with unwrapped code",
+                );
+              }
+            }
+            return f;
+          });
+        }
+
+        // Step 3: Render (validation passed)
         onProgress?.("rendering", "Validation passed. Rendering 3D model...");
         const renderResult = await doRender(projectFiles, baseFileName, signal);
         if (renderResult.success) {

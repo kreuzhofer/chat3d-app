@@ -205,11 +205,11 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     return await runAgentCodegen({
         promptText: component.description,
         isModification: false,
-        baseFileName,
+        baseFileName: `${baseFileName}/components/${component.name}`,
         maxSteps: subAgentMaxSteps,
         modelConfig,
         signal,
-        disableRender: true,
+        disableRender: false,
         enableSearch: false,
         systemPromptOverride: buildSubAgentSystemPrompt({
           componentName: component.name,
@@ -227,6 +227,18 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
         traceSkipAutoEdge: true,
         traceId: input.traceId,
         retrievalCollector: input.retrievalCollector,
+        componentChecklist: component.componentChecklist ?? [],
+        componentName: component.name,
+        onChecklistEvaluated: (verification) => {
+          subAgentVerifications[component.name] = {
+            passedCount: verification.passedCount,
+            failedCount: verification.failedCount,
+            uncertainCount: verification.uncertainCount,
+            failedItems: verification.results
+              .filter((r) => r.verdict === "FAIL")
+              .map((r) => ({ item: r.item, reasoning: r.reasoning })),
+          };
+        },
         onProgress: (state, detail) => {
           onProgress?.(state, `[${component.name}] ${detail}`);
         },
@@ -235,7 +247,7 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
 
   // Build sub-agent tasks as functions (not promises) so they don't start until called
   const subAgentTasks = decomposition.components.map((component) => async () => {
-    const userMessage = `Create the "${component.name}" component.\n\n${component.description}\n\nWrite a function called \`${component.name}\` in main.py that returns the Part. Validate your code, then submit when validation passes. Do NOT render.`;
+    const userMessage = `Create the "${component.name}" component.\n\n${component.description}\n\nWrite a function called \`${component.name}\` in main.py that returns the Part. Validate your code with validate_and_render, then submit when render succeeds.`;
 
     logger.info({ component: component.name, maxSteps: subAgentMaxSteps }, "starting sub-agent");
 
