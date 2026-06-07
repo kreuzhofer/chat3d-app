@@ -27,6 +27,7 @@ export interface DecomposedComponent {
 
 export interface DecompositionResult {
   components: DecomposedComponent[];
+  assemblyChecklist?: ComponentChecklistItem[];
   assemblyNotes: string;
   promptTokens?: number;
   completionTokens?: number;
@@ -110,8 +111,11 @@ export function parseDecompositionResponse(rawText: string): DecompositionResult
     "parsed decomposition checklists",
   );
 
+  const assemblyChecklistRaw = parseComponentChecklist((parsed as any).assemblyChecklist);
+
   return {
     components,
+    ...(assemblyChecklistRaw !== null ? { assemblyChecklist: assemblyChecklistRaw } : {}),
     assemblyNotes: String(parsed.assemblyNotes ?? ""),
   };
 }

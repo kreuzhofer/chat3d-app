@@ -65,6 +65,42 @@ describe("decomposePrompt response parsing with componentChecklist", () => {
   });
 });
 
+describe("parseDecompositionResponse — assemblyChecklist (Phase 2)", () => {
+  it("parses assemblyChecklist when present", () => {
+    const json = JSON.stringify({
+      components: [{ name: "body", description: "x" }],
+      assemblyChecklist: [
+        { item: "Lid sits 0.5mm above body edge", visibility: "visual", assemblyVisibility: "visible" },
+        { item: "PCB seats flush against standoffs", visibility: "both", assemblyVisibility: "occluded" },
+      ],
+      assemblyNotes: "n/a",
+    });
+    const r = parseDecompositionResponse(json);
+    expect(r.assemblyChecklist).toHaveLength(2);
+    expect(r.assemblyChecklist?.[0].item).toBe("Lid sits 0.5mm above body edge");
+    expect(r.assemblyChecklist?.[1].assemblyVisibility).toBe("occluded");
+  });
+
+  it("returns undefined assemblyChecklist when absent (backwards compat)", () => {
+    const json = JSON.stringify({
+      components: [{ name: "body", description: "x" }],
+      assemblyNotes: "n/a",
+    });
+    const r = parseDecompositionResponse(json);
+    expect(r.assemblyChecklist).toBeUndefined();
+  });
+
+  it("drops invalid assemblyChecklist instead of throwing", () => {
+    const json = JSON.stringify({
+      components: [{ name: "body", description: "x" }],
+      assemblyChecklist: [{ item: "x", visibility: "smell" }],
+      assemblyNotes: "n/a",
+    });
+    const r = parseDecompositionResponse(json);
+    expect(r.assemblyChecklist).toBeUndefined();
+  });
+});
+
 describe("DECOMPOSE_CHECKLIST_ADDENDUM — Phase 1 occlusion guidance", () => {
   it("instructs the LLM to emit assemblyVisibility", () => {
     expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/assemblyVisibility/);
