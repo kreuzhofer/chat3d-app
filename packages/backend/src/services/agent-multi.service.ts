@@ -428,7 +428,11 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     }
   }
 
-  const assemblyMaxSteps = maxSteps;
+  // Phase 2: assembler gets a separate (larger) step budget because sub-agents
+  // now iterate independently. The assembler still needs headroom for cross-component
+  // fixes after sub-agents have spent their own budget.
+  const ASSEMBLY_STEP_MULTIPLIER = 1.5;
+  const assemblyMaxSteps = Math.ceil(maxSteps * ASSEMBLY_STEP_MULTIPLIER);
   const componentFileList = Array.from(componentFiles.keys()).map(p => `- ${p}`).join("\n");
   const assemblyUserMessage = `Create the final model matching this user request:\n\n"${promptText}"\n\nAvailable component files:\n${componentFileList}\n\nAssembly notes: ${decomposition.assemblyNotes}\n\nView each component file to understand its function signature and dimensions, then write main.py that imports and positions them EXACTLY as the user prompt describes. Validate, render, and submit when the render succeeds.`;
 
