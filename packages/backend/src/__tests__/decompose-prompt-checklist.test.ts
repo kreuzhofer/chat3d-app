@@ -79,4 +79,20 @@ describe("DECOMPOSE_CHECKLIST_ADDENDUM — Phase 1 occlusion guidance", () => {
   it("explains the dispatcher routing consequence", () => {
     expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/skip VLM verification|code-eval/);
   });
+
+  it("uses required language: MUST and EVERY", () => {
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/\bMUST\b/);
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/\bEVERY\b/);
+  });
+
+  it("contains concrete occluded examples with both item and assemblyVisibility", () => {
+    // Addendum must include at least one "occluded" example showing the JSON shape
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/"assemblyVisibility":\s*"occluded"/);
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/"assemblyVisibility":\s*"visible"/);
+  });
+
+  it("instructs to default to visible when unsure and never omit", () => {
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/don't know.*choose.*visible|choose.*visible.*don't know/i);
+    expect(DECOMPOSE_CHECKLIST_ADDENDUM).toMatch(/NEVER omit/);
+  });
 });
