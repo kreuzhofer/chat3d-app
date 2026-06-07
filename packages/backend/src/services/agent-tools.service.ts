@@ -549,16 +549,19 @@ export function buildAgentTools(
             return `SUBMISSION REJECTED — assertion failures detected (score: ${compositeScore}/10).\n\nIssues:\n${failText}\n\nFix the parameter errors and try again.`;
           }
 
+          // ADVISORY: composite threshold is no longer a hard gate — accept the submission and
+          // surface quality issues so the agent can decide whether to revise with remaining steps.
+          let advisoryText = "";
           if (compositeScore < deps.evalThreshold) {
-            logger.info({ compositeScore, threshold: deps.evalThreshold, codeScore: fullEval.codeScore, visualScore: fullEval.visualScore, summary }, "submission rejected — composite score below threshold");
+            logger.info({ compositeScore, threshold: deps.evalThreshold, codeScore: fullEval.codeScore, visualScore: fullEval.visualScore, summary }, "submission accepted with advisory — composite score below threshold");
             const issueText = allIssues.length > 0 ? `\n\nIssues:\n${allIssues.map(i => `- ${i}`).join("\n")}` : "";
             const suggText = fullEval.vlmSuggestions.length > 0 ? `\n\nSuggestions:\n${fullEval.vlmSuggestions.map(s => `- ${s}`).join("\n")}` : "";
-            return `SUBMISSION REJECTED — composite score ${compositeScore}/10 (code: ${fullEval.codeScore ?? "?"}, visual: ${fullEval.visualScore ?? "?"}) is below the acceptance threshold of ${deps.evalThreshold}/10.${issueText}${suggText}\n\nAddress the issues above, then validate, render, and submit again.`;
+            advisoryText = `\n\nADVISORY: composite score ${compositeScore.toFixed(1)}/10 (code: ${fullEval.codeScore ?? "?"}, visual: ${fullEval.visualScore ?? "?"}) is below quality threshold ${deps.evalThreshold}/10.${issueText}${suggText}\n\nYour submission has been accepted. If you have remaining steps and want to revise, you can call submit_result again. Otherwise the current result stands.`;
           }
 
           onSubmit();
           logger.info({ summary, compositeScore, codeScore: fullEval.codeScore, visualScore: fullEval.visualScore }, "agent submitted result (full eval)");
-          return `Result submitted (composite: ${compositeScore}/10, code: ${fullEval.codeScore ?? "?"}, visual: ${fullEval.visualScore ?? "?"}): ${summary}`;
+          return `Result submitted (composite: ${compositeScore}/10, code: ${fullEval.codeScore ?? "?"}, visual: ${fullEval.visualScore ?? "?"}): ${summary}${advisoryText}`;
         } catch (err) {
           // Full eval failed — reject so agent can retry
           const errMsg = err instanceof Error ? err.message : String(err);
