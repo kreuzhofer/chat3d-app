@@ -565,6 +565,9 @@ async function _runPipeline(
     promptComplexity: ctx.complexity,
     codeEvalWeight: agCodeEvalWeight,
     retrievalCollector,
+    // Passed so multi-agent orchestration can persist per-component renders to disk.
+    workbenchCategoryId: ctx.categoryId,
+    workbenchExampleId: earlyExampleId,
     // Single-agent: accumulate evaluate_checklist tool calls for preSubmitVerification.
     // Multi-agent ignores this callback — sub-agents write to subAgentVerifications instead.
     onChecklistEvaluated: wbUseMultiAgent ? undefined : (verification: import("../utils/component-checklist.js").ComponentVerificationResult) => {

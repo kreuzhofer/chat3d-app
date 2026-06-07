@@ -105,6 +105,14 @@ export interface AgentCodegenInput {
   componentName?: string;
   /** Callback when the sub-agent's checklist evaluation completes. */
   onChecklistEvaluated?: (result: import("../utils/component-checklist.js").ComponentVerificationResult) => void;
+  /**
+   * Workbench category ID — when set alongside workbenchExampleId, multi-agent
+   * orchestration persists per-component renders to
+   * `workbench/{categoryId}/{exampleId}/components/{componentName}.{ext}`.
+   */
+  workbenchCategoryId?: string;
+  /** Workbench example ID — see workbenchCategoryId. */
+  workbenchExampleId?: string;
 }
 
 export interface AgentCodegenResult {

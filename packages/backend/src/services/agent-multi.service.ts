@@ -38,7 +38,9 @@ import {
   type DecomposedComponent,
   type DecompositionResult,
 } from "./agent-multi-parser.js";
-import { mergeAssemblyChecklist } from "../utils/checklist-merge.js";
+import { mergeAssemblyChecklist, componentStoragePrefix } from "../utils/checklist-merge.js";
+import { writeStorageFile } from "./file-storage.service.js";
+import path from "path";
 
 export type { DecomposedComponent, DecompositionResult } from "./agent-multi-parser.js";
 
@@ -66,6 +68,35 @@ export function aggregateChecklistForAssembler(
 const COMPONENT_EVAL_THRESHOLD = 5;
 
 // RAG thresholds loaded from global settings at runtime
+
+/**
+ * Persist per-component rendered files to
+ * `workbench/{categoryId}/{exampleId}/components/{componentName}.{ext}`.
+ * Non-fatal: failures are logged as warnings only.
+ */
+async function persistComponentRenders(
+  categoryId: string,
+  exampleId: string,
+  componentRenderedFiles: Map<string, import("./rendering.service.js").RenderedFile[]>,
+): Promise<void> {
+  for (const [componentName, files] of componentRenderedFiles) {
+    const prefix = componentStoragePrefix(categoryId, exampleId, componentName);
+    for (const file of files) {
+      const ext = path.extname(file.filename).toLowerCase();
+      const baseName = path.basename(file.filename, ext);
+      const relativePath = (ext === ".stl" || ext === ".3mf")
+        ? `${prefix}${ext}`
+        : `${prefix}.${baseName}${ext}`;
+      try {
+        await writeStorageFile({ relativePath, contentBase64: file.contentBase64 });
+        logger.debug({ componentName, relativePath }, "persisted per-component render file");
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err), componentName, relativePath }, "per-component render persist failed (non-fatal)");
+      }
+    }
+    logger.info({ componentName, fileCount: files.length }, "persisted per-component renders");
+  }
+}
 
 // ── Multi-agent orchestration ──────────────────────────────────────────
 
@@ -172,6 +203,8 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
 
   // Step 3: Run sub-agents for each component (in parallel)
   const componentFiles = new Map<string, string>();
+  // Rendered files per component name — persisted to disk after all sub-agents complete.
+  const componentRenderedFiles = new Map<string, import("./rendering.service.js").RenderedFile[]>();
   const subAgentMaxSteps = await getSubAgentMaxSteps("workbench");
 
   // Per-component verification snapshots captured via the ASSEMBLER's onChecklistEvaluated.
@@ -208,7 +241,9 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     return await runAgentCodegen({
         promptText: component.description,
         isModification: false,
-        baseFileName: `${baseFileName}/components/${component.name}`,
+        // Use flat name (no path separators) so Build123d can create output files.
+        // The actual component storage prefix uses componentStoragePrefix() separately.
+        baseFileName: `${baseFileName}__${component.name}`,
         maxSteps: subAgentMaxSteps,
         modelConfig,
         signal,
@@ -314,11 +349,20 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     }
 
     componentFiles.set(`components/${component.name}.py`, componentCode);
-    logger.info({ component: component.name, codeLength: componentCode.length, steps: subResult.stepCount }, "component accepted");
+    if (subResult.renderedFiles.length > 0) {
+      componentRenderedFiles.set(component.name, subResult.renderedFiles);
+    }
+    logger.info({ component: component.name, codeLength: componentCode.length, steps: subResult.stepCount, renderedFileCount: subResult.renderedFiles.length }, "component accepted");
   });
 
   // Run sub-agents in parallel
   await Promise.all(subAgentTasks.map(task => task()));
+
+  // Persist per-component renders to workbench/{categoryId}/{exampleId}/components/{name}.{ext}
+  // Only runs in workbench pipeline context where both IDs are provided.
+  if (input.workbenchCategoryId && input.workbenchExampleId && componentRenderedFiles.size > 0) {
+    await persistComponentRenders(input.workbenchCategoryId, input.workbenchExampleId, componentRenderedFiles);
+  }
 
   // Check abort after parallel sub-agents complete. Don't fall through to the
   // single-agent fallback — the same aborted signal would just kill it
@@ -391,10 +435,16 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   // Phase 2: assembler verifies the parent prompt's top-level checklist merged
   // with the decomposition's assemblyChecklist. Component-local items were
   // already verified at each sub-agent's submit_result.
-  const topLevelChecklist: ComponentChecklistItem[] = (input.annotatedCriteria ?? []).map(c => ({
-    item: c.text,
-    visibility: c.visibility,
-  }));
+  // annotatedCriteria may be stored as plain strings (legacy) or AnnotatedCriterion objects.
+  // Handle both: if the item is a string, use it directly; otherwise read .text/.visibility.
+  const topLevelChecklist: ComponentChecklistItem[] = (input.annotatedCriteria ?? []).flatMap(c => {
+    if (typeof (c as unknown) === "string") {
+      const text = (c as unknown as string).trim();
+      return text ? [{ item: text, visibility: "both" as const }] : [];
+    }
+    const text = c.text?.trim() ?? "";
+    return text ? [{ item: text, visibility: c.visibility ?? "both" }] : [];
+  });
   const assemblerChecklist = mergeAssemblyChecklist(
     topLevelChecklist,
     decomposition.assemblyChecklist,
