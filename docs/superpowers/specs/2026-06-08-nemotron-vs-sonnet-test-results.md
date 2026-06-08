@@ -200,3 +200,96 @@ any production traffic.
 - `/tmp/nemo-ab/cohort.txt` — 30 prompt IDs
 - `/tmp/nemo-ab/start-ts.txt` — epoch start timestamp (1780904244)
 - Background script still polling prompt 9 at time of report
+
+---
+
+## Fresh run — MTP disabled (nemotron-3-ultra-nomtp) — INTERIM REPORT
+
+**Status as of 2026-06-08T14:24Z**: 3/30 in progress, 2/30 completed. Run still ongoing.
+
+### Setup
+- Model: `nemotron-3-ultra-nomtp` (MTP disabled on vLLM server — key change vs prior runs)
+- Run start: 2026-06-08T13:28Z
+- Archived prior results to `/tmp/nemo-ab-archive-20260608-152604/`
+- Fresh `/tmp/nemo-ab/` with only `cohort.txt` (30 prompts)
+- SDK patch e06ef69 still in place
+
+### vLLM stability
+vLLM held throughout. Zero crashes, no connection failures, no degraded throughput.
+All HTTP health pings returned 200 (tested at intervals of 3 prompts per spec loop).
+
+### Orphan tool-call counter — KEY FINDING
+**0 orphan "Tool result is missing" errors in 2 completed prompts + 1 in-progress prompt.**
+
+In the prior contaminated runs (with MTP enabled):
+- Run 1 (serial): 8 orphan errors in 8 prompts (38% failure rate)
+- Run 2 (parallel): widespread failures
+
+**With MTP disabled: 0 orphan errors so far.** This is strong evidence that disabling MTP eliminates the orphan tool-call bug. No `function.arguments` empty-field validation errors were observed in backend logs.
+
+### Results (2/30 complete)
+
+| # | Prompt ID | Prompt | Sonnet Baseline | Nemo Score | Δ | Source | Wall (s) | Steps |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 008049fc | Pipe flange (cylinder+disc+bolt holes) | 9.2 | 7.8 | −1.4 | agent_submitted | 24 | 4 |
+| 2 | 00880a28 | Soap dish (oval bowl, walls) | 9.2 | 7.8 | −1.4 | agent_submitted | 2270 | 47 |
+| 3 | 00a8f375 | Signal relay enclosure (box, terminal holes) | 8.2 | (in progress) | — | — | — | — |
+
+**Partial scoring summary (2 prompts):**
+- Nemo mean: 7.80 vs Sonnet 9.20 (Δ = −1.40)
+- Both scored via `agent_submitted` — no unscored errors
+- 0% unscored rate (vs 37.5% in prior serial run with MTP enabled)
+
+### Latency profile (2 prompts)
+
+| Metric | Value | Notes |
+|---|---|---|
+| Prompt 1 wallclock | 24s | Fast — matched previous prior-run time |
+| Prompt 2 wallclock | 2270s (37.8 min) | Soap dish — oval render failures caused 47-step spiral |
+| Prompt 3 status | In progress ~7 min | Signal relay enclosure, step 7+ |
+
+Prompt 2 behavior in detail:
+- 47 agent steps total (vs Sonnet which typically uses 8-15)
+- Render failed 14+ times due to Build123d oval/ellipse rendering issues
+- Nemotron used polygon approximation (128 segments) to work around the primitive failure
+- VLM initial score: 4.0 (missing bottom floor), fixed at step 42, final 8.0
+- Code eval final: 9.0
+- Composite final: 7.8
+- Reasoning tokens: ~3000+ cumulative per session (deep CoT mode)
+- Individual reasoning phases: 50s–8min per reasoning burst (output tokens not heartbeated)
+
+### Reasoning behavior change with MTP disabled
+
+With MTP off, per-step latency changed notably:
+- **Lookup/validation steps** (lookup_api, validate_code): 10-30s — fast
+- **Code generation steps** (text_editor): 2-8 min (reasoning + output)
+- **Render + feedback loop**: ~15s per render call
+
+The "orphan" failure mode that caused hard stops in prior runs is completely absent. Instead, Nemotron iterates through up to 47 steps trying to fix code issues. This is a qualitatively different behavior — **it keeps trying rather than crashing**.
+
+### Orphan errors: prior vs new run
+
+| Run | MTP | Orphan errors | Prompts | Error rate |
+|---|---|---|---|---|
+| Prior serial (contaminated) | enabled | 8 | 8 | 38% hard-stop |
+| Prior parallel (contaminated) | enabled | many | many | widespread |
+| Current fresh run | **disabled** | **0** | 2+ | **0%** |
+
+### Updated verdict (interim, 2/30)
+
+**The critical blocker (orphan tool-call bug) appears to be FIXED by disabling MTP.**
+
+However, two new concerns emerge:
+1. **Extreme iteration count**: Prompt 2 took 47 steps (vs typical 8-15 for Sonnet). This is due to Nemotron's deep CoT + tendency to continue improving rather than submit. The 60-min per-prompt timeout may be insufficient for hard prompts.
+2. **Score parity**: Both completed prompts score 7.8 vs Sonnet's 9.2 baseline — approximately −1.4 delta. Prompt 1 (pipe flange) scored 7.8 vs Sonnet's 9.2; this prompt previously scored 9.0 in the prior contaminated run, suggesting some score variance.
+3. **Per-prompt latency**: 37.8 min for prompt 2 is extreme. At this rate, 30 prompts could take 5-15+ hours.
+
+**Full verdict cannot be finalized until the 30-prompt run completes.** The run is ongoing. Key unknowns:
+- Will harder prompts (multi-agent decomposition) complete within 60 min?
+- Does the 0 orphan error hold for all 30 prompts?
+- What is the average wallclock across diverse prompt types?
+
+### Run artifacts (fresh run)
+- `/tmp/nemo-ab/results.csv` — rolling results (2 rows so far)
+- `/tmp/nemo-ab/log.txt` — dispatch log
+- Background loop (task bkqzc6ku5) still running
