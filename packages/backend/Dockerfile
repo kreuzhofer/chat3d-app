@@ -5,6 +5,7 @@ RUN apk add --no-cache postgresql16-client
 WORKDIR /app
 
 COPY package*.json ./
+COPY patches ./patches
 COPY prisma ./prisma
 COPY prisma.config.ts ./
 RUN npm install
