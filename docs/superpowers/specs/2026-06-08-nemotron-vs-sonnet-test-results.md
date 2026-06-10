@@ -293,3 +293,160 @@ However, two new concerns emerge:
 - `/tmp/nemo-ab/results.csv` — rolling results (2 rows so far)
 - `/tmp/nemo-ab/log.txt` — dispatch log
 - Background loop (task bkqzc6ku5) still running
+
+---
+
+## Ultra-nomtp serial — final state (3/30)
+
+After the SDK patch (`e06ef69`) plus MTP disabled, the Ultra-nomtp run completed 3 prompts before the polling shell exhausted its lifetime. All three scored cleanly.
+
+| # | Prompt | Sonnet | Ultra-nomtp | Δ | Source |
+|---|---|---|---|---|---|
+| 1 | Pipe flange (008049fc) | 9.2 | 7.8 | −1.4 | agent_submitted |
+| 2 | Soap dish (00880a28) | 9.2 | 7.8 | −1.4 | agent_submitted |
+| 3 | Signal relay (00a8f375) | 8.2 | 6.8 | −1.4 | composite |
+
+Mean Δ = −1.40 (n=3). Latency: 24s / 2270s (38 min) / ~21 min. The 38-min run on the soap dish made the cohort impractical to complete in any reasonable wall-clock budget — extrapolating, the full 30 would have needed 15–30 hours. Run abandoned by the user before continuing.
+
+**Decision:** Ultra is too slow for further evaluation, even with MTP off and the SDK patch in place.
+
+---
+
+## Nano (3B active) — 30/30 attempted
+
+Switched workbench_codegen to `Nemotron-3-Nano-NVFP4` (30B-A3B, 262k context). DB row `db5c0a9b`, provider `vllm-gx10`.
+
+### Headlines
+
+| Metric | Sonnet | Nano | Δ |
+|---|---|---|---|
+| Scored-only mean (n=17) | 7.70 | 6.16 | **−1.54** |
+| Effective mean (unscored=0, n=30) | 7.70 | 3.49 | **−4.21** |
+| Multi-agent (n=5 scored / 11) | 6.88 | 4.64 | −2.24 |
+| Single-agent (n=12 scored / 19) | 8.17 | 6.80 | −1.37 |
+
+### Coverage and infra
+
+- 30/30 dispatched. 17/30 scored cleanly. 13/30 unscored: 15 render-status `error`, 2 timeouts at 60-min cap.
+- **Render-error rate: ~50%** — the headline blocker. Nano frequently emitted Build123d code that did not compile/render even on simple prompts.
+- `eval_source` distribution: agent_submitted 13, code_only 4, unscored 13.
+- vLLM stability: **held end-to-end** (5.6 hours, zero crashes).
+- Orphan tool-call errors: **0** (confirms MTP-off cure).
+- Total wallclock: 333 min (5.6 h). Mean 11 min, median 7 min, p95 60 min (timeout).
+
+### Per-prompt (selected)
+
+| Prompt | Sonnet | Nano | Δ | Notes |
+|---|---|---|---|---|
+| 027bc5cc | 9.2 | 3.0 | −6.2 | unexpected collapse on a single-agent prompt |
+| 0b1a1ba1 | 9.2 | 3.0 | −6.2 | same pattern |
+| 00bd1aed | 8.8 | 2.8 | −6.0 | |
+| 008049fc | 9.2 | 4.0 | −5.2 | pipe flange, simple geometry |
+| 00880a28 | 9.2 | 9.2 | 0.00 | matched Sonnet on soap dish |
+| 026e71b9 | 9.2 | 9.2 | 0.00 | |
+| 084375fa | 9.8 | 9.8 | 0.00 | |
+| 09df32d8 | 10.0 | 10.0 | 0.00 | |
+| 2d902495 | 7.0 | 10.0 | **+3.00** | code_only fallback — render errored; score is suspect |
+| 020c6ab4 | 3.0 | 6.0 | **+3.00** | code_only fallback — also suspect |
+
+The four perfect ties at the top tell us Nano handles trivial Build123d cleanly. The deep losses on what should be easy single-agent prompts (5+ point drops) suggest Nano lacks robust geometric reasoning on slightly less canonical shapes. The two "wins" both came via the `code_only` fallback path after the actual render errored — they are not real quality wins.
+
+---
+
+## Super 120B-A12B — partial (21/30, vLLM crashed)
+
+Switched to `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4`, served by vLLM as model id `nemotron-super`. DB row `bab7d11f`, display `nemotron-120b`, provider `vllm-gx10-02`.
+
+vLLM endpoint required ~2 minutes of weight loading after the dgx-Manager reported the container running. Smoke (tool-call) passed.
+
+### Headlines
+
+| Metric | Sonnet | Super 120b | Δ |
+|---|---|---|---|
+| Scored-only mean (n=16) | 7.70 | 5.97 | **−1.73** |
+| Effective mean (unscored=0, n=21) | 7.70 | 4.55 | **−3.15** |
+| Multi-agent (n=2 scored / 11) | 6.88 | 4.10 | −2.78 |
+| Single-agent (n=14 scored / 19) | 8.17 | 6.24 | −1.94 |
+
+### Coverage and infra
+
+- 21/30 dispatched before vLLM endpoint died (HTTP 000 on two consecutive health checks, loop aborted at prompt 21).
+- 16/21 scored, 5 prompts pending at the 60-min timeout, 1 render error.
+- `eval_source` distribution: agent_submitted 11, code_only 5, unscored 5.
+- vLLM stability: **CRASHED** after ~9.5 hours under serial load.
+- Latency: mean 27 min, median 20 min, p95 60 min (timeout cap). **2.4× slower than Nano per prompt.**
+- Total wallclock: 9.5 h to do 21 prompts. Extrapolated full-30: ~13–14 h, if the endpoint had held.
+
+### Per-prompt (selected)
+
+| Prompt | Sonnet | Super | Nano | Δ vs Sonnet | Source |
+|---|---|---|---|---|---|
+| 06af61b6 | 8.2 | 1.0 | — | −7.2 | code_only |
+| 03a8e28f | 9.0 | 2.0 | — | −7.0 | code_only |
+| 008049fc | 9.2 | 4.0 | 4.0 | −5.2 | agent_submitted |
+| 05066df7 | 7.5 | 3.0 | 2.0 | −4.5 | code_only |
+| 00d1eb27 | 6.0 | 2.0 | — | −4.0 | code_only |
+| 027bc5cc | 9.2 | 6.5 | 3.0 | −2.7 | agent_submitted |
+| 00a8f375 | 8.2 | 7.0 | 7.6 | −1.2 | agent_submitted |
+| 078e4d11 | 5.4 | 5.2 | — | −0.2 | agent_submitted |
+| 00880a28 | 9.2 | 9.2 | 9.2 | 0.00 | agent_submitted |
+| 026e71b9 | 9.2 | 9.2 | 9.2 | 0.00 | agent_submitted |
+| 07e7526a | 9.2 | 9.2 | — | 0.00 | agent_submitted |
+| 084375fa | 9.8 | 9.8 | 9.8 | 0.00 | agent_submitted |
+| 00bd1aed | 8.8 | 9.0 | 2.8 | +0.20 | agent_submitted — Super beat Nano clearly |
+| 0636174a | 7.2 | 7.4 | 7.0 | +0.20 | agent_submitted |
+| 020c6ab4 | 3.0 | 4.0 | 6.0 | +1.00 | code_only |
+
+Same shape as Nano: ties at the top, deep losses on geometrically less-canonical prompts, suspicious "wins" via the `code_only` fallback. Multi-agent decomposition was barely sampled because most multi-agent prompts hit the 60-min cap before completing.
+
+---
+
+## Three-way Nemotron round-up
+
+Comparing the three Nemotron variants tested against Sonnet 4.6 baseline (mean 7.70 across 30 prompts):
+
+| Model | n scored | Scored mean | Δ scored | Effective mean | Mean wall | Endpoint | Verdict |
+|---|---|---|---|---|---|---|---|
+| Sonnet 4.6 (baseline) | 30/30 | 7.70 | — | 7.70 | ~5–8 min | n/a | reference |
+| Ultra-nomtp (550B-A55B) | 3/30 | 7.13 | −1.40 | — | 11–38 min | held (small n) | abandoned (too slow) |
+| Super 120B-A12B | 16/21 | 5.97 | −1.73 | 4.55 | 27 min | **crashed at 21** | DON'T SHIP |
+| Nano 30B-A3B | 17/30 | 6.16 | −1.54 | 3.49 | 11 min | held | DON'T SHIP |
+
+### Patterns shared across all three
+
+1. **Ceiling pattern**: All three score 9.2–10.0 on the easiest prompts (soap dish, 026e71b9, 084375fa, 09df32d8). Nemotron can do trivial Build123d.
+2. **Floor pattern**: All three collapse on prompts requiring slightly off-canonical geometry, losing 5–7 points on what should be solid single-agent work.
+3. **Code-only fallback contamination**: Both Nano and Super produced "wins" via the eval pipeline's `code_only` fallback when render errored — these are not real quality wins, they're artifacts of the scoring fallback.
+4. **Multi-agent decomposition is the weakest dimension** across all variants. Sonnet single-agent → multi-agent drops only 1.3 points; Nemotron drops 2–3 and most multi-agent prompts never complete within the cap.
+5. **MTP-off is the orphan-tool-call cure** — zero orphan errors after MTP disabled, across both Nano (full run) and Super (partial). The earlier SDK patch (`e06ef69`) was insufficient on its own; it's the vLLM MTP path that was the real source.
+
+### Infra blockers per variant
+
+| Variant | Blocker | Notes |
+|---|---|---|
+| Ultra-nomtp | Latency | Single LLM step 2–14 min; multi-agent prompts exceed 60-min cap |
+| Nano | 50% render-error rate | Best per-prompt latency, but half the cohort never renders |
+| Super 120b | Endpoint stability + 2.4× latency | Crashed vLLM after 9.5 h of serial load; mean 27 min/prompt |
+
+### Decision (final)
+
+**DON'T SHIP any Nemotron variant as `workbench_codegen`.**
+
+None of the three Nemotron variants is competitive with Sonnet 4.6 on this cohort. Best (Ultra-nomtp scored-only Δ = −1.40) is on too small a sample to be statistically meaningful. The two variants with respectable sample sizes (Nano, Super) both sit at Δ −1.5 to −1.7 on scored prompts, with effective deltas in the −3 to −4 range once you treat the half-cohort of unscored prompts as zeros.
+
+**workbench_codegen restored to Claude Sonnet 4.6** (DB row `5469139b`, provider `bedrock`).
+
+### What we did learn that's worth keeping
+
+1. **MTP-off is mandatory if we ever revisit Nemotron** — the orphan tool-call bug we spent a day diagnosing was downstream of MTP, not of the Vercel AI SDK. The `isParsableJson` patch in `@ai-sdk/openai-compatible@2.0.48` (commit `e06ef69`) remains in place; harmless and probably still useful.
+2. **dgx-Manager API on `:4000`** is the source of truth for which model is actually serving on which port. Used the `/api/deployments` endpoint to watch container state transitions and `/v1/models` on vLLM directly to confirm weight-load readiness.
+3. **vLLM "running" ≠ "ready"** — the container can be up several minutes before weights finish loading and the OpenAI-compatible server binds the port. Future polling scripts should always confirm via a model-call smoke, not just an HTTP 200 on `/v1/models`.
+4. **Code-only eval fallback inflates Nemotron scores artificially** — any future Nemotron evaluation should filter `eval_source != agent_submitted` results out of the headline mean, or weight them lower.
+
+### Artifacts (final)
+
+- Nano: `/tmp/nemo-ab-nano-<timestamp>/results.csv` (30 rows attempted, 17 scored)
+- Super 120b: `/tmp/nemo-ab/results.csv` (21 rows, 16 scored)
+- Sonnet baseline: `/tmp/p2-v6.2-baseline.csv` (30 rows)
+- Watcher scripts: `/tmp/dgx-watch.sh`, `/tmp/vllm-ready-watch.sh`
+- Resume / batch scripts: `/tmp/nemo-ab/run-nano.sh`, `/tmp/nemo-ab/run-super.sh`
