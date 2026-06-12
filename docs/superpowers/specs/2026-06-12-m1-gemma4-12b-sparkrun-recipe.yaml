@@ -31,8 +31,9 @@ defaults:
   max_num_batched_tokens: 8192
   # Matches chat3d's vllm-gx10 provider concurrency cap.
   max_num_seqs: 12
-  tool_call_parser: gemma4
-  reasoning_parser: gemma4
+  # Upstream vllm-openai images name the Gemma 4 parser `functiongemma`;
+  # `gemma4` is an alias that only exists in the cluster's custom (eugr) images.
+  tool_call_parser: functiongemma
 
 executor_config:
   restart_policy: unless-stopped
@@ -52,7 +53,6 @@ command: |
       --enable-chunked-prefill \
       --enable-auto-tool-choice \
       --tool-call-parser {tool_call_parser} \
-      --reasoning-parser {reasoning_parser} \
       --load-format safetensors
 
 # Lessons baked in from the Nemotron A/B series (docs/oss-model-evaluation.md):
