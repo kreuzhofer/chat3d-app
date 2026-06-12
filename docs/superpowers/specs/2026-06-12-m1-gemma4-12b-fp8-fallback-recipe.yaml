@@ -14,7 +14,7 @@
 recipe_version: "2"
 model: google/gemma-4-12B-it
 runtime: vllm
-container: vllm/vllm-openai:cu130-nightly
+container: ghcr.io/spark-arena/dgx-vllm-eugr-nightly-tf5
 
 metadata:
   description: Gemma 4 12B Unified (bf16 + on-load fp8) — chat3d M1 fallback config
@@ -33,7 +33,7 @@ defaults:
   max_num_seqs: 12
   # Upstream vllm-openai images name the Gemma 4 parser `functiongemma`;
   # `gemma4` is an alias that only exists in the cluster's custom (eugr) images.
-  tool_call_parser: functiongemma
+  tool_call_parser: gemma4
 
 executor_config:
   restart_policy: unless-stopped

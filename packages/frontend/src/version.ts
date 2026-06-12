@@ -1,2 +1,2 @@
 /** Auto-incremented by .claude/hooks/bump-version.sh before each commit. */
-export const APP_VERSION = "0.1.177";
+export const APP_VERSION = "0.1.178";
