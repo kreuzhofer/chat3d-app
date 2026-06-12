@@ -1,0 +1,62 @@
+# M1 candidate recipe — Gemma 4 12B Unified (drafted 2026-06-12, not yet in any sparkrun registry)
+# Place in a local/community sparkrun registry and run cluster-side:
+#   sparkrun run @<registry>/gemma4-12b-unified --cluster <single-node>
+#
+# Model choice: google/gemma-4-12B-it-qat-w4a16-ct — official QAT 4-bit
+# (compressed-tensors W4A16): ~6.5 GB weights -> est. 35-45 tps/stream on GB10.
+# RISK: W4A16 CT kernels (marlin/machete) on sm121/aarch64 are unverified.
+# Fallback if it fails to load: model google/gemma-4-12B-it + `--quantization fp8`
+# (same pattern as @eugr/gemma4-26b-a4b), est. ~20-23 tps.
+#
+# Container: nightly — the 12B Unified encoder-free arch is 9 days old;
+# pinned cluster images (vllm-node-tf5 etc.) may predate its vLLM support.
+
+recipe_version: "2"
+model: google/gemma-4-12B-it
+runtime: vllm
+container: vllm/vllm-openai:cu130-nightly
+
+metadata:
+  description: Gemma 4 12B Unified (bf16 + on-load fp8) — chat3d M1 fallback config
+
+defaults:
+  port: 8000
+  host: 0.0.0.0
+  tensor_parallel: 1
+  served_model_name: gemma4-12b-unified
+  gpu_memory_utilization: 0.8
+  kv_cache_dtype: fp8
+  # Cohort runs don't need 256k; smaller KV leaves headroom for 12 parallel seqs.
+  max_model_len: 65536
+  max_num_batched_tokens: 8192
+  # Matches chat3d's vllm-gx10 provider concurrency cap.
+  max_num_seqs: 12
+  # Upstream vllm-openai images name the Gemma 4 parser `functiongemma`;
+  # `gemma4` is an alias that only exists in the cluster's custom (eugr) images.
+  tool_call_parser: functiongemma
+
+executor_config:
+  restart_policy: unless-stopped
+
+command: |
+  vllm serve {model} \
+      --served-model-name {served_model_name} \
+      --host {host} \
+      --port {port} \
+      --tensor-parallel-size {tensor_parallel} \
+      --gpu-memory-utilization {gpu_memory_utilization} \
+      --kv-cache-dtype {kv_cache_dtype} \
+      --max-model-len {max_model_len} \
+      --max-num-batched-tokens {max_num_batched_tokens} \
+      --max-num-seqs {max_num_seqs} \
+      --enable-prefix-caching \
+      --enable-chunked-prefill \
+      --enable-auto-tool-choice \
+      --tool-call-parser {tool_call_parser} \
+      --quantization fp8 \
+      --load-format safetensors
+
+# Lessons baked in from the Nemotron A/B series (docs/oss-model-evaluation.md):
+# - prefix caching ON (dominant latency lever for the agent loop)
+# - NO speculative decoding / MTP (orphan tool-call bug class)
+# - smoke with a real chat completion before dispatching work ("running" != "ready")
