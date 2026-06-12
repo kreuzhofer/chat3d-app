@@ -8,13 +8,13 @@
 # Fallback if it fails to load: model google/gemma-4-12B-it + `--quantization fp8`
 # (same pattern as @eugr/gemma4-26b-a4b), est. ~20-23 tps.
 #
-# Container: nightly — the 12B Unified encoder-free arch is 9 days old;
-# pinned cluster images (vllm-node-tf5 etc.) may predate its vLLM support.
+# Container: eugr tf5 cluster image (vLLM 0.22) — the upstream cu130-nightly tag
+# on the nodes is a stale 2026-03-15 pull (vLLM ~0.17) that predates Gemma 4.
 
 recipe_version: "2"
 model: google/gemma-4-12B-it-qat-w4a16-ct
 runtime: vllm
-container: vllm/vllm-openai:cu130-nightly
+container: ghcr.io/spark-arena/dgx-vllm-eugr-nightly-tf5
 
 metadata:
   description: Gemma 4 12B Unified (QAT W4A16) — chat3d M1 codegen evaluation config
@@ -31,9 +31,9 @@ defaults:
   max_num_batched_tokens: 8192
   # Matches chat3d's vllm-gx10 provider concurrency cap.
   max_num_seqs: 12
-  # Upstream vllm-openai images name the Gemma 4 parser `functiongemma`;
-  # `gemma4` is an alias that only exists in the cluster's custom (eugr) images.
-  tool_call_parser: functiongemma
+  # eugr cluster images register the Gemma 4 parser as `gemma4`
+  # (upstream images call it `functiongemma`).
+  tool_call_parser: gemma4
 
 executor_config:
   restart_policy: unless-stopped
