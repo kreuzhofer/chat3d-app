@@ -115,7 +115,7 @@ Priority-ordered; each item has evidence behind it from the A/B series. Detail i
 | # | Milestone | Gate | Cluster use |
 |---|---|---|---|
 | M0 | Docs + data hygiene: this strategy committed; eval_source filtering in metrics; cohort runner script productized (it lives in /tmp today and died with every Colima restart) | runner survives restarts; metrics exclude code_only | none |
-| M1 | **Measure the gap:** Qwen3.6-35B-A3B FP8, Gemma 4 12B Unified, gpt-oss-120b, chat3d-build123d-02 (27B LoRA) through the 30-prompt cohort; benchy tps for each; Super re-run with prefix caching | five new rows in `oss-model-evaluation.md`; single-track decision | 1 node serve |
+| M1 | **Measure the gap:** Qwen3.6-35B-A3B FP8, Gemma 4 12B Unified, gpt-oss-120b, chat3d-build123d-02 (27B LoRA) through the 30-prompt cohort; benchy tps for each; Super re-run with prefix caching. *Blocked on (2026-06-12): dgx-manager → sparkrun migration, which will expose a custom-recipe deploy API so model swaps run end-to-end from chat3d tooling. Gemma 12B recipe draft ready: `docs/superpowers/specs/2026-06-12-m1-gemma4-12b-sparkrun-recipe.yaml`.* | five new rows in `oss-model-evaluation.md`; single-track decision | 1 node serve |
 | M2 | Harness compensation items 1–3 + 6 implemented | timeout-class failures < 10% on a cohort re-run | 1 node |
 | M3 | SFT v1 (S0+S1) on the chosen track | Δ ≥ −0.5 paired, coverage ≥ 70%, tps ≥ 25 | 2–3 nodes train, 1 serve |
 | M4 | Self-generation loop (S2), 2+ rounds | Δ ≥ −0.25 and rising round-over-round | continuous |
