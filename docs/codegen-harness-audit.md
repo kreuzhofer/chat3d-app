@@ -602,8 +602,53 @@ The next section (§7) was drafted *before* validation. Items 1, 2, and partly 9
 
 ---
 
+## 10. 2026-06-12 Addendum — OSS-Model Era Findings & Improvement Priorities
+
+> Context: between 2026-06-07 and 2026-06-12 we ran a model-swap A/B series replacing `workbench_codegen` with seven Nemotron variants (Ultra 550B ×5 configs, Super 120B, Nano 30B-A3B) against the Sonnet 4.6 v6.2 baseline on a fixed 30-prompt cohort. Consolidated results: [`oss-model-evaluation.md`](oss-model-evaluation.md). Strategy consequences: [`local-model-strategy.md`](local-model-strategy.md). This section records what the series taught us **about the harness itself** and re-prioritizes the backlog accordingly.
+
+### 10.1 The binding constraint shifted: wallclock, not capability
+
+For frontier models, the audit's framing (per-stage *quality* failure modes) was right. For local OSS models, the dominant failure mode is **running out of clock while converging**. Autopsy of the best run (Ultra nomtp-caching, 5 timeouts in 21 prompts):
+
+- 3/5 timeouts had a successful render + 2.5–4.8 KB of plausible code in flight, with single reasoning steps costing 10–15 minutes. They were converging; the fixed 60-min cap killed them. (Traces: examples `166f99d1`, `def0c320`, plus `06af61b6`/`078e4d11`'s runs in the same series — e.g. `def0c320` reached render-success at step 3, got actionable VLM feedback at step 4, and was mid-correction when aborted.)
+- 1/5 was a genuine loop: 9 steps of search/validate tools without ever creating `main.py` (example `6bff3344`). No amount of extra time fixes this class.
+- Conclusion: timeouts must scale with the model's measured speed, and loops must be detected structurally — these are different fixes for what the metrics record as the same failure.
+
+### 10.2 New failure modes observed (not in the §2 catalogue)
+
+| ID | Failure mode | Stage | Evidence | Fix class |
+|---|---|---|---|---|
+| F-OSS-1 | MTP speculative decoding emits tool calls with empty `arguments` → SDK replays orphan tool_use → next turn rejected | Agent loop (transport) | All 4 MTP variants collapsed to 1–3 completed loops / run | Infra (serve nomtp); SDK guard (`e06ef69`) insufficient alone |
+| F-OSS-2 | No-code research stall: agent burns steps on search/validate without creating main.py | Agent loop (planning) | `6bff3344`: 9 steps, 0 bytes of code | Harness guard |
+| F-OSS-3 | `code_only` eval fallback inflates scores 2–4 points when render fails | Eval | mtp2-soak run: four 10.0s and four 9.0s via code_only on never-rendered geometry | Metrics + approval-path hygiene |
+| F-OSS-4 | Cold prompt prefix doubles per-step latency (full-history replay × no prefix cache) | Agent loop (transport) | nomtp-caching vs prior nomtp runs: coverage 62% vs ~50%; only near-parity run of the series | Harness prompt layout + vLLM config |
+| F-OSS-5 | Step-budget meander: model iterates productively but inefficiently | Agent loop (planning) | Ultra mtp first run: 47 steps / 38 min for a result Sonnet reaches in ~10 steps | Training data (step-efficiency filter) + soft budget prompts |
+
+### 10.3 Re-prioritized backlog (supersedes §7 ordering for the local-model track)
+
+| Pri | Item | Replaces/extends | Effort | Why now |
+|---|---|---|---|---|
+| 1 | **Model-aware budgets** — store measured tps per model (from dgx-manager benchmarks); scale step soft-warning and pipeline timeout by `sonnet_tps / model_tps`, capped at 2× | new | S | Recovers the largest OSS failure class (§10.1) |
+| 2 | **No-code stall guard** — step ≥ 3 without `main.py` → inject forcing message; step ≥ 5 → disable search tools for one step | new | S | Kills F-OSS-2 cheaply; harmless for frontier models |
+| 3 | **eval_source hygiene** — exclude `code_only` from auto-approval, dashboards, and the SFT export filter | new | S | F-OSS-3 poisons metrics AND future training data |
+| 4 | **Prefix-stable prompt layout** — byte-stable system prompt + early turns; volatile content (step countdown, soft warnings) appended at message-list tail only | new | M | F-OSS-4; biggest measured latency lever |
+| 5 | **Recovery snippet injection** — render-error classification (shipped 2026-06-04, N2) attaches a KB fix-pattern to the error text | extends #6 + N3 | M | Compensates weaker OSS error recovery; useful for frontier too |
+| 6 | **Best-of-N first drafts** — when active model tps ≥ 50, sample N=3 initial main.py candidates, keep first that renders | new | M | Converts speed surplus into quality; render success is a free filter |
+| 7 | **Difficulty-aware routing table** — generalize `timeout_observed` to per-(prompt-class, model) budgets | extends N1 | M | Stops paying a full timeout to learn a prompt is hard |
+
+Items #5 (visual-first fast pass), #8 (negative-example RAG), #10 (ambiguity pre-filter) from §7 remain valid, ordered below the items above.
+
+### 10.4 What training must fix (harness can't)
+
+- **The intelligence floor:** Nano-class (paired Δ −2.73) fails on geometry that no budget or guard fixes. The SFT substrate must start within ~1 point of Sonnet (Super 120B at −0.90, or Qwen3.6-35B-A3B pending measurement).
+- **Spatial-reasoning errors that pass render but fail VLM** (wrong face for a cutout — `def0c320` step 4 feedback): exactly the niche-knowledge gap the fine-tune dataset exists to close, and where surpassing frontier is plausible — no general model trains on verified Build123d trajectories.
+- **Step efficiency:** 47-step meanders come from the model, not the harness; filter SFT traces by steps-to-success, not score alone.
+
+---
+
 ## 9. Changelog
 
+- **2026-06-12 v1.4** — Added §10 addendum: OSS-model A/B series findings (F-OSS-1..5), wallclock-vs-capability reframing, re-prioritized backlog for the local-model track, training-vs-harness split. Companions: `oss-model-evaluation.md` (results), `local-model-strategy.md` (path forward).
 - **2026-05-19 v1.3** — N1 routing redesigned: cached `requires_decomposition` retired as authority (kept as training-data record only). Live `decomposition-decision.service.ts` makes per-generation, model-tier-aware decisions; version-stamped cache in `decomposition_decisions` table. Per-run `experiment_runs.routing_override` enables A/B ablation of decompose-vs-not on the same prompt set. Plan: `docs/superpowers/plans/2026-05-18-multi-agent-routing-redesign.md`.
 - **2026-05-18 v1.2** — N1 (multi-agent trigger) shipped via spec-LLM decision (chat + workbench, no category dependency). Trigger reason persisted on trace top-level field. Validation runs side-by-side with original columns on experiment d8ac9bae using `:ma` fake-model variants registered manually. Plan: `docs/superpowers/plans/2026-05-18-fix-multi-agent-trigger.md`. Known gap: chat-side trace persistence requires a separate follow-up plan (no `runWithTrace` on chat path today).
 - **2026-05-18 v1.1** — Added §6.4 validation findings (production data, 3,436 examples / 3,208 traces). Confirmed 8 hypotheses, **refuted 5** (notably 2.2.1 and 2.2.2 — the Extrusions Pattern B/C findings do not generalize beyond that category). Surfaced 5 new high-leverage findings, including the headline one: **multi-agent decomposition is dormant infrastructure** (1 run of 3,208). Revised §7 backlog: dropped items 1 and 2; added N1–N3 as new top items; revised 5, 9. ⚠ markers in §2 still indicate pre-validation; treat §6.4 as the authoritative read.
