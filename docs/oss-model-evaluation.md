@@ -92,6 +92,8 @@ The end-to-end pipeline (dataset upload → LoRA via DeepSpeed ZeRO → merge �
 ## Open questions / next measurements
 
 1. **Qwen3.6-35B-A3B FP8 on the 30-prompt cohort** — the most promising untested point (80 tps c=1, MoE-FT proven on dgx-manager).
-2. **chat3d-build123d-02 (27B LoRA) on the cohort** — we have tps (14.2 BF16) but no harness quality score; NVFP4 quant would also lift tps.
-3. **Ultra nomtp-caching completion** — 21/30 attempted; the remaining 9 prompts would firm up the −0.22 estimate.
-4. **Super 120B with prefix caching** — Super was tested before the caching lesson; its coverage (52%) may improve materially.
+2. **Gemma 4 12B Unified (released 2026-06-03) on the cohort** — dense encoder-free multimodal, 256k ctx, native tool use; easiest FT substrate of all candidates and the only one that could *see its own renders* in-loop. tps to verify (~35–45 est. at NVFP4).
+3. **gpt-oss-120b on the cohort + benchy** — 117B/A5.1B MXFP4, already registered on vllm-gx10 and anecdotally very fast, but never measured in this series; FT possible-but-unproven (fused MoE experts + MXFP4-native weights).
+4. **chat3d-build123d-02 (27B LoRA) on the cohort** — we have tps (14.2 BF16) but no harness quality score; NVFP4 quant would also lift tps.
+5. **Ultra nomtp-caching completion** — 21/30 attempted; the remaining 9 prompts would firm up the −0.22 estimate.
+6. **Super 120B with prefix caching** — Super was tested before the caching lesson; its coverage (52%) may improve materially.

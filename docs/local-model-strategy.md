@@ -48,8 +48,20 @@ Dense models ≥ 27B cannot hit 50 tps per stream on this hardware, period. The 
 **Track A (primary): Qwen3.6-35B-A3B, FP8/NVFP4.**
 80 tps c=1 — double the ideal target, leaving headroom for best-of-N sampling (§5.4) and parallel sub-agents. MoE-FT already proven on this exact architecture in dgx-manager. Fits one node with room for 256k context KV. The unknown is its untrained Build123d quality — **measure first** (M1 below). If it lands at Δ −1.5 or better untrained, it is the best fine-tuning substrate we have; the speed surplus means we can spend tokens (retries, drafts, self-checks) to buy quality.
 
+**Track A2 (co-primary): Gemma 4 12B Unified, NVFP4.** *(added 2026-06-12)*
+Released 2026-06-03 (Apache 2.0): dense decoder-only, **encoder-free unified multimodal** (raw image patches/audio project directly into the embedding space — no separate vision tower), 256k context, native tool-calling. Why it's compelling:
+
+- **Easiest fine-tuning substrate of all candidates.** Dense → the entire MoE-FT pain class (fused expert tensors, `target_parameters` patching, silent regressions) doesn't apply. dgx-manager's dense-Gemma history is clean and high-lift (E4B: 23%→90% SQL). The unified arch means one LoRA pass covers text+vision — no alignment stage. Known wrinkle: the `Gemma4ClippableLinear` PEFT dispatch patch + merge key-remap from the E2B/E4B recipes presumably applies.
+- **Multimodality is a strategic fit, not a gimmick.** The agent loop's biggest information gap (audit §3.4: error feedback is text-only) closes natively — a multimodal codegen model can *see its own render screenshots* in-loop instead of relaying through a frontier VLM. And we uniquely own vision-grounded training data (screenshot + eval feedback → fix). Post-M5 it could also take the local-judge role.
+- **Capability class ≈ Qwen-35B-A3B** (dense-equivalent rule of thumb: √(35×3.5) ≈ 11B), at roughly half the tps: dense 12B at NVFP4 ≈ 6–7 GB weights → ~35–45 tps/stream theoretical on GB10; FP8 ~20–23 tps (borderline). NVFP4 quantization path needs verification (no official quant release listed; vLLM on-load route).
+
+Trade vs Track A: Qwen-35B-A3B has ~2× the speed headroom (best-of-N budget); Gemma 12B has lower FT risk + the vision angle. Both go through M1; pick on measured Build123d quality.
+
 **Track B (fallback): Nemotron Super 120B NVFP4.**
 Already measured: Δ −0.90 untrained at 25 tps — the smallest known quality gap at an acceptable speed. Costs: at the floor not the target; MoE-FT for Nemotron's architecture not yet attempted on dgx-manager (new patch work likely); NVFP4 base weights complicate LoRA (need BF16 base for training, re-quantize after merge).
+
+**Track A3 (co-primary, measure): gpt-oss-120b.** *(added 2026-06-12)*
+OpenAI's open-weight MoE (117B total / 5.1B active, MXFP4-native, Apache 2.0, native tool use via harmony format). Already registered in chat3d (`openai/gpt-oss-120b` on vllm-gx10) and served before, but absent from both the 30-prompt cohort and the 2026-06-08 benchmark round. Why it's on the list: 5.1B active at ~4-bit ≈ 3 GB reads/token → plausibly 50–80+ tps/stream on GB10 ("super fast" anecdotally confirmed in prior use), with a much larger total-parameter knowledge pool than Qwen-35B-A3B at similar active size, and strong reasoning benchmarks for its class. Trainability caveats: same fused-MoE-expert LoRA class as Qwen (PEFT `target_parameters` route; HF/TRL/Unsloth shipped gpt-oss FT support), plus one extra wrinkle — weights are MXFP4-native, so training runs on the bf16 upcast and re-quantizes after merge. Treat as "likely trainable, prove with a 50-step smoke before counting on it."
 
 **Explicitly rejected:**
 - Ultra 550B serving: 4 nodes, 11.5 tps, blocks all training. Useful only as an occasional local *teacher/comparison* point.
@@ -58,7 +70,7 @@ Already measured: Δ −0.90 untrained at 25 tps — the smallest known quality 
 
 ### Decision gate
 
-After M1 (cohort scores for Qwen-35B-A3B and chat3d-build123d-02): pick the track with the best `(quality gap) / (closable-by-SFT likelihood)` and commit. Don't run both fine-tuning tracks in parallel — the cluster can't train two models and serve eval workloads at once.
+After M1 (cohort scores for Qwen-35B-A3B, Gemma 4 12B Unified, gpt-oss-120b, and chat3d-build123d-02): pick the single track with the best `(quality gap) / (closable-by-SFT likelihood)`, weighting FT risk (dense Gemma lowest, MXFP4 gpt-oss highest) and speed headroom (gpt-oss/Qwen highest), and commit. Don't run multiple fine-tuning tracks in parallel — the cluster can't train two models and serve eval workloads at once.
 
 ## 4. Training plan (SFT first, RL later)
 
@@ -103,7 +115,7 @@ Priority-ordered; each item has evidence behind it from the A/B series. Detail i
 | # | Milestone | Gate | Cluster use |
 |---|---|---|---|
 | M0 | Docs + data hygiene: this strategy committed; eval_source filtering in metrics; cohort runner script productized (it lives in /tmp today and died with every Colima restart) | runner survives restarts; metrics exclude code_only | none |
-| M1 | **Measure the gap:** Qwen3.6-35B-A3B FP8 + chat3d-build123d-02 (27B LoRA) through the 30-prompt cohort; Super re-run with prefix caching | three new rows in `oss-model-evaluation.md`; track decision A/B | 1 node serve |
+| M1 | **Measure the gap:** Qwen3.6-35B-A3B FP8, Gemma 4 12B Unified, gpt-oss-120b, chat3d-build123d-02 (27B LoRA) through the 30-prompt cohort; benchy tps for each; Super re-run with prefix caching | five new rows in `oss-model-evaluation.md`; single-track decision | 1 node serve |
 | M2 | Harness compensation items 1–3 + 6 implemented | timeout-class failures < 10% on a cohort re-run | 1 node |
 | M3 | SFT v1 (S0+S1) on the chosen track | Δ ≥ −0.5 paired, coverage ≥ 70%, tps ≥ 25 | 2–3 nodes train, 1 serve |
 | M4 | Self-generation loop (S2), 2+ rounds | Δ ≥ −0.25 and rising round-over-round | continuous |
