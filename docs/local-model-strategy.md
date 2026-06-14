@@ -1,6 +1,6 @@
 # Local Model Strategy — Path to a Self-Hosted Build123d Codegen Model
 
-Last updated: 2026-06-12
+Last updated: 2026-06-14
 Status: strategy of record. Supersedes the model-selection discussion in `docs/pricing-and-llm-quality-considerations.md` and extends `docs/dataset-release-and-finetune-plan.md`.
 
 ## 1. Goal
@@ -68,9 +68,28 @@ OpenAI's open-weight MoE (117B total / 5.1B active, MXFP4-native, Apache 2.0, na
 - Nano-class (≤ 30B-A3B) as the primary: −2.73 is too far below the line for SFT alone to close. Retained as a possible **draft/sub-agent model** later (§5.4).
 - Dense ≥ 27B as production: bandwidth-bound below target; keep the existing 27B LoRAs as evaluation references (M1 includes scoring one).
 
+### M1 sweep set — locked order (Daniel confirmed 2026-06-12)
+
+Every candidate runs the **same full 30-prompt cohort** (`docs/superpowers/specs/2026-06-05-eval-plan-test-set.txt`) — no partial runs in the comparison (the Nano −2.73 was only 13 trustworthy prompts, which is why it can't be compared apples-to-apples). Drive model-by-model, not auto-chained; each deploy goes through the sparkrun custom-recipe API (`POST /api/deployments`) then a readiness smoke (a real chat completion — "running" ≠ "ready") before dispatching work. Flip `workbench_codegen` back to Sonnet (row `5469139b`) at the very end.
+
+| # | Model | sparkrun recipe | Tier | Rationale |
+|---|---|---|---|---|
+| 1 | Gemma 4 12B Unified | (local recipe `…2026-06-12-m1-gemma4-12b-sparkrun-recipe.yaml`) | contender | running |
+| 2 | Gemma 4 26B-A4B | `@eugr/gemma4-26b-a4b` | contender | MoE Gemma, 4B active, multimodal, TP2; same parser/container family as the 12B (low deploy risk); likely the better Gemma to train |
+| 3 | Qwen3.6-35B-A3B FP8 | `@official/qwen3.6-35b-a3b-fp8-vllm` | contender | clean TP1, no speculative decode, 3B-active MoE |
+| 4 | Qwen3-Coder-Next FP8 | `@eugr/qwen3-coder-next-fp8` | contender | code-specialized base (TP2) — most likely to change the training-base decision |
+| 5 | gpt-oss-120b | `@eugr/openai-gpt-oss-120b` | contender | ~38 tps single-stream, MXFP4 MoE, TP1 |
+| 6 | Qwen3.6-35B-A3B DFlash | `@eugr/qwen3.6-35b-a3b-fp8-dflash` | gated | speculative-decode speed experiment; run ONLY after a tool-call-integrity smoke (MTP-adjacent orphan-toolcall risk) |
+| 7 | Nemotron Super 120B-A12B | `@eugr/nemotron-3-super-nvfp4` | reference | complete to full 30 (was 17); current quality leader −0.90 @ 25 tps |
+| 8 | Nemotron Nano 30B-A3B | `@eugr/nemotron-3-nano-nvfp4` | reference | complete to full 30 (was 17); fastest (58.9 tps), weak base (−2.73 on 13) |
+
+**Sweep progress (as of 2026-06-14 ~07:25Z):** #1 Gemma 12B ✅ (Δ −0.33), #2 Gemma 26B-A4B ✅ (Δ −0.31, **lead**), #3 Qwen3.6-35B-A3B ✅ (Δ −0.40, 2nd), #4 Qwen3-Coder-Next ⛔ **deferred** (vLLM FLA Triton kernel crash on GB10 — switching to `@sparkrun-transitional/qwen3-coder-next-fp8-sglang`, gated on a tool-call smoke), #5 gpt-oss-120b ⛔ **SKIPPED 2026-06-14 (Daniel's call)** — the snapshot crash was a symptom of `/mnt/tank` ENOSPC (now cleared, 523 GB free; redeploy then *loaded* the model), but it hit a terminal **FlashInfer sm120 MXFP4 fused-MoE container gap** (missing `120_mxfp4min` cutlass templates + read-only JIT dir) → needs a sparkrun-image rebuild (dgx-claude). Wedged deploy deleted; **retry pending a dgx-claude FlashInfer fix** (raise in #agent-room deploy thread). See `oss-model-evaluation.md` open-Q #4. #6–8 not started. **Next:** coder-next via sglang (needs the `…-sglang` image, gated); then DFlash (gated) + Nemotron completions; finally revert workbench_codegen → Sonnet (row `5469139b`). gpt-oss retry only once dgx-claude ships sm120 MXFP4 FlashInfer. All results land in `oss-model-evaluation.md`.
+
+Report each as a **parity-split**: easy/medium-prompt mean (Sonnet baseline ≥ 7) vs hard-tail mean (Sonnet < 7). The hard-tail weakness is universal to OSS at this size, so select on tps + trainability + parity-base, **not** the tail score. **TP2 note:** tensor-parallel across 2 Sparks does not add per-stream speed (inter-node all-reduce tax — Super TP2 = 25 tps, Ultra 4-node = 11.5); it buys capacity to fit a stronger model that's still ≥ 25 tps. Active-parameter count dominates throughput. Dropped on physics/fit (not tested): dense ≥ 27B (`qwen3.6-27b-fp8` ~14 tps), MiniMax-M2.x, Qwen3.5-122B/397B, `step-3.7-flash` (exceeds 121 GB even on 2× Spark), diffusion-gemma (experimental).
+
 ### Decision gate
 
-After M1 (cohort scores for Qwen-35B-A3B, Gemma 4 12B Unified, gpt-oss-120b, and chat3d-build123d-02): pick the single track with the best `(quality gap) / (closable-by-SFT likelihood)`, weighting FT risk (dense Gemma lowest, MXFP4 gpt-oss highest) and speed headroom (gpt-oss/Qwen highest), and commit. Don't run multiple fine-tuning tracks in parallel — the cluster can't train two models and serve eval workloads at once.
+After M1 (cohort scores for the sweep set above): pick the single track with the best `(quality gap) / (closable-by-SFT likelihood)`, weighting FT risk (dense Gemma lowest, MXFP4 gpt-oss highest) and speed headroom (gpt-oss/Qwen highest), and commit. Don't run multiple fine-tuning tracks in parallel — the cluster can't train two models and serve eval workloads at once.
 
 ## 4. Training plan (SFT first, RL later)
 
@@ -88,6 +107,7 @@ Filtering rule (learned from this A/B series): include only `eval_source = agent
 
 - LoRA (r=16 baseline, sweep up if capacity-limited) on the chosen base, 16k seq len minimum (trajectories are long; 32k preferred if memory allows on 2-node ZeRO-3).
 - For Qwen-35B-A3B: use the proven `target_parameters` expert-aware recipe.
+- For **gemma4-26b-a4b** (shared-expert MoE): `target_modules` MUST cover the expert/gate projections, not just attn+MLP — otherwise the LoRA underfits the routed experts (dgx-claude lost a 26B run to this). Base-model benchmarking is unaffected; this only bites at SFT time.
 - Qualification gate: the **30-prompt cohort, run through the actual harness** (not benchy, not held-out loss). Promotion requires: paired Δ ≥ −0.5 vs Sonnet AND agent_submitted coverage ≥ 70% AND no tps regression > 10%.
 
 ### Phase S2 — Iterate SFT with self-generated data
@@ -115,7 +135,7 @@ Priority-ordered; each item has evidence behind it from the A/B series. Detail i
 | # | Milestone | Gate | Cluster use |
 |---|---|---|---|
 | M0 | Docs + data hygiene: this strategy committed; eval_source filtering in metrics; cohort runner script productized (it lives in /tmp today and died with every Colima restart) | runner survives restarts; metrics exclude code_only | none |
-| M1 | **Measure the gap:** Qwen3.6-35B-A3B FP8, Gemma 4 12B Unified, gpt-oss-120b, chat3d-build123d-02 (27B LoRA) through the 30-prompt cohort; benchy tps for each; Super re-run with prefix caching. *Blocked on (2026-06-12): dgx-manager → sparkrun migration, which will expose a custom-recipe deploy API so model swaps run end-to-end from chat3d tooling. Gemma 12B recipe draft ready: `docs/superpowers/specs/2026-06-12-m1-gemma4-12b-sparkrun-recipe.yaml`.* | five new rows in `oss-model-evaluation.md`; single-track decision | 1 node serve |
+| M1 | **Measure the gap:** run the §3 M1 sweep set (8 models, locked order) through the full 30-prompt cohort; benchy tps for each. *Unblocked + RUNNING (2026-06-12): sparkrun custom-recipe deploy API shipped; Gemma 4 12B Unified deployed (W4A16, tf5) and first cohort live.* | one row per model in `oss-model-evaluation.md`; single-track decision | 1–2 node serve |
 | M2 | Harness compensation items 1–3 + 6 implemented | timeout-class failures < 10% on a cohort re-run | 1 node |
 | M3 | SFT v1 (S0+S1) on the chosen track | Δ ≥ −0.5 paired, coverage ≥ 70%, tps ≥ 25 | 2–3 nodes train, 1 serve |
 | M4 | Self-generation loop (S2), 2+ rounds | Δ ≥ −0.25 and rising round-over-round | continuous |
