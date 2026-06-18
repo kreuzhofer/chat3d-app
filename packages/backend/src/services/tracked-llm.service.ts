@@ -81,10 +81,10 @@ type GenerateTextResult = Awaited<ReturnType<typeof generateText>>;
 
 /** Default timeouts for LLM calls.
  * stepMs/chunkMs are per-step safety nets. totalMs is overridable by callers
- * (e.g., pipeline timeout) — defaults to 15 min for non-agent callers. */
-const DEFAULT_STEP_TIMEOUT_MS = 480_000;   // 8 min per individual LLM step
-const DEFAULT_CHUNK_TIMEOUT_MS = 480_000;  // 8 min between streaming chunks (stall detection)
-const DEFAULT_TOTAL_TIMEOUT_MS = 900_000;  // 15 min fallback for callers that don't specify
+ * (e.g., pipeline timeout) — defaults to 60 min for non-agent callers (raised for Nemotron A/B). */
+const DEFAULT_STEP_TIMEOUT_MS = 480_000;    // 8 min per individual LLM step
+const DEFAULT_CHUNK_TIMEOUT_MS = 480_000;   // 8 min between streaming chunks (stall detection)
+const DEFAULT_TOTAL_TIMEOUT_MS = 3_600_000; // 60 min fallback for callers that don't specify
 
 function buildTimeout(totalMs?: number) {
   return {
