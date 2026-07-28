@@ -289,11 +289,23 @@ export async function getModelForPurpose(purpose: string): Promise<LlmModelConfi
   const provider = model.providerRef;
   const apiKey = provider.apiKey?.trim() || null;
 
-  if (!apiKey && provider.name !== "ollama") {
-    logger.warn(
-      { purpose, model: `${model.provider}/${model.modelName}` },
-      "API key not configured for provider — set it via Admin → Providers",
-    );
+  if (!apiKey) {
+    // Local/self-hosted server types routinely run keyless — not a misconfiguration.
+    const keyOptional =
+      provider.name === "ollama" ||
+      provider.providerType === "ollama" ||
+      provider.providerType === "openai-compatible";
+    if (keyOptional) {
+      logger.debug(
+        { purpose, model: `${model.provider}/${model.modelName}` },
+        "no API key configured (key-optional provider type)",
+      );
+    } else {
+      logger.warn(
+        { purpose, model: `${model.provider}/${model.modelName}` },
+        "API key not configured for provider — set it via Admin → Providers",
+      );
+    }
   }
 
   return {
@@ -378,6 +390,34 @@ export function sdkType(cfg: LlmModelConfig): string {
   return cfg.providerType ?? cfg.provider;
 }
 
+// ── Thinking control ────────────────────────────────────────────────
+
+/**
+ * Chat-template kwargs controlling reasoning on vLLM-style servers.
+ * Effort "off" actively disables thinking — templates like GLM's default
+ * to thinking ENABLED, so merely omitting the kwarg does not turn it off.
+ * Any other configured effort enables it. Returns undefined when the
+ * model has no thinking support or no effort is set (leave the server's
+ * template default untouched).
+ */
+export function resolveThinkingKwargs(
+  cfg: Pick<LlmModelConfig, "supportsThinking" | "thinkingEffort">,
+): { enable_thinking: boolean } | undefined {
+  if (!cfg.supportsThinking || !cfg.thinkingEffort) return undefined;
+  return { enable_thinking: cfg.thinkingEffort !== "off" };
+}
+
+/**
+ * Copy of a model config with thinking forced off. Short internal calls
+ * (chat naming, tag suggestion, decomposition decision) always run with
+ * thinking disabled: their output caps are far below any thinking budget,
+ * so a reasoning model would burn the entire cap before emitting text.
+ */
+export function withThinkingOff(cfg: LlmModelConfig): LlmModelConfig {
+  if (!cfg.supportsThinking) return cfg;
+  return { ...cfg, thinkingEffort: "off" };
+}
+
 /**
  * Create a Vercel AI SDK LanguageModel from a resolved config.
  */
@@ -457,15 +497,16 @@ export function createProviderModel(cfg: LlmModelConfig): any {
       ? normalizedBaseUrl
       : `${normalizedBaseUrl}/v1`;
 
-    // For models with thinking enabled on vLLM, inject chat_template_kwargs
-    // into the request body so the chat template activates reasoning mode.
-    const needsThinkingKwargs = cfg.supportsThinking && cfg.thinkingEffort;
-    const customFetch = needsThinkingKwargs
+    // Drive the chat template's reasoning mode from the resolved effort.
+    // Note "off" injects enable_thinking:false — GLM-style templates think
+    // by default, so disabling must be explicit.
+    const thinkingKwargs = resolveThinkingKwargs(cfg);
+    const customFetch = thinkingKwargs
       ? async (url: RequestInfo | URL, init?: RequestInit) => {
           if (init?.body && typeof init.body === "string") {
             try {
               const body = JSON.parse(init.body);
-              body.chat_template_kwargs = { enable_thinking: true };
+              body.chat_template_kwargs = thinkingKwargs;
               return globalThis.fetch(url, { ...init, body: JSON.stringify(body) });
             } catch { /* fall through to unmodified fetch */ }
           }

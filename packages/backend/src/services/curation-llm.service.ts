@@ -14,6 +14,7 @@ import {
   getModelForPurpose,
   createProviderModel as createProviderModelFromConfig,
   buildGenerateOptions,
+  withThinkingOff,
 } from "./llm-config.service.js";
 import { getCandidateDetail } from "./curation.service.js";
 
@@ -182,7 +183,8 @@ export async function suggestTags(candidateId: string): Promise<TagSuggestion[]>
   });
   const existingTagNames = existingTags.map((t) => t.name);
 
-  const cfg = await getModelForPurpose("tag_suggest");
+  // Tag suggestion is a short internal call: thinking always off.
+  const cfg = withThinkingOff(await getModelForPurpose("tag_suggest"));
   const model = createProviderModelFromConfig(cfg);
   const generateOptions = buildGenerateOptions(cfg);
 

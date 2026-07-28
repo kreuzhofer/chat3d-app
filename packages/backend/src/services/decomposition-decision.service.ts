@@ -19,6 +19,7 @@ import {
   createProviderModel,
   buildGenerateOptions,
   maxOutputWithThinking,
+  withThinkingOff,
 } from "./llm-config.service.js";
 
 const logger = createLogger("decomp-decider");
@@ -322,7 +323,8 @@ export async function decideDecomposition(
     }
   }
 
-  const config = await getModelForPurpose("decomposition_decision");
+  // Decomposition decision is a short internal call: thinking always off.
+  const config = withThinkingOff(await getModelForPurpose("decomposition_decision"));
   const model = createProviderModel(config);
   const userMessage = buildUserMessage(input.promptText, input.modelTier, input.specInterpretation);
 

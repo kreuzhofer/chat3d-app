@@ -39,6 +39,7 @@ import {
   getModelForPurpose,
   createProviderModel as createProviderModelFromConfig,
   calculateCostUsd,
+  withThinkingOff,
 } from "./llm-config.service.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -936,7 +937,8 @@ async function generateChatNameInner(input: {
   prompt: string;
 }): Promise<void> {
   try {
-    const cfg = await getModelForPurpose("conversation");
+    // Chat naming is a short internal call: 30-token cap, thinking always off.
+    const cfg = withThinkingOff(await getModelForPurpose("conversation"));
     const providerModel = createProviderModelFromConfig(cfg);
 
     const truncatedPrompt = input.prompt.slice(0, 500);
