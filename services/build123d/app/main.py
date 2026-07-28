@@ -3,6 +3,7 @@ import ast
 import os
 import sys
 import tempfile
+import time
 import shutil
 import traceback
 import logging
@@ -18,6 +19,47 @@ from pydantic import BaseModel
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ── Temp-dir sweep ───────────────────────────────────────────────────
+# Render temp dirs are removed in a `finally`, but exec()'d CAD code can
+# segfault the whole process (OCCT kernel), skipping cleanup. /tmp lives
+# in the container layer and survives restarts, so orphans accumulate
+# (~190MB per crashed render).
+
+_RENDER_SWEEP_MAX_AGE_SECONDS = 2 * 60 * 60
+
+# Sweeping deletes from the SHARED system temp dir, so it must never run on a
+# dev machine (tests import this module). The Dockerfile opts the container in.
+_TMP_SWEEP_ENABLED = os.environ.get("BUILD123D_TMP_SWEEP", "0") == "1"
+
+
+def sweep_orphan_tmpdirs(max_age_seconds: float, force: bool = False) -> int:
+    """Delete tmp* dirs in the system temp dir older than max_age_seconds.
+
+    Age 0 is only safe when no render can be in flight (process startup).
+    """
+    if not (_TMP_SWEEP_ENABLED or force):
+        return 0
+    now = time.time()
+    removed = 0
+    base = tempfile.gettempdir()
+    for name in os.listdir(base):
+        path = os.path.join(base, name)
+        try:
+            if not name.startswith("tmp") or not os.path.isdir(path):
+                continue
+            if now - os.path.getmtime(path) >= max_age_seconds:
+                shutil.rmtree(path, ignore_errors=True)
+                removed += 1
+        except OSError:
+            continue
+    if removed:
+        logger.info("Swept %d orphan temp dir(s) from %s", removed, base)
+    return removed
+
+
+# At startup no render is in flight — anything in the temp dir is an orphan.
+sweep_orphan_tmpdirs(max_age_seconds=0)
 
 # ── Lightweight health check server (separate PROCESS, port 8080) ────
 # The main uvicorn worker (port 80) blocks during exec() renders, and
@@ -409,6 +451,7 @@ with BuildPart() as box_builder:
 
 @app.post("/render/")
 def render_post(request: RenderRequest):
+    sweep_orphan_tmpdirs(_RENDER_SWEEP_MAX_AGE_SECONDS)
     try:
         logger.info(f"Starting render_post for file: {request.filename}")
         # Execute the provided code
@@ -493,6 +536,7 @@ def render_post(request: RenderRequest):
 @app.post("/render-project/")
 def render_project(request: RenderProjectRequest):
     """Render a multi-file project. Executes main.py as the entry point."""
+    sweep_orphan_tmpdirs(_RENDER_SWEEP_MAX_AGE_SECONDS)
     tmpdir = tempfile.mkdtemp()
     original_cwd = os.getcwd()
     try:

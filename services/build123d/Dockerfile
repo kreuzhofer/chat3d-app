@@ -29,6 +29,13 @@ RUN if pip --help | grep -q -- "--resume-retries"; then \
       pip install --no-cache-dir --retries 50 --timeout 120 --upgrade -r /code/requirements.txt; \
     fi
 
+# gridfinity_build123d pins bd_warehouse to a git commit in its pyproject,
+# conflicting with bd_warehouse>=0.2.0 from requirements.txt. Its actual
+# dependencies (build123d, bd_warehouse) are already installed above, so
+# skip its dependency resolution entirely.
+RUN pip install --no-cache-dir --retries 50 --timeout 120 --no-deps \
+      "gridfinity_build123d @ git+https://github.com/Ruudjhuu/gridfinity_build123d.git@fc29ac6b9ad5b110c582abef78bf0f1153bec6b3"
+
 # Backport typing.override for Python <3.12 (needed by gridfinity_build123d)
 RUN python -c "import typing; typing.override" 2>/dev/null || \
     SITE_DIR=$(python -c "import site; print(site.getsitepackages()[0])") && \
@@ -49,5 +56,9 @@ COPY ./app /code/app
 
 # pyrender needs EGL for headless offscreen rendering
 ENV PYOPENGL_PLATFORM=egl
+
+# Sweep orphaned render temp dirs (crashed exec() renders leak them into the
+# container layer, which survives restarts). Only ever enable inside the container.
+ENV BUILD123D_TMP_SWEEP=1
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "80"]
