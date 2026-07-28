@@ -5,14 +5,18 @@ pydantic==2.12.5
 # - uses py-lib3mf on aarch64 (has aarch64 wheels)
 # - uses ocpsvg>=0.6 and ocp_gordon>=0.2 (compatible with OCP 7.9.x)
 # See: https://github.com/gumyr/build123d/pull/1236
-build123d @ git+https://github.com/gumyr/build123d.git@dev
+# Pinned to the last verified dev commit: later dev HEAD removed ShapePredicate,
+# which gridfinity_build123d still imports. Bump both pins together after
+# verifying the pairing (SpurGear + gridfinity imports + a render).
+build123d @ git+https://github.com/gumyr/build123d.git@e8cae0660
 # bd_warehouse: parametric mechanical components (threads, fasteners, bearings, gears, pipes)
 # Pin to 0.2.0 — fixes TreeError with anytree 2.13 and ShapeList.wrapped API change
 bd_warehouse>=0.2.0
-# gridfinity_build123d: parametric Gridfinity storage bins, bases, and baseplates
-# Requires typing_extensions for Python <3.12 (backports typing.override)
+# gridfinity_build123d is installed in the Dockerfile with --no-deps: its
+# pyproject pins bd_warehouse to a git commit, which pip cannot reconcile
+# with bd_warehouse>=0.2.0 above (ResolutionImpossible).
+# typing_extensions backports typing.override for Python <3.12
 typing_extensions>=4.0
-gridfinity_build123d @ git+https://github.com/Ruudjhuu/gridfinity_build123d.git
 # pyrender-based screenshot rendering (EGL offscreen)
 trimesh>=4.0
 pyrender>=0.1.45
