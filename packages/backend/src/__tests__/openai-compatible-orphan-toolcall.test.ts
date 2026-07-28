@@ -1,14 +1,14 @@
 /**
- * Regression test for the patched @ai-sdk/openai-compatible stream flush
- * (patches/@ai-sdk+openai-compatible+2.0.62.patch, Vercel AI #7326).
+ * Behavioral guard for @ai-sdk/openai-compatible stream flush with "orphan"
+ * tool calls (Vercel AI #7326): GLM-5.2 on vLLM can end a stream with
+ * tool_calls deltas whose arguments never become parsable JSON.
  *
- * GLM-5.2 on vLLM can end a stream with an "orphan" tool call: tool_calls
- * deltas whose arguments never become parsable JSON before finish. The
- * upstream flush handler emits these as tool-call parts anyway, which blows
- * up downstream input parsing; our patch skips them. An earlier hand-written
- * version of the patch referenced `isParsableJson` without importing it in
- * the ESM bundle, crashing the whole agent pipeline with a ReferenceError —
- * this test exercises the real patched ESM bundle end-to-end.
+ * History: on the v6 SDK line this required a patch-package workaround (a
+ * broken hand-written version of which crashed the whole agent pipeline
+ * with a ReferenceError). The v7 line handles it natively: the stream
+ * completes and the orphan surfaces as a tool-call part flagged
+ * `invalid: true` instead of crashing or emitting a stream error. This test
+ * pins that contract so an SDK bump that regresses it fails loudly.
  */
 import { describe, it, expect } from "vitest";
 import { streamText, jsonSchema, tool } from "ai";
@@ -54,7 +54,7 @@ async function collectParts(events: string[]) {
 }
 
 describe("openai-compatible stream flush with orphan tool calls", () => {
-  it("completes the stream and drops a tool call whose args never parse", async () => {
+  it("completes the stream and flags a tool call whose args never parse as invalid", async () => {
     const parts = await collectParts([
       '{"id":"c1","choices":[{"index":0,"delta":{"role":"assistant","content":"Building it now."}}]}',
       '{"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_orphan","type":"function","function":{"name":"validate_code","arguments":"{\\"code\\": \\"from build123d imp"}}]}}]}',
@@ -63,7 +63,9 @@ describe("openai-compatible stream flush with orphan tool calls", () => {
 
     const errors = parts.filter((p) => p.type === "error");
     expect(errors).toEqual([]);
-    expect(parts.filter((p) => p.type === "tool-call")).toEqual([]);
+    // The orphan must not surface as a valid, executable tool call.
+    const validToolCalls = parts.filter((p) => p.type === "tool-call" && !p.invalid);
+    expect(validToolCalls).toEqual([]);
     const text = parts
       .filter((p) => p.type === "text-delta")
       .map((p) => p.text ?? p.textDelta)

@@ -13,7 +13,6 @@ import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createXai } from "@ai-sdk/xai";
-import { createMinimax } from "vercel-minimax-ai-provider";
 import { createOllamaVisionFetch } from "./ollama-vision-fetch.js";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
@@ -455,10 +454,13 @@ export function createProviderModel(cfg: LlmModelConfig): any {
   }
 
   if (type === "minimax") {
-    if (!apiKey) {
-      throw new Error(`API key missing for ${cfg.label} — configure it in Admin → Providers`);
-    }
-    return createMinimax({ apiKey })(modelName);
+    // vercel-minimax-ai-provider only supports AI SDK v6 interfaces and was
+    // dropped in the v7 migration. Re-add via an openai-compatible endpoint
+    // or a v7-compatible provider package if MiniMax is needed again.
+    throw new Error(
+      `Provider type "minimax" is no longer supported (${cfg.label}) — ` +
+        `reconfigure the provider as openai-compatible in Admin → Providers`,
+    );
   }
 
   if (type === "ollama") {
