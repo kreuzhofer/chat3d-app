@@ -471,10 +471,13 @@ export function createProviderModel(cfg: LlmModelConfig): any {
     const baseUrlWithVersion = normalizedBaseUrl.endsWith("/v1")
       ? normalizedBaseUrl
       : `${normalizedBaseUrl}/v1`;
+    // Same streaming-usage requirement as the generic openai-compatible path
+    // below: without includeUsage the server sends no usage chunk at all.
     const ollama = createOpenAICompatible({
       name: "ollama",
       baseURL: baseUrlWithVersion,
       apiKey: apiKey && apiKey.trim() !== "" ? apiKey.trim() : undefined,
+      includeUsage: true,
       fetch: createOllamaVisionFetch(normalizedBaseUrl),
     });
     return ollama.chatModel(modelName);
@@ -516,10 +519,15 @@ export function createProviderModel(cfg: LlmModelConfig): any {
         }
       : undefined;
 
+    // OpenAI-compatible servers (vLLM included) emit no usage chunk on
+    // streaming responses unless stream_options.include_usage is requested,
+    // and the SDK only sends it when includeUsage is set. Without this the
+    // agent loop accumulates zeros for prompt/completion tokens.
     const compat = createOpenAICompatible({
       name: cfg.provider,
       baseURL: baseUrlWithVersion,
       apiKey: apiKey?.trim() || undefined,
+      includeUsage: true,
       ...(customFetch ? { fetch: customFetch } : {}),
     });
     return compat.chatModel(modelName);
