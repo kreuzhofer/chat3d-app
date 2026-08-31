@@ -13,6 +13,7 @@ import { z } from "zod";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import { buildMinimalSystemPrompt } from "./training-export/minimal-system-prompt.js";
+import { toolCallPayload, type ToolCallPayloadCarrier } from "../utils/agent-history.js";
 
 const logger = createLogger("training-export");
 
@@ -139,11 +140,30 @@ Always view a file before editing it to see the current line numbers and content
 // ── Conversation Converter ──────────────────────────────────────────────
 
 /**
+ * Serialize a stored tool-call part's payload to an OpenAI `function.arguments`
+ * string.
+ *
+ * `"{}"` is the honest answer for a genuinely no-argument call such as
+ * `validate_and_render({})`, so it is returned without complaint; the failure
+ * this guards against is reading the wrong key, which toolCallPayload() owns.
+ */
+function toolCallArguments(part: ToolCallPayloadCarrier): string {
+  const payload = toolCallPayload(part);
+  if (typeof payload === "string") return payload;
+  return JSON.stringify(payload ?? {});
+}
+
+/**
  * Convert a stored Vercel AI SDK CoreMessage[] into OpenAI function-calling format.
  *
  * Vercel format:
- *   assistant.content = [{type:"text",text}, {type:"tool-call",toolCallId,toolName,args}]
+ *   assistant.content = [{type:"text",text}, {type:"tool-call",toolCallId,toolName,input}]
  *   tool.content      = [{type:"tool-result",toolCallId,toolName,output:{type:"text",value}}]
+ *
+ * Rows persisted before the AI SDK v7 `args` -> `input` rename carry the
+ * tool-call payload under `args` instead; both shapes are read, via
+ * toolCallPayload(). Dropping the legacy key would silently export
+ * `arguments: "{}"` for every historical row.
  *
  * OpenAI format:
  *   assistant = {role:"assistant", content:"text", tool_calls:[{id,type,function:{name,arguments}}]}
@@ -175,7 +195,7 @@ export function convertAgentConversation(
         type: "function" as const,
         function: {
           name: p.toolName,
-          arguments: typeof p.args === "string" ? p.args : JSON.stringify(p.args ?? {}),
+          arguments: toolCallArguments(p),
         },
       }));
 

@@ -23,6 +23,7 @@ import {
   type LlmModelConfig,
 } from "./llm-config.service.js";
 import { wrapInTemplate } from "../utils/workbench-code-utils.js";
+import { stepsToMessages } from "../utils/agent-history.js";
 import {
   buildAgentSystemPrompt,
   buildFullAgentSystemPrompt,
@@ -625,55 +626,3 @@ function buildAgentUserMessage(
   return parts.join("\n");
 }
 
-/**
- * Convert initial messages + SDK step results into a CoreMessage[] array
- * suitable for passing to the next streamText/generateText call as conversation history.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function stepsToMessages(initialMessages: CoreMessage[], steps: any[]): CoreMessage[] {
-  const history = [...initialMessages];
-  for (const step of steps) {
-    // Assistant message: text + tool calls
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const assistantContent: any[] = [];
-    if (step.text) {
-      assistantContent.push({ type: "text", text: step.text });
-    }
-    if (step.toolCalls && Array.isArray(step.toolCalls)) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for (const tc of step.toolCalls as any[]) {
-        // Sanitize: skip malformed tool calls (vLLM can produce calls without args)
-        if (!tc.toolCallId || !tc.toolName) continue;
-        assistantContent.push({
-          type: "tool-call",
-          toolCallId: tc.toolCallId,
-          toolName: tc.toolName,
-          args: tc.input ?? tc.args ?? {},
-        });
-      }
-    }
-    if (assistantContent.length > 0) {
-      history.push({ role: "assistant", content: assistantContent });
-    }
-    // Tool results
-    if (step.toolResults && Array.isArray(step.toolResults)) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const toolContent = (step.toolResults as any[])
-        .filter((tr: any) => tr.toolCallId) // skip malformed results
-        .map((tr: any) => {
-          const rawOutput = tr.result ?? tr.output ?? "";
-          const textValue = typeof rawOutput === "string" ? rawOutput : JSON.stringify(rawOutput);
-          return {
-            type: "tool-result" as const,
-            toolCallId: tr.toolCallId,
-            toolName: tr.toolName ?? "unknown",
-            output: { type: "text" as const, value: textValue },
-          };
-        });
-      if (toolContent.length > 0) {
-        history.push({ role: "tool", content: toolContent });
-      }
-    }
-  }
-  return history;
-}
