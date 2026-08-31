@@ -1,5 +1,6 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { prisma } from "../db/prisma.js";
+import { deleteTestCategory } from "./support/workbench-category-fixture.js";
 import {
   getRenderErrorHistogramForCategory,
   listExamplesByRenderErrorCategory,
@@ -7,6 +8,7 @@ import {
 } from "../services/render-error-analytics.service.js";
 
 describe("render-error analytics", () => {
+  let createdCategoryId: string | undefined;
   let categoryId: string;
   let promptId: string;
 
@@ -28,11 +30,17 @@ describe("render-error analytics", () => {
   beforeEach(async () => {
     const nextRank = ((await prisma.workbenchCategory.aggregate({ _max: { rank: true } }))._max.rank ?? 0) + 1;
     const cat = await prisma.workbenchCategory.create({ data: { name: `analytics-test-${Date.now()}-${nextRank}`, description: "", complexity: 1, rank: nextRank } });
+    createdCategoryId = cat.id;
     categoryId = cat.id;
     const prompt = await prisma.workbenchExamplePrompt.create({
       data: { categoryId, index: 1, prompt: "y" },
     });
     promptId = prompt.id;
+  });
+
+  afterEach(async () => {
+    await deleteTestCategory(createdCategoryId);
+    createdCategoryId = undefined;
   });
 
   it("histogram returns zero counts when no failed examples exist", async () => {

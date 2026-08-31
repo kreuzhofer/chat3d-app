@@ -1,10 +1,12 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { prisma } from "../db/prisma.js";
+import { deleteTestCategory } from "./support/workbench-category-fixture.js";
 import { persistSpecToPrompt } from "../services/workbench-spec-persist.service.js";
 import type { SpecResult } from "../services/spec-generation.service.js";
 import type { EvalPlan } from "../utils/eval-plan.js";
 
 describe("persistSpecToPrompt evalPlan", () => {
+  let createdCategoryId: string | undefined;
   let categoryId: string;
   let promptId: string;
 
@@ -13,11 +15,17 @@ describe("persistSpecToPrompt evalPlan", () => {
     const cat = await prisma.workbenchCategory.create({
       data: { name: `evalplan-persist-${Date.now()}-${nextRank}`, description: "", complexity: 1, rank: nextRank },
     });
+    createdCategoryId = cat.id;
     categoryId = cat.id;
     const prompt = await prisma.workbenchExamplePrompt.create({
       data: { categoryId, index: 1, prompt: "p" },
     });
     promptId = prompt.id;
+  });
+
+  afterEach(async () => {
+    await deleteTestCategory(createdCategoryId);
+    createdCategoryId = undefined;
   });
 
   function makeSpec(plan: EvalPlan | null): SpecResult {

@@ -1,7 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, afterAll } from "vitest";
 import { prisma } from "../db/prisma.js";
+import { deleteTestCategory } from "./support/workbench-category-fixture.js";
 
 describe("workbench-reeval persists compositeWeightSource", () => {
+  let createdCategoryId: string | undefined;
+
+  afterAll(async () => {
+    await deleteTestCategory(createdCategoryId);
+    createdCategoryId = undefined;
+  });
   it("the update payload includes compositeWeightSource", async () => {
     // This is a minimal regression test that just confirms the update can write the field.
     // Full E2E would require mocking the eval pipeline; out of scope.
@@ -9,6 +16,7 @@ describe("workbench-reeval persists compositeWeightSource", () => {
     const cat = await prisma.workbenchCategory.create({
       data: { name: `reeval-cws-${Date.now()}-${nextRank}`, description: "", complexity: 1, rank: nextRank },
     });
+    createdCategoryId = cat.id;
     const prompt = await prisma.workbenchExamplePrompt.create({
       data: { categoryId: cat.id, index: 1, prompt: "p" },
     });

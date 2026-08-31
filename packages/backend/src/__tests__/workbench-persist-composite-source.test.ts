@@ -1,8 +1,10 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { prisma } from "../db/prisma.js";
+import { deleteTestCategory } from "./support/workbench-category-fixture.js";
 import { insertExample } from "../services/workbench-persist.service.js";
 
 describe("insertExample compositeWeightSource", () => {
+  let createdCategoryId: string | undefined;
   let promptId: string;
   let id: string;
 
@@ -11,9 +13,15 @@ describe("insertExample compositeWeightSource", () => {
     const cat = await prisma.workbenchCategory.create({
       data: { name: `cws-test-${Date.now()}-${nextRank}`, description: "", complexity: 1, rank: nextRank },
     });
+    createdCategoryId = cat.id;
     const prompt = await prisma.workbenchExamplePrompt.create({ data: { categoryId: cat.id, index: 1, prompt: "p" } });
     promptId = prompt.id;
     id = crypto.randomUUID();
+  });
+
+  afterEach(async () => {
+    await deleteTestCategory(createdCategoryId);
+    createdCategoryId = undefined;
   });
 
   it("persists compositeWeightSource when provided", async () => {

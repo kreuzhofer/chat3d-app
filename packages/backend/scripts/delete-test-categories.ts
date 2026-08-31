@@ -1,5 +1,6 @@
 /**
- * Delete workbench categories whose names match /test/i.
+ * Delete workbench categories whose names carry the generated test suffix
+ * `-<epoch-ms>-<rank>` (see NAME_PATTERN). Never matches a hand-named category.
  *
  * Dry-run mode (default): prints matched categories with prompt/example/file counts.
  * Commit mode (--commit):  calls DELETE /api/admin/workbench/categories/:id for each match,
@@ -17,7 +18,16 @@ import {
 
 const logger = createLogger("delete-test-categories");
 
-const NAME_PATTERN = /(test|evalplan-persist|reeval-cws)/i;
+/**
+ * Matches only the machine-generated suffix the seeding tests produce —
+ * `<prefix>-<epoch-ms>-<rank>`, e.g. `backfill-test-1788174868921-456`.
+ *
+ * Deliberately structural rather than a substring match on "test": the previous
+ * /test/i pattern both missed 54 generated categories whose prefix happens not
+ * to contain "test", and would have matched any human-named category with
+ * "test" in it. A real category name cannot end in `-<13 digits>-<n>`.
+ */
+const NAME_PATTERN = /-\d{10,}-\d+$/;
 const API_BASE = process.env.API_BASE_URL ?? "http://localhost";
 const TOKEN_PATH = "/tmp/chat3d-token.txt";
 const ADMIN_EMAIL = "admin@chat3d.local";

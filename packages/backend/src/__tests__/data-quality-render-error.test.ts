@@ -1,14 +1,17 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { prisma } from "../db/prisma.js";
+import { deleteTestCategory } from "./support/workbench-category-fixture.js";
 import { getDataQualityReport } from "../services/data-quality.service.js";
 
 describe("data-quality includes renderErrorCategoryHistogram", () => {
+  let createdCategoryId: string | undefined;
   let categoryId: string;
   let promptId: string;
 
   beforeEach(async () => {
     const nextRank = ((await prisma.workbenchCategory.aggregate({ _max: { rank: true } }))._max.rank ?? 0) + 1;
     const cat = await prisma.workbenchCategory.create({ data: { name: `dq-test-${Date.now()}-${nextRank}`, description: "", complexity: 1, rank: nextRank } });
+    createdCategoryId = cat.id;
     categoryId = cat.id;
     const prompt = await prisma.workbenchExamplePrompt.create({
       data: { categoryId, index: 1, prompt: "z" },
@@ -22,6 +25,11 @@ describe("data-quality includes renderErrorCategoryHistogram", () => {
         approvalStatus: "pending",
       },
     });
+  });
+
+  afterEach(async () => {
+    await deleteTestCategory(createdCategoryId);
+    createdCategoryId = undefined;
   });
 
   it("returns per-category histogram with the kernel_error count", async () => {
