@@ -198,14 +198,20 @@ export function ModelFormDialog({ model, providers, token, saving, onSave, onClo
           />
         </FormField>
 
-        {/* Cost row */}
+        {/* Cost row.
+            step="any" rather than a fixed step: prices are stored as
+            DECIMAL(12,4), so four-decimal rates like 2.4329 are valid data. A
+            numeric step makes the browser reject anything that is not a
+            multiple of it with a stepMismatch, which blocks saving the whole
+            form — including edits to unrelated fields — and reports it through
+            the browser's own locale-formatted message. */}
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Cost per 1M Input Tokens" htmlFor="model-cost-in" helperText="USD">
             <Input
               id="model-cost-in"
               type="number"
               min={0}
-              step={0.001}
+              step="any"
               value={form.costPer1mInput}
               onChange={(e) => patch({ costPer1mInput: parseFloat(e.target.value) || 0 })}
             />
@@ -216,7 +222,7 @@ export function ModelFormDialog({ model, providers, token, saving, onSave, onClo
               id="model-cost-out"
               type="number"
               min={0}
-              step={0.001}
+              step="any"
               value={form.costPer1mOutput}
               onChange={(e) => patch({ costPer1mOutput: parseFloat(e.target.value) || 0 })}
             />
