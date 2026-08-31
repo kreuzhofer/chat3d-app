@@ -102,3 +102,23 @@ export interface RenderErrorExample {
   renderErrorCategory: RenderErrorCategoryName;
   createdAt: string; // ISO datetime
 }
+
+// ── LLM thinking effort ──────────────────────────────────────────────
+
+/**
+ * The thinking-effort vocabulary, shared by the model default and the
+ * per-purpose override.
+ *
+ * One list because it was previously three that disagreed: the backend's
+ * budget map omitted "off", the model dialog offered only low/medium/high, and
+ * the purpose table offered all five — so the UI could not express "off" even
+ * though several purposes run on it. "off" is not merely the lowest budget: it
+ * sets `enable_thinking: false` for vLLM-style chat templates.
+ */
+export const THINKING_EFFORTS = ["off", "low", "medium", "high", "max"] as const;
+
+export type ThinkingEffort = (typeof THINKING_EFFORTS)[number];
+
+export function isThinkingEffort(value: unknown): value is ThinkingEffort {
+  return typeof value === "string" && (THINKING_EFFORTS as readonly string[]).includes(value);
+}

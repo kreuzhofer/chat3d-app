@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Save } from "lucide-react";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import {
   listAdminLlmModels,
   listLlmPurposes,
@@ -7,7 +7,6 @@ import {
   createLlmModel,
   updateLlmModel,
   deleteLlmModel,
-  updateLlmPurpose,
   type LlmModelRow,
   type LlmPurposeRow,
   type LlmProviderRow,
@@ -17,6 +16,7 @@ import { SectionCard } from "../layout/SectionCard";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { ModelFormDialog, type ModelFormData } from "./ModelFormDialog";
+import { PurposeAssignmentsTable } from "./PurposeAssignmentsTable";
 
 const PROVIDER_COLORS: Record<string, string> = {
   openai: "bg-blue-900 text-blue-200",
@@ -43,29 +43,6 @@ function formatTokens(value: number | null): string {
   return String(value);
 }
 
-const PURPOSE_LABELS: Record<string, string> = {
-  conversation: "Conversation",
-  agent_codegen: "Code Generation (Chat)",
-  workbench_codegen: "Code Generation (Workbench)",
-  vlm_eval: "VLM Evaluation",
-  embedding: "Embedding",
-  prompt_distill: "Prompt Distillation",
-  tag_suggest: "Tag Suggestion",
-  spec_generation: "Spec Generation",
-  spec_enrichment: "Spec Enrichment",
-  code_review: "Code Review",
-  decomposition_decision: "Decomposition Decision (Routing)",
-};
-
-/** One-liner explaining fallback when a purpose is unassigned. */
-const PURPOSE_FALLBACKS: Record<string, string> = {
-  workbench_codegen: "Falls back to: agent_codegen",
-  spec_generation: "Falls back to: conversation",
-  spec_enrichment: "Falls back to: spec_generation → conversation",
-  code_review: "Falls back to: spec_generation → conversation",
-  decomposition_decision: "Unassigned → router falls back to single-agent",
-};
-
 export interface ModelsTabProps {
   token: string;
 }
@@ -81,10 +58,6 @@ export function ModelsTab({ token }: ModelsTabProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<LlmModelRow | null>(null);
   const [saving, setSaving] = useState(false);
-
-  // Purpose edit state (inline)
-  const [purposeEdits, setPurposeEdits] = useState<Record<string, string>>({});
-  const [savingPurpose, setSavingPurpose] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -195,29 +168,6 @@ export function ModelsTab({ token }: ModelsTabProps) {
     }
   };
 
-  const handlePurposeModelChange = (purpose: string, modelId: string) => {
-    setPurposeEdits((prev) => ({ ...prev, [purpose]: modelId }));
-  };
-
-  const handleSavePurpose = async (purpose: string) => {
-    const newModelId = purposeEdits[purpose];
-    if (!newModelId) return;
-    setSavingPurpose(purpose);
-    try {
-      await updateLlmPurpose(token, purpose, { modelId: newModelId });
-      setPurposeEdits((prev) => {
-        const next = { ...prev };
-        delete next[purpose];
-        return next;
-      });
-      await loadData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update purpose assignment");
-    } finally {
-      setSavingPurpose(null);
-    }
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12 text-sm text-[hsl(var(--muted-foreground))]">
@@ -225,8 +175,6 @@ export function ModelsTab({ token }: ModelsTabProps) {
       </div>
     );
   }
-
-  const activeModels = models.filter((m) => m.is_active);
 
   return (
     <div className="space-y-4">
@@ -350,66 +298,13 @@ export function ModelsTab({ token }: ModelsTabProps) {
         </div>
       </SectionCard>
 
-      {/* Purpose Assignments */}
-      <SectionCard
-        title="Purpose Assignments"
-        description="Map each pipeline purpose to a specific model. Changes take effect on the next request."
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[hsl(var(--border))] text-left text-xs text-[hsl(var(--muted-foreground))]">
-                <th className="pb-2 pr-3 font-medium">Purpose</th>
-                <th className="pb-2 pr-3 font-medium">Assigned Model</th>
-                <th className="pb-2 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {purposes.map((p) => {
-                const currentModelId = purposeEdits[p.purpose] ?? p.modelId ?? "";
-                const hasChange = purposeEdits[p.purpose] !== undefined && purposeEdits[p.purpose] !== (p.modelId ?? "");
-                return (
-                  <tr key={p.purpose} className="border-b border-[hsl(var(--border)_/_0.5)] last:border-0">
-                    <td className="py-2 pr-3">
-                      <div className="font-medium">{PURPOSE_LABELS[p.purpose] ?? p.purpose}</div>
-                      {PURPOSE_FALLBACKS[p.purpose] && !p.modelId && (
-                        <div className="text-xs text-[hsl(var(--muted-foreground))]">{PURPOSE_FALLBACKS[p.purpose]}</div>
-                      )}
-                    </td>
-                    <td className="py-2 pr-3">
-                      <select
-                        className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1 text-sm"
-                        value={currentModelId}
-                        onChange={(e) => handlePurposeModelChange(p.purpose, e.target.value)}
-                      >
-                        <option value="">— Not assigned —</option>
-                        {activeModels.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.provider}/{m.model_name}
-                            {m.display_name ? ` (${m.display_name})` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="py-2">
-                      {hasChange && (
-                        <Button
-                          size="sm"
-                          onClick={() => handleSavePurpose(p.purpose)}
-                          disabled={savingPurpose === p.purpose}
-                        >
-                          <Save className="mr-1 h-3 w-3" />
-                          {savingPurpose === p.purpose ? "Saving..." : "Save"}
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </SectionCard>
+      <PurposeAssignmentsTable
+        purposes={purposes}
+        models={models}
+        token={token}
+        onSaved={loadData}
+        onError={setError}
+      />
 
       {/* Model Form Dialog */}
       {dialogOpen && (

@@ -16,6 +16,7 @@ import { createXai } from "@ai-sdk/xai";
 import { createOllamaVisionFetch } from "./ollama-vision-fetch.js";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
+import { THINKING_EFFORTS, isThinkingEffort } from "@chat3d/shared";
 import { uncountedReasoningTokens } from "../utils/token-accounting.js";
 
 const logger = createLogger("llm-config");
@@ -1049,21 +1050,56 @@ export async function listPurposeAssignments(): Promise<PurposeAssignment[]> {
   });
 }
 
+export interface PurposeAssignmentPatch {
+  modelId?: string;
+  overrideMaxOutputTokens?: number | null;
+  overrideThinkingEffort?: string | null;
+}
+
+/**
+ * Outcome of a purpose-assignment update.
+ *
+ * Distinguishing these matters: the previous implementation collapsed "no model
+ * id in the patch", "purpose has no row yet" and "the write threw" into a bare
+ * null, which the route reported as 404 "purpose not found" — so an override-only
+ * patch on an existing purpose looked like a missing purpose (issue #26).
+ */
+export type PurposeUpdateOutcome =
+  | { status: "ok"; assignment: PurposeAssignment }
+  | { status: "not_found" }
+  | { status: "invalid"; message: string };
+
 export async function updatePurposeAssignment(
   purpose: string,
-  patch: {
-    modelId?: string;
-    overrideMaxOutputTokens?: number | null;
-    overrideThinkingEffort?: string | null;
-  },
-): Promise<PurposeAssignment | null> {
-  if (!patch.modelId) return null;
+  patch: PurposeAssignmentPatch,
+): Promise<PurposeUpdateOutcome> {
+  if (!(LLM_PURPOSES as readonly string[]).includes(purpose)) {
+    return { status: "not_found" };
+  }
+
+  // Validate at the boundary. Every one of these reached the database before
+  // and surfaced as a 500 or a misleading 404 (issue #26).
+  const modelId = patch.modelId?.trim();
+  if (patch.modelId !== undefined && !modelId) {
+    // The model select's "not assigned" option sends "". modelId is NOT NULL in
+    // the schema, so this would fail the foreign key rather than unassign.
+    return { status: "invalid", message: "modelId must be a non-empty id" };
+  }
+  if (patch.overrideThinkingEffort != null && !isThinkingEffort(patch.overrideThinkingEffort)) {
+    return {
+      status: "invalid",
+      message: `overrideThinkingEffort must be one of ${THINKING_EFFORTS.join(", ")}`,
+    };
+  }
+  if (patch.overrideMaxOutputTokens != null
+      && (!Number.isInteger(patch.overrideMaxOutputTokens) || patch.overrideMaxOutputTokens < 1)) {
+    // The column is an integer; a fractional value fails the write.
+    return { status: "invalid", message: "overrideMaxOutputTokens must be a positive whole number" };
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const updateData: Record<string, any> = {
-    modelId: patch.modelId,
-    updatedAt: new Date(),
-  };
+  const updateData: Record<string, any> = {};
+  if (modelId !== undefined) updateData.modelId = modelId;
   if (patch.overrideMaxOutputTokens !== undefined) {
     updateData.overrideMaxOutputTokens = patch.overrideMaxOutputTokens;
   }
@@ -1071,22 +1107,51 @@ export async function updatePurposeAssignment(
     updateData.overrideThinkingEffort = patch.overrideThinkingEffort;
   }
 
-  try {
-    await prisma.llmPurposeMap.upsert({
-      where: { purpose },
-      update: updateData,
-      create: {
+  if (Object.keys(updateData).length === 0) {
+    return { status: "invalid", message: "No updatable fields in request body" };
+  }
+
+  if (modelId) {
+    const model = await prisma.llmModel.findUnique({ where: { id: modelId }, select: { id: true } });
+    // An unknown model is a bad request, not a server error — the write would
+    // otherwise fail the foreign key and surface as a 500.
+    if (!model) return { status: "invalid", message: `No model with id '${modelId}'` };
+  }
+
+  updateData.updatedAt = new Date();
+
+  const existing = await prisma.llmPurposeMap.findUnique({ where: { purpose } });
+
+  // A purpose with no row yet cannot be created from overrides alone — there is
+  // no model to attach them to. That is a bad request, not a missing purpose.
+  if (!existing && !modelId) {
+    return {
+      status: "invalid",
+      message: `Purpose '${purpose}' has no model assigned yet; set modelId before setting overrides`,
+    };
+  }
+
+  if (existing) {
+    await prisma.llmPurposeMap.update({ where: { purpose }, data: updateData });
+  } else {
+    if (!modelId) throw new Error("unreachable: create path requires a modelId");
+    await prisma.llmPurposeMap.create({
+      data: {
         purpose,
-        modelId: patch.modelId,
+        modelId,
         overrideMaxOutputTokens: patch.overrideMaxOutputTokens ?? null,
         overrideThinkingEffort: patch.overrideThinkingEffort ?? null,
       },
     });
-  } catch {
-    return null;
   }
 
   // Return the updated assignment with joined model info
   const assignments = await listPurposeAssignments();
-  return assignments.find((a) => a.purpose === purpose) ?? null;
+  const assignment = assignments.find((a) => a.purpose === purpose);
+  if (!assignment) {
+    // The write succeeded, so the row exists. Reporting "not found" here would
+    // be a silent lie about an impossible state.
+    throw new Error(`Purpose '${purpose}' vanished after a successful write`);
+  }
+  return { status: "ok", assignment };
 }

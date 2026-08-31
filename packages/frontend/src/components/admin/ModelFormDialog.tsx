@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { THINKING_EFFORT_VALUES, thinkingEffortLabel } from "./thinking-effort";
 import { fetchProviderModels, type LlmModelRow, type LlmProviderRow } from "../../api/admin.api";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
@@ -24,11 +25,12 @@ export interface ModelFormData {
   vlmEvalPreamble: string;
 }
 
+// Derived from the shared vocabulary rather than hand-listed: this list used to
+// omit "off" and "max", so a model could not be set to the effort several
+// purposes actually run at.
 const THINKING_EFFORT_OPTIONS = [
   { value: "", label: "\u2014 None \u2014" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
+  ...THINKING_EFFORT_VALUES.map((e) => ({ value: e, label: thinkingEffortLabel(e) })),
 ];
 
 function emptyForm(defaultProvider: string): ModelFormData {

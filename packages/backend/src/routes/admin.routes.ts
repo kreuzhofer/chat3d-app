@@ -605,7 +605,7 @@ adminRouter.patch("/llm-purposes/:purpose", async (req, res) => {
   }
 
   try {
-    const updated = await updatePurposeAssignment(purpose, {
+    const outcome = await updatePurposeAssignment(purpose, {
       modelId: typeof body.modelId === "string" ? body.modelId : undefined,
       overrideMaxOutputTokens: body.overrideMaxOutputTokens !== undefined
         ? (typeof body.overrideMaxOutputTokens === "number" ? body.overrideMaxOutputTokens : null)
@@ -614,11 +614,17 @@ adminRouter.patch("/llm-purposes/:purpose", async (req, res) => {
         ? (typeof body.overrideThinkingEffort === "string" ? body.overrideThinkingEffort : null)
         : undefined,
     });
-    if (!updated) {
+    // 404 now means only what it says: the purpose does not exist. A patch that
+    // cannot be applied is a 400 carrying the reason (issue #26).
+    if (outcome.status === "not_found") {
       res.status(404).json({ error: "Purpose not found" });
       return;
     }
-    res.status(200).json(updated);
+    if (outcome.status === "invalid") {
+      res.status(400).json({ error: outcome.message });
+      return;
+    }
+    res.status(200).json(outcome.assignment);
   } catch (error) {
     sendKnownError(res, error, "Failed to update LLM purpose assignment");
   }
