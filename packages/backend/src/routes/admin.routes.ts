@@ -100,6 +100,7 @@ import {
 } from "../services/llm-config.service.js";
 import { fetchProviderModels } from "../services/llm-provider-models.service.js";
 import { renderErrorsRouter } from "./admin/render-errors.routes.js";
+import { parseLlmModelPatch } from "../utils/llm-model-patch.js";
 
 export const adminRouter = Router();
 
@@ -540,8 +541,16 @@ adminRouter.patch("/llm-models/:id", async (req, res) => {
     }
   }
 
+  // Validate at the boundary: an unrecognised or wrong-typed field is an error,
+  // never a silently discarded update reported as success. See issue #24.
+  const parsed = parseLlmModelPatch(body);
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+
   try {
-    const updated = await updateModel(modelId, body);
+    const updated = await updateModel(modelId, parsed.data);
     if (!updated) {
       res.status(404).json({ error: "Model not found" });
       return;
