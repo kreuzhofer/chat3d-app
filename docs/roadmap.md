@@ -215,14 +215,27 @@ Major UX evolution since initial phases.
 | **Spec backfill categories 5-12** | Full spec_interpretation + code_assertions for all categories (currently near-zero for 5+) | Medium | In progress |
 | **Resolve pending approvals** | Clear ~597 pending examples — re-generate or approve/reject | Medium | In progress |
 | **Backfill training data** | Run "Batch Re-Evaluate" across all categories to populate VLM + code review training fields on existing ~940 examples | Medium | Planned |
-| **Verify cost tracking accuracy** | Reasoning token fix deployed (Phase 1); needs validation on next agent codegen run to confirm AWS bill alignment. Cost ledger source context (Phase 2) deployed | Small | In progress |
+| **Verify cost tracking accuracy** | Phase 1–2 (reasoning-token capture, cost ledger source context) deployed. Phase 3 (#23) corrected three defects the earlier phases masked: reasoning was read from a field AI SDK v7 does not have (zero since the v7 migration), reasoning was billed on top of completion tokens that already contained it, and `totalTokens` double-counted it. vLLM streamed calls also recorded zero tokens until `includeUsage` was set (#22-adjacent). Validated on a live run: agent step $0.0033, arithmetic checked. **Remaining:** frontier bill alignment still unverified, and recorded costs are discontinuous across 2026-08-31 — rows before it overstate reasoning and understate vLLM | Small | In progress |
 | **Quality benchmark** | Define ~50 representative prompts across difficulty levels for evaluation | Small | — |
+
+### Near-Term: Technical Debt & Known Defects
+> Priority: **Medium** — tracked as GitHub issues; listed here so the roadmap reflects the whole backlog, not only feature work
+
+| Item | Description | Effort | Status |
+|------|-------------|--------|--------|
+| **Deprecated vision content part** ([#27](https://github.com/kreuzhofer/chat3d-app/issues/27)) | Every vision call builds the AI SDK's deprecated `image` content part — 121 deprecation warnings in ~2h of runtime, on the VLM path that scores every example. Breaks outright when the SDK removes it | Small | Open |
+| **Streaming-only timeout on non-streaming calls** ([#28](https://github.com/kreuzhofer/chat3d-app/issues/28)) | `chunkMs` is passed to non-streaming calls and ignored, so that path has no stall protection short of the 60-minute total | Small | Open |
+| **File-size cap unenforced** ([#29](https://github.com/kreuzhofer/chat3d-app/issues/29)) | 27 of 376 source files exceed CLAUDE.md's mandatory 500-line cap (largest 1908). Nothing enforces it — no CI, no hook, lint not wired in | Medium | Open |
+| **Enrichment usage mislabelled** ([#30](https://github.com/kreuzhofer/chat3d-app/issues/30)) | Spec enrichment records under `spec_generation`, so the two cannot be told apart in the ledger. The tracking purpose vocabulary has also drifted from what services write | Small | Open |
+| **Hardcoded output caps** ([#31](https://github.com/kreuzhofer/chat3d-app/issues/31)) | ~10 call sites pass a literal `maxOutputTokens`, so the per-purpose override has no effect there. Caused enrichment JSON truncation at 4096 with a thinking model | Small | Open |
+| **Provider updates discard fields** ([#32](https://github.com/kreuzhofer/chat3d-app/issues/32)) | Same silent-discard shape fixed for models in #24; providers is the remaining instance | Small | Open |
 
 ### Near-Term: Experiment UI Enhancements
 > Priority: **Medium** — improve interpretability of fine-tune vs. baseline comparisons
 
 | Item | Description | Effort | Status |
 |------|-------------|--------|--------|
+| **Rename an experiment from its detail page** ([#25](https://github.com/kreuzhofer/chat3d-app/issues/25)) | Renaming is gated behind the full config editor and blocked entirely while a run is in flight — so the moment you notice a name is stale is the moment you cannot fix it. A name is metadata and cannot affect results | Small | Open |
 | **Base model in visual comparison charts** | Visual comparison charts currently plot only the experiment runs' outputs. Include the baseline (production model) result alongside the trained-model variants so reviewers can see drift/improvement at a glance | Small | — |
 | **Base model cost + time in per-prompt comparison list** | Each model column in the per-prompt comparison list already includes cost and time rows alongside its other per-prompt metrics; the baseline column omits both. Add cost and time rows inside the baseline column (not new columns) so the baseline matches the other model columns and we have parity for cost-and-latency comparison | Small | — |
 | **Per-prompt bar charts (score / cost / duration)** | Three per-prompt bar charts on the experiment detail page — one for composite score, one for cost USD, one for duration — with one bar per prompt per model side-by-side and the baseline included. Failed prompts render as empty bars (gap markers) so the index axis stays aligned. With 100 prompts this is dense; design needs a strategy — see open question below. Provides quick visual outlier detection that the table view doesn't | Medium | — |
