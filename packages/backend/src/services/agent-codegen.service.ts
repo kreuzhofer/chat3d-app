@@ -12,6 +12,7 @@
 
 import { stepCountIs, type ModelMessage as CoreMessage } from "ai";
 import { trackedStreamText, trackedGenerateText, consumeStreamWithProgress } from "./tracked-llm.service.js";
+import { resolveReasoningTokens } from "../utils/token-accounting.js";
 import { createLogger } from "../utils/logger.js";
 import { AgentFilesystem } from "./agent-filesystem.service.js";
 import { preRetrieveReferenceKnowledge, formatReferenceSection } from "./knowledge-search.service.js";
@@ -320,9 +321,22 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
 
         totalPromptTokens += usage?.inputTokens ?? 0;
         totalCompletionTokens += usage?.outputTokens ?? 0;
-        const providerMeta = event.providerMetadata;
-        const anthropicMeta = providerMeta?.anthropic as Record<string, unknown> | undefined;
-        const reasoningTokens = (anthropicMeta?.reasoningTokens as number) ?? 0;
+        // AI SDK v7 reports reasoning under usage.outputTokenDetails — there is
+        // no top-level reasoningTokens, and the anthropic providerMetadata does
+        // not carry one either. vLLM omits the breakdown entirely, so fall back
+        // to estimating from the streamed reasoning text rather than recording
+        // a flat zero for every local thinking model.
+        const usageDetails = usage?.outputTokenDetails as { reasoningTokens?: number } | undefined;
+        const reasoningChars =
+          typeof event.reasoningText === "string" ? event.reasoningText.length : 0;
+        const reasoning = resolveReasoningTokens(usageDetails?.reasoningTokens ?? 0, reasoningChars);
+        const reasoningTokens = reasoning.tokens;
+        if (reasoning.estimated) {
+          logger.debug(
+            { step: stepNum, chars: reasoningChars, estimatedTokens: reasoningTokens, model: modelConfig.modelName },
+            "estimated agent step reasoning tokens from reasoning text (provider reported none)",
+          );
+        }
         totalReasoningTokens += reasoningTokens;
 
         const toolNames = event.toolCalls.map(tc => tc.toolName);

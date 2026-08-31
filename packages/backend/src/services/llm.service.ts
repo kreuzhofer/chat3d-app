@@ -1,5 +1,6 @@
 import { NoOutputGeneratedError, streamText, generateText } from "ai";
 import { trackedGenerateText } from "./tracked-llm.service.js";
+import { estimateTokensFromChars, resolveReasoningTokens } from "../utils/token-accounting.js";
 import { recordUsageEvent, type LlmPurpose } from "./usage-tracking.service.js";
 import { asQuotaError } from "../utils/llm-errors.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
@@ -21,20 +22,6 @@ import type { ModelMessage as CoreMessage } from "ai";
 import type { ConversationHistoryEntry, CollectedImage } from "./query.service.js";
 
 const logger = createLogger("llm");
-
-/**
- * Bedrock + Anthropic streaming usage payloads sometimes report
- * `reasoningTokens === 0` even when the model produced thinking output. When
- * reasoning text is available (either streamed reasoning-delta chars or the
- * resolved `reasoningText` string), estimate ~4 chars/token so the stored
- * usage record reflects the actual work done. Falls back to the raw value
- * when no reasoning text was captured.
- */
-function effectiveReasoningTokens(rawTokens: number, reasoningChars: number): number {
-  if (rawTokens > 0) return rawTokens;
-  if (reasoningChars > 0) return Math.ceil(reasoningChars / 4);
-  return 0;
-}
 
 type LlmProvider = "mock" | "openai" | "anthropic" | "xai" | "deepseek" | "minimax" | "ollama";
 
@@ -359,7 +346,14 @@ function extractTokenUsage(value: unknown): {
   const outputTokens = toSafePositiveInteger(
     usage.outputTokens ?? usage.completionTokens ?? usage.output_tokens,
   );
-  const reasoningTokens = toSafePositiveInteger(usage.reasoningTokens ?? usage.reasoning_tokens);
+  // AI SDK v7 reports reasoning under outputTokenDetails, not at the top level;
+  // the flat keys remain as a fallback for pre-v7 usage payloads.
+  const outputDetails = typeof usage.outputTokenDetails === "object" && usage.outputTokenDetails !== null
+    ? usage.outputTokenDetails as Record<string, unknown>
+    : null;
+  const reasoningTokens = toSafePositiveInteger(
+    (outputDetails?.reasoningTokens) ?? usage.reasoningTokens ?? usage.reasoning_tokens,
+  );
   const totalTokens = toSafePositiveInteger(usage.totalTokens ?? usage.total_tokens);
 
   // Extract cache token details from Vercel AI SDK v6 usage object
@@ -384,7 +378,7 @@ function estimateTokens(text: string): number {
   if (trimmed === "") {
     return 0;
   }
-  return Math.max(1, Math.ceil(trimmed.length / 4));
+  return Math.max(1, estimateTokensFromChars(trimmed.length));
 }
 
 function buildUsageMetadata(input: {
@@ -531,7 +525,7 @@ async function generateWithConfig(
         // Record usage for Bedrock fallback stream
         if (purpose) {
           const su = extractTokenUsage(usage);
-          const rt = effectiveReasoningTokens(su.reasoningTokens ?? 0, reasoningChars);
+          const rt = resolveReasoningTokens(su.reasoningTokens ?? 0, reasoningChars).tokens;
           recordUsageEvent({
             providerName: cfg.provider,
             modelId: cfg.id,
@@ -710,7 +704,7 @@ async function streamWithMessages(
         const effectiveUsage = genResult.usage;
         const cacheUsage = extractTokenUsage(effectiveUsage);
         const reasoningChars = (genResult.reasoningText ?? "").length;
-        const rt = effectiveReasoningTokens(cacheUsage.reasoningTokens ?? 0, reasoningChars);
+        const rt = resolveReasoningTokens(cacheUsage.reasoningTokens ?? 0, reasoningChars).tokens;
         if (purpose) {
           recordUsageEvent({
             providerName: cfg.provider, modelId: cfg.id, modelName: cfg.modelName, purpose,
@@ -762,8 +756,8 @@ async function streamWithMessages(
           {
             provider,
             model,
-            estimatedTokens: Math.ceil(fullText.length / 4),
-            estimatedReasoningTokens: Math.ceil(reasoningChars / 4),
+            estimatedTokens: estimateTokensFromChars(fullText.length),
+            estimatedReasoningTokens: estimateTokensFromChars(reasoningChars),
             elapsedMs: Date.now() - streamStart,
             lastDeltaAgoMs: Date.now() - lastDeltaAt,
             reason,
@@ -832,7 +826,7 @@ async function streamWithMessages(
         );
       }
 
-      const rt = effectiveReasoningTokens(cacheUsage.reasoningTokens ?? 0, reasoningChars);
+      const rt = resolveReasoningTokens(cacheUsage.reasoningTokens ?? 0, reasoningChars).tokens;
       // Record usage event for streaming call
       if (purpose) {
         recordUsageEvent({
@@ -913,7 +907,7 @@ async function streamWithConfig(
         const effectiveUsage = genResult.usage;
         const cacheUsage = extractTokenUsage(effectiveUsage);
         const reasoningChars = (genResult.reasoningText ?? "").length;
-        const rt = effectiveReasoningTokens(cacheUsage.reasoningTokens ?? 0, reasoningChars);
+        const rt = resolveReasoningTokens(cacheUsage.reasoningTokens ?? 0, reasoningChars).tokens;
         if (purpose) {
           recordUsageEvent({
             providerName: cfg.provider, modelId: cfg.id, modelName: cfg.modelName, purpose,
@@ -963,8 +957,8 @@ async function streamWithConfig(
           {
             provider: cfg.provider,
             model: cfg.modelName,
-            estimatedTokens: Math.ceil(fullText.length / 4),
-            estimatedReasoningTokens: Math.ceil(reasoningChars / 4),
+            estimatedTokens: estimateTokensFromChars(fullText.length),
+            estimatedReasoningTokens: estimateTokensFromChars(reasoningChars),
             elapsedMs: Date.now() - streamStart,
             lastDeltaAgoMs: Date.now() - lastDeltaAt,
             reason,
@@ -1051,7 +1045,7 @@ async function streamWithConfig(
       }
 
       const reasoningCharsResolved = (awaitedReasoningText ?? "").length;
-      const rt = effectiveReasoningTokens(cacheUsage.reasoningTokens ?? 0, reasoningCharsResolved);
+      const rt = resolveReasoningTokens(cacheUsage.reasoningTokens ?? 0, reasoningCharsResolved).tokens;
       // Record usage event for streaming call
       if (purpose) {
         recordUsageEvent({

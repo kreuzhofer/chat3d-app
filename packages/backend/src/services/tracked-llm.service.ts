@@ -12,6 +12,11 @@ import { generateText, streamText, embed, embedMany, type TextStreamPart } from 
 import { calculateCostUsd, type LlmModelConfig } from "./llm-config.service.js";
 import { recordUsageEvent, type LlmPurpose } from "./usage-tracking.service.js";
 import { createLogger } from "../utils/logger.js";
+import {
+  estimateTokensFromChars,
+  resolveReasoningTokens,
+  totalTokensWithUncountedReasoning,
+} from "../utils/token-accounting.js";
 
 const logger = createLogger("tracked-llm");
 
@@ -49,7 +54,17 @@ function extractUsage(raw: unknown): ExtractedUsage {
   const u = raw as Record<string, unknown>;
   const inputTokens = safeInt(u.inputTokens ?? u.promptTokens ?? u.input_tokens);
   const outputTokens = safeInt(u.outputTokens ?? u.completionTokens ?? u.output_tokens);
-  const reasoningTokens = safeInt(u.reasoningTokens ?? u.reasoning_tokens);
+  // AI SDK v7 moved reasoning under outputTokenDetails; there is no top-level
+  // reasoningTokens any more. Both providers in use populate it —
+  // openai-compatible from completion_tokens_details.reasoning_tokens,
+  // anthropic from output_tokens_details.thinking_tokens. The flat keys are
+  // kept as a fallback for pre-v7 usage payloads.
+  const outputDetails = typeof u.outputTokenDetails === "object" && u.outputTokenDetails !== null
+    ? u.outputTokenDetails as Record<string, unknown>
+    : null;
+  const reasoningTokens = safeInt(
+    (outputDetails?.reasoningTokens) ?? u.reasoningTokens ?? u.reasoning_tokens,
+  );
   const totalTokens = safeInt(u.totalTokens ?? u.total_tokens) || (inputTokens + outputTokens);
 
   const details = typeof u.inputTokenDetails === "object" && u.inputTokenDetails !== null
@@ -130,21 +145,21 @@ export async function trackedGenerateText(
     // when thinking is enabled and produced output. Fall back to estimating
     // from result.reasoningText (AI SDK 6 exposes the concatenated thinking
     // text on this field after generateText resolves).
-    let effectiveReasoningTokens = usage.reasoningTokens;
     let isEstimated = usage.inputTokens === 0 && usage.outputTokens === 0;
     const reasoningText = typeof (result as { reasoningText?: string }).reasoningText === "string"
       ? (result as { reasoningText?: string }).reasoningText!
       : "";
-    if (effectiveReasoningTokens === 0 && reasoningText.length > 0) {
-      effectiveReasoningTokens = Math.ceil(reasoningText.length / 4);
+    const reasoning = resolveReasoningTokens(usage.reasoningTokens, reasoningText.length);
+    const resolvedReasoningTokens = reasoning.tokens;
+    if (reasoning.estimated) {
       isEstimated = true;
       logger.info(
-        { purpose: tracking.purpose, model: tracking.modelName, chars: reasoningText.length, estimatedTokens: effectiveReasoningTokens },
+        { purpose: tracking.purpose, model: tracking.modelName, chars: reasoningText.length, estimatedTokens: resolvedReasoningTokens },
         "estimated reasoning tokens from generateText reasoningText (provider reported 0)",
       );
     }
 
-    const cost = computeCost(tracking, { ...usage, reasoningTokens: effectiveReasoningTokens });
+    const cost = computeCost(tracking, { ...usage, reasoningTokens: resolvedReasoningTokens });
 
     recordUsageEvent({
       providerName: tracking.providerName,
@@ -153,10 +168,15 @@ export async function trackedGenerateText(
       purpose: tracking.purpose,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
-      reasoningTokens: effectiveReasoningTokens,
+      reasoningTokens: resolvedReasoningTokens,
       cacheReadTokens: usage.cacheReadTokens,
       cacheWriteTokens: usage.cacheWriteTokens,
-      totalTokens: usage.totalTokens,
+      totalTokens: totalTokensWithUncountedReasoning({
+        reportedTotal: usage.totalTokens,
+        inputTokens: usage.inputTokens,
+        completionTokens: usage.outputTokens,
+        reasoningTokens: resolvedReasoningTokens,
+      }),
       estimatedCostUsd: cost,
       durationMs,
       isEstimated,
@@ -246,11 +266,10 @@ export function trackedStreamText(
           : "";
       const reasoningText = stepsReasoning || lastStepReasoning || legacyReasoning;
       let effectiveOutputTokens = usage.outputTokens;
-      let effectiveReasoningTokens = usage.reasoningTokens;
       let isEstimated = usage.inputTokens === 0 && usage.outputTokens === 0;
 
       if (usage.outputTokens === 0 && responseText.length > 0) {
-        effectiveOutputTokens = Math.ceil(responseText.length / 4);
+        effectiveOutputTokens = estimateTokensFromChars(responseText.length);
         isEstimated = true;
         logger.debug(
           { purpose: tracking.purpose, model: tracking.modelName, chars: responseText.length, estimatedTokens: effectiveOutputTokens },
@@ -260,11 +279,12 @@ export function trackedStreamText(
 
       // Estimate reasoning tokens from reasoning text when provider reports 0
       // (critical for Bedrock where streaming usage is empty but reasoning text is available)
-      if (usage.reasoningTokens === 0 && reasoningText.length > 0) {
-        effectiveReasoningTokens = Math.ceil(reasoningText.length / 4);
+      const reasoning = resolveReasoningTokens(usage.reasoningTokens, reasoningText.length);
+      let resolvedReasoningTokens = reasoning.tokens;
+      if (reasoning.estimated) {
         isEstimated = true;
         logger.info(
-          { purpose: tracking.purpose, model: tracking.modelName, chars: reasoningText.length, estimatedTokens: effectiveReasoningTokens },
+          { purpose: tracking.purpose, model: tracking.modelName, chars: reasoningText.length, estimatedTokens: resolvedReasoningTokens },
           "estimated reasoning tokens from stream reasoning text (provider reported 0)",
         );
       }
@@ -282,10 +302,12 @@ export function trackedStreamText(
         if (stepInput > 0 || stepOutput > 0) {
           usage.inputTokens = stepInput;
           effectiveOutputTokens = stepOutput || effectiveOutputTokens;
-          effectiveReasoningTokens = stepReasoning || effectiveReasoningTokens;
+          resolvedReasoningTokens = stepReasoning || resolvedReasoningTokens;
           usage.cacheReadTokens = 0; // step-level cache data not aggregated
           usage.cacheWriteTokens = 0;
-          usage.totalTokens = stepInput + stepOutput + stepReasoning;
+          // Base only — any reasoning the provider left uncounted is folded in
+          // once, at the recordUsageEvent call below.
+          usage.totalTokens = stepInput + stepOutput;
           isEstimated = false;
           logger.info(
             { purpose: tracking.purpose, steps: steps.length, input: stepInput, output: stepOutput, reasoning: stepReasoning },
@@ -294,7 +316,7 @@ export function trackedStreamText(
         }
       }
 
-      const cost = computeCost(tracking, { ...usage, outputTokens: effectiveOutputTokens, reasoningTokens: effectiveReasoningTokens });
+      const cost = computeCost(tracking, { ...usage, outputTokens: effectiveOutputTokens, reasoningTokens: resolvedReasoningTokens });
 
       recordUsageEvent({
         providerName: tracking.providerName,
@@ -303,10 +325,15 @@ export function trackedStreamText(
         purpose: tracking.purpose,
         inputTokens: usage.inputTokens,
         outputTokens: effectiveOutputTokens,
-        reasoningTokens: effectiveReasoningTokens,
+        reasoningTokens: resolvedReasoningTokens,
         cacheReadTokens: usage.cacheReadTokens,
         cacheWriteTokens: usage.cacheWriteTokens,
-        totalTokens: usage.totalTokens || (usage.inputTokens + effectiveOutputTokens + effectiveReasoningTokens),
+        totalTokens: totalTokensWithUncountedReasoning({
+          reportedTotal: usage.totalTokens,
+          inputTokens: usage.inputTokens,
+          completionTokens: effectiveOutputTokens,
+          reasoningTokens: resolvedReasoningTokens,
+        }),
         estimatedCostUsd: cost,
         durationMs,
         isEstimated,
@@ -349,7 +376,7 @@ export async function consumeStreamWithProgress(
   for await (const part of stream) {
     if (part.type === "reasoning-delta") {
       const delta = (part as { text?: string }).text ?? "";
-      estimatedReasoningTokens += Math.ceil(delta.length / 4);
+      estimatedReasoningTokens += estimateTokensFromChars(delta.length);
       // Heartbeat for thinking-only streams so the user can see progress vs stalled
       const now = Date.now();
       if (now - lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS) {
@@ -359,7 +386,7 @@ export async function consumeStreamWithProgress(
     } else if (part.type === "text-delta") {
       // Rough token estimate: ~4 chars per token (exact counts come via onFinish)
       const delta = (part as { delta?: string }).delta ?? "";
-      estimatedTokens += Math.ceil(delta.length / 4);
+      estimatedTokens += estimateTokensFromChars(delta.length);
       if (estimatedTokens - lastLoggedTokens >= logIntervalTokens) {
         lastLoggedTokens = estimatedTokens;
         lastHeartbeatAt = Date.now();

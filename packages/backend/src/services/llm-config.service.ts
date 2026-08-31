@@ -16,6 +16,7 @@ import { createXai } from "@ai-sdk/xai";
 import { createOllamaVisionFetch } from "./ollama-vision-fetch.js";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
+import { uncountedReasoningTokens } from "../utils/token-accounting.js";
 
 const logger = createLogger("llm-config");
 
@@ -739,8 +740,11 @@ export function calculateCostUsd(
   // Cache writes: 1.25x input price
   const cacheWriteCost = (cacheWriteTokens / 1_000_000) * cfg.costPer1mInput * 1.25;
   const outputCost = (completionTokens / 1_000_000) * cfg.costPer1mOutput;
-  // Reasoning/thinking tokens are billed at the output token rate
-  const reasoningCost = (reasoningTokens / 1_000_000) * cfg.costPer1mOutput;
+  // Reasoning/thinking tokens are billed at the output token rate, but only the
+  // share the provider did not already count inside completionTokens — see
+  // uncountedReasoningTokens() for why billing the full figure double-charges.
+  const reasoningCost =
+    (uncountedReasoningTokens(reasoningTokens, completionTokens) / 1_000_000) * cfg.costPer1mOutput;
   return roundUsd(inputCost + cacheReadCost + cacheWriteCost + outputCost + reasoningCost);
 }
 
