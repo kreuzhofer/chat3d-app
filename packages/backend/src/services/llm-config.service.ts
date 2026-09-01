@@ -16,7 +16,7 @@ import { createXai } from "@ai-sdk/xai";
 import { createOllamaVisionFetch } from "./ollama-vision-fetch.js";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
-import { THINKING_EFFORTS, isThinkingEffort } from "@chat3d/shared";
+import { THINKING_EFFORTS, isThinkingEffort } from "../utils/thinking-effort.js";
 import { uncountedReasoningTokens } from "../utils/token-accounting.js";
 
 const logger = createLogger("llm-config");
