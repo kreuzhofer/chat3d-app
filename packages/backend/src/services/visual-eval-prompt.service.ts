@@ -168,8 +168,9 @@ Return JSON only:
   if (opts.constructionSpec) {
     footer += `\n\n${constructionSpecBlock(opts.constructionSpec)}`;
   }
-  if (opts.checklist.length) {
-    footer += `\n\n${checklistBlock(opts.checklist)}`;
+  const checklist = checklistBlock(opts.checklist);
+  if (checklist) {
+    footer += `\n\n${checklist}`;
   }
   return footer;
 }
@@ -294,8 +295,9 @@ Return JSON only:
     prompt += `\n\n${constructionSpecBlock(opts.constructionSpec)}`;
   }
 
-  if (opts.checklist.length) {
-    prompt += `\n\n${checklistBlock(opts.checklist)}`;
+  const checklist = checklistBlock(opts.checklist);
+  if (checklist) {
+    prompt += `\n\n${checklist}`;
   }
 
   return prompt;
@@ -331,9 +333,20 @@ Use this specification as your primary reference for evaluating correctness. Che
 the visible geometry matches the structural properties listed above.`;
 }
 
+/**
+ * Renders the checklist block, or nothing when there is nothing real to ask.
+ *
+ * Last line of defence: a numbered list of "undefined" is worse than no
+ * checklist, because it looks to the judge like six questions it must answer
+ * (issue #33). Callers also guard on length; this makes the block itself
+ * incapable of emitting filler.
+ */
 function checklistBlock(checklist: string[]): string {
+  const questions = checklist.filter(q => typeof q === "string" && q.trim().length > 0);
+  if (questions.length === 0) return "";
+
   return `Verification Checklist — answer each with pass, fail, or uncertain:
-${checklist.map((q, i) => `${i + 1}. ${q}`).join("\n")}
+${questions.map((q, i) => `${i + 1}. ${q}`).join("\n")}
 
 For each item, set "pass" to:
 - true — feature is clearly present/correct in the images

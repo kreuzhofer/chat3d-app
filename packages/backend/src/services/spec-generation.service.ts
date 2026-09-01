@@ -21,6 +21,7 @@ import {
   type LlmModelConfig,
 } from "./llm-config.service.js";
 import { createLogger } from "../utils/logger.js";
+import { toAnnotatedCriteria } from "../utils/verification-criteria.js";
 import { type EvalPlan, parseEvalPlan } from "../utils/eval-plan.js";
 import type { ComplexityTriggerReason } from "@chat3d/shared";
 
@@ -266,30 +267,9 @@ function parseCodeAssertions(raw: unknown): CodeAssertion[] {
     }));
 }
 
-/** Parse verificationCriteria — handles both annotated objects and plain strings. */
-function parseVerificationCriteria(raw: unknown): AnnotatedCriterion[] {
-  if (!Array.isArray(raw)) return [];
-  const validVisibility = new Set(["visual", "code", "both"]);
-  return raw
-    .map((item: unknown) => {
-      if (typeof item === "string" && item.trim()) {
-        return { text: item.trim(), visibility: "both" as const };
-      }
-      if (typeof item === "object" && item !== null) {
-        const obj = item as Record<string, unknown>;
-        const text = typeof obj.text === "string" ? obj.text.trim() : "";
-        const vis = typeof obj.visibility === "string" && validVisibility.has(obj.visibility)
-          ? obj.visibility as AnnotatedCriterion["visibility"]
-          : "both";
-        if (text) return { text, visibility: vis };
-      }
-      return null;
-    })
-    .filter((c): c is AnnotatedCriterion => c !== null);
-}
 
 function buildSpecFromParsed(raw: Partial<ParsedSpec>): ParsedSpec {
-  const verificationCriteria = parseVerificationCriteria((raw as Record<string, unknown>).verificationCriteria);
+  const verificationCriteria = toAnnotatedCriteria((raw as Record<string, unknown>).verificationCriteria);
   const verificationChecklist = Array.isArray(raw.verificationChecklist)
     ? raw.verificationChecklist.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
     : [];

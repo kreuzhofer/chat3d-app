@@ -255,14 +255,20 @@ function buildFinalResult(
   const parsed = parseEvaluationResponse(responseText);
 
   let checklistResults: ChecklistResult[] | undefined;
-  if (input.verificationChecklist?.length) {
+  // Filter at the data layer, not only where the prompt is rendered: a blank
+  // entry reconciled here becomes a phantom question that can reach the
+  // uncertain-item follow-up as an empty prompt (issue #33).
+  const askedChecklist = (input.verificationChecklist ?? []).filter(
+    q => typeof q === "string" && q.trim().length > 0,
+  );
+  if (askedChecklist.length) {
     const rawResults = parseChecklistResults(responseText);
-    checklistResults = reconcileChecklist(rawResults, input.verificationChecklist);
+    checklistResults = reconcileChecklist(rawResults, askedChecklist);
     if (checklistResults.length > 0) {
       const uncertainCount = checklistResults.filter(c => c.pass === null).length;
-      if (rawResults.length !== input.verificationChecklist.length) {
+      if (rawResults.length !== askedChecklist.length) {
         logger.warn({
-          specCount: input.verificationChecklist.length,
+          specCount: askedChecklist.length,
           vlmCount: rawResults.length,
           reconciledCount: checklistResults.length,
         }, "VLM returned different checklist count — reconciled to spec questions");

@@ -18,6 +18,7 @@ import { isUncertain } from "./visual-eval-parser.service.js";
 import type { CodeAssertion } from "./spec-generation.service.js";
 import type { ModelFormat } from "./stl-rendering-client.service.js";
 import { createLogger } from "../utils/logger.js";
+import { deriveVisualChecklist } from "../utils/verification-criteria.js";
 import { getTraceBuilder } from "./trace-builder.service.js";
 import { getModelForPurposeWithFallback, calculateCostUsd } from "./llm-config.service.js";
 import { isZoomFollowUpEnabled, getZoomResolution, getZoomMaxFollowUps, isAdaptiveWeightEnabled, getAdaptiveWeightRange } from "./generation-settings.service.js";
@@ -365,16 +366,14 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
       }
 
       // Build effective checklist: filter annotated criteria by visibility (visual + both only)
-      // Code-only items are excluded from VLM — the code reviewer handles them.
-      // Safety net: reclassify items containing specific dimensions (mm, cm, degrees)
-      // as code-only — the VLM cannot assess precise measurements from screenshots.
-      const DIMENSION_PATTERN = /\b\d+(\.\d+)?\s*(mm|cm|m\b|°|degrees?|radius|diameter)\b/i;
-      let effectiveChecklist = input.verificationChecklist;
-      if (input.annotatedCriteria?.length) {
-        effectiveChecklist = input.annotatedCriteria
-          .filter(c => c.visibility !== "code" && !DIMENSION_PATTERN.test(c.text))
-          .map(c => c.text);
-      }
+      // Code-only items and items naming specific dimensions are excluded from
+      // the VLM — the code reviewer handles those. deriveVisualChecklist() also
+      // falls back to the plain checklist rather than replacing it with an
+      // empty list, which is what silently discarded good questions (issue #33).
+      const effectiveChecklist = deriveVisualChecklist(
+        input.annotatedCriteria,
+        input.verificationChecklist,
+      );
 
       logger.info({ imageCount: vlmImages.length }, "phase 3: running VLM visual evaluation");
       const vlmResult = await evaluateModel({

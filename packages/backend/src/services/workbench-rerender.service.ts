@@ -10,6 +10,7 @@
 
 import crypto from "node:crypto";
 import { createLogger } from "../utils/logger.js";
+import { toAnnotatedCriteria } from "../utils/verification-criteria.js";
 import { prisma } from "../db/prisma.js";
 import { renderBuild123d, type RenderedFile } from "./rendering.service.js";
 import { renderModelScreenshots, type RenderedScreenshot } from "./stl-rendering-client.service.js";
@@ -149,7 +150,9 @@ export async function reRenderForExample(
         specInterpretation: ctx.specInterpretation,
         codeAssertions: ctx.codeAssertions as CodeAssertion[] | undefined,
         verificationChecklist: ctx.verificationChecklist,
-        annotatedCriteria: ctx.verificationCriteria as AnnotatedCriterion[] | undefined,
+        // Validated, not asserted: rows persisted before issue #33 hold bare
+        // strings, and an assertion here reproduced the placeholder bug.
+        annotatedCriteria: toAnnotatedCriteria(ctx.verificationCriteria),
         evalPlan: ctx.evalPlan,
       });
     }

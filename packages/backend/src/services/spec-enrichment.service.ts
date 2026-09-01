@@ -20,6 +20,8 @@ import { formatResearchSection } from "./research-format.service.js";
 import type { ResearchPackage } from "./research-agent.service.js";
 import type { SpecResult } from "./spec-generation.service.js";
 import { createLogger } from "../utils/logger.js";
+import type { AnnotatedCriterion } from "./spec-generation.service.js";
+import { toAnnotatedCriteria } from "../utils/verification-criteria.js";
 
 const logger = createLogger("spec-enrich");
 
@@ -27,7 +29,12 @@ const logger = createLogger("spec-enrich");
 
 export interface EnrichmentResult {
   constructionSpec: string;
-  verificationCriteria: string[];
+  /**
+   * Annotated, matching what spec generation emits. This was `string[]`, and
+   * the orchestrator spread it over the annotated array — after which every
+   * consumer reading `.text` got `undefined` (issue #33).
+   */
+  verificationCriteria: AnnotatedCriterion[];
   promptTokens: number;
   /** Raw LLM response for training data. */
   rawResponse?: string;
@@ -149,15 +156,18 @@ export async function enrichSpec(
 
     const parsed = JSON.parse(jsonStr) as {
       constructionSpec?: string;
-      verificationCriteria?: string[];
+      // The enrichment model is asked for plain strings, but accept either
+      // shape — toAnnotatedCriteria() normalises and drops anything textless.
+      verificationCriteria?: unknown;
     };
 
     const enrichedSpec = typeof parsed.constructionSpec === "string" && parsed.constructionSpec.trim()
       ? parsed.constructionSpec
       : roughSpec.constructionSpec;
 
-    const enrichedCriteria = Array.isArray(parsed.verificationCriteria)
-      ? parsed.verificationCriteria.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+    const parsedCriteria = toAnnotatedCriteria(parsed.verificationCriteria);
+    const enrichedCriteria = parsedCriteria.length > 0
+      ? parsedCriteria
       : roughSpec.verificationCriteria;
 
     logger.info(

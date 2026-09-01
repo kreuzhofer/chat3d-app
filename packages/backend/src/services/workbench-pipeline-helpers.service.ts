@@ -10,6 +10,7 @@ import { getModelForPurposeWithFallback, type LlmModelConfig } from "./llm-confi
 import { WorkbenchCatalogError } from "./workbench-catalog.service.js";
 import type { GenerateResult } from "./workbench-codegen.service.js";
 import type { CodeAssertion, AnnotatedCriterion } from "./spec-generation.service.js";
+import { toAnnotatedCriteria } from "../utils/verification-criteria.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -65,7 +66,8 @@ export async function loadPromptContext(promptId: string): Promise<PromptContext
       constructionSpec: row.constructionSpec,
       codeAssertions: row.codeAssertions as CodeAssertion[] | null,
       verificationChecklist: row.verificationChecklist as string[] | null,
-      verificationCriteria: row.verificationCriteria as AnnotatedCriterion[] | null,
+      // Validated, not asserted — see issue #33.
+      verificationCriteria: toAnnotatedCriteria(row.verificationCriteria),
       specRawResponse: row.specRawResponse,
       specSystemPrompt: row.specSystemPrompt,
       requiresDecomposition: row.requiresDecomposition ?? null,

@@ -8,6 +8,7 @@
 
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
+import { toAnnotatedCriteria } from "../utils/verification-criteria.js";
 import { runFullEvaluation, type FullEvalResult } from "./eval-orchestrator.service.js";
 import { runWithUsageContext } from "./usage-tracking.service.js";
 import { readStorageFile, storageFileExists } from "./file-storage.service.js";
@@ -111,7 +112,9 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
       specInterpretation: example.promptRef.specInterpretation ?? undefined,
       codeAssertions: (example.promptRef.codeAssertions as CodeAssertion[] | null) ?? undefined,
       verificationChecklist: (example.promptRef.verificationChecklist as string[] | null) ?? undefined,
-      annotatedCriteria: (example.promptRef.verificationCriteria as AnnotatedCriterion[] | null) ?? undefined,
+      // Validated, not asserted — this is the path a backfill will use, and
+      // legacy rows here hold bare strings (issue #33).
+      annotatedCriteria: toAnnotatedCriteria(example.promptRef.verificationCriteria),
       evalPlan: parseEvalPlan(example.promptRef.evalPlan ?? null),
     }),
     );

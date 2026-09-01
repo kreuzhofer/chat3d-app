@@ -6,6 +6,7 @@
  */
 
 import { createLogger } from "../utils/logger.js";
+import { toAnnotatedCriteria } from "../utils/verification-criteria.js";
 import { getSubAgentMaxSteps, getRagSimilarityThreshold, getRagGapThreshold, getRagMaxExamples, isAgentSearchToolsEnabled } from "./generation-settings.service.js";
 import {
   calculateCostUsd,
@@ -441,14 +442,9 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
   // already verified at each sub-agent's submit_result.
   // annotatedCriteria may be stored as plain strings (legacy) or AnnotatedCriterion objects.
   // Handle both: if the item is a string, use it directly; otherwise read .text/.visibility.
-  const topLevelChecklist: ComponentChecklistItem[] = (input.annotatedCriteria ?? []).flatMap(c => {
-    if (typeof (c as unknown) === "string") {
-      const text = (c as unknown as string).trim();
-      return text ? [{ item: text, visibility: "both" as const }] : [];
-    }
-    const text = c.text?.trim() ?? "";
-    return text ? [{ item: text, visibility: c.visibility ?? "both" }] : [];
-  });
+  // One normaliser for both shapes — see utils/verification-criteria.
+  const topLevelChecklist: ComponentChecklistItem[] = toAnnotatedCriteria(input.annotatedCriteria)
+    .map(c => ({ item: c.text, visibility: c.visibility }));
   const assemblerChecklist = mergeAssemblyChecklist(
     topLevelChecklist,
     decomposition.assemblyChecklist,
