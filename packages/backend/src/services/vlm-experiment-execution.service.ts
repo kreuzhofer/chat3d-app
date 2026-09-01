@@ -17,6 +17,9 @@ import {
   cancelRunningExperiment,
 } from "./experiment-lock.service.js";
 import { runWithUsageContext } from "./usage-tracking.service.js";
+import { deriveVisualChecklist } from "../utils/verification-criteria.js";
+import { parseEvalPlan } from "../utils/eval-plan.js";
+import type { EvaluateModelInput } from "./visual-eval.service.js";
 
 const logger = createLogger("vlm-experiment-exec");
 
@@ -251,6 +254,9 @@ async function evaluateExample(
         select: {
           prompt: true,
           constructionSpec: true,
+          verificationChecklist: true,
+          verificationCriteria: true,
+          evalPlan: true,
           category: { select: { name: true, complexity: true } },
         },
       },
@@ -277,11 +283,43 @@ async function evaluateExample(
 
   if (images.length === 0) throw new Error(`No screenshots available for example ${exampleId}`);
 
-  return evaluateModelWithConfig({
-    userPrompt: example.promptRef.prompt,
-    categoryName: example.promptRef.category.name,
-    complexity: example.promptRef.category.complexity,
+  return evaluateModelWithConfig(buildExperimentEvalInput(example, images), modelConfig);
+}
+
+/**
+ * The judge input for one experiment evaluation.
+ *
+ * Kept identical to what eval-orchestrator builds for a production run: the
+ * checklist goes through `deriveVisualChecklist`, which owns the visibility and
+ * dimension filters and tolerates the legacy bare-string criteria shape that
+ * most of the stored corpus holds (issue #33). Passing anything else here means
+ * the experiment scores a judge on a prompt production never sends, which is
+ * the whole point of the comparison.
+ */
+export function buildExperimentEvalInput(
+  example: {
+    promptRef: {
+      prompt: string;
+      constructionSpec?: string | null;
+      verificationChecklist?: unknown;
+      verificationCriteria?: unknown;
+      evalPlan?: unknown;
+      category: { name: string; complexity: number };
+    };
+  },
+  images: LabeledImage[],
+): EvaluateModelInput {
+  const { promptRef } = example;
+  return {
+    userPrompt: promptRef.prompt,
+    categoryName: promptRef.category.name,
+    complexity: promptRef.category.complexity,
     images,
-    constructionSpec: example.promptRef.constructionSpec ?? undefined,
-  }, modelConfig);
+    constructionSpec: promptRef.constructionSpec ?? undefined,
+    verificationChecklist: deriveVisualChecklist(
+      promptRef.verificationCriteria,
+      (promptRef.verificationChecklist as string[] | null) ?? undefined,
+    ),
+    evalPlan: parseEvalPlan((promptRef.evalPlan as Parameters<typeof parseEvalPlan>[0]) ?? null),
+  };
 }
