@@ -160,6 +160,7 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
       vlmRawResponse: evalResult.vlmRawResponse ?? null,
       vlmReasoning: evalResult.vlmReasoning ?? null,
       vlmSystemPrompt: evalResult.vlmSystemPrompt ?? null,
+      evalChecklistState: evalResult.evalChecklistState ?? null,
       codeReviewRawResponse: evalResult.codeReviewRawResponse ?? null,
       codeReviewReasoning: evalResult.codeReviewReasoning ?? null,
       codeReviewSystemPrompt: evalResult.codeReviewSystemPrompt ?? null,

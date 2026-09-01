@@ -19,6 +19,7 @@ import type { CodeAssertion } from "./spec-generation.service.js";
 import type { ModelFormat } from "./stl-rendering-client.service.js";
 import { createLogger } from "../utils/logger.js";
 import { deriveVisualChecklist } from "../utils/verification-criteria.js";
+import { classifyChecklist, type ChecklistState } from "../utils/checklist-state.js";
 import { getTraceBuilder } from "./trace-builder.service.js";
 import { getModelForPurposeWithFallback, calculateCostUsd } from "./llm-config.service.js";
 import { isZoomFollowUpEnabled, getZoomResolution, getZoomMaxFollowUps, isAdaptiveWeightEnabled, getAdaptiveWeightRange } from "./generation-settings.service.js";
@@ -77,6 +78,8 @@ export interface FullEvalResult {
   vlmReasoning?: string;
   /** System prompt used for VLM evaluation, for training data capture. */
   vlmSystemPrompt?: string;
+  /** Which checklist the visual judge was shown — provenance for issue #34. */
+  evalChecklistState?: ChecklistState | null;
   /** Raw code review response for training data capture. */
   codeReviewRawResponse?: string;
   /** Code review reasoning/thinking tokens for training data capture. */
@@ -107,6 +110,7 @@ function buildResult(opts: {
   vlmRawResponse?: string;
   vlmReasoning?: string;
   vlmSystemPrompt?: string;
+  evalChecklistState?: ChecklistState | null;
   codeReviewRawResponse?: string;
   codeReviewReasoning?: string;
   codeReviewSystemPrompt?: string;
@@ -135,6 +139,7 @@ function buildResult(opts: {
     vlmRawResponse: opts.vlmRawResponse,
     vlmReasoning: opts.vlmReasoning,
     vlmSystemPrompt: opts.vlmSystemPrompt,
+    evalChecklistState: opts.evalChecklistState ?? null,
     codeReviewRawResponse: opts.codeReviewRawResponse,
     codeReviewReasoning: opts.codeReviewReasoning,
     codeReviewSystemPrompt: opts.codeReviewSystemPrompt,
@@ -318,6 +323,7 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
   let vlmRawResponse: string | undefined;
   let vlmReasoning: string | undefined;
   let vlmSystemPrompt: string | undefined;
+  let evalChecklistState: ChecklistState | null = null;
 
   // If agent already provided a VLM score, reuse it instead of calling VLM again
   if (input.agentVlmScore) {
@@ -374,6 +380,11 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
         input.annotatedCriteria,
         input.verificationChecklist,
       );
+      // Recorded next to the score: a row scored against a placeholder
+      // checklist is not comparable with one scored against real questions
+      // (issue #34), and re-deriving that from the stored prompt is a string
+      // match against a template that is free to change.
+      evalChecklistState = classifyChecklist(effectiveChecklist);
 
       logger.info({ imageCount: vlmImages.length }, "phase 3: running VLM visual evaluation");
       const vlmResult = await evaluateModel({
@@ -470,7 +481,7 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
     checklistResults, vlmModel, codeReviewModel,
     totalPromptTokens: vlmPromptTokens + codePromptTokens,
     totalCompletionTokens: vlmCompletionTokens + codeCompletionTokens,
-    vlmRawResponse, vlmReasoning, vlmSystemPrompt,
+    vlmRawResponse, vlmReasoning, vlmSystemPrompt, evalChecklistState,
     codeReviewRawResponse, codeReviewReasoning, codeReviewSystemPrompt,
   });
 

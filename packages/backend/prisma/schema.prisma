@@ -476,6 +476,10 @@ model WorkbenchExample {
   vlmRawResponse        String?  @map("vlm_raw_response") @db.Text
   vlmReasoning          String?  @map("vlm_reasoning") @db.Text
   vlmSystemPrompt       String?  @map("vlm_system_prompt") @db.Text
+  /// Which kind of checklist the visual judge was shown: real | empty |
+  /// placeholder. "placeholder" marks rows scored before issue #33 was
+  /// fixed, whose scores are not comparable with the rest (issue #34).
+  evalChecklistState    String?  @map("eval_checklist_state") @db.VarChar(16)
   codeReviewRawResponse String?  @map("code_review_raw_response") @db.Text
   codeReviewReasoning   String?  @map("code_review_reasoning") @db.Text
   codeReviewSystemPrompt String? @map("code_review_system_prompt") @db.Text

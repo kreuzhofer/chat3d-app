@@ -29,6 +29,8 @@ export interface AgentEvalResult {
   vlmRawResponse?: string;
   vlmReasoning?: string;
   vlmSystemPrompt?: string;
+  /** Which checklist the visual judge was shown — provenance for issue #34. */
+  evalChecklistState?: import("../utils/checklist-state.js").ChecklistState | null;
   codeReviewRawResponse?: string;
   codeReviewReasoning?: string;
   codeReviewSystemPrompt?: string;
