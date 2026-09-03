@@ -35,8 +35,12 @@ One question about a visible property of an example, answered pass / fail / unce
 _Avoid_: check, question, criterion (the source, not the question)
 
 **Gate**:
-The rule that turns a judge's answers into an approval decision for an example. The threshold is one parameter of the gate, not the gate.
-_Avoid_: threshold, auto-approve
+The rule that turns Checklist item answers into a Verdict for an example. Items are the unit: every item must pass, across whichever evaluators answered them. A judge's emitted score is never the gate; at most a temporary backstop beside it.
+_Avoid_: threshold, auto-approve, scoring
+
+**Verdict**:
+The Gate's decision for an example: approved, pending, or rejected. A verdict is derived, never emitted by a judge, and is re-derivable whenever the gate rule or the item answers change.
+_Avoid_: approval status, rating, score
 
 **Reference standard**:
 What a judge's item answers are checked against: a Consensus set for iteration, and human Disagreement inspection as the arbiter. A judge's own output is never its reference, and no pre-labelled corpus is assumed.
