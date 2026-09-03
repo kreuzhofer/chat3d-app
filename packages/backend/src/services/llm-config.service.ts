@@ -525,11 +525,16 @@ export function createProviderModel(cfg: LlmModelConfig): any {
     // streaming responses unless stream_options.include_usage is requested,
     // and the SDK only sends it when includeUsage is set. Without this the
     // agent loop accumulates zeros for prompt/completion tokens.
+    // Structured outputs: with the flag the SDK sends a JSON schema as
+    // response_format json_schema, which vLLM compiles into a decoding
+    // grammar (the visual judge relies on this, issue #53). Without it the
+    // SDK silently downgrades every schema to a bare json_object.
     const compat = createOpenAICompatible({
       name: cfg.provider,
       baseURL: baseUrlWithVersion,
       apiKey: apiKey?.trim() || undefined,
       includeUsage: true,
+      supportsStructuredOutputs: true,
       ...(customFetch ? { fetch: customFetch } : {}),
     });
     return compat.chatModel(modelName);

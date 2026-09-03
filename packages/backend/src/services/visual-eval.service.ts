@@ -22,11 +22,14 @@ import {
   type ChecklistResult,
 } from "./visual-eval-parser.service.js";
 import { buildEvaluationSystemPrompt } from "./visual-eval-prompt.service.js";
+import { buildEvaluationResponseSchema, resolveGuidedJsonOutput } from "./visual-eval-schema.service.js";
 import type { ModelFormat } from "./stl-rendering-client.service.js";
 import type { EvalPlan } from "../utils/eval-plan.js";
 
 const logger = createLogger("vlm-eval");
 const EVAL_MAX_RETRIES = 2;
+/** Output budget per judge call. On vLLM this includes reasoning tokens. */
+const EVAL_MAX_OUTPUT_TOKENS = 4096;
 
 // ── Result types ─────────────────────────────────────────────────────
 
@@ -153,11 +156,18 @@ export async function evaluateModelWithConfig(
   const vlmModelLabel = vlmConfig.label;
   const providedAngles = images.map(img => img.angle);
   const evalPlan = input.evalPlan ?? null;
+  // Blank entries are dropped once, here, so the prompt, the response schema
+  // and the reconciliation all see the same questions. A blank reconciled
+  // later becomes a phantom question that can reach the uncertain-item
+  // follow-up as an empty prompt (issue #33).
+  const askedChecklist = (input.verificationChecklist ?? []).filter(
+    (q) => typeof q === "string" && q.trim().length > 0,
+  );
   const systemPrompt = buildEvaluationSystemPrompt({
     userPrompt,
     categoryName,
     complexity,
-    checklist: input.verificationChecklist ?? [],
+    checklist: askedChecklist,
     hasZoomTool: false,
     providedAngles,
     constructionSpec: input.constructionSpec ?? "",
@@ -167,6 +177,12 @@ export async function evaluateModelWithConfig(
 
   const userContent = buildImageUserContent(images, evalPlan?.inspectionPlan?.focus);
   const providerModel = createProviderModelFromConfig(vlmConfig);
+  // vLLM: the schema becomes the decoding grammar. Anthropic: undefined, and
+  // the call below is byte-for-byte what it was.
+  const guidedOutput = resolveGuidedJsonOutput(
+    vlmConfig,
+    buildEvaluationResponseSchema(askedChecklist.length),
+  );
   const trackingMeta: TrackingMeta = {
     purpose: "vlm_evaluation",
     providerName: vlmConfig.provider,
@@ -181,15 +197,19 @@ export async function evaluateModelWithConfig(
     let lastError: Error | null = null;
     for (let attempt = 0; attempt <= EVAL_MAX_RETRIES; attempt++) {
       try {
-        logger.info({ model: vlmModelLabel, attempt }, "calling VLM");
+        logger.info(
+          { model: vlmModelLabel, attempt, guidedJson: guidedOutput != null, checklistCount: askedChecklist.length },
+          "calling VLM",
+        );
         // Use streaming so thinking/reasoning tokens go to a separate channel
         // and don't pollute the response text (critical for Gemma 4, Qwen3, etc.)
         const stream = trackedStreamText({
           model: providerModel,
           system: systemPrompt,
           messages: [{ role: "user" as const, content: userContent }],
-          maxOutputTokens: 4096,
+          maxOutputTokens: EVAL_MAX_OUTPUT_TOKENS,
           temperature: 0,
+          ...(guidedOutput ? { output: guidedOutput } : {}),
         }, trackingMeta);
 
         let text = "";
@@ -204,9 +224,13 @@ export async function evaluateModelWithConfig(
         const usage = await resolved.usage;
         const promptTokens = usage?.inputTokens ?? 0;
         const completionTokens = usage?.outputTokens ?? 0;
+        const finishReason = await resolved.finishReason;
 
-        logger.info({ response: text }, "VLM returned evaluation");
-        const result = buildFinalResult(text, input, vlmModelLabel, promptTokens, completionTokens);
+        logger.info({ response: text, finishReason }, "VLM returned evaluation");
+        const result = buildFinalResult({
+          responseText: text, askedChecklist, vlmModelLabel, promptTokens, completionTokens,
+          finishReason, reasoningChars: reasoning.length,
+        });
         result.rawResponse = text;
         result.reasoning = reasoning || undefined;
         result.systemPrompt = systemPrompt;
@@ -238,16 +262,37 @@ export async function evaluateModelWithConfig(
 
 // ── Build final result from VLM text ─────────────────────────────────
 
-function buildFinalResult(
-  responseText: string,
-  input: EvaluateModelInput,
-  vlmModelLabel: string,
-  promptTokens: number,
-  completionTokens: number,
-): EvaluationResult {
+interface FinalResultInput {
+  responseText: string;
+  /** The non-blank questions the judge was asked, in prompt order. */
+  askedChecklist: string[];
+  vlmModelLabel: string;
+  promptTokens: number;
+  completionTokens: number;
+  finishReason: string;
+  reasoningChars: number;
+}
+
+function buildFinalResult(args: FinalResultInput): EvaluationResult {
+  const { responseText, askedChecklist, vlmModelLabel, promptTokens, completionTokens, finishReason, reasoningChars } = args;
+
   if (!responseText) {
+    // A reasoning model can spend the whole output budget thinking and never
+    // start its answer: the stream ends with finish reason "length" and no
+    // text. Guided decoding cannot help there — vLLM constrains only what
+    // comes after the reasoning — so name the cause instead of hiding it
+    // behind a generic empty-response message.
+    const exhausted = finishReason === "length";
+    logger.warn(
+      { finishReason, reasoningChars, maxOutputTokens: EVAL_MAX_OUTPUT_TOKENS },
+      exhausted ? "VLM exhausted its output budget before answering" : "VLM returned an empty response",
+    );
+    const issue = exhausted
+      ? `Empty response from VLM: output budget of ${EVAL_MAX_OUTPUT_TOKENS} tokens exhausted before the answer ` +
+        `(finish reason "length", ${reasoningChars} reasoning chars)`
+      : "Empty response from VLM";
     return {
-      score: 1, issues: ["Empty response from VLM"], suggestions: [],
+      score: 1, issues: [issue], suggestions: [],
       vlmModel: vlmModelLabel, promptTokens, completionTokens,
     };
   }
@@ -255,12 +300,6 @@ function buildFinalResult(
   const parsed = parseEvaluationResponse(responseText);
 
   let checklistResults: ChecklistResult[] | undefined;
-  // Filter at the data layer, not only where the prompt is rendered: a blank
-  // entry reconciled here becomes a phantom question that can reach the
-  // uncertain-item follow-up as an empty prompt (issue #33).
-  const askedChecklist = (input.verificationChecklist ?? []).filter(
-    q => typeof q === "string" && q.trim().length > 0,
-  );
   if (askedChecklist.length) {
     const rawResults = parseChecklistResults(responseText);
     checklistResults = reconcileChecklist(rawResults, askedChecklist);
