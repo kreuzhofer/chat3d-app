@@ -30,6 +30,14 @@ A small utility LLM call with a tight output cap that is not user-visible chat (
 The model, under a specific prompt and set of rendered views, that answers a Checklist for an example. A judge is a role, not a model name; the same model under a different harness is a different judge.
 _Avoid_: evaluator, grader, VLM (a capability, not the role)
 
+**Requirement**:
+A property of an example that the prompt states or necessarily implies ("four standoffs" means exactly four; "a through hole" passes through). Requirements are what criteria are generated from, and the only things a Checklist item may gate on.
+_Avoid_: detail, feature, spec
+
+**Assumption**:
+A choice the spec made where the prompt was silent. Never gates. Becomes a Requirement only once a clarification pass writes it into the prompt.
+_Avoid_: default, interpretation
+
 **Checklist item**:
 One question about a visible property of an example, answered pass / fail / uncertain. Derived from a criterion; the criterion is the source, the item is what a judge or rater is actually asked.
 _Avoid_: check, question, criterion (the source, not the question)
@@ -49,6 +57,10 @@ _Avoid_: ground truth, gold set, baseline
 **Disagreement inspection**:
 A human looking at the checklist items on which two judges disagree, and deciding which is right. Targeted and small; the arbiter when consensus cannot settle an item.
 _Avoid_: rating session, labelling, review
+
+**Coverage signal**:
+An issue a judge raises that matches no Checklist item. Diagnostic, never a gate input; its rate per category is the measure of whether the checklist asked the right questions.
+_Avoid_: unlisted issue, gap
 
 **Consensus set**:
 Labels produced by running a frontier judge several times over the same examples and taking the majority per item. Cheaper than gold; inherits that judge's blind spots, so it iterates but never validates.
