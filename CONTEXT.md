@@ -23,3 +23,38 @@ _Avoid_: reasoning budget (that is one provider-specific realization of effort)
 
 **Short internal call**:
 A small utility LLM call with a tight output cap that is not user-visible chat (chat naming, tag suggestion, decomposition decision). Short internal calls always run with thinking off, regardless of the assigned Model's thinking configuration.
+
+### Evaluation
+
+**Judge**:
+The model, under a specific prompt and set of rendered views, that answers a Checklist for an example. A judge is a role, not a model name; the same model under a different harness is a different judge.
+_Avoid_: evaluator, grader, VLM (a capability, not the role)
+
+**Checklist item**:
+One question about a visible property of an example, answered pass / fail / uncertain. Derived from a criterion; the criterion is the source, the item is what a judge or rater is actually asked.
+_Avoid_: check, question, criterion (the source, not the question)
+
+**Gate**:
+The rule that turns a judge's answers into an approval decision for an example. The threshold is one parameter of the gate, not the gate.
+_Avoid_: threshold, auto-approve
+
+**Reference standard**:
+What a judge's item answers are checked against: a Consensus set for iteration, and human Disagreement inspection as the arbiter. A judge's own output is never its reference, and no pre-labelled corpus is assumed.
+_Avoid_: ground truth, gold set, baseline
+
+**Disagreement inspection**:
+A human looking at the checklist items on which two judges disagree, and deciding which is right. Targeted and small; the arbiter when consensus cannot settle an item.
+_Avoid_: rating session, labelling, review
+
+**Consensus set**:
+Labels produced by running a frontier judge several times over the same examples and taking the majority per item. Cheaper than gold; inherits that judge's blind spots, so it iterates but never validates.
+_Avoid_: silver set
+
+**Held-out set**:
+Prompts reserved for benchmarking the codegen model and excluded from its training data. Not a reference for the judge.
+_Avoid_: gold set, test set
+
+**Blind**:
+A rating is blind when the rater has seen nothing a judge produced for that example: no score, no verdict, no issues. A rating made after seeing any of those is not blind, whatever else it is.
+_Avoid_: unbiased, independent
+
