@@ -19,3 +19,13 @@ Throwaway. Not built, not imported by production code. Kept as the primary sourc
 Experiment `9e55f258-4e13-4aa9-92c0-e5468fb38dcd` on the fixed 125 (selections of `7337a398`),
 judge `glm-5.3-flash (thinking off)`, runs `2410f9d2` (variant) and `3b5edb08` (control),
 reference run `786b6e3c` (Sonnet with the follow-up).
+
+## Results (2026-09-05, 250/250 evaluations, 0 errors)
+
+- `numbers-*.txt` — the comparison script's output for variant vs reference, control vs reference,
+  and variant vs control.
+- `disagreements-variant-vs-reference.md` — every item where the variant and the reference disagree,
+  with the control's answer alongside (`dump-disagreements.py`). The human inspection set.
+- `disagreements-control-vs-reference.md` — the same for the control, variant alongside.
+
+The reading and the decision are on the issue, not here.

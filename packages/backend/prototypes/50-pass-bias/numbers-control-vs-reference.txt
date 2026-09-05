@@ -1,0 +1,41 @@
+candidate 3b5edb08: 125 rows, errors 0
+reference 786b6e3c: 125 rows, errors 0
+common examples: 125; first-pass mode: False
+
+examples compared: 125; missing checklist skipped: 0; question mismatches: 0
+
+ITEMS (all)
+  all: items 511 | identical  89.0% | hard flips  11.0% (56) | either uncertain   0.0% | pass rate ref  79.3% cand  79.6% | uncertain ref 0 cand 0
+    ref \ cand     P      F      U
+             P    378     27      0
+             F     29     77      0
+             U      0      0      0
+    of ref FAIL (106): cand pass  27.4%, cand uncertain   0.0%
+    of ref PASS (405): cand fail   6.7%, cand uncertain   0.0%
+
+ITEMS split by how the CANDIDATE answered
+  candidate first-pass items: items 486 | identical  90.1% | hard flips   9.9% (48) | either uncertain   0.0% | pass rate ref  80.7% cand  81.1% | uncertain ref 0 cand 0
+  candidate zoom-resolved items: items 25 | identical  68.0% | hard flips  32.0% (8) | either uncertain   0.0% | pass rate ref  52.0% cand  52.0% | uncertain ref 0 cand 0
+  candidate zoom-resolved items matrix:
+    ref \ cand     P      F      U
+             P      9      4      0
+             F      4      8      0
+             U      0      0      0
+    of ref FAIL (12): cand pass  33.3%, cand uncertain   0.0%
+    of ref PASS (13): cand fail  30.8%, cand uncertain   0.0%
+
+ITEMS split by how the REFERENCE answered
+  reference first-pass items: items 467 | identical  91.4% | hard flips   8.6% (40) | either uncertain   0.0% | pass rate ref  80.9% cand  80.5% | uncertain ref 0 cand 0
+  reference zoom-resolved items: items 44 | identical  63.6% | hard flips  36.4% (16) | either uncertain   0.0% | pass rate ref  61.4% cand  70.5% | uncertain ref 0 cand 0
+
+CANDIDATE uncertainty and zoom
+  items 511 | uncertain at first pass   4.9% (25) | resolved by zoom 25 | residual uncertain   0.0% (0)
+  zoom follow-ups per example: 0:102, 1:21, 2:2 | examples with residual uncertain after >=3 follow-ups (cap): 0
+  details naming a view:  78.1% (399/511)
+
+SCORES (first pass, untouched by zoom)
+  same score  36.8% | mean abs delta 0.808 | mean cand 7.10 ref 6.70
+  gate at 7.5: cand passes 75 ref passes 51 | disagreements 24 (cand pass/ref fail 24, cand fail/ref pass 0, net +24)
+
+CANDIDATE cost
+  latency 34.4 s per example | tokens in 1.205M out 43.3K (347 out per example)
