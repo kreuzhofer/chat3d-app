@@ -19,6 +19,7 @@ import {
   type VlmRunMetrics,
   type VlmExampleComparison,
   type InterRaterPair,
+  runDisplayLabel,
 } from "../../api/vlm-experiment.api";
 import { VlmCorrelationSummary } from "./VlmCorrelationSummary";
 import { VlmInterRaterTable } from "./VlmInterRaterTable";
@@ -164,7 +165,7 @@ function RunProgressSection({ status, exampleCount }: { status: VlmExperimentSta
                 >
                   {r.status}
                 </Badge>
-                <span className="min-w-0 flex-1 truncate text-sm sm:w-40 sm:flex-none">{r.modelLabel.split("/").pop()}</span>
+                <span className="min-w-0 flex-1 truncate text-sm sm:w-40 sm:flex-none">{runDisplayLabel(r, true)}</span>
               </div>
               <div className="flex items-center gap-2 sm:contents">
                 <div className="flex-1">
@@ -230,7 +231,7 @@ function VlmExperimentHeader({ experiment, status, token, onRefresh, setError, o
                 color: COLORS[i % COLORS.length],
               }}
             >
-              {r.modelLabel} ({r.status})
+              {runDisplayLabel(r)} ({r.status})
             </Badge>
             {canEdit && r.status === "completed" && (
               <button

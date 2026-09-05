@@ -20,9 +20,17 @@ async function request<T>(token: string, path: string, init: RequestInit = {}): 
 
 // ── Types ───────────────────────────────────────────────────────────
 
+/** Display name of a run: the model, plus the judge-prompt variant when it has one. */
+export function runDisplayLabel(run: { modelLabel: string; judgePromptVariantId?: string | null }, short = false): string {
+  const model = short ? (run.modelLabel.split("/").pop() ?? run.modelLabel) : run.modelLabel;
+  return run.judgePromptVariantId ? `${model} · ${run.judgePromptVariantId}` : model;
+}
+
 export interface VlmExperimentRun {
   id: string;
   modelLabel: string;
+  /** Judge-prompt variant this run judges under; null = production's instrument. */
+  judgePromptVariantId?: string | null;
   status: string;
   model?: { displayName: string | null };
 }
@@ -49,7 +57,7 @@ export interface VlmExperimentListItem {
   categoryNames: string[];
   promptCount: number;
   status: string;
-  runs: Array<{ id: string; modelLabel: string; status: string }>;
+  runs: Array<{ id: string; modelLabel: string; status: string; judgePromptVariantId?: string | null }>;
   createdAt: string;
 }
 
@@ -58,6 +66,7 @@ export interface VlmExperimentStatus {
   runs: Array<{
     runId: string;
     modelLabel: string;
+    judgePromptVariantId?: string | null;
     status: string;
     completedExamples: number;
     totalExamples: number;
@@ -67,6 +76,7 @@ export interface VlmExperimentStatus {
 export interface VlmRunMetrics {
   runId: string;
   modelLabel: string;
+  judgePromptVariantId?: string | null;
   runOrder: number;
   totalExamples: number;
   evaluatedCount: number;
@@ -133,7 +143,11 @@ export interface PreviewExample {
 
 export async function createVlmExperiment(
   token: string,
-  input: { name: string; categoryIds: string[]; exampleCount: number; exampleSeed?: number; modelIds: string[] },
+  input: {
+    name: string; categoryIds: string[]; exampleCount: number; exampleSeed?: number; modelIds: string[];
+    /** One run per model and variant; omit for production's instrument. */
+    judgePromptVariants?: Array<{ id: string; template: string }>;
+  },
 ): Promise<VlmExperiment> {
   return request(token, "", { method: "POST", body: JSON.stringify(input) });
 }

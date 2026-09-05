@@ -30,6 +30,14 @@ A small utility LLM call with a tight output cap that is not user-visible chat (
 The model, under a specific prompt and set of rendered views, that answers a Checklist for an example. A judge is a role, not a model name; the same model under a different harness is a different judge.
 _Avoid_: evaluator, grader, VLM (a capability, not the role)
 
+**Instrument**:
+The stable part of a Judge's prompt: role, caveats, rubric, output shape. Held identical across every example of a run so that two answers are comparable. It is a template with named slots for the Specimen; production ships two, and an experiment run may carry another (a *variant*, identified by a short id recorded on the run and every result).
+_Avoid_: system prompt (instrument and specimen interleaved), rubric (one part of it), preamble
+
+**Specimen**:
+The per-example part of a Judge's prompt: the user's request, the views provided, the construction spec, the Checklist items. Varies by design; injected into the Instrument through its slots, never restated by it.
+_Avoid_: context, example data, prompt (ambiguous with the user's request)
+
 **Requirement**:
 A property of an example that the prompt states or necessarily implies ("four standoffs" means exactly four; "a through hole" passes through). Requirements are what criteria are generated from, and the only things a Checklist item may gate on.
 _Avoid_: detail, feature, spec

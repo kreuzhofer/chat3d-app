@@ -75,6 +75,11 @@ export interface EvaluateModelInput {
   modelFormat?: ModelFormat;
   /** Per-prompt eval directive: drives dynamic system prompt + per-angle focus labels. Null = legacy template. */
   evalPlan?: EvalPlan | null;
+  /**
+   * Instrument override for experiments (issue #35): the judge's system prompt
+   * as a template over the specimen slots. Unset = production's instrument.
+   */
+  instrumentTemplate?: string;
 }
 
 // ── Angle labels ─────────────────────────────────────────────────────
@@ -173,6 +178,7 @@ export async function evaluateModelWithConfig(
     constructionSpec: input.constructionSpec ?? "",
     evalPreamble: vlmConfig.vlmEvalPreamble ?? "",
     evalPlan,
+    instrumentTemplate: input.instrumentTemplate,
   });
 
   const userContent = buildImageUserContent(images, evalPlan?.inspectionPlan?.focus);

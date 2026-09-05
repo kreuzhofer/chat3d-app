@@ -103,7 +103,7 @@ export async function cancelVlmExperiment(experimentId: string): Promise<void> {
 
 interface VlmExpWithRelations {
   id: string;
-  runs: Array<{ id: string; modelId: string; modelLabel: string; runOrder: number; status: string }>;
+  runs: Array<{ id: string; modelId: string; modelLabel: string; runOrder: number; status: string; judgePromptTemplate: string | null }>;
   vlmExampleSelections: Array<{ exampleId: string; selectionOrder: number }>;
 }
 
@@ -161,6 +161,8 @@ interface RunInfo {
   modelId: string;
   modelLabel: string;
   status: string;
+  /** The run's instrument (issue #35); null = production's. */
+  judgePromptTemplate: string | null;
 }
 
 async function executeVlmRun(run: RunInfo, exampleIds: string[], signal: AbortSignal): Promise<void> {
@@ -198,7 +200,7 @@ async function executeVlmRun(run: RunInfo, exampleIds: string[], signal: AbortSi
     try {
       const result = await runWithUsageContext(
         { source: "experiment", experimentId: run.id, experimentRunId: run.id, sourceLabel: `VLM Experiment: ${run.modelLabel}` },
-        () => evaluateExample(exampleId, modelConfig),
+        () => evaluateExample(exampleId, modelConfig, run.judgePromptTemplate),
       );
       const durationMs = Date.now() - startMs;
 
@@ -248,6 +250,7 @@ async function executeVlmRun(run: RunInfo, exampleIds: string[], signal: AbortSi
 async function evaluateExample(
   exampleId: string,
   modelConfig: Awaited<ReturnType<typeof resolveModelConfigById>>,
+  instrumentTemplate: string | null,
 ) {
   const example = await prisma.workbenchExample.findUnique({
     where: { id: exampleId },
@@ -286,7 +289,10 @@ async function evaluateExample(
   if (images.length === 0) throw new Error(`No screenshots available for example ${exampleId}`);
 
   const stlBase64 = await loadStlBase64(example.stlPath);
-  const input = buildExperimentEvalInput(example, images, stlBase64);
+  const input = {
+    ...buildExperimentEvalInput(example, images, stlBase64),
+    ...(instrumentTemplate ? { instrumentTemplate } : {}),
+  };
   const firstPass = await evaluateModelWithConfig(input, modelConfig);
   return applyZoomFollowUp(firstPass, input, modelConfig);
 }

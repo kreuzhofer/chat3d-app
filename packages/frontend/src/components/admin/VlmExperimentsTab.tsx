@@ -15,6 +15,7 @@ import {
   cancelVlmExperiment,
   rerunVlmExperiment,
   type VlmExperimentListItem,
+  runDisplayLabel,
 } from "../../api/vlm-experiment.api";
 import { VlmExperimentCreateDialog } from "./VlmExperimentCreateDialog";
 import { VlmExperimentDetailView } from "./VlmExperimentDetailView";
@@ -139,7 +140,7 @@ export function VlmExperimentsTab({ token, selectedExperimentId }: Props) {
                   <td className="p-2">
                     {exp.runs.map((r) => (
                       <Badge key={r.id} variant={STATUS_COLORS[r.status] ?? "outline"} className="mr-1 text-[0.7rem]">
-                        {r.modelLabel.split("/").pop()}
+                        {runDisplayLabel(r, true)}
                       </Badge>
                     ))}
                   </td>

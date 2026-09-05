@@ -6,7 +6,6 @@ import { Router, type Request, type Response } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import {
-  createVlmExperiment,
   getVlmExperiment,
   listVlmExperiments,
   updateVlmExperiment,
@@ -16,6 +15,7 @@ import {
   getVlmExperimentStatus,
   resetVlmExperimentRun,
 } from "../services/vlm-experiment.service.js";
+import { createVlmExperiment } from "../services/vlm-experiment-create.service.js";
 import { startVlmExperiment, cancelVlmExperiment } from "../services/vlm-experiment-execution.service.js";
 import {
   getVlmComparison,
@@ -43,9 +43,9 @@ function handleError(err: unknown, res: Response) {
 
 vlmExperimentRouter.post("/", async (req: Request, res: Response) => {
   try {
-    const { name, categoryIds, exampleCount, exampleSeed, modelIds } = req.body;
+    const { name, categoryIds, exampleCount, exampleSeed, modelIds, judgePromptVariants } = req.body;
     const experiment = await createVlmExperiment({
-      name, categoryIds, exampleCount, exampleSeed, modelIds,
+      name, categoryIds, exampleCount, exampleSeed, modelIds, judgePromptVariants,
       createdBy: req.authUser!.id,
     });
     res.status(201).json(experiment);

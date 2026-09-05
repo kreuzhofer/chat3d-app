@@ -16,6 +16,8 @@ const logger = createLogger("vlm-experiment-compare");
 export interface VlmRunMetrics {
   runId: string;
   modelLabel: string;
+  /** The instrument this run judged under (issue #35); null = production's. */
+  judgePromptVariantId: string | null;
   runOrder: number;
   totalExamples: number;
   evaluatedCount: number;
@@ -116,7 +118,7 @@ export async function getVlmComparison(experimentId: string): Promise<{ runs: Vl
 
   const runs = await prisma.experimentRun.findMany({
     where: { experimentId },
-    select: { id: true, modelLabel: true, runOrder: true },
+    select: { id: true, modelLabel: true, runOrder: true, judgePromptVariantId: true },
     orderBy: { runOrder: "asc" },
   });
 
@@ -198,6 +200,7 @@ export async function getVlmComparison(experimentId: string): Promise<{ runs: Vl
     return {
       runId: run.id,
       modelLabel: run.modelLabel,
+      judgePromptVariantId: run.judgePromptVariantId,
       runOrder: run.runOrder,
       totalExamples: runResults.length,
       evaluatedCount: scores.length,

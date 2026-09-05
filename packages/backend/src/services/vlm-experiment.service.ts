@@ -2,7 +2,8 @@
  * VLM Experiment CRUD Service
  *
  * Manages VLM comparison experiments — selecting existing workbench examples
- * and running multiple VLM evaluators against them.
+ * and running multiple VLM evaluators against them. Creation, including run
+ * planning over judge-prompt variants, lives in `vlm-experiment-create.service.ts`.
  */
 
 import { prisma } from "../db/prisma.js";
@@ -25,7 +26,7 @@ function createSeededRng(seed: number): () => number {
   };
 }
 
-function selectIds(allIds: string[], count: number, seed: number): string[] {
+export function selectIds(allIds: string[], count: number, seed: number): string[] {
   const rng = createSeededRng(seed);
   const arr = [...allIds];
   for (let i = arr.length - 1; i > 0; i--) {
@@ -37,7 +38,7 @@ function selectIds(allIds: string[], count: number, seed: number): string[] {
 
 // ── Validation helpers ──────────────────────────────────────────────
 
-async function validateCategories(categoryIds: string[]) {
+export async function validateCategories(categoryIds: string[]) {
   if (categoryIds.length === 0) throw new ExperimentError("At least one category is required", 400);
   const categories = await prisma.workbenchCategory.findMany({
     where: { id: { in: categoryIds } },
@@ -51,7 +52,7 @@ async function validateCategories(categoryIds: string[]) {
   return categories;
 }
 
-async function validateModels(modelIds: string[]) {
+export async function validateModels(modelIds: string[]) {
   if (modelIds.length < 1) throw new ExperimentError("At least 1 model is required", 400);
   const uniqueIds = [...new Set(modelIds)];
   if (uniqueIds.length !== modelIds.length) throw new ExperimentError("Duplicate model IDs not allowed", 400);
@@ -68,7 +69,7 @@ async function validateModels(modelIds: string[]) {
 }
 
 /** Fetch example IDs from selected categories that have screenshots. */
-async function queryEligibleExamples(categoryIds: string[]): Promise<string[]> {
+export async function queryEligibleExamples(categoryIds: string[]): Promise<string[]> {
   const examples = await prisma.workbenchExample.findMany({
     where: {
       screenshotFront: { not: null },
@@ -81,73 +82,6 @@ async function queryEligibleExamples(categoryIds: string[]): Promise<string[]> {
     orderBy: [{ promptId: "asc" }, { createdAt: "asc" }],
   });
   return examples.map((e) => e.id);
-}
-
-// ── Create ──────────────────────────────────────────────────────────
-
-export interface CreateVlmExperimentInput {
-  name: string;
-  categoryIds: string[];
-  exampleCount: number;
-  exampleSeed?: number;
-  modelIds: string[];
-  createdBy: string;
-}
-
-export async function createVlmExperiment(input: CreateVlmExperimentInput) {
-  const { name, categoryIds, exampleCount, exampleSeed = 42, modelIds, createdBy } = input;
-
-  await validateCategories(categoryIds);
-  const { models, uniqueIds } = await validateModels(modelIds);
-
-  const allExampleIds = await queryEligibleExamples(categoryIds);
-  if (allExampleIds.length === 0) throw new ExperimentError("Selected categories have no examples with screenshots", 400);
-  if (exampleCount > allExampleIds.length) {
-    throw new ExperimentError(`Requested ${exampleCount} examples but only ${allExampleIds.length} eligible`, 400);
-  }
-
-  const selectedIds = selectIds(allExampleIds, exampleCount, exampleSeed);
-
-  const experiment = await prisma.$transaction(async (tx) => {
-    const exp = await tx.experiment.create({
-      data: {
-        name,
-        type: "vlm_comparison",
-        categoryIds,
-        promptCount: exampleCount,
-        promptSeed: exampleSeed,
-        testedPurpose: "vlm_eval",
-        createdBy,
-      },
-    });
-
-    // Create one run per model
-    let runOrder = 0;
-    for (const modelId of uniqueIds) {
-      const model = models.find((m) => m.id === modelId)!;
-      runOrder++;
-      await tx.experimentRun.create({
-        data: {
-          experimentId: exp.id,
-          modelId,
-          modelLabel: model.displayName || `${model.provider}/${model.modelName}`,
-          runOrder,
-        },
-      });
-    }
-
-    // Create example selections
-    for (let i = 0; i < selectedIds.length; i++) {
-      await tx.vlmExperimentExampleSelection.create({
-        data: { experimentId: exp.id, exampleId: selectedIds[i], selectionOrder: i + 1 },
-      });
-    }
-
-    return exp;
-  });
-
-  logger.info({ experimentId: experiment.id, exampleCount, modelCount: uniqueIds.length }, "VLM experiment created");
-  return getVlmExperiment(experiment.id);
 }
 
 // ── Read ────────────────────────────────────────────────────────────
@@ -170,7 +104,7 @@ export async function listVlmExperiments(options: { limit?: number; offset?: num
     prisma.experiment.findMany({
       where: { type: "vlm_comparison" },
       include: {
-        runs: { orderBy: { runOrder: "asc" }, select: { id: true, modelLabel: true, status: true } },
+        runs: { orderBy: { runOrder: "asc" }, select: { id: true, modelLabel: true, status: true, judgePromptVariantId: true } },
       },
       orderBy: { createdAt: "desc" },
       take: limit,
@@ -247,7 +181,15 @@ export async function updateVlmExperiment(experimentId: string, input: UpdateVlm
   }
 
   if (input.categoryIds) await validateCategories(input.categoryIds);
-  if (input.modelIds) await validateModels(input.modelIds);
+  if (input.modelIds) {
+    await validateModels(input.modelIds);
+    // Runs under judge-prompt variants are model × variant; reconciling them by
+    // model alone would silently drop variants. Recreate the experiment instead.
+    const variantRuns = await prisma.experimentRun.count({ where: { experimentId, judgePromptVariantId: { not: null } } });
+    if (variantRuns > 0) {
+      throw new ExperimentError("Models cannot be changed on an experiment with judge-prompt variants; create a new experiment", 400);
+    }
+  }
 
   const categoryIds = input.categoryIds ?? exp.categoryIds;
   const exampleCount = input.exampleCount ?? exp.promptCount;
@@ -415,7 +357,7 @@ export async function getVlmExperimentStatus(experimentId: string) {
 
   const runs = await prisma.experimentRun.findMany({
     where: { experimentId },
-    select: { id: true, modelLabel: true, status: true, runOrder: true },
+    select: { id: true, modelLabel: true, status: true, runOrder: true, judgePromptVariantId: true },
     orderBy: { runOrder: "asc" },
   });
 
@@ -434,6 +376,7 @@ export async function getVlmExperimentStatus(experimentId: string) {
     runs: runs.map((r) => ({
       runId: r.id,
       modelLabel: r.modelLabel,
+      judgePromptVariantId: r.judgePromptVariantId,
       status: r.status,
       completedExamples: countMap.get(r.id) ?? 0,
       totalExamples,
