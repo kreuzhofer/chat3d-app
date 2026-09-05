@@ -13,7 +13,7 @@ import { evaluateModel, type LabeledImage, type ChecklistResult } from "./visual
 import { evaluateCode, type CodeEvalInput } from "./code-eval.service.js";
 import { checkAssertions, type AssertionCheckSummary } from "./code-eval-assertions.service.js";
 import { computeCompositeScore, resolveCodeEvalWeight, type ResolvedWeight } from "./code-eval-composite.service.js";
-import { renderHighResScreenshots, resolveUncertainItems } from "./visual-eval-zoom.service.js";
+import { runZoomFollowUp } from "./visual-eval-zoom.service.js";
 import { isUncertain } from "./visual-eval-parser.service.js";
 import type { CodeAssertion } from "./spec-generation.service.js";
 import type { ModelFormat } from "./stl-rendering-client.service.js";
@@ -22,7 +22,7 @@ import { deriveVisualChecklist } from "../utils/verification-criteria.js";
 import { classifyChecklist, type ChecklistState } from "../utils/checklist-state.js";
 import { getTraceBuilder } from "./trace-builder.service.js";
 import { getModelForPurposeWithFallback, calculateCostUsd } from "./llm-config.service.js";
-import { isZoomFollowUpEnabled, getZoomResolution, getZoomMaxFollowUps, isAdaptiveWeightEnabled, getAdaptiveWeightRange } from "./generation-settings.service.js";
+import { isAdaptiveWeightEnabled, getAdaptiveWeightRange } from "./generation-settings.service.js";
 import { RENDER_ANGLE_NAMES, type EvalPlan } from "../utils/eval-plan.js";
 
 const logger = createLogger("eval-orchestrator");
@@ -410,17 +410,18 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
       vlmReasoning = vlmResult.reasoning;
       vlmSystemPrompt = vlmResult.systemPrompt;
 
-      // Zoom follow-up for uncertain checklist items
+      // Zoom follow-up for uncertain checklist items — the same engine the
+      // experiment executor runs (issue #54), so the two cannot drift apart.
       const hasUncertain = checklistResults?.some(c => isUncertain(c));
       if (hasUncertain && input.stlBase64 && checklistResults) {
-        const [zoomEnabled, zoomRes, maxFollowUps] = await Promise.all([
-          isZoomFollowUpEnabled(), getZoomResolution(), getZoomMaxFollowUps(),
-        ]);
-        if (zoomEnabled) {
-          try {
-            logger.info({ uncertainCount: checklistResults.filter(c => isUncertain(c)).length }, "rendering 2x screenshots for uncertain items");
-            const highRes = await renderHighResScreenshots(input.stlBase64, input.modelFormat ?? "stl", zoomRes);
-            const zoomResult = await resolveUncertainItems(checklistResults, highRes, maxFollowUps, input.constructionSpec);
+        try {
+          const zoomResult = await runZoomFollowUp({
+            checklist: checklistResults,
+            stlBase64: input.stlBase64,
+            modelFormat: input.modelFormat ?? "stl",
+            constructionSpec: input.constructionSpec,
+          });
+          if (zoomResult) {
             checklistResults = zoomResult.resolvedChecklist;
             vlmPromptTokens += zoomResult.promptTokens;
             vlmCompletionTokens += zoomResult.completionTokens;
@@ -434,9 +435,9 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
               }, "eval-vlm");
             }
             logger.info({ followUpCount: zoomResult.followUpCount }, "zoom follow-ups completed");
-          } catch (err) {
-            logger.warn({ err: err instanceof Error ? err.message : String(err) }, "zoom follow-up failed, keeping uncertain results");
           }
+        } catch (err) {
+          logger.warn({ err: err instanceof Error ? err.message : String(err) }, "zoom follow-up failed, keeping uncertain results");
         }
       }
 

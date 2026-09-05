@@ -12,7 +12,12 @@
 import { renderModelScreenshots, type ModelFormat, type ViewingAngle, type RenderedScreenshot } from "./stl-rendering-client.service.js";
 import { trackedGenerateText } from "./tracked-llm.service.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
-import { getModelForPurpose, createProviderModel as createProviderModelFromConfig } from "./llm-config.service.js";
+import {
+  getModelForPurpose,
+  createProviderModel as createProviderModelFromConfig,
+  type LlmModelConfig,
+} from "./llm-config.service.js";
+import { isZoomFollowUpEnabled, getZoomResolution, getZoomMaxFollowUps } from "./generation-settings.service.js";
 import { buildUncertainFollowUpPrompt } from "./visual-eval-prompt.service.js";
 import type { ChecklistResult } from "./visual-eval-parser.service.js";
 import { isUncertain } from "./visual-eval-parser.service.js";
@@ -83,17 +88,60 @@ export async function renderHighResScreenshots(
   return { images: result.images, byAngle };
 }
 
+// ── The production sequence, behind the settings ─────────────────────
+
+export interface ZoomFollowUpArgs {
+  checklist: ChecklistResult[];
+  stlBase64: string;
+  modelFormat: ModelFormat;
+  constructionSpec?: string;
+  /**
+   * The judge that answers the follow-ups. Production leaves this unset and
+   * gets the `vlm_eval` purpose; an experiment passes the judge under test,
+   * otherwise its uncertain items would be resolved by a different model than
+   * the one being scored (issue #54).
+   */
+  vlmConfig?: LlmModelConfig;
+}
+
+/**
+ * Read the zoom settings, render the high-res set, and ask the judge about each
+ * uncertain item — the one code path both production and the experiment
+ * executor run, so the two cannot drift apart.
+ *
+ * Returns null when nothing is uncertain or the follow-up is disabled. Throws
+ * when rendering or the judge lookup fails; the caller decides whether to keep
+ * the uncertain items (both callers do).
+ */
+export async function runZoomFollowUp(args: ZoomFollowUpArgs): Promise<ZoomFollowUpResult | null> {
+  const uncertainCount = args.checklist.filter((c) => isUncertain(c)).length;
+  if (uncertainCount === 0) return null;
+
+  const [enabled, resolution, maxFollowUps] = await Promise.all([
+    isZoomFollowUpEnabled(), getZoomResolution(), getZoomMaxFollowUps(),
+  ]);
+  if (!enabled) return null;
+
+  logger.info({ uncertainCount, resolution, maxFollowUps }, "rendering 2x screenshots for uncertain items");
+  const highRes = await renderHighResScreenshots(args.stlBase64, args.modelFormat, resolution);
+  return resolveUncertainItems(args.checklist, highRes, maxFollowUps, args.constructionSpec, args.vlmConfig);
+}
+
 // ── Follow-up VLM calls ──────────────────────────────────────────────
 
 /**
  * For each uncertain checklist item, send a focused VLM call with one
  * high-res image and one specific question. Merges results back.
+ *
+ * `vlmConfig` names the judge that answers; without it the production
+ * `vlm_eval` purpose is used.
  */
 export async function resolveUncertainItems(
   checklist: ChecklistResult[],
   highRes: HighResRenderResult,
   maxFollowUps: number,
   constructionSpec?: string,
+  vlmConfig?: LlmModelConfig,
 ): Promise<ZoomFollowUpResult> {
   const uncertainItems = checklist
     .map((item, index) => ({ item, index }))
@@ -105,13 +153,7 @@ export async function resolveUncertainItems(
 
   logger.info({ uncertainCount: uncertainItems.length, maxFollowUps }, "resolving uncertain checklist items");
 
-  // Resolve VLM model
-  let vlmConfig;
-  try {
-    vlmConfig = await getModelForPurpose("vlm_eval");
-  } catch {
-    vlmConfig = await getModelForPurpose("conversation");
-  }
+  const judge = vlmConfig ?? await resolveProductionJudge();
 
   const resolvedChecklist = [...checklist];
   let followUpCount = 0;
@@ -133,7 +175,7 @@ export async function resolveUncertainItems(
     }
 
     try {
-      const result = await runSingleFollowUp(item.question, imageBase64, vlmConfig, constructionSpec);
+      const result = await runSingleFollowUp(item.question, imageBase64, judge, constructionSpec);
       resolvedChecklist[index] = {
         question: item.question,
         pass: result.pass,
@@ -153,6 +195,14 @@ export async function resolveUncertainItems(
   return { resolvedChecklist, followUpCount, followUpDetails, promptTokens: totalPromptTokens, completionTokens: totalCompletionTokens };
 }
 
+async function resolveProductionJudge(): Promise<LlmModelConfig> {
+  try {
+    return await getModelForPurpose("vlm_eval");
+  } catch {
+    return getModelForPurpose("conversation");
+  }
+}
+
 // ── Single follow-up call ────────────────────────────────────────────
 
 interface FollowUpResult {
@@ -162,12 +212,10 @@ interface FollowUpResult {
   completionTokens: number;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function runSingleFollowUp(
   question: string,
   imageBase64: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  vlmConfig: any,
+  vlmConfig: LlmModelConfig,
   constructionSpec?: string,
 ): Promise<FollowUpResult> {
   const model = createProviderModelFromConfig(vlmConfig);

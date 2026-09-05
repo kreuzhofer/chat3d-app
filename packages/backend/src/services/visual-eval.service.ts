@@ -69,9 +69,9 @@ export interface EvaluateModelInput {
   verificationChecklist?: string[];
   /** Precise geometric blueprint — provides structural context for evaluation. */
   constructionSpec?: string;
-  /** Raw STL/3MF base64 data (kept for interface compat, not used for zoom). */
+  /** Raw STL/3MF base64 data. Not read here; carried for the caller's zoom follow-up on uncertain items. */
   stlBase64?: string;
-  /** Model format (kept for interface compat). */
+  /** Format of `stlBase64`. */
   modelFormat?: ModelFormat;
   /** Per-prompt eval directive: drives dynamic system prompt + per-angle focus labels. Null = legacy template. */
   evalPlan?: EvalPlan | null;

@@ -7,8 +7,10 @@
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import { ExperimentError } from "./experiment.service.js";
-import { resolveModelConfigById } from "./llm-config.service.js";
-import { evaluateModelWithConfig, type LabeledImage } from "./visual-eval.service.js";
+import { resolveModelConfigById, type LlmModelConfig } from "./llm-config.service.js";
+import { evaluateModelWithConfig, type LabeledImage, type EvaluationResult } from "./visual-eval.service.js";
+import { runZoomFollowUp } from "./visual-eval-zoom.service.js";
+import { isUncertain } from "./visual-eval-parser.service.js";
 import { readStorageFile, storageFileExists } from "./file-storage.service.js";
 import {
   acquireExperimentLock,
@@ -283,7 +285,68 @@ async function evaluateExample(
 
   if (images.length === 0) throw new Error(`No screenshots available for example ${exampleId}`);
 
-  return evaluateModelWithConfig(buildExperimentEvalInput(example, images), modelConfig);
+  const stlBase64 = await loadStlBase64(example.stlPath);
+  const input = buildExperimentEvalInput(example, images, stlBase64);
+  const firstPass = await evaluateModelWithConfig(input, modelConfig);
+  return applyZoomFollowUp(firstPass, input, modelConfig);
+}
+
+/** The example's STL, for the zoom follow-up's high-res render. Undefined when the file is gone. */
+async function loadStlBase64(stlPath: string | null): Promise<string | undefined> {
+  if (!stlPath || !(await storageFileExists(stlPath))) return undefined;
+  return (await readStorageFile({ relativePath: stlPath })).toString("base64");
+}
+
+/**
+ * Production's zoom follow-up on the experiment's first pass (issue #54).
+ *
+ * Mirrors eval-orchestrator: the follow-up runs only when the judge left
+ * items uncertain and the STL is available, behind the same `global.zoom_*`
+ * settings, and its tokens are added to the evaluation's. The one deliberate
+ * difference is the judge — the follow-up must be answered by the run's model,
+ * not the production `vlm_eval` model, or the experiment scores a hybrid.
+ * A failed follow-up keeps the uncertain items, as production does.
+ */
+export async function applyZoomFollowUp(
+  result: EvaluationResult,
+  input: EvaluateModelInput,
+  vlmConfig: LlmModelConfig,
+): Promise<EvaluationResult> {
+  const checklist = result.checklistResults;
+  if (!checklist || !checklist.some((c) => isUncertain(c))) return result;
+
+  if (!input.stlBase64) {
+    logger.warn(
+      { uncertainCount: checklist.filter((c) => isUncertain(c)).length },
+      "no STL for this example — zoom follow-up skipped, uncertain items kept",
+    );
+    return result;
+  }
+
+  try {
+    const zoom = await runZoomFollowUp({
+      checklist,
+      stlBase64: input.stlBase64,
+      modelFormat: input.modelFormat ?? "stl",
+      constructionSpec: input.constructionSpec,
+      vlmConfig,
+    });
+    if (!zoom) return result;
+
+    logger.info({ followUpCount: zoom.followUpCount, model: vlmConfig.label }, "zoom follow-ups completed");
+    return {
+      ...result,
+      checklistResults: zoom.resolvedChecklist,
+      promptTokens: result.promptTokens + zoom.promptTokens,
+      completionTokens: result.completionTokens + zoom.completionTokens,
+    };
+  } catch (err) {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err), model: vlmConfig.label },
+      "zoom follow-up failed, keeping uncertain results",
+    );
+    return result;
+  }
 }
 
 /**
@@ -295,6 +358,9 @@ async function evaluateExample(
  * most of the stored corpus holds (issue #33). Passing anything else here means
  * the experiment scores a judge on a prompt production never sends, which is
  * the whole point of the comparison.
+ *
+ * `stlBase64` is the example's model for the zoom follow-up's high-res render;
+ * without it the follow-up is skipped, exactly as production skips it.
  */
 export function buildExperimentEvalInput(
   example: {
@@ -308,6 +374,7 @@ export function buildExperimentEvalInput(
     };
   },
   images: LabeledImage[],
+  stlBase64?: string,
 ): EvaluateModelInput {
   const { promptRef } = example;
   return {
@@ -315,6 +382,7 @@ export function buildExperimentEvalInput(
     categoryName: promptRef.category.name,
     complexity: promptRef.category.complexity,
     images,
+    ...(stlBase64 ? { stlBase64, modelFormat: "stl" as const } : {}),
     constructionSpec: promptRef.constructionSpec ?? undefined,
     verificationChecklist: deriveVisualChecklist(
       promptRef.verificationCriteria,
