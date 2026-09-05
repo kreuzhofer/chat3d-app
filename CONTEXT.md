@@ -31,11 +31,19 @@ The model, under a specific prompt and set of rendered views, that answers a Che
 _Avoid_: evaluator, grader, VLM (a capability, not the role)
 
 **Instrument**:
-The stable part of a Judge's prompt: role, caveats, rubric, output shape. Held identical across every example of a run so that two answers are comparable. It is a template with named slots for the Specimen; production ships two, and an experiment run may carry another (a *variant*, identified by a short id recorded on the run and every result).
-_Avoid_: system prompt (instrument and specimen interleaved), rubric (one part of it), preamble
+The stable part of a Judge's prompt: role, caveats, rubric, output shape (the response schema included). Held identical across every example, every entry point and every judge model so that two answers are comparable. It is a template with named slots for the Specimen; production ships one, and an experiment run may carry another (a *variant*). Every evaluation records the Instrument id it was answered under.
+_Avoid_: system prompt (instrument and specimen interleaved), rubric (one part of it), preamble, eval plan (per-prompt instructions; not sent to the judge)
+
+**Instrument id**:
+The identity of the Instrument a Judge answered under: a name (production's, or an experiment variant's) plus a content hash of the whole procedure: the template, the response schema, the zoom follow-up prompt and its settings; stamped on every stored evaluation. Two evaluations are comparable only under the same Instrument id. Evaluations stored before ids existed have none and are read as pre-versioning.
+_Avoid_: version number (hand-bumped and forgettable), prompt hash (the specimen would change it per example)
+
+**Stale**:
+A stored evaluation whose Instrument id is not the current one. Still readable, excluded from any set that assumes comparability (the Reference standard, the fine-tuning filter), and re-rated as scheduled batch work by the judge `vlm_eval` points at.
+_Avoid_: outdated, invalid (the answer was valid under its own instrument)
 
 **Specimen**:
-The per-example part of a Judge's prompt: the user's request, the views provided, the construction spec, the Checklist items. Varies by design; injected into the Instrument through its slots, never restated by it.
+The per-example part of a Judge's prompt: the user's request, the category and its complexity, the construction spec, the Checklist items. The views are the same eight for every example and every entry point, so they are not part of what varies. Injected into the Instrument through its slots, never restated by it.
 _Avoid_: context, example data, prompt (ambiguous with the user's request)
 
 **Requirement**:
