@@ -1,0 +1,207 @@
+################ run summary ################
+786b6e3c|Claude Sonnet 4.6 (Anthropic API, thinking off)|completed|125|0|0|0|||20.9|801
+3b5edb08|glm-5.3-flash (thinking off)|completed|125|0|0|0|||34.4|347
+60cdd170|glm-5.3-flash (thinking off)|completed|125|0|0|0|||19.3|324
+27f584d2|glm-5.3-flash (thinking off)|completed|125|0|0|1|production@22e0f10b0505|off|19.0|313
+
+################ views promised by the stored prompt, per run ################
+27f584d2|8 (fixed)|125
+3b5edb08|8|125
+60cdd170|8|125
+786b6e3c|8|125
+
+################ NEW-vs-GLM-#56-guarded(60cdd170) ################
+candidate 27f584d2: 125 rows, errors 0
+reference 60cdd170: 125 rows, errors 0
+common examples: 125; first-pass mode: False
+examples compared: 125; missing checklist skipped: 0; question mismatches: 0
+ITEMS (all)
+  all: items 511 | identical  94.3% | hard flips   5.3% (27) | either uncertain   0.4% | pass rate ref  79.8% cand  81.6% | uncertain ref 2 cand 0
+    ref \ cand     P      F      U
+             P    398     10      0
+             F     17     84      0
+             U      2      0      0
+    of ref FAIL (101): cand pass  16.8%, cand uncertain   0.0%
+    of ref PASS (408): cand fail   2.5%, cand uncertain   0.0%
+    of ref UNCERTAIN (2): cand pass 100.0%, cand fail   0.0%
+ITEMS split by how the CANDIDATE answered
+  candidate first-pass items: items 500 | identical  94.4% | hard flips   5.2% (26) | either uncertain   0.4% | pass rate ref  80.2% cand  82.2% | uncertain ref 2 cand 0
+  candidate zoom-resolved items: items 11 | identical  90.9% | hard flips   9.1% (1) | either uncertain   0.0% | pass rate ref  63.6% cand  54.5% | uncertain ref 0 cand 0
+  candidate zoom-resolved items matrix:
+    ref \ cand     P      F      U
+             P      6      1      0
+             F      0      4      0
+             U      0      0      0
+    of ref FAIL (4): cand pass   0.0%, cand uncertain   0.0%
+    of ref PASS (7): cand fail  14.3%, cand uncertain   0.0%
+ITEMS split by how the REFERENCE answered
+  reference first-pass items: items 483 | identical  94.8% | hard flips   4.8% (23) | either uncertain   0.4% | pass rate ref  80.3% cand  82.6% | uncertain ref 2 cand 0
+  reference zoom-resolved items: items 28 | identical  85.7% | hard flips  14.3% (4) | either uncertain   0.0% | pass rate ref  71.4% cand  64.3% | uncertain ref 0 cand 0
+CANDIDATE uncertainty and zoom
+  items 511 | uncertain at first pass   2.2% (11) | resolved by zoom 11 | residual uncertain   0.0% (0)
+  zoom follow-ups per example: 0:114, 1:11 | examples with residual uncertain after >=3 follow-ups (cap): 0
+  details naming a view:  98.4% (503/511)
+SCORES (first pass, untouched by zoom)
+  same score  81.6% | mean abs delta 0.224 | mean cand 7.00 ref 7.03
+  gate at 7.5: cand passes 72 ref passes 74 | disagreements 6 (cand pass/ref fail 2, cand fail/ref pass 4, net -2)
+CANDIDATE cost
+  latency 19.0 s per example | tokens in 1.159M out 39.2K (313 out per example)
+
+################ NEW-vs-GLM-#50-control(3b5edb08) ################
+candidate 27f584d2: 125 rows, errors 0
+reference 3b5edb08: 125 rows, errors 0
+common examples: 125; first-pass mode: False
+examples compared: 125; missing checklist skipped: 0; question mismatches: 0
+ITEMS (all)
+  all: items 511 | identical  94.5% | hard flips   5.5% (28) | either uncertain   0.0% | pass rate ref  79.6% cand  81.6% | uncertain ref 0 cand 0
+    ref \ cand     P      F      U
+             P    398      9      0
+             F     19     85      0
+             U      0      0      0
+    of ref FAIL (104): cand pass  18.3%, cand uncertain   0.0%
+    of ref PASS (407): cand fail   2.2%, cand uncertain   0.0%
+ITEMS split by how the CANDIDATE answered
+  candidate first-pass items: items 500 | identical  95.0% | hard flips   5.0% (25) | either uncertain   0.0% | pass rate ref  80.0% cand  82.2% | uncertain ref 0 cand 0
+  candidate zoom-resolved items: items 11 | identical  72.7% | hard flips  27.3% (3) | either uncertain   0.0% | pass rate ref  63.6% cand  54.5% | uncertain ref 0 cand 0
+  candidate zoom-resolved items matrix:
+    ref \ cand     P      F      U
+             P      5      2      0
+             F      1      3      0
+             U      0      0      0
+    of ref FAIL (4): cand pass  25.0%, cand uncertain   0.0%
+    of ref PASS (7): cand fail  28.6%, cand uncertain   0.0%
+ITEMS split by how the REFERENCE answered
+  reference first-pass items: items 486 | identical  95.7% | hard flips   4.3% (21) | either uncertain   0.0% | pass rate ref  81.1% cand  82.5% | uncertain ref 0 cand 0
+  reference zoom-resolved items: items 25 | identical  72.0% | hard flips  28.0% (7) | either uncertain   0.0% | pass rate ref  52.0% cand  64.0% | uncertain ref 0 cand 0
+CANDIDATE uncertainty and zoom
+  items 511 | uncertain at first pass   2.2% (11) | resolved by zoom 11 | residual uncertain   0.0% (0)
+  zoom follow-ups per example: 0:114, 1:11 | examples with residual uncertain after >=3 follow-ups (cap): 0
+  details naming a view:  98.4% (503/511)
+SCORES (first pass, untouched by zoom)
+  same score  80.0% | mean abs delta 0.248 | mean cand 7.00 ref 7.10
+  gate at 7.5: cand passes 72 ref passes 75 | disagreements 5 (cand pass/ref fail 1, cand fail/ref pass 4, net -3)
+CANDIDATE cost
+  latency 19.0 s per example | tokens in 1.159M out 39.2K (313 out per example)
+
+################ NEW-vs-REF ################
+candidate 27f584d2: 125 rows, errors 0
+reference 786b6e3c: 125 rows, errors 0
+common examples: 125; first-pass mode: False
+examples compared: 125; missing checklist skipped: 0; question mismatches: 0
+ITEMS (all)
+  all: items 511 | identical  89.0% | hard flips  11.0% (56) | either uncertain   0.0% | pass rate ref  79.3% cand  81.6% | uncertain ref 0 cand 0
+    ref \ cand     P      F      U
+             P    383     22      0
+             F     34     72      0
+             U      0      0      0
+    of ref FAIL (106): cand pass  32.1%, cand uncertain   0.0%
+    of ref PASS (405): cand fail   5.4%, cand uncertain   0.0%
+ITEMS split by how the CANDIDATE answered
+  candidate first-pass items: items 500 | identical  89.4% | hard flips  10.6% (53) | either uncertain   0.0% | pass rate ref  80.0% cand  82.2% | uncertain ref 0 cand 0
+  candidate zoom-resolved items: items 11 | identical  72.7% | hard flips  27.3% (3) | either uncertain   0.0% | pass rate ref  45.5% cand  54.5% | uncertain ref 0 cand 0
+  candidate zoom-resolved items matrix:
+    ref \ cand     P      F      U
+             P      4      1      0
+             F      2      4      0
+             U      0      0      0
+    of ref FAIL (6): cand pass  33.3%, cand uncertain   0.0%
+    of ref PASS (5): cand fail  20.0%, cand uncertain   0.0%
+ITEMS split by how the REFERENCE answered
+  reference first-pass items: items 467 | identical  91.4% | hard flips   8.6% (40) | either uncertain   0.0% | pass rate ref  80.9% cand  82.7% | uncertain ref 0 cand 0
+  reference zoom-resolved items: items 44 | identical  63.6% | hard flips  36.4% (16) | either uncertain   0.0% | pass rate ref  61.4% cand  70.5% | uncertain ref 0 cand 0
+CANDIDATE uncertainty and zoom
+  items 511 | uncertain at first pass   2.2% (11) | resolved by zoom 11 | residual uncertain   0.0% (0)
+  zoom follow-ups per example: 0:114, 1:11 | examples with residual uncertain after >=3 follow-ups (cap): 0
+  details naming a view:  98.4% (503/511)
+SCORES (first pass, untouched by zoom)
+  same score  36.8% | mean abs delta 0.784 | mean cand 7.00 ref 6.70
+  gate at 7.5: cand passes 72 ref passes 51 | disagreements 23 (cand pass/ref fail 22, cand fail/ref pass 1, net +21)
+CANDIDATE cost
+  latency 19.0 s per example | tokens in 1.159M out 39.2K (313 out per example)
+
+################ GLM-#56-guarded-vs-REF ################
+candidate 60cdd170: 125 rows, errors 0
+reference 786b6e3c: 125 rows, errors 0
+common examples: 125; first-pass mode: False
+examples compared: 125; missing checklist skipped: 0; question mismatches: 0
+ITEMS (all)
+  all: items 511 | identical  88.8% | hard flips  10.8% (55) | either uncertain   0.4% | pass rate ref  79.3% cand  79.8% | uncertain ref 0 cand 2
+    ref \ cand     P      F      U
+             P    378     25      2
+             F     30     76      0
+             U      0      0      0
+    of ref FAIL (106): cand pass  28.3%, cand uncertain   0.0%
+    of ref PASS (405): cand fail   6.2%, cand uncertain   0.5%
+ITEMS split by how the CANDIDATE answered
+  candidate first-pass items: items 483 | identical  89.4% | hard flips  10.1% (49) | either uncertain   0.4% | pass rate ref  80.5% cand  80.3% | uncertain ref 0 cand 2
+  candidate zoom-resolved items: items 28 | identical  78.6% | hard flips  21.4% (6) | either uncertain   0.0% | pass rate ref  57.1% cand  71.4% | uncertain ref 0 cand 0
+  candidate zoom-resolved items matrix:
+    ref \ cand     P      F      U
+             P     15      1      0
+             F      5      7      0
+             U      0      0      0
+    of ref FAIL (12): cand pass  41.7%, cand uncertain   0.0%
+    of ref PASS (16): cand fail   6.2%, cand uncertain   0.0%
+ITEMS split by how the REFERENCE answered
+  reference first-pass items: items 467 | identical  91.4% | hard flips   8.1% (38) | either uncertain   0.4% | pass rate ref  80.9% cand  80.5% | uncertain ref 0 cand 2
+  reference zoom-resolved items: items 44 | identical  61.4% | hard flips  38.6% (17) | either uncertain   0.0% | pass rate ref  61.4% cand  72.7% | uncertain ref 0 cand 0
+CANDIDATE uncertainty and zoom
+  items 511 | uncertain at first pass   5.9% (30) | resolved by zoom 28 | residual uncertain   0.4% (2)
+  zoom follow-ups per example: 0:101, 1:21, 2:2, 3:1 | examples with residual uncertain after >=3 follow-ups (cap): 1
+  details naming a view:  79.0% (402/509)
+SCORES (first pass, untouched by zoom)
+  same score  35.2% | mean abs delta 0.896 | mean cand 7.03 ref 6.70
+  gate at 7.5: cand passes 74 ref passes 51 | disagreements 25 (cand pass/ref fail 24, cand fail/ref pass 1, net +23)
+CANDIDATE cost
+  latency 19.3 s per example | tokens in 1.219M out 40.5K (324 out per example)
+
+################ ITEM GATE (ADR 0001): all items pass, examples with >=3 items ################
+NEW vs REF:                 gate-eligible examples 96 | verdicts agree 77 (80.2%) | false accepts 13 | false rejects 6 | approves cand 52 ref 45
+GLM #56 guarded vs REF:     gate-eligible examples 96 | verdicts agree 76 (79.2%) | false accepts 13 | false rejects 7 | approves cand 51 ref 45
+GLM #50 control vs REF:     gate-eligible examples 96 | verdicts agree 77 (80.2%) | false accepts 12 | false rejects 7 | approves cand 50 ref 45
+NEW vs GLM #56 guarded:     gate-eligible examples 96 | verdicts agree 91 (94.8%) | false accepts 3 | false rejects 2 | approves cand 52 ref 51
+NEW vs GLM #50 control:     gate-eligible examples 96 | verdicts agree 92 (95.8%) | false accepts 3 | false rejects 1 | approves cand 52 ref 50
+
+################ the 33 plan-carrying examples vs the rest ################
+
+---- NEW-vs-REF ----
+candidate 27f584d2 vs reference 786b6e3c: subset 33 examples, rest 92
+
+ALL items
+  plan-carrying: items 173 | identical  85.5% | hard flips  14.5% (25) | either uncertain   0.0% | pass rate ref  82.1% cand  85.0% | uncertain ref 0 cand 0
+  rest         : items 338 | identical  90.8% | hard flips   9.2% (31) | either uncertain   0.0% | pass rate ref  77.8% cand  79.9% | uncertain ref 0 cand 0
+
+FIRST-PASS items
+  plan-carrying: items 173 | identical  81.5% | hard flips   9.8% (17) | either uncertain  11.0% | pass rate ref  75.7% cand  83.2% | uncertain ref 19 cand 4
+  rest         : items 338 | identical  85.5% | hard flips   6.2% (21) | either uncertain   8.9% | pass rate ref  73.1% cand  79.0% | uncertain ref 25 cand 7
+
+---- GLM-#56-vs-REF ----
+candidate 60cdd170 vs reference 786b6e3c: subset 33 examples, rest 92
+
+ALL items
+  plan-carrying: items 173 | identical  88.4% | hard flips  11.6% (20) | either uncertain   0.0% | pass rate ref  82.1% cand  85.5% | uncertain ref 0 cand 0
+  rest         : items 338 | identical  89.1% | hard flips  10.4% (35) | either uncertain   0.6% | pass rate ref  77.8% cand  76.9% | uncertain ref 0 cand 2
+
+FIRST-PASS items
+  plan-carrying: items 173 | identical  81.5% | hard flips   6.4% (11) | either uncertain  15.6% | pass rate ref  75.7% cand  79.2% | uncertain ref 19 cand 14
+  rest         : items 338 | identical  83.1% | hard flips   7.1% (24) | either uncertain  10.9% | pass rate ref  73.1% cand  74.3% | uncertain ref 25 cand 16
+
+---- NEW-vs-GLM-#56 ----
+candidate 27f584d2 vs reference 60cdd170: subset 33 examples, rest 92
+
+ALL items
+  plan-carrying: items 173 | identical  94.8% | hard flips   5.2% (9) | either uncertain   0.0% | pass rate ref  85.5% cand  85.0% | uncertain ref 0 cand 0
+  rest         : items 338 | identical  94.1% | hard flips   5.3% (18) | either uncertain   0.6% | pass rate ref  76.9% cand  79.9% | uncertain ref 2 cand 0
+
+FIRST-PASS items
+  plan-carrying: items 173 | identical  90.8% | hard flips   3.5% (6) | either uncertain   8.1% | pass rate ref  79.2% cand  83.2% | uncertain ref 14 cand 4
+  rest         : items 338 | identical  90.2% | hard flips   4.7% (16) | either uncertain   5.9% | pass rate ref  74.3% cand  79.0% | uncertain ref 16 cand 7
+
+################ zoom details: evidence completeness ('...' or < 10 chars after the prefix) ################
+27f584d2|11|0|0|259|6|5
+3b5edb08|25|0|0|211|13|12
+60cdd170|28|3|3|183|20|8
+786b6e3c|44|0|0|259|27|17
+
+################ residual uncertain after zoom, new run ################
+0|511
