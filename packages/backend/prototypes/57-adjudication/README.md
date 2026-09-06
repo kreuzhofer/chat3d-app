@@ -14,7 +14,7 @@ reference `6f6bb5c0`), under `production@22e0f10b0505`.
   each of the 40 examples (two 2×2 contact sheets per example, single 768 px views where a count or a small feature
   decided it) and gave each item R (Sonnet right), C (qwen right) or N (neither / unanswerable), with what the views
   show, the deciding view and what would have settled it. 23 verdicts carry over from the 26-item sample
-  (`../61-qualification/third-opinion-sample.md`), the other 46 are new. An empty **Daniel** column.
+  (`../61-qualification/third-opinion-sample.md`), the other 46 are new. The **Daniel** column holds his verdicts (`adjudicated-69.json`, read from the page's store on 2026-09-06).
 - `third-opinion-69.json` — the same, machine form (both judges' answers and details included).
 - `build.py` + `page.template.html` — build the sheet (`python3 build.py sheet`) and **the adjudication page**
   (`python3 build.py page VIEWS_DIR out.html`, the eight views of every example inlined, ~10 MB). The page is

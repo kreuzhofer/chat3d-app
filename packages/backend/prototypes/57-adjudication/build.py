@@ -14,6 +14,8 @@ import base64, collections, html, json, os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ITEMS = json.load(open(os.path.join(HERE, "third-opinion-69.json")))
+ADJ = {f"{r['short']}-{r['item']}": r for r in json.load(open(os.path.join(HERE, "adjudicated-69.json")))} \
+    if os.path.exists(os.path.join(HERE, "adjudicated-69.json")) else {}
 VIEWS = ["front", "back", "left", "right", "top", "bottom", "ortho_45", "ortho_45_bottom"]
 VIEW_LABEL = {"front": "Front", "back": "Back", "left": "Left", "right": "Right", "top": "Top",
               "bottom": "Bottom", "ortho_45": "45° down", "ortho_45_bottom": "45° up"}
@@ -73,6 +75,21 @@ def sheet():
                f"**qwen false fails {T['qff']} vs Sonnet false fails {T['sff']}** "
                f"(bar: qwen ≤ 2× Sonnet = {2 * T['sff']} — {'holds' if T['qff'] <= 2 * T['sff'] else 'fails'}); "
                f"{T['n']} items N. The four Sonnet-uncertain items are not hard flips; qwen is right on all four.\n")
+    if ADJ:
+        DT = tally(ITEMS, lambda r: ADJ[f"{r['short']}-{r['item']}"]["daniel"])
+        agree = sum(1 for r in ITEMS if ADJ[f"{r['short']}-{r['item']}"]["daniel"] == r["third"])
+        out.append("## Daniel's verdicts (2026-09-06, from the page's store) — the adjudication that counts\n")
+        out.append(f"All 69 adjudicated; agrees with the third opinion on {agree}, overrules it on {len(ITEMS) - agree}. "
+                   f"On the {DT['hard']} hard flips: **qwen false passes {DT['qfp']} vs Sonnet false passes {DT['sfp']}** "
+                   f"(bar ≤: {'holds' if DT['qfp'] <= DT['sfp'] else 'fails'}); **qwen false fails {DT['qff']} vs Sonnet false fails {DT['sff']}**, "
+                   f"allowance {2 * DT['sff']} (bar ≤ 2×: {'holds' if DT['qff'] <= 2 * DT['sff'] else 'fails'}); {DT['n']} N. "
+                   "The four Sonnet-uncertain items: qwen right on all four.\n")
+        out.append("| example · item | qwen | Sonnet | Fable | **Daniel** | note |\n|---|---|---|---|---|---|")
+        for r in ITEMS:
+            a = ADJ[f"{r['short']}-{r['item']}"]
+            if a["daniel"] != r["third"] or a["daniel_note"]:
+                out.append(f"| `{r['short']}` #{r['item']} {r['text'][:60]} | {r['qwen'][0].upper()} | {r['sonnet'][0].upper()} | {r['third']} | **{a['daniel']}** | {a['daniel_note']} |")
+        out.append("")
     out.append("## The table\n")
     out.append("| # | example | item | qwen | Sonnet | third | conf. | what the views show | deciding view | resolved by | source | **Daniel** |")
     out.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
@@ -80,7 +97,7 @@ def sheet():
         z = f" (zoom→{r['sonnet_zoom_angle']})" if r.get("sonnet_zoom_angle") else ""
         src = "sample" if r["source"].startswith("carried") else "new"
         out.append(f"| {r['ex']} | {r['category']} `{r['short']}` | {r['item']} {r['text']} | {r['qwen'][0].upper()} | "
-                   f"{r['sonnet'][0].upper()}{z} | **{r['third']}** | {r['confidence']} | {r['what']} | {r['deciding_view']} | {r['resolved_by']} | {src} |  |")
+                   f"{r['sonnet'][0].upper()}{z} | **{r['third']}** | {r['confidence']} | {r['what']} | {r['deciding_view']} | {r['resolved_by']} | {src} | {ADJ.get(f"{r['short']}-{r['item']}", {}).get('daniel', '')} |")
     out.append("")
     open(os.path.join(HERE, "third-opinion-69.md"), "w").write("\n".join(out) + "\n")
     print("sheet written;", T)
