@@ -1,0 +1,78 @@
+################ pool run 62b4fa58: qwen3.8-27b-nvfp4 (thinking off), concurrency 3, production@22e0f10b0505 ################
+ebd54b53|qwen38-nvfp4-spark (thinking off)|125|0|0|0|||16.9|35.2|403
+62b4fa58|qwen3.8-27b-nvfp4 (thinking off, 3-node pool)|125|0|0|1|production@22e0f10b0505|off|18.7|13.0|415
+
+---- residual uncertain / zoom evidence ----
+0|511|16|0
+
+samples per member: {'dgx-spark-04': 374, 'dgx-spark-02': 374, 'dgx-spark-03': 374}  window 2026-09-06T12:32:23+00:00 .. 2026-09-06T12:45:25+00:00
+  dgx-spark-02   busy samples   367 ( 98.1%) | inflight-seconds      734 ( 33.2%) | peak inflight 1 | not-serving samples 0
+  dgx-spark-03   busy samples   369 ( 98.7%) | inflight-seconds      738 ( 33.4%) | peak inflight 1 | not-serving samples 0
+  dgx-spark-04   busy samples   368 ( 98.4%) | inflight-seconds      736 ( 33.3%) | peak inflight 1 | not-serving samples 0
+
+################ POOL-qwen-vs-REF(786b6e3c,old-text) ################
+candidate 62b4fa58: 125 rows, errors 0
+reference 786b6e3c: 125 rows, errors 0
+common examples: 125; first-pass mode: False
+examples compared: 125; missing checklist skipped: 0; question mismatches: 0
+ITEMS (all)
+  all: items 511 | identical  85.1% | hard flips  14.9% (76) | either uncertain   0.0% | pass rate ref  79.3% cand  75.3% | uncertain ref 0 cand 0
+    ref \ cand     P      F      U
+             P    357     48      0
+             F     28     78      0
+             U      0      0      0
+    of ref FAIL (106): cand pass  26.4%, cand uncertain   0.0%
+    of ref PASS (405): cand fail  11.9%, cand uncertain   0.0%
+CANDIDATE uncertainty and zoom
+  items 511 | uncertain at first pass   3.1% (16) | resolved by zoom 16 | residual uncertain   0.0% (0)
+  zoom follow-ups per example: 0:111, 1:12, 2:2 | examples with residual uncertain after >=3 follow-ups (cap): 0
+  details naming a view:  96.1% (491/511)
+SCORES (first pass, untouched by zoom)
+  same score  19.2% | mean abs delta 1.312 | mean cand 7.22 ref 6.70
+  gate at 7.5: cand passes 70 ref passes 51 | disagreements 29 (cand pass/ref fail 24, cand fail/ref pass 5, net +19)
+
+################ POOL-qwen-vs-GLM-new(27f584d2) ################
+candidate 62b4fa58: 125 rows, errors 0
+reference 27f584d2: 125 rows, errors 0
+common examples: 125; first-pass mode: False
+examples compared: 125; missing checklist skipped: 0; question mismatches: 0
+ITEMS (all)
+  all: items 511 | identical  87.9% | hard flips  12.1% (62) | either uncertain   0.0% | pass rate ref  81.6% cand  75.3% | uncertain ref 0 cand 0
+    ref \ cand     P      F      U
+             P    370     47      0
+             F     15     79      0
+             U      0      0      0
+    of ref FAIL (94): cand pass  16.0%, cand uncertain   0.0%
+    of ref PASS (417): cand fail  11.3%, cand uncertain   0.0%
+CANDIDATE uncertainty and zoom
+  items 511 | uncertain at first pass   3.1% (16) | resolved by zoom 16 | residual uncertain   0.0% (0)
+  zoom follow-ups per example: 0:111, 1:12, 2:2 | examples with residual uncertain after >=3 follow-ups (cap): 0
+  details naming a view:  96.1% (491/511)
+SCORES (first pass, untouched by zoom)
+  same score  36.8% | mean abs delta 0.896 | mean cand 7.22 ref 7.00
+  gate at 7.5: cand passes 70 ref passes 72 | disagreements 16 (cand pass/ref fail 7, cand fail/ref pass 9, net -2)
+
+################ POOL-qwen-vs-qwen-#56(ebd54b53,old-text) ################
+candidate 62b4fa58: 125 rows, errors 0
+reference ebd54b53: 125 rows, errors 0
+common examples: 125; first-pass mode: False
+examples compared: 125; missing checklist skipped: 0; question mismatches: 0
+ITEMS (all)
+  all: items 511 | identical  88.8% | hard flips  11.0% (56) | either uncertain   0.2% | pass rate ref  74.8% cand  75.3% | uncertain ref 1 cand 0
+    ref \ cand     P      F      U
+             P    355     27      0
+             F     29     99      0
+             U      1      0      0
+    of ref FAIL (128): cand pass  22.7%, cand uncertain   0.0%
+    of ref PASS (382): cand fail   7.1%, cand uncertain   0.0%
+CANDIDATE uncertainty and zoom
+  items 511 | uncertain at first pass   3.1% (16) | resolved by zoom 16 | residual uncertain   0.0% (0)
+  zoom follow-ups per example: 0:111, 1:12, 2:2 | examples with residual uncertain after >=3 follow-ups (cap): 0
+  details naming a view:  96.1% (491/511)
+SCORES (first pass, untouched by zoom)
+  same score  68.8% | mean abs delta 0.504 | mean cand 7.22 ref 7.15
+  gate at 7.5: cand passes 70 ref passes 65 | disagreements 17 (cand pass/ref fail 11, cand fail/ref pass 6, net +5)
+
+################ ITEM GATE ################
+POOL qwen vs REF: gate-eligible examples 96 | verdicts agree 78 (81.2%) | false accepts 10 | false rejects 8 | approves cand 47 ref 45
+POOL qwen vs GLM new: gate-eligible examples 96 | verdicts agree 81 (84.4%) | false accepts 5 | false rejects 10 | approves cand 47 ref 52

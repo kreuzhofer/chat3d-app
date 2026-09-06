@@ -24,5 +24,13 @@ follow-up, old instrument).
 - `exp59.txt`, `run59.txt`, `start59.txt` — the ids and the start time.
 - `probe-glm-temperature0.md` — dgx-manager's 32-request sequential probe on the idle deployment
   (#56 finding 4, isolated).
+- **Throughput test (Daniel's ask):** experiment `7a9ea679`, run `62b4fa58` — qwen3.8-27b-nvfp4 (thinking off)
+  served by three single-node replicas (spark-02 `cmtprzt671w352auhqgq43q4y`, spark-03 `cmtpsaud71whj2auh0k27ynki`,
+  spark-04 `cmtpeql4y1etk2auhbk9668ry`) under one gateway pool, `global.vlm_experiment_concurrency = 3`, the new
+  instrument, zoom on. `gateway-poll.py` / `gateway-summary.py` sample `/api/gateway` every 2 s; `gateway-pool.tsv`
+  is the raw poll, `gateway-distribution59q.txt` the per-member split, `results59q.txt` the run summary, wall
+  clock against the sequential qwen run `ebd54b53`, completeness, and item agreement. `purpose-map-repoint.md`
+  records why the served name changed and how the ten purposes were re-pointed. `exp59q.txt`, `run59q.txt`,
+  `model59q.txt`, `start59q.txt` are the ids.
 
 The reading is on the issue, not here.

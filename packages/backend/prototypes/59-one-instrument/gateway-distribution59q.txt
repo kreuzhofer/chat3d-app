@@ -1,0 +1,4 @@
+samples per member: {'dgx-spark-04': 374, 'dgx-spark-02': 374, 'dgx-spark-03': 374}  window 2026-09-06T12:32:23+00:00 .. 2026-09-06T12:45:25+00:00
+  dgx-spark-02   busy samples   367 ( 98.1%) | inflight-seconds      734 ( 33.2%) | peak inflight 1 | not-serving samples 0
+  dgx-spark-03   busy samples   369 ( 98.7%) | inflight-seconds      738 ( 33.4%) | peak inflight 1 | not-serving samples 0
+  dgx-spark-04   busy samples   368 ( 98.4%) | inflight-seconds      736 ( 33.3%) | peak inflight 1 | not-serving samples 0
