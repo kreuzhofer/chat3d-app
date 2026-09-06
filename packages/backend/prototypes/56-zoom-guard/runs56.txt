@@ -1,0 +1,2 @@
+60cdd170-ddd1-45a5-985f-1e0447c619a1 glm-5.3-flash (thinking off) order 1 variant pb-legacy-control
+ebd54b53-4032-4d2f-a622-3eb80066f473 qwen38-nvfp4-spark (thinking off) order 2 variant pb-legacy-control

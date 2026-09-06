@@ -1,0 +1,217 @@
+################ run summary ################
+glm-5.3-flash (thinking off)|completed|125|0|0|19.3|324|1218970|07:57:22-08:37:36
+qwen38-nvfp4-spark (thinking off)|completed|125|0|0|16.9|403|957790|08:37:36-09:12:49
+
+################ GLM-new-vs-GLM-#50-control(3b5edb08) ################
+candidate 60cdd170: 125 rows, errors 0
+reference 3b5edb08: 125 rows, errors 0
+common examples: 125; first-pass mode: False
+examples compared: 125; missing checklist skipped: 0; question mismatches: 0
+ITEMS (all)
+  all: items 511 | identical  95.1% | hard flips   4.5% (23) | either uncertain   0.4% | pass rate ref  79.6% cand  79.8% | uncertain ref 0 cand 2
+    ref \ cand     P      F      U
+             P    395     10      2
+             F     13     91      0
+             U      0      0      0
+    of ref FAIL (104): cand pass  12.5%, cand uncertain   0.0%
+    of ref PASS (407): cand fail   2.5%, cand uncertain   0.5%
+ITEMS split by how the CANDIDATE answered
+  candidate first-pass items: items 483 | identical  95.9% | hard flips   3.7% (18) | either uncertain   0.4% | pass rate ref  80.7% cand  80.3% | uncertain ref 0 cand 2
+  candidate zoom-resolved items: items 28 | identical  82.1% | hard flips  17.9% (5) | either uncertain   0.0% | pass rate ref  60.7% cand  71.4% | uncertain ref 0 cand 0
+  candidate zoom-resolved items matrix:
+    ref \ cand     P      F      U
+             P     16      1      0
+             F      4      7      0
+             U      0      0      0
+    of ref FAIL (11): cand pass  36.4%, cand uncertain   0.0%
+    of ref PASS (17): cand fail   5.9%, cand uncertain   0.0%
+ITEMS split by how the REFERENCE answered
+  reference first-pass items: items 486 | identical  96.9% | hard flips   2.7% (13) | either uncertain   0.4% | pass rate ref  81.1% cand  80.5% | uncertain ref 0 cand 2
+  reference zoom-resolved items: items 25 | identical  60.0% | hard flips  40.0% (10) | either uncertain   0.0% | pass rate ref  52.0% cand  68.0% | uncertain ref 0 cand 0
+CANDIDATE uncertainty and zoom
+  items 511 | uncertain at first pass   5.9% (30) | resolved by zoom 28 | residual uncertain   0.4% (2)
+  zoom follow-ups per example: 0:101, 1:21, 2:2, 3:1 | examples with residual uncertain after >=3 follow-ups (cap): 1
+  details naming a view:  79.0% (402/509)
+SCORES (first pass, untouched by zoom)
+  same score  84.0% | mean abs delta 0.216 | mean cand 7.03 ref 7.10
+  gate at 7.5: cand passes 74 ref passes 75 | disagreements 1 (cand pass/ref fail 0, cand fail/ref pass 1, net -1)
+CANDIDATE cost
+  latency 19.3 s per example | tokens in 1.219M out 40.5K (324 out per example)
+
+################ GLM-new-vs-GLM-#58-run(1f9f3817) ################
+candidate 60cdd170: 125 rows, errors 0
+reference 1f9f3817: 125 rows, errors 0
+common examples: 125; first-pass mode: False
+examples compared: 125; missing checklist skipped: 0; question mismatches: 0
+ITEMS (all)
+  all: items 511 | identical  94.7% | hard flips   4.9% (25) | either uncertain   0.4% | pass rate ref  78.9% cand  79.8% | uncertain ref 0 cand 2
+    ref \ cand     P      F      U
+             P    392      9      2
+             F     16     92      0
+             U      0      0      0
+    of ref FAIL (108): cand pass  14.8%, cand uncertain   0.0%
+    of ref PASS (403): cand fail   2.2%, cand uncertain   0.5%
+ITEMS split by how the CANDIDATE answered
+  candidate first-pass items: items 483 | identical  96.1% | hard flips   3.5% (17) | either uncertain   0.4% | pass rate ref  80.5% cand  80.3% | uncertain ref 0 cand 2
+  candidate zoom-resolved items: items 28 | identical  71.4% | hard flips  28.6% (8) | either uncertain   0.0% | pass rate ref  50.0% cand  71.4% | uncertain ref 0 cand 0
+  candidate zoom-resolved items matrix:
+    ref \ cand     P      F      U
+             P     13      1      0
+             F      7      7      0
+             U      0      0      0
+    of ref FAIL (14): cand pass  50.0%, cand uncertain   0.0%
+    of ref PASS (14): cand fail   7.1%, cand uncertain   0.0%
+ITEMS split by how the REFERENCE answered
+  reference first-pass items: items 483 | identical  96.3% | hard flips   3.3% (16) | either uncertain   0.4% | pass rate ref  81.2% cand  81.2% | uncertain ref 0 cand 2
+  reference zoom-resolved items: items 28 | identical  67.9% | hard flips  32.1% (9) | either uncertain   0.0% | pass rate ref  39.3% cand  57.1% | uncertain ref 0 cand 0
+CANDIDATE uncertainty and zoom
+  items 511 | uncertain at first pass   5.9% (30) | resolved by zoom 28 | residual uncertain   0.4% (2)
+  zoom follow-ups per example: 0:101, 1:21, 2:2, 3:1 | examples with residual uncertain after >=3 follow-ups (cap): 1
+  details naming a view:  79.0% (402/509)
+SCORES (first pass, untouched by zoom)
+  same score  85.6% | mean abs delta 0.184 | mean cand 7.03 ref 7.07
+  gate at 7.5: cand passes 74 ref passes 73 | disagreements 1 (cand pass/ref fail 1, cand fail/ref pass 0, net +1)
+CANDIDATE cost
+  latency 19.3 s per example | tokens in 1.219M out 40.5K (324 out per example)
+
+################ GLM-new-vs-REF ################
+candidate 60cdd170: 125 rows, errors 0
+reference 786b6e3c: 125 rows, errors 0
+common examples: 125; first-pass mode: False
+examples compared: 125; missing checklist skipped: 0; question mismatches: 0
+ITEMS (all)
+  all: items 511 | identical  88.8% | hard flips  10.8% (55) | either uncertain   0.4% | pass rate ref  79.3% cand  79.8% | uncertain ref 0 cand 2
+    ref \ cand     P      F      U
+             P    378     25      2
+             F     30     76      0
+             U      0      0      0
+    of ref FAIL (106): cand pass  28.3%, cand uncertain   0.0%
+    of ref PASS (405): cand fail   6.2%, cand uncertain   0.5%
+ITEMS split by how the CANDIDATE answered
+  candidate first-pass items: items 483 | identical  89.4% | hard flips  10.1% (49) | either uncertain   0.4% | pass rate ref  80.5% cand  80.3% | uncertain ref 0 cand 2
+  candidate zoom-resolved items: items 28 | identical  78.6% | hard flips  21.4% (6) | either uncertain   0.0% | pass rate ref  57.1% cand  71.4% | uncertain ref 0 cand 0
+  candidate zoom-resolved items matrix:
+    ref \ cand     P      F      U
+             P     15      1      0
+             F      5      7      0
+             U      0      0      0
+    of ref FAIL (12): cand pass  41.7%, cand uncertain   0.0%
+    of ref PASS (16): cand fail   6.2%, cand uncertain   0.0%
+ITEMS split by how the REFERENCE answered
+  reference first-pass items: items 467 | identical  91.4% | hard flips   8.1% (38) | either uncertain   0.4% | pass rate ref  80.9% cand  80.5% | uncertain ref 0 cand 2
+  reference zoom-resolved items: items 44 | identical  61.4% | hard flips  38.6% (17) | either uncertain   0.0% | pass rate ref  61.4% cand  72.7% | uncertain ref 0 cand 0
+CANDIDATE uncertainty and zoom
+  items 511 | uncertain at first pass   5.9% (30) | resolved by zoom 28 | residual uncertain   0.4% (2)
+  zoom follow-ups per example: 0:101, 1:21, 2:2, 3:1 | examples with residual uncertain after >=3 follow-ups (cap): 1
+  details naming a view:  79.0% (402/509)
+SCORES (first pass, untouched by zoom)
+  same score  35.2% | mean abs delta 0.896 | mean cand 7.03 ref 6.70
+  gate at 7.5: cand passes 74 ref passes 51 | disagreements 25 (cand pass/ref fail 24, cand fail/ref pass 1, net +23)
+CANDIDATE cost
+  latency 19.3 s per example | tokens in 1.219M out 40.5K (324 out per example)
+
+################ QWEN-new-vs-QWEN-#58-run(b05bb3c6) ################
+candidate ebd54b53: 125 rows, errors 0
+reference b05bb3c6: 125 rows, errors 0
+common examples: 125; first-pass mode: False
+examples compared: 125; missing checklist skipped: 0; question mismatches: 0
+ITEMS (all)
+  all: items 511 | identical  99.6% | hard flips   0.2% (1) | either uncertain   0.2% | pass rate ref  75.1% cand  74.8% | uncertain ref 0 cand 1
+    ref \ cand     P      F      U
+             P    382      1      1
+             F      0    127      0
+             U      0      0      0
+    of ref FAIL (127): cand pass   0.0%, cand uncertain   0.0%
+    of ref PASS (384): cand fail   0.3%, cand uncertain   0.3%
+ITEMS split by how the CANDIDATE answered
+  candidate first-pass items: items 498 | identical  99.8% | hard flips   0.0% (0) | either uncertain   0.2% | pass rate ref  76.1% cand  75.9% | uncertain ref 0 cand 1
+  candidate zoom-resolved items: items 13 | identical  92.3% | hard flips   7.7% (1) | either uncertain   0.0% | pass rate ref  38.5% cand  30.8% | uncertain ref 0 cand 0
+  candidate zoom-resolved items matrix:
+    ref \ cand     P      F      U
+             P      4      1      0
+             F      0      8      0
+             U      0      0      0
+    of ref FAIL (8): cand pass   0.0%, cand uncertain   0.0%
+    of ref PASS (5): cand fail  20.0%, cand uncertain   0.0%
+ITEMS split by how the REFERENCE answered
+  reference first-pass items: items 497 | identical 100.0% | hard flips   0.0% (0) | either uncertain   0.0% | pass rate ref  76.1% cand  76.1% | uncertain ref 0 cand 0
+  reference zoom-resolved items: items 14 | identical  85.7% | hard flips   7.1% (1) | either uncertain   7.1% | pass rate ref  42.9% cand  28.6% | uncertain ref 0 cand 1
+CANDIDATE uncertainty and zoom
+  items 511 | uncertain at first pass   2.7% (14) | resolved by zoom 13 | residual uncertain   0.2% (1)
+  zoom follow-ups per example: 0:113, 1:11, 2:1 | examples with residual uncertain after >=3 follow-ups (cap): 0
+  details naming a view:  76.9% (393/511)
+SCORES (first pass, untouched by zoom)
+  same score 100.0% | mean abs delta 0.000 | mean cand 7.15 ref 7.15
+  gate at 7.5: cand passes 65 ref passes 65 | disagreements 0 (cand pass/ref fail 0, cand fail/ref pass 0, net +0)
+CANDIDATE cost
+  latency 16.9 s per example | tokens in 0.958M out 50.4K (403 out per example)
+
+################ QWEN-new-vs-REF ################
+candidate ebd54b53: 125 rows, errors 0
+reference 786b6e3c: 125 rows, errors 0
+common examples: 125; first-pass mode: False
+examples compared: 125; missing checklist skipped: 0; question mismatches: 0
+ITEMS (all)
+  all: items 511 | identical  83.0% | hard flips  16.8% (86) | either uncertain   0.2% | pass rate ref  79.3% cand  74.8% | uncertain ref 0 cand 1
+    ref \ cand     P      F      U
+             P    350     54      1
+             F     32     74      0
+             U      0      0      0
+    of ref FAIL (106): cand pass  30.2%, cand uncertain   0.0%
+    of ref PASS (405): cand fail  13.3%, cand uncertain   0.2%
+ITEMS split by how the CANDIDATE answered
+  candidate first-pass items: items 498 | identical  83.7% | hard flips  16.1% (80) | either uncertain   0.2% | pass rate ref  80.1% cand  75.9% | uncertain ref 0 cand 1
+  candidate zoom-resolved items: items 13 | identical  53.8% | hard flips  46.2% (6) | either uncertain   0.0% | pass rate ref  46.2% cand  30.8% | uncertain ref 0 cand 0
+  candidate zoom-resolved items matrix:
+    ref \ cand     P      F      U
+             P      2      4      0
+             F      2      5      0
+             U      0      0      0
+    of ref FAIL (7): cand pass  28.6%, cand uncertain   0.0%
+    of ref PASS (6): cand fail  66.7%, cand uncertain   0.0%
+ITEMS split by how the REFERENCE answered
+  reference first-pass items: items 467 | identical  84.6% | hard flips  15.2% (71) | either uncertain   0.2% | pass rate ref  80.9% cand  75.4% | uncertain ref 0 cand 1
+  reference zoom-resolved items: items 44 | identical  65.9% | hard flips  34.1% (15) | either uncertain   0.0% | pass rate ref  61.4% cand  68.2% | uncertain ref 0 cand 0
+CANDIDATE uncertainty and zoom
+  items 511 | uncertain at first pass   2.7% (14) | resolved by zoom 13 | residual uncertain   0.2% (1)
+  zoom follow-ups per example: 0:113, 1:11, 2:1 | examples with residual uncertain after >=3 follow-ups (cap): 0
+  details naming a view:  76.9% (393/511)
+SCORES (first pass, untouched by zoom)
+  same score  21.6% | mean abs delta 1.336 | mean cand 7.15 ref 6.70
+  gate at 7.5: cand passes 65 ref passes 51 | disagreements 34 (cand pass/ref fail 24, cand fail/ref pass 10, net +14)
+CANDIDATE cost
+  latency 16.9 s per example | tokens in 0.958M out 50.4K (403 out per example)
+
+################ ITEM GATE (ADR 0001): all items pass, examples with >=3 items ################
+GLM new vs REF:               gate-eligible examples 96 | verdicts agree 76 (79.2%) | false accepts 13 | false rejects 7 | approves cand 51 ref 45
+GLM #58 run vs REF:           gate-eligible examples 96 | verdicts agree 77 (80.2%) | false accepts 12 | false rejects 7 | approves cand 50 ref 45
+GLM new vs GLM #58 run:       gate-eligible examples 96 | verdicts agree 91 (94.8%) | false accepts 3 | false rejects 2 | approves cand 51 ref 50
+GLM new vs GLM #50 control:   gate-eligible examples 96 | verdicts agree 91 (94.8%) | false accepts 3 | false rejects 2 | approves cand 51 ref 50
+QWEN new vs REF:              gate-eligible examples 96 | verdicts agree 77 (80.2%) | false accepts 9 | false rejects 10 | approves cand 44 ref 45
+QWEN #58 run vs REF:          gate-eligible examples 96 | verdicts agree 77 (80.2%) | false accepts 9 | false rejects 10 | approves cand 44 ref 45
+QWEN new vs QWEN #58 run:     gate-eligible examples 96 | verdicts agree 96 (100.0%) | false accepts 0 | false rejects 0 | approves cand 44 ref 44
+
+################ zoom details: fallback heuristic (<=210 chars with a brace or '"pass"'), old runs and new ################
+1f9f3817-3940-4b9e-988c-c49da5c77511 glm-5.3-flash (thinking off)|28|5|5
+b05bb3c6-fe87-4bbf-9704-93c63bd4dd75 qwen38-nvfp4-spark (thinking off)|14|0|0
+60cdd170-ddd1-45a5-985f-1e0447c619a1 glm-5.3-flash (thinking off)|28|0|0
+ebd54b53-4032-4d2f-a622-3eb80066f473 qwen38-nvfp4-spark (thinking off)|13|0|0
+3b5edb08-de0b-4494-9abf-3e87d4d180a3 glm-5.3-flash (thinking off)|25|5|5
+
+################ zoom details: evidence completeness (detail after the prefix < 10 chars, or exactly '...') ################
+786b6e3c Claude Sonnet 4.6 (Anthropic API, thinking off)|44|0|0|259|27|17
+1f9f3817 glm-5.3-flash (thinking off)|28|0|0|210|11|17
+3b5edb08 glm-5.3-flash (thinking off)|25|0|0|211|13|12
+60cdd170 glm-5.3-flash (thinking off)|28|3|3|183|20|8
+b05bb3c6 qwen38-nvfp4-spark (thinking off)|14|0|0|321|6|8
+ebd54b53 qwen38-nvfp4-spark (thinking off)|13|0|0|259|4|9
+
+################ residual uncertain after zoom (items with pass null), new runs ################
+glm-5.3-flash (thinking off)|2|511
+qwen38-nvfp4-spark (thinking off)|1|511
+
+################ backend log: follow-up outcomes since 2026-09-06T07:57:22Z ################
+resolved 41 | unreadable 0 | threw 1 | no image 0
+  THREW: No object generated: could not parse the response.
+  angles [glm-5.3-flash (thinking off)]: front:11, ortho_45:11, top:4, left:2 | answers {'pass': 20, 'fail': 8}
+  angles [qwen38-nvfp4-spark (thinking off)]: ortho_45:8, front:3, top:1, left:1 | answers {'pass': 4, 'fail': 9}
