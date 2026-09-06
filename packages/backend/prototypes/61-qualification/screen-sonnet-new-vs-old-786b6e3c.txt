@@ -1,0 +1,40 @@
+QUALIFICATION SCREEN — ADR 0004 mechanical terms
+candidate arm 1: Claude Sonnet 4.6 (Anthropic API, thinking off) (444483ec-17d7-4ec6-a0bc-b602eb8387a5)
+reference:       Claude Sonnet 4.6 (Anthropic API, thinking off) (786b6e3c-ffce-48b1-83db-288bd833be3f)
+examples selected: 125 | current instrument: production@22e0f10b0505 | corpus for hours-per-pass: 2618 rated rows
+
+## IDENTITY — one Instrument id and one thinking effort per run, the same id across runs
+  PASS  Claude Sonnet 4.6 (Anthropic API, thinking off): instrument production@22e0f10b0505 | effort off
+  PASS  Claude Sonnet 4.6 (Anthropic API, thinking off): instrument (none) | effort (none)
+  FAIL  same instrument id across runs
+
+## COMPLETENESS — zero tolerance (ADR 0004)
+  Claude Sonnet 4.6 (Anthropic API, thinking off): answered 125/125, items 511, residual uncertain 14 (allowed; they fail at the gate)
+  PASS  unanswered examples: 0 (<= 0)
+  PASS  errors: 0 (<= 0)
+  PASS  truncations: 0 (<= 0)
+  PASS  missing checklists: 0 (<= 0)
+  PASS  item-count mismatches: 0 (<= 0)
+  PASS  unreadable follow-ups: 0 (<= 0)
+  reference Claude Sonnet 4.6 (Anthropic API, thinking off) (recorded): answered 125/125, items 511, residual uncertain 0, all six counts zero
+
+## STABILITY — arm 2 vs arm 1, at or inside the reference's floor
+  NOT RUN — one candidate run given; the term needs the second arm
+
+## THROUGHPUT — recorded, not gating
+  Claude Sonnet 4.6 (Anthropic API, thinking off): 23.8 s per example, 838 output tokens | wall clock 16.6 min for 125 | corpus pass 17.3 h sequential, 5.8 h at the run's own rate
+  Claude Sonnet 4.6 (Anthropic API, thinking off): 20.9 s per example, 801 output tokens | wall clock 43.5 min for 125 | corpus pass 15.2 h sequential, 15.2 h at the run's own rate
+
+## RAW AGREEMENT with the reference — recorded, not gating; produces the disagreement set
+  Claude Sonnet 4.6 (Anthropic API, thinking off) vs reference, all items: items 511 | identical 90.8% | hard flips 6.5% (33) | either uncertain 14 | pass rate ref 79.3% cand 77.9%
+    ref \ cand      P      F      U
+             P    381     16      8
+             F     17     83      6
+             U      0      0      0
+    raw false passes (cand pass, ref fail) 17 of 106 ref fails (16.0%) | raw false fails (cand fail, ref pass) 16 of 405 ref passes (4.0%)
+  first pass: identical 85.7% | hard flips 2.2% (11) | either uncertain 81
+  item gate (ADR 0001): eligible 96 | verdicts agree 86 (89.6%) | false accepts 2 | false rejects 8 | approves cand 39 ref 45
+  scores (first pass): same 60.0% | mean abs delta 0.440 | mean cand 6.59 ref 6.70 | backstop 7.5 disagreements 17 (cand pass/ref fail 6, cand fail/ref pass 11)
+
+## MECHANICAL SCREEN: INCOMPLETE (stability not run)
+  adjudicated terms are decided from the dump, by a human (ADR 0004).

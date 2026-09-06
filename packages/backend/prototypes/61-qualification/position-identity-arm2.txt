@@ -1,0 +1,8 @@
+# arm 2 (1f63d1d1) vs arm 1 (62b4fa58) by run position, 25-example buckets: byte-identical raw responses, differing checklists, arm-2 timestamps
+bucket_start|s_arm1|s_arm2|identical_raw|checklists_differ|arm2_first|arm2_last
+1|14.3|13.0|24|2|13:32|13:34
+26|18.0|17.6|24|1|13:34|13:37
+51|23.5|22.8|25|1|13:37|13:40
+76|20.0|20.8|11|15|13:40|13:43
+101|17.8|19.4|0|25|13:43|13:45
+# all 17 hard flips sit at positions 82-115; a chat query started at 13:40:44 (conversation → spec → multi-agent codegen with 4 sub-agents until ~13:46) on the same pool; vLLM logs on all three replicas show Running: 2-3 reqs from 13:40:46 (1 before)

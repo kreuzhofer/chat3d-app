@@ -1,0 +1,17 @@
+82|e4ddb8e2|1|P->F|sonnet=P||1|The overall assembly is symmetric about the XZ plane (Y = 0): mirroring all geometry about
+84|64e0779f|1|P->F|sonnet=P||6|Is the box open on top (no top face)?
+84|64e0779f|4|P->F|sonnet=P||6|Is the lid a flat rectangular slab with no features on its visible face?
+86|b6caba81|1|F->P|sonnet=P||6|Does the base have port cutouts (USB-A and Ethernet) on one long side?
+86|b6caba81|5|P->F|sonnet=P||6|Are the base and lid displayed side by side with a visible gap between them?
+87|91288207|1|F->P|sonnet=P||5|Is the case a rectangular open-top box (open side facing upward)?
+95|4d855bd1|1|P->F|sonnet=P||6|Is the case an open-top rectangular box with visibly thin walls?
+104|3d5ac379|3|F->P|sonnet=F||6|Are there exactly 3 rectangular port cutouts visible on one short side of the box?
+104|3d5ac379|5|P->F|sonnet=P||6|Are both parts resting on the same flat surface with a visible gap between them?
+104|3d5ac379|6|F->P|sonnet=P||6|Is the lid inverted (flat top face touching the ground plane)?
+105|def76ef7|5|P->F|sonnet=P||6|Are four cylindrical standoff posts visible inside the case body?
+106|b86a0f72|2|F->P|sonnet=P||6|Is the case body oriented with its open cavity facing upward?
+106|b86a0f72|3|F->P|sonnet=P||6|Is the lid placed upside down (flat top face against the ground, rim/lip facing up)?
+109|779feefd|3|F->P|sonnet=F||6|Are there four cylindrical standoff posts visible at the interior corners of the box?
+112|3069c73d|6|P->F|sonnet=P||6|Is there a rectangular port cutout on one short wall of the case body?
+113|efce5923|5|F->P|sonnet=P||5|Does the model appear to be a hollow shell/case rather than a solid block?
+115|81c056b6|5|P->F|sonnet=P||5|Is the lid a flat rectangular slab placed upside down next to the box?

@@ -14,7 +14,17 @@ export interface ChecklistResult {
   /** true = pass, false = fail, null = uncertain (cannot resolve at this resolution) */
   pass: boolean | null;
   detail: string;
+  /**
+   * Set when a zoom follow-up was attempted for this item and did not answer
+   * it (issue #61): the reply could not be read as pass/fail, the call
+   * failed, or no high-res view existed for the chosen angle. The item keeps
+   * its first-pass detail; the qualification screen counts these, so a
+   * follow-up that silently fell back is visible in the stored row.
+   */
+  zoomFollowUp?: ZoomFollowUpOutcome;
 }
+
+export type ZoomFollowUpOutcome = "unreadable" | "failed" | "skipped";
 
 /** Check if a checklist result is uncertain (VLM could not resolve the feature). */
 export function isUncertain(result: ChecklistResult): boolean {

@@ -141,6 +141,8 @@ describe("resolveUncertainItems", () => {
     expect(result.followUpCount).toBe(1);
     expect(result.resolvedChecklist[1].pass).toBe(true);
     expect(result.resolvedChecklist[3].pass).toBeNull();
+    // Never attempted: no follow-up outcome on the item (issue #61).
+    expect(result.resolvedChecklist[3].zoomFollowUp).toBeUndefined();
   });
 
   it("sends one high-res image per follow-up, picked by the question's wording", async () => {
@@ -226,13 +228,24 @@ describe("follow-up call guards", () => {
     // glm's reply on example 086dc6b0, item 3 (#50): the keyword fallback stored it as pass.
     nextAnswer = 'Looking closely, there are no mounting holes on the base plate.\n{ "pass": false, "detail": "no mounting holes visible';
     const result = await resolveUncertainItems(checklist, highRes, 3, undefined, cfg());
-    expect(result.resolvedChecklist[1]).toEqual(checklist[1]);
-    expect(result.resolvedChecklist[3]).toEqual(checklist[3]);
+    // The item keeps its first-pass answer and detail, and the row says the follow-up could not be read (#61).
+    expect(result.resolvedChecklist[1]).toEqual({ ...checklist[1], zoomFollowUp: "unreadable" });
+    expect(result.resolvedChecklist[3]).toEqual({ ...checklist[3], zoomFollowUp: "unreadable" });
     expect(result.followUpCount).toBe(2);
     expect(result.followUpDetails).toHaveLength(2);
     expect(result.followUpDetails[0]).toMatchObject({ question: checklist[1].question, angle: "top", pass: null });
     expect(result.followUpDetails[0].detail).toMatch(/could not be read/);
     expect(result.promptTokens).toBe(22);
+  });
+
+  it("marks an item whose follow-up call threw as failed and keeps it uncertain", async () => {
+    nextThrow = new Error("connection reset");
+    const result = await resolveUncertainItems(checklist, highRes, 3, undefined, cfg());
+    expect(result.resolvedChecklist[1]).toEqual({ ...checklist[1], zoomFollowUp: "failed" });
+    expect(result.resolvedChecklist[0]).toEqual(checklist[0]);
+    // The mock throws once; the next uncertain item is answered as usual.
+    expect(result.resolvedChecklist[3].pass).toBe(true);
+    expect(result.followUpCount).toBe(1);
   });
 
   it("does not read a non-boolean pass as fail: the item stays uncertain", async () => {
@@ -253,7 +266,7 @@ describe("follow-up call guards", () => {
       finishReason: "stop",
     });
     const result = await resolveUncertainItems(checklist, highRes, 3, undefined, cfg());
-    expect(result.resolvedChecklist[1]).toEqual(checklist[1]);
+    expect(result.resolvedChecklist[1]).toEqual({ ...checklist[1], zoomFollowUp: "unreadable" });
     expect(result.followUpDetails[0]).toMatchObject({ pass: null, angle: "top" });
     expect(result.followUpDetails[0].detail).toMatch(/could not be read/);
     expect(result.followUpDetails[0].detail).toContain("bare-word-reply");

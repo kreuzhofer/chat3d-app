@@ -1,0 +1,72 @@
+QUALIFICATION SCREEN — ADR 0004 mechanical terms
+candidate arm 1: qwen38-nvfp4-spark (thinking off) (b05bb3c6-fe87-4bbf-9704-93c63bd4dd75)
+candidate arm 2: qwen38-nvfp4-spark (thinking off) (ebd54b53-4032-4d2f-a622-3eb80066f473)
+reference:       Claude Sonnet 4.6 (Anthropic API, thinking off) (786b6e3c-ffce-48b1-83db-288bd833be3f)
+examples selected: 125 | current instrument: production@22e0f10b0505 | corpus for hours-per-pass: 2618 rated rows
+
+## IDENTITY — one Instrument id and one thinking effort per run, the same id across runs
+  PASS  qwen38-nvfp4-spark (thinking off): instrument (none) | effort (none)
+  PASS  qwen38-nvfp4-spark (thinking off): instrument (none) | effort (none)
+  PASS  Claude Sonnet 4.6 (Anthropic API, thinking off): instrument (none) | effort (none)
+  PASS  same instrument id across runs
+
+## COMPLETENESS — zero tolerance (ADR 0004)
+  qwen38-nvfp4-spark (thinking off): answered 125/125, items 511, residual uncertain 0 (allowed; they fail at the gate)
+  PASS  unanswered examples: 0 (<= 0)
+  PASS  errors: 0 (<= 0)
+  PASS  truncations: 0 (<= 0)
+  PASS  missing checklists: 0 (<= 0)
+  PASS  item-count mismatches: 0 (<= 0)
+  PASS  unreadable follow-ups: 0 (<= 0)
+  qwen38-nvfp4-spark (thinking off): answered 125/125, items 511, residual uncertain 1 (allowed; they fail at the gate)
+  PASS  unanswered examples: 0 (<= 0)
+  PASS  errors: 0 (<= 0)
+  PASS  truncations: 0 (<= 0)
+  PASS  missing checklists: 0 (<= 0)
+  PASS  item-count mismatches: 0 (<= 0)
+  PASS  unreadable follow-ups: 0 (<= 0)
+  reference Claude Sonnet 4.6 (Anthropic API, thinking off) (recorded): answered 125/125, items 511, residual uncertain 0, all six counts zero
+
+## STABILITY — arm 2 vs arm 1, at or inside the reference's floor
+  PASS  hard flips (arm 2 vs arm 1, all items): 0.2% (<= 2.9%)
+  PASS  identical items (arm 2 vs arm 1, all items): 99.6% (>= 90.0%)
+  all items (gating): items 511 | identical 99.6% | hard flips 0.2% (1) | either uncertain 1 | pass rate ref 75.1% cand 74.8%
+    ref \ cand      P      F      U
+             P    382      1      1
+             F      0    127      0
+             U      0      0      0
+    raw false passes (cand pass, ref fail) 0 of 127 ref fails (0.0%) | raw false fails (cand fail, ref pass) 1 of 384 ref passes (0.3%)
+  first pass (zoom-resolved re-opened; the floor's own cut): items 511 | identical 100.0% | hard flips 0.0% (0) | either uncertain 14 | pass rate ref 74.0% cand 74.0%
+    ref \ cand      P      F      U
+             P    378      0      0
+             F      0    119      0
+             U      0      0     14
+    raw false passes (cand pass, ref fail) 0 of 119 ref fails (0.0%) | raw false fails (cand fail, ref pass) 0 of 378 ref passes (0.0%)
+
+## THROUGHPUT — recorded, not gating
+  qwen38-nvfp4-spark (thinking off): 16.9 s per example, 405 output tokens | wall clock 35.3 min for 125 | corpus pass 12.3 h sequential, 12.3 h at the run's own rate
+  qwen38-nvfp4-spark (thinking off): 16.9 s per example, 403 output tokens | wall clock 35.2 min for 125 | corpus pass 12.3 h sequential, 12.3 h at the run's own rate
+  Claude Sonnet 4.6 (Anthropic API, thinking off): 20.9 s per example, 801 output tokens | wall clock 43.5 min for 125 | corpus pass 15.2 h sequential, 15.2 h at the run's own rate
+
+## RAW AGREEMENT with the reference — recorded, not gating; produces the disagreement set
+  qwen38-nvfp4-spark (thinking off) vs reference, all items: items 511 | identical 83.4% | hard flips 16.6% (85) | either uncertain 0 | pass rate ref 79.3% cand 75.1%
+    ref \ cand      P      F      U
+             P    352     53      0
+             F     32     74      0
+             U      0      0      0
+    raw false passes (cand pass, ref fail) 32 of 106 ref fails (30.2%) | raw false fails (cand fail, ref pass) 53 of 405 ref passes (13.1%)
+  first pass: identical 77.1% | hard flips 13.1% (67) | either uncertain 54
+  item gate (ADR 0001): eligible 96 | verdicts agree 77 (80.2%) | false accepts 9 | false rejects 10 | approves cand 44 ref 45
+  scores (first pass): same 21.6% | mean abs delta 1.336 | mean cand 7.15 ref 6.70 | backstop 7.5 disagreements 34 (cand pass/ref fail 24, cand fail/ref pass 10)
+  qwen38-nvfp4-spark (thinking off) vs reference, all items: items 511 | identical 83.0% | hard flips 16.8% (86) | either uncertain 1 | pass rate ref 79.3% cand 74.8%
+    ref \ cand      P      F      U
+             P    350     54      1
+             F     32     74      0
+             U      0      0      0
+    raw false passes (cand pass, ref fail) 32 of 106 ref fails (30.2%) | raw false fails (cand fail, ref pass) 54 of 405 ref passes (13.3%)
+  first pass: identical 77.1% | hard flips 13.1% (67) | either uncertain 54
+  item gate (ADR 0001): eligible 96 | verdicts agree 77 (80.2%) | false accepts 9 | false rejects 10 | approves cand 44 ref 45
+  scores (first pass): same 21.6% | mean abs delta 1.336 | mean cand 7.15 ref 6.70 | backstop 7.5 disagreements 34 (cand pass/ref fail 24, cand fail/ref pass 10)
+
+## MECHANICAL SCREEN: PASS
+  adjudicated terms are decided from the dump, by a human (ADR 0004).

@@ -180,6 +180,7 @@ export async function resolveUncertainItems(
 
     if (!imageBase64) {
       logger.warn({ question: item.question, angle }, "no high-res image for angle, skipping follow-up");
+      resolvedChecklist[index] = { ...item, zoomFollowUp: "skipped" };
       continue;
     }
 
@@ -191,11 +192,13 @@ export async function resolveUncertainItems(
       totalCompletionTokens += result.completionTokens;
 
       if (result.pass === null) {
-        // Fail loud, never guess: the item stays uncertain (issue #56).
+        // Fail loud, never guess: the item stays uncertain (issue #56), and
+        // the row says the follow-up was tried and could not be read (#61).
         logger.warn(
           { question: item.question.slice(0, 60), angle, reason: result.detail },
           "zoom follow-up reply could not be read, keeping uncertain",
         );
+        resolvedChecklist[index] = { ...item, zoomFollowUp: "unreadable" };
         continue;
       }
       resolvedChecklist[index] = {
@@ -206,6 +209,7 @@ export async function resolveUncertainItems(
       logger.info({ question: item.question.slice(0, 60), pass: result.pass, angle }, "uncertain item resolved via zoom");
     } catch (err) {
       logger.warn({ err: err instanceof Error ? err.message : String(err), question: item.question.slice(0, 60) }, "zoom follow-up failed, keeping uncertain");
+      resolvedChecklist[index] = { ...item, zoomFollowUp: "failed" };
     }
   }
 

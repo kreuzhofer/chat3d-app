@@ -55,7 +55,7 @@ A rating produced under the current Instrument id by a Judge that has not cleare
 _Avoid_: untrusted, temporary, draft
 
 **Screen**:
-The mechanical part of Qualification: completeness, stability, throughput and the agreement counts against the Reference standard, computed by script with no human step. A screen orders candidates and produces the disagreement set for inspection; it never qualifies a judge by itself.
+The mechanical part of Qualification: completeness, stability, throughput and the agreement counts against the Reference standard, computed by script with no human step (`packages/backend/scripts/qualification-screen.ts`, which also writes the disagreement dump). A screen orders candidates and produces the disagreement set for inspection; it never qualifies a judge by itself.
 _Avoid_: benchmark, leaderboard, eval run
 
 **Specimen**:
