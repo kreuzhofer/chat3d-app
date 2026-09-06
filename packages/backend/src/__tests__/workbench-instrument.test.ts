@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const CURRENT = "production@0123456789ab";
 const { count, findMany, runBatchReEvaluate, jobs } = vi.hoisted(() => ({
-  count: vi.fn(), findMany: vi.fn(), runBatchReEvaluate: vi.fn(async () => {}), jobs: new Map(),
+  count: vi.fn(), findMany: vi.fn(), runBatchReEvaluate: vi.fn(async (..._args: unknown[]) => {}), jobs: new Map(),
 }));
 vi.mock("../db/prisma.js", () => ({ prisma: { workbenchExample: { count: (...a: unknown[]) => count(...a), findMany: (...a: unknown[]) => findMany(...a) } } }));
 vi.mock("../services/visual-eval-instrument-id.service.js", () => ({ currentInstrumentId: vi.fn(async () => "production@0123456789ab") }));
