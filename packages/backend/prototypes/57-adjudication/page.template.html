@@ -327,23 +327,30 @@ function paintCard(id) {
   });
   const note = el.querySelector(".note"); if (document.activeElement !== note) note.value = v.note || "";
 }
-function applyFilters() {
+function cardOrder(a, b) {
+  return filters.sort === "hard"
+    ? (a.dataset.conf - b.dataset.conf) || (a.dataset.ex - b.dataset.ex) || (a.dataset.item - b.dataset.item)
+    : (a.dataset.ex - b.dataset.ex) || (a.dataset.item - b.dataset.item);
+}
+// Visibility only: never moves a card, so the scroll position and the decoded images survive.
+function applyVisibility() {
   const els = [...document.querySelectorAll(".item")];
   els.forEach(el => {
     const id = el.dataset.id; const done = !!verdicts[id]?.verdict;
-    const show = (filters.dir === "all" || el.dataset.dir === filters.dir)
+    el.hidden = !((filters.dir === "all" || el.dataset.dir === filters.dir)
       && (filters.state === "all" || (filters.state === "done") === done)
-      && (filters.cat === "all" || el.dataset.cat === filters.cat);
-    el.hidden = !show;
+      && (filters.cat === "all" || el.dataset.cat === filters.cat));
   });
-  const list = $("#list");
-  const sorted = els.slice().sort((a, b) => filters.sort === "hard"
-    ? (a.dataset.conf - b.dataset.conf) || (a.dataset.ex - b.dataset.ex) || (a.dataset.item - b.dataset.item)
-    : (a.dataset.ex - b.dataset.ex) || (a.dataset.item - b.dataset.item));
-  sorted.forEach(el => list.appendChild(el));
-  let empty = $("#list .empty"); const any = sorted.some(el => !el.hidden);
+  const list = $("#list"); let empty = $("#list .empty"); const any = els.some(el => !el.hidden);
   if (!any && !empty) { empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "Nothing matches these filters."; list.appendChild(empty); }
   if (any && empty) empty.remove();
+}
+// Reorder only when the sort changes: moving cards is what made the page look like it reloaded.
+function applySort() {
+  const list = $("#list"); const els = [...document.querySelectorAll(".item")]; const sorted = els.slice().sort(cardOrder);
+  if (sorted.every((el, i) => el === els[i])) return;
+  sorted.forEach(el => list.appendChild(el));
+  if (currentId) document.getElementById("it-" + currentId)?.scrollIntoView({ block: "start" });
 }
 
 // ── persistence ──────────────────────────
@@ -373,9 +380,15 @@ function adoptSnapshot(snap) {
   snap.docs.forEach(d => { if (d.exists) next[d.id] = d.data(); });
   // keep a local edit newer than the store's copy (a write still in flight)
   for (const [id, v] of Object.entries(verdicts)) if (!next[id] && v?.updatedAt && (Date.now() - Date.parse(v.updatedAt)) < 15000) next[id] = v;
+  // repaint only the cards whose verdict or note actually changed; touch nothing else
+  const changed = [];
+  for (const id of new Set([...Object.keys(verdicts), ...Object.keys(next)])) {
+    const a = verdicts[id], b = next[id];
+    if ((a?.verdict ?? null) !== (b?.verdict ?? null) || !!a?.agreed !== !!b?.agreed || (a?.note ?? "") !== (b?.note ?? "")) changed.push(id);
+  }
   verdicts = next;
   try { localStorage.setItem(LS_KEY, JSON.stringify(verdicts)); } catch {}
-  ITEMS.forEach(it => paintCard(it.id)); updateMeters(); applyFilters();
+  if (changed.length) { changed.forEach(paintCard); updateMeters(); }
 }
 (async () => {
   try { db = (window.claude && window.claude.use) ? await window.claude.use("db") : null; } catch { db = null; }
@@ -421,9 +434,9 @@ $("#list").addEventListener("input", e => {
 document.querySelectorAll(".filters .grp").forEach(g => g.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
   g.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
-  filters[g.dataset.filter] = b.dataset.val; applyFilters();
+  filters[g.dataset.filter] = b.dataset.val; if (g.dataset.filter === "sort") applySort(); else applyVisibility();
 }));
-$("#catSel").addEventListener("change", e => { filters.cat = e.target.value; applyFilters(); });
+$("#catSel").addEventListener("change", e => { filters.cat = e.target.value; applyVisibility(); });
 function visibleCards() { return [...document.querySelectorAll(".item")].filter(el => !el.hidden); }
 function setCurrent(id, scroll) {
   document.querySelectorAll(".item.current").forEach(el => el.classList.remove("current"));
@@ -434,6 +447,7 @@ document.addEventListener("keydown", e => {
   if (e.target.matches("input, textarea, select")) { if (e.key === "Escape") e.target.blur(); return; }
   if (e.key === "Escape") { closeLB(); $("#exportBox").hidden = true; return; }
   if (!$("#lightbox").hidden) { if (e.key === "ArrowLeft") $("#lbPrev").click(); if (e.key === "ArrowRight") $("#lbNext").click(); return; }
+  if (e.key === "j" || e.key === "k" || e.key === "ArrowDown" || e.key === "ArrowUp") applyVisibility();
   const cards = visibleCards(); if (!cards.length) return;
   const idx = cards.findIndex(c => c.dataset.id === currentId);
   if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); setCurrent(cards[Math.min(cards.length - 1, idx + 1)].dataset.id, true); }
@@ -442,6 +456,6 @@ document.addEventListener("keydown", e => {
   else if (currentId && e.key >= "1" && e.key <= "8") { openLB(ITEMS.find(i => i.id === currentId).short, VIEW_ORDER[Number(e.key) - 1]); }
 });
 
-renderAll(); updateMeters(); applyFilters();
+renderAll(); updateMeters(); applyVisibility();
 })();
 </script>
