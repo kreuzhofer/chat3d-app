@@ -1,0 +1,447 @@
+<meta charset="utf-8">
+<title>The 69 Disagreements</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F4F7FA;--surface:#FFFFFF;--surface-2:#EDF1F5;--ink:#172230;--muted:#5A6B7D;--line:#D5DDE6;--line-strong:#B9C5D1;
+  --accent:#1D4F8F;--accent-ink:#FFFFFF;--focus:#E8952B;
+  --R:#2F5D9B;--R-bg:#E4EDF8;--C:#B4640F;--C-bg:#FBEEDD;--N:#5F6B78;--N-bg:#E8ECF0;
+  --pass:#237A4B;--pass-bg:#E1F3E8;--fail:#B23A2E;--fail-bg:#F9E4E1;--unc:#8A6A18;--unc-bg:#F7EFD9;
+  --shadow:0 1px 2px rgba(23,34,48,.06),0 8px 24px -12px rgba(23,34,48,.18);
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0E141B;--surface:#161E28;--surface-2:#1E2833;--ink:#E4EBF2;--muted:#98A6B5;--line:#2B3844;--line-strong:#3D4B59;
+  --accent:#7EB0EE;--accent-ink:#0E141B;--focus:#F2B65C;
+  --R:#8FB6EC;--R-bg:#1B2C44;--C:#EBA85E;--C-bg:#3A2A14;--N:#A3ADB8;--N-bg:#263039;
+  --pass:#71C797;--pass-bg:#163124;--fail:#F19084;--fail-bg:#3B1F1C;--unc:#DDB65E;--unc-bg:#3A3016;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+}}
+:root[data-theme="dark"]{
+  --bg:#0E141B;--surface:#161E28;--surface-2:#1E2833;--ink:#E4EBF2;--muted:#98A6B5;--line:#2B3844;--line-strong:#3D4B59;
+  --accent:#7EB0EE;--accent-ink:#0E141B;--focus:#F2B65C;
+  --R:#8FB6EC;--R-bg:#1B2C44;--C:#EBA85E;--C-bg:#3A2A14;--N:#A3ADB8;--N-bg:#263039;
+  --pass:#71C797;--pass-bg:#163124;--fail:#F19084;--fail-bg:#3B1F1C;--unc:#DDB65E;--unc-bg:#3A3016;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+h1,h2{margin:0;text-wrap:balance}
+
+/* ── header ─────────────────────────────── */
+.bar{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--line);box-shadow:var(--shadow)}
+.bar-inner{max-width:1180px;margin:0 auto;padding:12px 20px 10px;display:grid;gap:10px}
+.bar-top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.bar-top h1{font-size:19px;font-weight:600;letter-spacing:-.01em}
+.bar-top .sub{color:var(--muted);font-size:13px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:500;border:1px solid var(--line);background:var(--surface-2);white-space:nowrap}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+.pill.ok .dot{background:var(--pass)} .pill.warn .dot{background:var(--unc)} .pill.bad .dot{background:var(--fail)}
+.sync{margin-left:auto}
+.meters{display:grid;grid-template-columns:minmax(180px,1fr) repeat(2,minmax(230px,1.4fr));gap:10px}
+.meter{border:1px solid var(--line);border-radius:6px;padding:8px 12px;background:var(--surface-2);display:grid;gap:4px;align-content:start}
+.meter .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:500;display:flex;justify-content:space-between;gap:8px}
+.meter .big{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
+.meter .big small{font-size:12px;font-weight:400;color:var(--muted)}
+.meter .row{display:flex;gap:10px;align-items:baseline;font-variant-numeric:tabular-nums;font-size:13px}
+.meter .row .k{color:var(--muted);min-width:9.5em;font-size:12px}
+.meter .cmp{font-weight:600}
+.meter .cmp.q{color:var(--C)} .meter .cmp.s{color:var(--R)}
+.state{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:1px 7px;border-radius:4px}
+.state.holds{color:var(--pass);background:var(--pass-bg)} .state.fails{color:var(--fail);background:var(--fail-bg)} .state.open{color:var(--muted);background:var(--surface)}
+.track{height:5px;border-radius:3px;background:var(--line);overflow:hidden}
+.track i{display:block;height:100%;background:var(--accent);width:0}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:13px}
+.filters .grp{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.filters .grp button{background:var(--surface);border:0;padding:4px 10px;border-right:1px solid var(--line);color:var(--muted)}
+.filters .grp button:last-child{border-right:0}
+.filters .grp button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.filters .sp{flex:1}
+.filters .kbd{color:var(--muted);font-size:12px}
+kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--surface)}
+.btn{border:1px solid var(--line-strong);background:var(--surface);border-radius:6px;padding:4px 12px;font-weight:500}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+
+/* ── list ───────────────────────────────── */
+main{max-width:1180px;margin:0 auto;padding:18px 20px 80px;display:grid;gap:16px}
+.item{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px 18px 14px;display:grid;gap:12px;scroll-margin-top:190px}
+.item[hidden]{display:none}
+.item.current{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent)}
+.item.done{border-left:4px solid var(--line-strong)}
+.item.done[data-v="R"]{border-left-color:var(--R)} .item.done[data-v="C"]{border-left-color:var(--C)} .item.done[data-v="N"]{border-left-color:var(--N)}
+.eyebrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.eyebrow .n{font-family:var(--mono);color:var(--ink);font-weight:500}
+.chip{padding:1px 8px;border-radius:999px;border:1px solid var(--line);background:var(--surface-2);font-size:12px;white-space:nowrap}
+.chip.dir-fp{border-color:var(--R);color:var(--R)} .chip.dir-pf{border-color:var(--C);color:var(--C)} .chip.dir-u{border-color:var(--unc);color:var(--unc)}
+.q{font-size:18px;font-weight:600;line-height:1.3;max-width:52ch}
+details.prompt{font-size:13px;color:var(--muted)}
+details.prompt summary{cursor:pointer;user-select:none;width:max-content}
+details.prompt p{margin:6px 0 0;max-width:80ch;color:var(--ink)}
+.cols{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.col{border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:var(--surface-2);display:grid;gap:6px;align-content:start;min-width:0}
+.col.third{background:var(--surface);border-style:dashed}
+.who{font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:500;color:var(--muted);display:flex;justify-content:space-between;gap:8px;align-items:center}
+.ans{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:14px;padding:1px 8px;border-radius:4px;width:max-content}
+.ans.pass{color:var(--pass);background:var(--pass-bg)} .ans.fail{color:var(--fail);background:var(--fail-bg)} .ans.uncertain{color:var(--unc);background:var(--unc-bg)}
+.detail{margin:0;font-size:13.5px;color:var(--ink);overflow-wrap:anywhere}
+.detail:empty::before{content:"(no detail)";color:var(--muted)}
+.zoom{font-size:12px;color:var(--muted)}
+.zoom b{font-family:var(--mono);font-weight:500;color:var(--ink)}
+.vbadge{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:14px;padding:2px 9px;border-radius:4px;width:max-content}
+.vbadge .conf{font-weight:400;font-size:12px;opacity:.85}
+.vbadge.R{color:var(--R);background:var(--R-bg)} .vbadge.C{color:var(--C);background:var(--C-bg)} .vbadge.N{color:var(--N);background:var(--N-bg)}
+.meta{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:12px;margin:0}
+.meta dt{color:var(--muted)} .meta dd{margin:0;font-family:var(--mono);font-size:12px}
+.meta dd.plain{font-family:var(--sans)}
+.views{display:grid;grid-template-columns:repeat(8,1fr);gap:8px}
+.views figure{margin:0;display:grid;gap:4px}
+.views button{padding:0;border:1px solid var(--line);border-radius:4px;background:#fff;overflow:hidden;aspect-ratio:1;display:block;width:100%}
+.views button img{width:100%;height:100%;display:block;object-fit:cover}
+.views figure.deciding button{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 35%,transparent)}
+.views figcaption{font-family:var(--mono);font-size:11px;color:var(--muted);text-align:center;letter-spacing:.02em}
+.views figure.deciding figcaption{color:var(--accent);font-weight:500}
+.verdict{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--line)}
+.verdict .lbl{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:500;margin-right:4px}
+.vb{border:1px solid var(--line-strong);background:var(--surface);border-radius:6px;padding:5px 12px;font-weight:500;font-size:13px}
+.vb.agree{border-color:var(--accent);color:var(--accent)}
+.vb[aria-pressed="true"]{color:var(--accent-ink)}
+.vb.R[aria-pressed="true"]{background:var(--R);border-color:var(--R)} .vb.C[aria-pressed="true"]{background:var(--C);border-color:var(--C)} .vb.N[aria-pressed="true"]{background:var(--N);border-color:var(--N)}
+.vb.agree[aria-pressed="true"]{background:var(--accent);border-color:var(--accent)}
+.note{flex:1;min-width:200px;border:1px solid var(--line);border-radius:6px;padding:5px 10px;background:var(--surface);font-size:13px}
+.saved{font-size:12px;color:var(--muted);min-width:5em}
+.saved.ok{color:var(--pass)} .saved.bad{color:var(--fail)}
+
+/* ── lightbox & export ─────────────────── */
+.overlay{position:fixed;inset:0;z-index:40;background:rgba(10,16,24,.78);display:grid;place-items:center;padding:20px}
+.overlay[hidden]{display:none}
+.lb{background:#fff;border-radius:8px;padding:10px;display:grid;gap:8px;max-width:min(92vw,820px);width:100%}
+.lb img{width:100%;height:auto;display:block;border-radius:4px}
+.lb .cap{display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:13px;color:#172230}
+.lb .cap .nav{display:flex;gap:6px}
+.lb .cap button{border:1px solid #B9C5D1;background:#F4F7FA;color:#172230;border-radius:4px;padding:2px 10px}
+.export{background:var(--surface);border-radius:8px;padding:16px;max-width:min(92vw,760px);width:100%;display:grid;gap:10px;border:1px solid var(--line)}
+.export h2{font-size:16px}
+.export p{margin:0;font-size:13px;color:var(--muted)}
+.export textarea{width:100%;height:320px;font-family:var(--mono);font-size:12px;border:1px solid var(--line);border-radius:6px;padding:8px;background:var(--surface-2);resize:vertical}
+.export .row{display:flex;gap:8px;justify-content:flex-end}
+.empty{color:var(--muted);text-align:center;padding:40px 0}
+@media (max-width:900px){
+  .cols{grid-template-columns:1fr}
+  .views{grid-template-columns:repeat(4,1fr)}
+  .meters{grid-template-columns:1fr}
+  .item{scroll-margin-top:120px}
+}
+@media (prefers-reduced-motion:no-preference){.track i{transition:width .25s ease}}
+</style>
+
+<header class="bar">
+  <div class="bar-inner">
+    <div class="bar-top">
+      <h1>The 69 Disagreements</h1>
+      <span class="sub">qwen3.8-27b-nvfp4 vs Claude Sonnet 4.6, thinking off, the 125 under <span class="mono">production@22e0f10b0505</span> · adjudication for #57</span>
+      <span class="pill sync" id="sync"><span class="dot"></span><span id="syncText">Connecting to the page's store…</span></span>
+    </div>
+    <div class="meters">
+      <div class="meter">
+        <div class="lbl"><span>Adjudicated</span><span id="progTxt">0 of 69</span></div>
+        <div class="track"><i id="progBar"></i></div>
+        <div class="row"><span class="k">Agree with Fable</span><span id="agreeTxt" class="mono">0</span></div>
+        <div class="row"><span class="k">Overruled Fable</span><span id="overTxt" class="mono">0</span></div>
+      </div>
+      <div class="meter">
+        <div class="lbl"><span>False passes · qwen ≤ Sonnet</span><span class="state open" id="fpState">open</span></div>
+        <div class="big"><span class="cmp q" id="fpQ">0</span> <small>qwen</small> &nbsp;vs&nbsp; <span class="cmp s" id="fpS">0</span> <small>Sonnet</small></div>
+        <div class="row"><span class="k">With Fable for the rest</span><span class="mono" id="fpProj">5 vs 17 · holds</span></div>
+      </div>
+      <div class="meter">
+        <div class="lbl"><span>False fails · qwen ≤ 2× Sonnet</span><span class="state open" id="ffState">open</span></div>
+        <div class="big"><span class="cmp q" id="ffQ">0</span> <small>qwen</small> &nbsp;vs&nbsp; <span class="cmp s" id="ffS">0</span> <small>Sonnet (allows <span id="ffAllow">0</span>)</small></div>
+        <div class="row"><span class="k">With Fable for the rest</span><span class="mono" id="ffProj">23 vs 28 · holds</span></div>
+      </div>
+    </div>
+    <div class="filters">
+      <div class="grp" data-filter="dir">
+        <button aria-pressed="true" data-val="all">All directions</button>
+        <button aria-pressed="false" data-val="fp">qwen fails · Sonnet passes</button>
+        <button aria-pressed="false" data-val="pf">qwen passes · Sonnet fails</button>
+        <button aria-pressed="false" data-val="u">Sonnet uncertain</button>
+      </div>
+      <div class="grp" data-filter="state">
+        <button aria-pressed="true" data-val="all">All</button>
+        <button aria-pressed="false" data-val="todo">To do</button>
+        <button aria-pressed="false" data-val="done">Done</button>
+      </div>
+      <div class="grp" data-filter="sort">
+        <button aria-pressed="true" data-val="sheet">Sheet order</button>
+        <button aria-pressed="false" data-val="hard">Careful look first</button>
+      </div>
+      <select id="catSel" class="btn"><option value="all">All categories</option></select>
+      <span class="sp"></span>
+      <span class="kbd"><kbd>j</kbd>/<kbd>k</kbd> move · <kbd>a</kbd> agree · <kbd>r</kbd> <kbd>c</kbd> <kbd>n</kbd> verdict</span>
+      <button class="btn primary" id="exportBtn">Export verdicts</button>
+    </div>
+  </div>
+</header>
+
+<main id="list"></main>
+
+<div class="overlay" id="lightbox" hidden>
+  <div class="lb" role="dialog" aria-label="View at full size">
+    <img id="lbImg" alt="">
+    <div class="cap"><span id="lbCap"></span><span class="nav"><button id="lbPrev">‹ prev</button><button id="lbNext">next ›</button><button id="lbClose">close</button></span></div>
+  </div>
+</div>
+<div class="overlay" id="exportBox" hidden>
+  <div class="export" role="dialog" aria-label="Export verdicts">
+    <h2>Your verdicts</h2>
+    <p>Markdown for the issue, then the same rows as JSON. Verdicts are also in the page's store under <span class="mono">verdicts/&lt;example&gt;-&lt;item&gt;</span>; the next session reads them from there.</p>
+    <textarea id="exportTxt" readonly></textarea>
+    <div class="row"><button class="btn" id="copyBtn">Copy</button><button class="btn" id="exportClose">Close</button></div>
+  </div>
+</div>
+
+<script id="itemsData" type="application/json">/*__ITEMS__*/</script>
+<script id="viewsData" type="application/json">/*__VIEWS__*/</script>
+<script>
+(() => {
+const ITEMS = JSON.parse(document.getElementById('itemsData').textContent);
+const VIEWS = JSON.parse(document.getElementById('viewsData').textContent);
+const VIEW_ORDER = ["front","back","left","right","top","bottom","ortho_45","ortho_45_bottom"];
+const VIEW_LABEL = {front:"front",back:"back",left:"left",right:"right",top:"top",bottom:"bottom",ortho_45:"45° down",ortho_45_bottom:"45° up"};
+const VNAME = {R:"Sonnet right", C:"qwen right", N:"Neither / undecidable"};
+const LS_KEY = "adjudication-57-verdicts";
+const $ = (s, el=document) => el.querySelector(s);
+
+let verdicts = {};
+try { verdicts = JSON.parse(localStorage.getItem(LS_KEY) || "{}") || {}; } catch { verdicts = {}; }
+let db = null, syncMode = "connecting";
+let filters = { dir:"all", state:"all", sort:"sheet", cat:"all" };
+let currentId = null;
+
+// ── helpers ──────────────────────────────
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const dirKey = it => it.sonnet === "uncertain" ? "u" : (it.qwen === "fail" ? "fp" : "pf");
+const dirLabel = it => dirKey(it) === "u" ? `Sonnet uncertain · qwen ${it.qwen}s` : (dirKey(it) === "fp" ? "qwen fails · Sonnet passes" : "qwen passes · Sonnet fails");
+const confRank = it => it.third === "N" ? 0 : ({low:1, medium:2, high:3}[it.confidence] ?? 2);
+function decidingViews(it) {
+  const v = (it.view || "").toLowerCase(); const out = new Set();
+  VIEW_ORDER.forEach(k => { if (v.includes(k)) out.add(k); });
+  if (out.has("ortho_45") && !/ortho_45(?!_bottom)/.test(v)) out.delete("ortho_45");
+  return out;
+}
+function setSync(mode, detail) {
+  syncMode = mode; const pill = $("#sync"); pill.classList.remove("ok","warn","bad");
+  const t = $("#syncText");
+  if (mode === "db") { pill.classList.add("ok"); t.textContent = "Verdicts saved to the page's store"; }
+  else if (mode === "local") { pill.classList.add("warn"); t.textContent = "Store unavailable here: verdicts stay in this browser — use Export"; }
+  else if (mode === "error") { pill.classList.add("bad"); t.textContent = "Store error (" + detail + "): verdicts kept in this browser — use Export"; }
+  else t.textContent = "Connecting to the page's store…";
+}
+
+// ── tally ────────────────────────────────
+function tally(getV) {
+  const t = { qfp:0, sfp:0, qff:0, sff:0, n:0, hard:0, undecided:0 };
+  for (const it of ITEMS) {
+    if (it.sonnet === "uncertain") continue;
+    t.hard++; const v = getV(it);
+    if (!v) { t.undecided++; continue; }
+    if (v === "N") { t.n++; continue; }
+    if (it.qwen === "fail") { if (v === "R") t.qff++; else t.sfp++; }
+    else { if (v === "R") t.qfp++; else t.sff++; }
+  }
+  return t;
+}
+function updateMeters() {
+  const own = tally(it => verdicts[it.id]?.verdict);
+  const proj = tally(it => verdicts[it.id]?.verdict || it.third);
+  const done = ITEMS.filter(it => verdicts[it.id]?.verdict).length;
+  const agree = ITEMS.filter(it => verdicts[it.id]?.verdict && verdicts[it.id].verdict === it.third).length;
+  $("#progTxt").textContent = `${done} of ${ITEMS.length}`;
+  $("#progBar").style.width = (100 * done / ITEMS.length) + "%";
+  $("#agreeTxt").textContent = agree; $("#overTxt").textContent = done - agree;
+  $("#fpQ").textContent = own.qfp; $("#fpS").textContent = own.sfp;
+  $("#ffQ").textContent = own.qff; $("#ffS").textContent = own.sff; $("#ffAllow").textContent = 2 * own.sff;
+  const st = (el, ok, open) => { el.className = "state " + (open ? "open" : ok ? "holds" : "fails"); el.textContent = open ? "open" : ok ? "holds" : "fails"; };
+  const allDone = own.undecided === 0;
+  st($("#fpState"), own.qfp <= own.sfp, !allDone && own.qfp <= own.sfp);
+  st($("#ffState"), own.qff <= 2 * own.sff, !allDone && own.qff <= 2 * own.sff);
+  $("#fpProj").textContent = `${proj.qfp} vs ${proj.sfp} · ${proj.qfp <= proj.sfp ? "holds" : "fails"}`;
+  $("#ffProj").textContent = `${proj.qff} vs ${2 * proj.sff} · ${proj.qff <= 2 * proj.sff ? "holds" : "fails"}`;
+}
+
+// ── cards ────────────────────────────────
+function cardHTML(it) {
+  const dv = decidingViews(it);
+  const views = VIEW_ORDER.map(k => `
+    <figure class="${dv.has(k) ? "deciding" : ""}"><button type="button" data-view="${k}" aria-label="${esc(VIEW_LABEL[k])} view, open at full size"><img loading="lazy" src="${VIEWS[it.short][k]}" alt=""></button><figcaption>${esc(VIEW_LABEL[k])}</figcaption></figure>`).join("");
+  const zoom = it.zoom ? `<div class="zoom">zoom follow-up on <b>${esc(it.zoom)}</b></div>` : (it.sonnet_detail.startsWith("[2x zoom]") ? `<div class="zoom">answered after a zoom follow-up</div>` : "");
+  const third = it.third === "?" ? `<span class="vbadge N">no opinion</span>` :
+    `<span class="vbadge ${it.third}">${it.third} · ${VNAME[it.third]}<span class="conf">${esc(it.confidence)}</span></span>`;
+  return `
+  <article class="item" id="it-${it.id}" data-id="${it.id}" data-dir="${dirKey(it)}" data-cat="${esc(it.category)}" data-conf="${confRank(it)}" data-ex="${it.ex}" data-item="${it.item}">
+    <div class="eyebrow">
+      <span class="n">${it.ex}.${it.item}</span>
+      <span>${esc(it.category)}</span>
+      <span class="mono">${esc(it.short)}</span>
+      <span class="chip dir-${dirKey(it)}">${esc(dirLabel(it))}</span>
+      ${it.carried ? `<span class="chip" title="Verdict carried over from the 26-item sample, judged against the previous reference">from the sample</span>` : ""}
+    </div>
+    <h2 class="q">${esc(it.text)}</h2>
+    <details class="prompt"><summary>Prompt</summary><p>${esc(it.prompt)}</p></details>
+    <div class="cols">
+      <div class="col ref"><div class="who"><span>Sonnet 4.6 · reference</span></div><span class="ans ${it.sonnet}">${it.sonnet}</span><p class="detail">${esc(it.sonnet_detail)}</p>${zoom}</div>
+      <div class="col cand"><div class="who"><span>qwen3.8-27b · candidate</span></div><span class="ans ${it.qwen}">${it.qwen}</span><p class="detail">${esc(it.qwen_detail)}</p></div>
+      <div class="col third"><div class="who"><span>Fable · third opinion</span><span>triage, not a judge</span></div>${third}<p class="detail">${esc(it.what)}</p>
+        <dl class="meta"><dt>Deciding view</dt><dd>${esc(it.view || "—")}</dd><dt>Resolved by</dt><dd class="plain">${esc(it.resolved_by || "—")}</dd></dl></div>
+    </div>
+    <div class="views">${views}</div>
+    <div class="verdict">
+      <span class="lbl">Your verdict</span>
+      <button type="button" class="vb agree" data-v="agree" ${it.third === "?" ? "disabled" : ""}>Agree with Fable (${esc(it.third)})</button>
+      <button type="button" class="vb R" data-v="R">R · Sonnet right</button>
+      <button type="button" class="vb C" data-v="C">C · qwen right</button>
+      <button type="button" class="vb N" data-v="N">N · neither</button>
+      <input class="note" type="text" placeholder="Note (optional): what you saw, or why Fable is wrong" aria-label="Note">
+      <span class="saved" aria-live="polite"></span>
+    </div>
+  </article>`;
+}
+function renderAll() {
+  const list = $("#list"); list.innerHTML = ITEMS.map(cardHTML).join("");
+  const cats = [...new Set(ITEMS.map(i => i.category))].sort();
+  cats.forEach(c => { const o = document.createElement("option"); o.value = c; o.textContent = c; $("#catSel").appendChild(o); });
+  ITEMS.forEach(it => paintCard(it.id));
+}
+function paintCard(id) {
+  const el = document.getElementById("it-" + id); if (!el) return;
+  const v = verdicts[id] || {}; const it = ITEMS.find(i => i.id === id);
+  el.classList.toggle("done", !!v.verdict); el.dataset.v = v.verdict || "";
+  el.querySelectorAll(".vb").forEach(b => {
+    const key = b.dataset.v;
+    b.setAttribute("aria-pressed", key === "agree" ? String(!!v.verdict && v.verdict === it.third && v.agreed) : String(v.verdict === key && !v.agreed));
+  });
+  const note = el.querySelector(".note"); if (document.activeElement !== note) note.value = v.note || "";
+}
+function applyFilters() {
+  const els = [...document.querySelectorAll(".item")];
+  els.forEach(el => {
+    const id = el.dataset.id; const done = !!verdicts[id]?.verdict;
+    const show = (filters.dir === "all" || el.dataset.dir === filters.dir)
+      && (filters.state === "all" || (filters.state === "done") === done)
+      && (filters.cat === "all" || el.dataset.cat === filters.cat);
+    el.hidden = !show;
+  });
+  const list = $("#list");
+  const sorted = els.slice().sort((a, b) => filters.sort === "hard"
+    ? (a.dataset.conf - b.dataset.conf) || (a.dataset.ex - b.dataset.ex) || (a.dataset.item - b.dataset.item)
+    : (a.dataset.ex - b.dataset.ex) || (a.dataset.item - b.dataset.item));
+  sorted.forEach(el => list.appendChild(el));
+  let empty = $("#list .empty"); const any = sorted.some(el => !el.hidden);
+  if (!any && !empty) { empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "Nothing matches these filters."; list.appendChild(empty); }
+  if (any && empty) empty.remove();
+}
+
+// ── persistence ──────────────────────────
+const noteTimers = {};
+async function save(id, patch) {
+  const it = ITEMS.find(i => i.id === id);
+  const prev = verdicts[id] || {};
+  const body = { example_id: it.example_id, short: it.short, item: it.item, question: it.text, direction: dirLabel(it),
+    third: it.third, verdict: prev.verdict || null, agreed: !!prev.agreed, note: prev.note || "", ...patch, updatedAt: new Date().toISOString() };
+  verdicts[id] = body;
+  try { localStorage.setItem(LS_KEY, JSON.stringify(verdicts)); } catch {}
+  paintCard(id); updateMeters();
+  const saved = document.querySelector(`#it-${id} .saved`);
+  if (db) {
+    saved.className = "saved"; saved.textContent = "saving…";
+    try { await db.doc("verdicts/" + id).set(body); saved.className = "saved ok"; saved.textContent = "saved"; }
+    catch (e) { saved.className = "saved bad"; saved.textContent = "not saved (" + (e?.code || "error") + ")"; }
+  } else { saved.className = "saved"; saved.textContent = "kept in this browser"; }
+}
+function setVerdict(id, key) {
+  const it = ITEMS.find(i => i.id === id);
+  if (key === "agree") { if (it.third === "?") return; save(id, { verdict: it.third, agreed: true }); }
+  else { const cur = verdicts[id]; if (cur?.verdict === key && !cur.agreed) save(id, { verdict: null, agreed: false }); else save(id, { verdict: key, agreed: false }); }
+}
+function adoptSnapshot(snap) {
+  const next = {};
+  snap.docs.forEach(d => { if (d.exists) next[d.id] = d.data(); });
+  // keep a local edit newer than the store's copy (a write still in flight)
+  for (const [id, v] of Object.entries(verdicts)) if (!next[id] && v?.updatedAt && (Date.now() - Date.parse(v.updatedAt)) < 15000) next[id] = v;
+  verdicts = next;
+  try { localStorage.setItem(LS_KEY, JSON.stringify(verdicts)); } catch {}
+  ITEMS.forEach(it => paintCard(it.id)); updateMeters(); applyFilters();
+}
+(async () => {
+  try { db = (window.claude && window.claude.use) ? await window.claude.use("db") : null; } catch { db = null; }
+  if (!db) { setSync("local"); return; }
+  setSync("db");
+  db.collection("verdicts").onSnapshot(adoptSnapshot, e => { setSync("error", e?.code || "unknown"); db = null; });
+})();
+
+// ── lightbox ─────────────────────────────
+let lb = { short:null, idx:0 };
+function openLB(short, view) { lb = { short, idx: VIEW_ORDER.indexOf(view) }; showLB(); $("#lightbox").hidden = false; $("#lbClose").focus(); }
+function showLB() { const k = VIEW_ORDER[lb.idx]; $("#lbImg").src = VIEWS[lb.short][k]; $("#lbImg").alt = VIEW_LABEL[k] + " view"; $("#lbCap").textContent = `${lb.short} · ${VIEW_LABEL[k]} (${k}) · ${lb.idx + 1}/8`; }
+function closeLB() { $("#lightbox").hidden = true; }
+$("#lbPrev").addEventListener("click", () => { lb.idx = (lb.idx + 7) % 8; showLB(); });
+$("#lbNext").addEventListener("click", () => { lb.idx = (lb.idx + 1) % 8; showLB(); });
+$("#lbClose").addEventListener("click", closeLB);
+$("#lightbox").addEventListener("click", e => { if (e.target === e.currentTarget) closeLB(); });
+
+// ── export ───────────────────────────────
+function exportText() {
+  const rows = ITEMS.filter(it => verdicts[it.id]?.verdict).map(it => { const v = verdicts[it.id];
+    return `| ${it.ex}.${it.item} | \`${it.short}\` #${it.item} | ${dirLabel(it)} | ${it.third} | **${v.verdict}**${v.agreed ? " (agreed)" : ""} | ${(v.note || "").replace(/\|/g, "\\|")} |`; });
+  const md = ["| # | example · item | direction | Fable | Daniel | note |", "|---|---|---|---|---|---|", ...rows].join("\n");
+  const json = JSON.stringify(Object.fromEntries(ITEMS.filter(it => verdicts[it.id]?.verdict).map(it => [it.id, verdicts[it.id]])), null, 1);
+  const own = tally(it => verdicts[it.id]?.verdict);
+  return `${rows.length} of ${ITEMS.length} adjudicated. Hard flips: qwen false passes ${own.qfp} vs Sonnet ${own.sfp}; qwen false fails ${own.qff} vs Sonnet ${own.sff} (allows ${2 * own.sff}); N ${own.n}; undecided ${own.undecided}.\n\n${md}\n\n${json}\n`;
+}
+$("#exportBtn").addEventListener("click", () => { $("#exportTxt").value = exportText(); $("#exportBox").hidden = false; $("#exportTxt").focus(); $("#exportTxt").select(); });
+$("#exportClose").addEventListener("click", () => { $("#exportBox").hidden = true; });
+$("#exportBox").addEventListener("click", e => { if (e.target === e.currentTarget) $("#exportBox").hidden = true; });
+$("#copyBtn").addEventListener("click", async () => { const t = $("#exportTxt"); t.select(); try { await navigator.clipboard.writeText(t.value); $("#copyBtn").textContent = "Copied"; } catch { document.execCommand && document.execCommand("copy"); $("#copyBtn").textContent = "Selected — press ⌘C"; } setTimeout(() => $("#copyBtn").textContent = "Copy", 2000); });
+
+// ── events ───────────────────────────────
+$("#list").addEventListener("click", e => {
+  const card = e.target.closest(".item"); if (!card) return; setCurrent(card.dataset.id, false);
+  const vb = e.target.closest(".vb"); if (vb) { setVerdict(card.dataset.id, vb.dataset.v); return; }
+  const vw = e.target.closest("button[data-view]"); if (vw) openLB(ITEMS.find(i => i.id === card.dataset.id).short, vw.dataset.view);
+});
+$("#list").addEventListener("input", e => {
+  const note = e.target.closest(".note"); if (!note) return; const id = e.target.closest(".item").dataset.id;
+  clearTimeout(noteTimers[id]); noteTimers[id] = setTimeout(() => save(id, { note: note.value }), 700);
+});
+document.querySelectorAll(".filters .grp").forEach(g => g.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  g.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  filters[g.dataset.filter] = b.dataset.val; applyFilters();
+}));
+$("#catSel").addEventListener("change", e => { filters.cat = e.target.value; applyFilters(); });
+function visibleCards() { return [...document.querySelectorAll(".item")].filter(el => !el.hidden); }
+function setCurrent(id, scroll) {
+  document.querySelectorAll(".item.current").forEach(el => el.classList.remove("current"));
+  currentId = id; const el = document.getElementById("it-" + id); if (!el) return; el.classList.add("current");
+  if (scroll) el.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+}
+document.addEventListener("keydown", e => {
+  if (e.target.matches("input, textarea, select")) { if (e.key === "Escape") e.target.blur(); return; }
+  if (e.key === "Escape") { closeLB(); $("#exportBox").hidden = true; return; }
+  if (!$("#lightbox").hidden) { if (e.key === "ArrowLeft") $("#lbPrev").click(); if (e.key === "ArrowRight") $("#lbNext").click(); return; }
+  const cards = visibleCards(); if (!cards.length) return;
+  const idx = cards.findIndex(c => c.dataset.id === currentId);
+  if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); setCurrent(cards[Math.min(cards.length - 1, idx + 1)].dataset.id, true); }
+  else if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); setCurrent(cards[Math.max(0, idx - 1)].dataset.id, true); }
+  else if (currentId && ["a","r","c","n"].includes(e.key)) { setVerdict(currentId, e.key === "a" ? "agree" : e.key.toUpperCase()); }
+  else if (currentId && e.key >= "1" && e.key <= "8") { openLB(ITEMS.find(i => i.id === currentId).short, VIEW_ORDER[Number(e.key) - 1]); }
+});
+
+renderAll(); updateMeters(); applyFilters();
+})();
+</script>
