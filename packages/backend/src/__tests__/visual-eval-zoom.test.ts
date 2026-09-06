@@ -34,6 +34,7 @@ const createProviderModel = vi.fn((cfg: { id: string }) => ({ modelId: cfg.id })
 vi.mock("../services/llm-config.service.js", () => ({
   getModelForPurpose: (purpose: string) => getModelForPurpose(purpose),
   createProviderModel: (cfg: { id: string }) => createProviderModel(cfg),
+  sdkType: (cfg: { providerType: string | null; provider: string }) => cfg.providerType ?? cfg.provider,
 }));
 
 const settings = { enabled: true, resolution: 1536, maxFollowUps: 3 };
@@ -183,5 +184,66 @@ describe("runZoomFollowUp", () => {
     expect(result?.resolvedChecklist[3].pass).toBeNull();
     expect(getModelForPurpose).not.toHaveBeenCalled();
     expect(generateCalls[0].tracking.modelId).toBe("judge-under-test");
+  });
+});
+
+// ── The follow-up under the main call's guards (issue #56) ───────────
+
+describe("follow-up call guards", () => {
+  it("asks at temperature 0 with the pass/detail schema as guided JSON on vLLM, and free text on Anthropic", async () => {
+    await resolveUncertainItems(checklist, highRes, 3, undefined, cfg());
+    expect(generateCalls).toHaveLength(2);
+    for (const { options } of generateCalls) {
+      expect(options.temperature).toBe(0);
+      const output = options.output as { responseFormat: Promise<Record<string, unknown>> } | undefined;
+      expect(output).toBeDefined();
+      expect(await output!.responseFormat).toEqual({
+        type: "json",
+        name: "follow_up",
+        schema: {
+          type: "object",
+          properties: { pass: { type: "boolean" }, detail: { type: "string" } },
+          required: ["pass", "detail"],
+          additionalProperties: false,
+        },
+      });
+    }
+
+    generateCalls.length = 0;
+    await resolveUncertainItems(checklist, highRes, 3, undefined, productionJudge);
+    expect(generateCalls).toHaveLength(2);
+    for (const { options } of generateCalls) {
+      expect(options.temperature).toBe(0);
+      expect(options.output).toBeUndefined();
+    }
+  });
+
+  it("records a reply that is prose around a JSON fragment as unreadable and keeps the item uncertain", async () => {
+    // glm's reply on example 086dc6b0, item 3 (#50): the keyword fallback stored it as pass.
+    nextAnswer = 'Looking closely, there are no mounting holes on the base plate.\n{ "pass": false, "detail": "no mounting holes visible';
+    const result = await resolveUncertainItems(checklist, highRes, 3, undefined, cfg());
+    expect(result.resolvedChecklist[1]).toEqual(checklist[1]);
+    expect(result.resolvedChecklist[3]).toEqual(checklist[3]);
+    expect(result.followUpCount).toBe(2);
+    expect(result.followUpDetails).toHaveLength(2);
+    expect(result.followUpDetails[0]).toMatchObject({ question: checklist[1].question, angle: "top", pass: null });
+    expect(result.followUpDetails[0].detail).toMatch(/could not be read/);
+    expect(result.promptTokens).toBe(22);
+  });
+
+  it("does not read a non-boolean pass as fail: the item stays uncertain", async () => {
+    nextAnswer = '{"pass": "false", "detail": "the hole is closed"}';
+    const result = await resolveUncertainItems(checklist, highRes, 3, undefined, cfg());
+    expect(result.resolvedChecklist[1].pass).toBeNull();
+    expect(result.followUpDetails[0].pass).toBeNull();
+  });
+
+  it('stores {"pass": false} as a fail, fenced or bare', async () => {
+    nextAnswer = '```json\n{"pass": false, "detail": "no mounting holes on the base"}\n```';
+    const result = await resolveUncertainItems(checklist, highRes, 3, undefined, cfg());
+    expect(result.resolvedChecklist[1]).toEqual({
+      question: "Is the top hole open?", pass: false, detail: "[2x zoom] no mounting holes on the base",
+    });
+    expect(result.followUpDetails[0]).toMatchObject({ pass: false, angle: "top" });
   });
 });

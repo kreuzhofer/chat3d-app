@@ -19,6 +19,12 @@ import {
 } from "./llm-config.service.js";
 import { isZoomFollowUpEnabled, getZoomResolution, getZoomMaxFollowUps } from "./generation-settings.service.js";
 import { buildUncertainFollowUpPrompt } from "./visual-eval-prompt.service.js";
+import {
+  buildFollowUpResponseSchema,
+  resolveGuidedJsonOutput,
+  FOLLOW_UP_OUTPUT_NAME,
+  type FollowUpResponse,
+} from "./visual-eval-schema.service.js";
 import type { ChecklistResult } from "./visual-eval-parser.service.js";
 import { isUncertain } from "./visual-eval-parser.service.js";
 import { createLogger } from "../utils/logger.js";
@@ -36,7 +42,9 @@ export interface HighResRenderResult {
 export interface ZoomFollowUpDetail {
   question: string;
   angle: string;
-  pass: boolean;
+  /** The judge's answer; null when its reply could not be read as one (the item stays uncertain). */
+  pass: boolean | null;
+  /** The judge's evidence, or why the reply could not be read. */
   detail: string;
 }
 
@@ -176,16 +184,24 @@ export async function resolveUncertainItems(
 
     try {
       const result = await runSingleFollowUp(item.question, imageBase64, judge, constructionSpec);
-      resolvedChecklist[index] = {
-        question: item.question,
-        pass: result.pass,
-        detail: `[2x zoom] ${result.detail}`,
-      };
       followUpCount++;
       followUpDetails.push({ question: item.question, angle, pass: result.pass, detail: result.detail });
       totalPromptTokens += result.promptTokens;
       totalCompletionTokens += result.completionTokens;
 
+      if (result.pass === null) {
+        // Fail loud, never guess: the item stays uncertain (issue #56).
+        logger.warn(
+          { question: item.question.slice(0, 60), angle, reason: result.detail },
+          "zoom follow-up reply could not be read, keeping uncertain",
+        );
+        continue;
+      }
+      resolvedChecklist[index] = {
+        question: item.question,
+        pass: result.pass,
+        detail: `[2x zoom] ${result.detail}`,
+      };
       logger.info({ question: item.question.slice(0, 60), pass: result.pass, angle }, "uncertain item resolved via zoom");
     } catch (err) {
       logger.warn({ err: err instanceof Error ? err.message : String(err), question: item.question.slice(0, 60) }, "zoom follow-up failed, keeping uncertain");
@@ -206,7 +222,8 @@ async function resolveProductionJudge(): Promise<LlmModelConfig> {
 // ── Single follow-up call ────────────────────────────────────────────
 
 interface FollowUpResult {
-  pass: boolean;
+  /** null: the reply could not be read as an answer; `detail` says why. */
+  pass: boolean | null;
   detail: string;
   promptTokens: number;
   completionTokens: number;
@@ -220,6 +237,11 @@ async function runSingleFollowUp(
 ): Promise<FollowUpResult> {
   const model = createProviderModelFromConfig(vlmConfig);
   const systemPrompt = buildUncertainFollowUpPrompt(question, constructionSpec);
+  // The main judge call's guards (issue #56): temperature 0, and on vLLM the
+  // answer's shape as the decoding grammar. Anthropic stays free text.
+  const guidedOutput = resolveGuidedJsonOutput<FollowUpResponse>(
+    vlmConfig, buildFollowUpResponseSchema(), FOLLOW_UP_OUTPUT_NAME,
+  );
 
   const semaphore = getLlmSemaphore(vlmConfig.provider, vlmConfig.maxConcurrent);
   const result = await semaphore.run(async () =>
@@ -234,6 +256,8 @@ async function runSingleFollowUp(
         ],
       }],
       maxOutputTokens: 256,
+      temperature: 0,
+      ...(guidedOutput ? { output: guidedOutput } : {}),
     }, {
       purpose: "vlm_evaluation",
       providerName: vlmConfig.provider,
@@ -246,25 +270,55 @@ async function runSingleFollowUp(
   const promptTokens = result.usage?.inputTokens ?? 0;
   const completionTokens = result.usage?.outputTokens ?? 0;
 
-  // Parse the response — expect { pass: true|false, detail: "..." }
-  let jsonStr = result.text;
-  const fenceMatch = result.text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenceMatch) jsonStr = fenceMatch[1].trim();
-
-  try {
-    const parsed = JSON.parse(jsonStr) as { pass?: boolean; detail?: string };
+  const answer = readFollowUpAnswer(result.text);
+  if (!answer.ok) {
+    const finishReason = result.finishReason ?? "unknown";
     return {
-      pass: parsed.pass === true,
-      detail: typeof parsed.detail === "string" ? parsed.detail : "",
+      pass: null,
+      detail: `reply could not be read as a pass/fail answer (finish reason "${finishReason}"): ${answer.reason}`,
       promptTokens,
       completionTokens,
     };
-  } catch {
-    // Fallback: look for pass/fail keywords
-    const text = result.text.toLowerCase();
-    const pass = text.includes("pass") && !text.includes("fail");
-    return { pass, detail: result.text.slice(0, 200), promptTokens, completionTokens };
   }
+  return { pass: answer.pass, detail: answer.detail, promptTokens, completionTokens };
+}
+
+// ── Reading the reply ────────────────────────────────────────────────
+
+export type FollowUpAnswer =
+  | { ok: true; pass: boolean; detail: string }
+  | { ok: false; reason: string };
+
+/**
+ * The reply as `{pass, detail}`, or why it is not one. Strict on purpose: the
+ * old keyword fallback read any fragment containing the word "pass" as a
+ * pass, so `"pass": false` inside prose was stored as true (issue #56). A
+ * code fence around the JSON is unwrapped; anything else that is not a JSON
+ * object with a boolean `pass` is unreadable, and the caller keeps the item
+ * uncertain.
+ */
+export function readFollowUpAnswer(text: string): FollowUpAnswer {
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const jsonStr = (fenceMatch ? fenceMatch[1] : text).trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    return { ok: false, reason: `not JSON: ${snippet(text)}` };
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, reason: `not a JSON object: ${snippet(text)}` };
+  }
+  const { pass, detail } = parsed as { pass?: unknown; detail?: unknown };
+  if (typeof pass !== "boolean") {
+    return { ok: false, reason: `"pass" is ${JSON.stringify(pass)}, not a boolean: ${snippet(text)}` };
+  }
+  return { ok: true, pass, detail: typeof detail === "string" ? detail : "" };
+}
+
+function snippet(text: string): string {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  return oneLine.length > 160 ? `${oneLine.slice(0, 160)}…` : oneLine;
 }
 
 // ── Angle selection heuristic ────────────────────────────────────────

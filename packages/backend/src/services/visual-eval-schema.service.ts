@@ -30,8 +30,15 @@ export interface EvaluationResponse {
   checklist?: Array<{ question: string; pass: boolean | null; detail: string }>;
 }
 
-/** Name sent as `json_schema.name`; shows up in provider logs. */
+/** The zoom follow-up's answer to one uncertain item (issue #56). */
+export interface FollowUpResponse {
+  pass: boolean;
+  detail: string;
+}
+
+/** Names sent as `json_schema.name`; they show up in provider logs. */
 export const EVALUATION_OUTPUT_NAME = "evaluation";
+export const FOLLOW_UP_OUTPUT_NAME = "follow_up";
 
 const SCORE_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
@@ -73,6 +80,20 @@ export function buildEvaluationResponseSchema(checklistCount: number): JSONSchem
 }
 
 /**
+ * The zoom follow-up's answer as a JSON schema: a committed pass/fail and the
+ * evidence. No `null` — the follow-up exists to resolve uncertainty, and the
+ * prompt forbids answering uncertain.
+ */
+export function buildFollowUpResponseSchema(): JSONSchema7 {
+  return {
+    type: "object",
+    properties: { pass: { type: "boolean" }, detail: { type: "string" } },
+    required: ["pass", "detail"],
+    additionalProperties: false,
+  };
+}
+
+/**
  * Only the OpenAI-compatible SDK path (vLLM and friends) gets the schema.
  * Every other provider type — Anthropic above all — keeps a free-text call.
  */
@@ -81,13 +102,18 @@ export function supportsGuidedJson(cfg: LlmModelConfig): boolean {
 }
 
 /**
- * The `output` option for the judge's streamText call, or undefined when the
- * provider is not constrained. The SDK turns it into
- * `responseFormat: {type: "json", schema}`; the openai-compatible provider is
- * created with structured outputs enabled (llm-config) so that becomes
- * `response_format: json_schema` on the wire rather than a bare json_object.
+ * The `output` option for a judge call (the evaluation's streamText, the
+ * follow-up's generateText), or undefined when the provider is not
+ * constrained. The SDK turns it into `responseFormat: {type: "json", schema}`;
+ * the openai-compatible provider is created with structured outputs enabled
+ * (llm-config) so that becomes `response_format: json_schema` on the wire
+ * rather than a bare json_object.
  */
-export function resolveGuidedJsonOutput(cfg: LlmModelConfig, schema: JSONSchema7) {
+export function resolveGuidedJsonOutput<T = EvaluationResponse>(
+  cfg: LlmModelConfig,
+  schema: JSONSchema7,
+  name: string = EVALUATION_OUTPUT_NAME,
+) {
   if (!supportsGuidedJson(cfg)) return undefined;
-  return Output.object({ schema: jsonSchema<EvaluationResponse>(schema), name: EVALUATION_OUTPUT_NAME });
+  return Output.object({ schema: jsonSchema<T>(schema), name });
 }
