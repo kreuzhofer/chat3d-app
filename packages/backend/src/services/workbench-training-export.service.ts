@@ -12,6 +12,7 @@ import { zodSchema } from "ai";
 import { z } from "zod";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
+import { currentInstrumentId } from "./visual-eval-instrument-id.service.js";
 import { buildMinimalSystemPrompt } from "./training-export/minimal-system-prompt.js";
 import { toolCallPayload, type ToolCallPayloadCarrier } from "../utils/agent-history.js";
 
@@ -235,8 +236,14 @@ export async function exportAgentTrainingJsonl(
     renderStatus: "success",
     experimentRunId: null,
   };
+  let instrumentId: string | null = null;
   if (approvalOnly) {
     where.approvalStatus = { in: ["auto_approved", "human_approved"] };
+    // The fine-tuning filter admits only ratings under the current
+    // instrument (ADR 0003): a Stale row's verdict is not comparable with a
+    // current one and is re-rated before it can be exported again.
+    instrumentId = await currentInstrumentId();
+    where.vlmInstrumentId = instrumentId;
   }
   if (minScore != null) {
     where.evalScore = { gte: minScore };
@@ -270,7 +277,7 @@ export async function exportAgentTrainingJsonl(
   }
 
   logger.info(
-    { totalRows: rows.length, exportedLines: lines.length, minScore, categoryId, approvalOnly },
+    { totalRows: rows.length, exportedLines: lines.length, minScore, categoryId, approvalOnly, instrumentId },
     "agent training JSONL export completed",
   );
 

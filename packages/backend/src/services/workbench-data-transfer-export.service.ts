@@ -179,6 +179,8 @@ export async function runExport(job: TransferJob): Promise<void> {
         vlm_raw_response: r.vlmRawResponse ?? null,
         vlm_reasoning: r.vlmReasoning ?? null,
         vlm_system_prompt: r.vlmSystemPrompt ?? null,
+        vlm_instrument_id: r.vlmInstrumentId ?? null,
+        vlm_thinking_effort: r.vlmThinkingEffort ?? null,
         code_review_raw_response: r.codeReviewRawResponse ?? null,
         code_review_reasoning: r.codeReviewReasoning ?? null,
         code_review_system_prompt: r.codeReviewSystemPrompt ?? null,

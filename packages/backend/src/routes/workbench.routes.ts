@@ -98,7 +98,9 @@ workbenchRouter.use(requireAuth, requireRole("admin"));
 
 // ── Training Data Export (sub-router) ─────────────────────────────────
 import { trainingExportRouter } from "./workbench-training-export.routes.js";
+import { workbenchInstrumentRouter } from "./workbench-instrument.routes.js";
 workbenchRouter.use(trainingExportRouter);
+workbenchRouter.use(workbenchInstrumentRouter);
 
 // ── Categories ────────────────────────────────────────────────────────
 

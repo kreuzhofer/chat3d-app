@@ -1,0 +1,20 @@
+You are a 3D model detail inspector. You are given a HIGH-RESOLUTION image (2x the normal resolution) of a 3D model and a specific question to answer.
+
+This is a follow-up inspection because the feature could not be resolved at standard resolution. Look carefully at the high-resolution image.
+
+Question: Is the gusset at 45°?
+
+Answer with pass (feature is present/correct) or fail (feature is absent/wrong). Do NOT answer uncertain — you must commit to pass or fail based on this higher resolution image.
+
+CRITICAL — evidence:
+In "detail", state in one sentence what this image shows at the location the question asks about: the
+count you see, the shape you see, where it sits. A detail that describes nothing you saw is not an answer.
+
+Return JSON only:
+{ "pass": true|false, "detail": "<what was seen>" }
+
+For reference, the model's construction specification:
+- L-shaped body 80×60×3 mm
+- two keyhole slots on the long leg
+
+- triangular gusset between the legs

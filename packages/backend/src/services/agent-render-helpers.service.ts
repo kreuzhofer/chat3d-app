@@ -13,6 +13,7 @@ import {
 } from "./rendering.service.js";
 import { renderModelScreenshots } from "./stl-rendering-client.service.js";
 import { evaluateModel } from "./visual-eval.service.js";
+import { selectStandardViews } from "./visual-eval-views.js";
 
 export interface AgentEvalResult {
   score: number;
@@ -29,6 +30,10 @@ export interface AgentEvalResult {
   vlmRawResponse?: string;
   vlmReasoning?: string;
   vlmSystemPrompt?: string;
+  /** The Instrument id the visual judge answered under (ADR 0003). */
+  vlmInstrumentId?: string | null;
+  /** The visual judge's effective thinking effort (ADR 0004). */
+  vlmThinkingEffort?: string | null;
   /** Which checklist the visual judge was shown — provenance for issue #34. */
   evalChecklistState?: import("../utils/checklist-state.js").ChecklistState | null;
   codeReviewRawResponse?: string;
@@ -143,7 +148,9 @@ export async function runVlmEval(deps: VlmEvalDeps): Promise<string> {
     if (ssResult.images.length === 0) {
       return "ERROR: Screenshot service returned no images.";
     }
-    const images = ssResult.images.map(s => ({ angle: s.angle, base64: s.base64 }));
+    // The judge sees the eight standard views, never the isometric pair the
+    // screenshot service adds for the UI (ADR 0003).
+    const images = selectStandardViews(ssResult.images).map(s => ({ angle: s.angle, base64: s.base64 }));
     const evalResult = await evaluateModel({
       userPrompt: deps.userPrompt,
       categoryName: "User Generated",
@@ -160,6 +167,8 @@ export async function runVlmEval(deps: VlmEvalDeps): Promise<string> {
       codeReviewModel: null,
       issues: evalResult.issues, suggestions: evalResult.suggestions,
       screenshots: ssResult.images,
+      vlmInstrumentId: evalResult.instrumentId,
+      vlmThinkingEffort: evalResult.thinkingEffort,
     });
     const issueText = evalResult.issues.length > 0
       ? `\nIssues:\n${evalResult.issues.map(i => `- ${i}`).join("\n")}\n` : "";

@@ -21,7 +21,7 @@ const logger = createLogger("workbench-batch");
 
 // ── Types ────────────────────────────────────────────────────────────
 
-export type JobType = "batch" | "batch-re-render" | "batch-re-evaluate" | "batch-cleanup" | "batch-backfill-specs" | "generate" | "retry" | "re-render" | "re-evaluate";
+export type JobType = "batch" | "batch-re-render" | "batch-re-evaluate" | "batch-re-rate-stale" | "batch-cleanup" | "batch-backfill-specs" | "generate" | "retry" | "re-render" | "re-evaluate";
 
 export interface BatchJob {
   jobId: string;
@@ -942,7 +942,7 @@ async function runBatchReRender(
 
 // ── Batch Re-Evaluate ────────────────────────────────────────────────
 
-async function runBatchReEvaluate(
+export async function runBatchReEvaluate(
   job: BatchJob,
   examples: Array<{ id: string; promptId: string; promptRef: { prompt: string } }>,
 ): Promise<void> {

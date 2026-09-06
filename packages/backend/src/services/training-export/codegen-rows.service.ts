@@ -1,5 +1,6 @@
 import { prisma } from "../../db/prisma.js";
 import type { ExportRequest } from "./types.js";
+import { currentInstrumentId } from "../visual-eval-instrument-id.service.js";
 
 export interface CodegenRow {
   exampleId: string;
@@ -20,6 +21,9 @@ export async function fetchCodegenRows(req: ExportRequest): Promise<CodegenRow[]
   };
   if (approvalOnly) {
     where.approvalStatus = { in: ["auto_approved", "human_approved"] };
+    // Only ratings under the current instrument feed training (ADR 0003);
+    // Stale rows wait for the re-rating batch.
+    where.vlmInstrumentId = await currentInstrumentId();
   }
   if (minScore != null) {
     where.evalScore = { gte: minScore };

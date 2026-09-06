@@ -199,6 +199,8 @@ export async function reRenderForExample(
     evalChecklistResults: evalResult?.checklistResults ?? null,
     approvalStatus: approved ? "auto_approved" : "pending",
     llmModel: existingExample.llmModel ?? "unknown", vlmModel: evalResult?.vlmModel ?? null,
+    vlmInstrumentId: evalResult?.vlmInstrumentId ?? null,
+    vlmThinkingEffort: evalResult?.vlmThinkingEffort ?? null,
     promptTokens: evalResult?.totalPromptTokens ?? 0,
     completionTokens: evalResult?.totalCompletionTokens ?? 0,
     visualScore: evalResult?.visualScore ?? null,

@@ -199,6 +199,20 @@ export async function getZoomMaxFollowUps(): Promise<number> {
   return getEffective("global.zoom_max_followups");
 }
 
+/** The zoom follow-up's settings, part of the judging procedure the Instrument id hashes (ADR 0003). */
+export interface ZoomSettings {
+  enabled: boolean;
+  resolutionPx: number;
+  maxFollowUps: number;
+}
+
+export async function getZoomSettings(): Promise<ZoomSettings> {
+  const [enabled, resolutionPx, maxFollowUps] = await Promise.all([
+    isZoomFollowUpEnabled(), getZoomResolution(), getZoomMaxFollowUps(),
+  ]);
+  return { enabled, resolutionPx, maxFollowUps };
+}
+
 export async function isAdaptiveWeightEnabled(): Promise<boolean> {
   return (await getEffective("global.adaptive_weight_enabled")) === 1;
 }

@@ -88,34 +88,28 @@ describe("deriveVisualChecklist", () => {
 
 /**
  * End of the chain: even if a placeholder list somehow reaches the prompt
- * builder, the block must not be rendered. Both the dynamic and the legacy
- * prompt paths are covered.
+ * builder, the block must not be rendered.
  */
 describe("visual eval prompt never renders a placeholder checklist", () => {
   const base = {
     userPrompt: "A simple bookend",
     categoryName: "Simple Everyday Objects",
     complexity: 2,
-    hasZoomTool: false,
-    providedAngles: ["front", "left"],
     constructionSpec: "",
-    evalPreamble: "",
   };
 
-  it("omits the block for an all-empty checklist, on both paths", async () => {
+  it("omits the block for an all-empty checklist", async () => {
     const { buildEvaluationSystemPrompt } = await import("../services/visual-eval-prompt.service.js");
 
-    for (const evalPlan of [null, { systemPrompt: "Judge it." } as never]) {
-      const prompt = buildEvaluationSystemPrompt({ ...base, checklist: ["", "   "], evalPlan });
-      expect(prompt).not.toContain("Verification Checklist");
-      expect(prompt).not.toMatch(/\d\.\s*$/m);
-    }
+    const prompt = buildEvaluationSystemPrompt({ ...base, checklist: ["", "   "] });
+    expect(prompt).not.toContain("Verification Checklist");
+    expect(prompt).not.toMatch(/\d\.\s*$/m);
   });
 
   it("renders only the real questions when the list is mixed", async () => {
     const { buildEvaluationSystemPrompt } = await import("../services/visual-eval-prompt.service.js");
     const prompt = buildEvaluationSystemPrompt({
-      ...base, checklist: ["Is the base flat?", "", "Does the lip protrude?"], evalPlan: null,
+      ...base, checklist: ["Is the base flat?", "", "Does the lip protrude?"],
     });
 
     expect(prompt).toContain("1. Is the base flat?");

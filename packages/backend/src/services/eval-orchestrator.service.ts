@@ -23,7 +23,7 @@ import { classifyChecklist, type ChecklistState } from "../utils/checklist-state
 import { getTraceBuilder } from "./trace-builder.service.js";
 import { getModelForPurposeWithFallback, calculateCostUsd } from "./llm-config.service.js";
 import { isAdaptiveWeightEnabled, getAdaptiveWeightRange } from "./generation-settings.service.js";
-import { RENDER_ANGLE_NAMES, type EvalPlan } from "../utils/eval-plan.js";
+import type { EvalPlan } from "../utils/eval-plan.js";
 
 const logger = createLogger("eval-orchestrator");
 
@@ -50,8 +50,15 @@ export interface FullEvalInput {
   /** Annotated verification criteria with visibility routing (visual/code/both). */
   annotatedCriteria?: import("./spec-generation.service.js").AnnotatedCriterion[];
   /** Pre-filled VLM score from agent eval — skip VLM call if provided. */
-  agentVlmScore?: { score: number; issues: string[]; suggestions: string[]; vlmModel: string };
-  /** Per-prompt eval directive: narrows VLM angles + drives dynamic VLM prompt. Null = legacy global pipeline. */
+  agentVlmScore?: {
+    score: number; issues: string[]; suggestions: string[]; vlmModel: string;
+    instrumentId?: string | null; thinkingEffort?: string | null;
+  };
+  /**
+   * Per-prompt eval directive. Only its suggested code weight is used here:
+   * the judge sees the same instrument and the same eight views for every
+   * example (ADR 0003), so the plan's angles and instructions are not sent.
+   */
   evalPlan?: EvalPlan | null;
 }
 
@@ -78,6 +85,10 @@ export interface FullEvalResult {
   vlmReasoning?: string;
   /** System prompt used for VLM evaluation, for training data capture. */
   vlmSystemPrompt?: string;
+  /** The Instrument id the visual judge answered under (ADR 0003). */
+  vlmInstrumentId?: string | null;
+  /** The visual judge's effective thinking effort (ADR 0004). */
+  vlmThinkingEffort?: string | null;
   /** Which checklist the visual judge was shown — provenance for issue #34. */
   evalChecklistState?: ChecklistState | null;
   /** Raw code review response for training data capture. */
@@ -110,6 +121,8 @@ function buildResult(opts: {
   vlmRawResponse?: string;
   vlmReasoning?: string;
   vlmSystemPrompt?: string;
+  vlmInstrumentId?: string | null;
+  vlmThinkingEffort?: string | null;
   evalChecklistState?: ChecklistState | null;
   codeReviewRawResponse?: string;
   codeReviewReasoning?: string;
@@ -139,6 +152,8 @@ function buildResult(opts: {
     vlmRawResponse: opts.vlmRawResponse,
     vlmReasoning: opts.vlmReasoning,
     vlmSystemPrompt: opts.vlmSystemPrompt,
+    vlmInstrumentId: opts.vlmInstrumentId ?? null,
+    vlmThinkingEffort: opts.vlmThinkingEffort ?? null,
     evalChecklistState: opts.evalChecklistState ?? null,
     codeReviewRawResponse: opts.codeReviewRawResponse,
     codeReviewReasoning: opts.codeReviewReasoning,
@@ -230,7 +245,6 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
   // ── Phase 2: Code review LLM (cheap) ───────────────────────────────
   let codeScore: number | null = null;
   let codeIssues: string[] = [];
-  let criticalAngles: string[] = [];
   let codeReviewModel: string | null = null;
   let codePromptTokens = 0;
   let codeCompletionTokens = 0;
@@ -254,7 +268,6 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
     const codeResult = await evaluateCode(codeEvalInput);
     codeScore = codeResult.score;
     codeIssues = codeResult.issues;
-    criticalAngles = codeResult.criticalAngles;
     codeReviewModel = codeResult.codeReviewModel;
     codePromptTokens = codeResult.promptTokens;
     codeCompletionTokens = codeResult.completionTokens;
@@ -323,6 +336,8 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
   let vlmRawResponse: string | undefined;
   let vlmReasoning: string | undefined;
   let vlmSystemPrompt: string | undefined;
+  let vlmInstrumentId: string | null = null;
+  let vlmThinkingEffort: string | null = null;
   let evalChecklistState: ChecklistState | null = null;
 
   // If agent already provided a VLM score, reuse it instead of calling VLM again
@@ -331,46 +346,15 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
     vlmIssues = input.agentVlmScore.issues;
     vlmSuggestions = input.agentVlmScore.suggestions;
     vlmModel = input.agentVlmScore.vlmModel;
+    vlmInstrumentId = input.agentVlmScore.instrumentId ?? null;
+    vlmThinkingEffort = input.agentVlmScore.thinkingEffort ?? null;
     logger.info({ agentScore: visualScore }, "phase 3: reusing agent VLM score (skipping VLM call)");
   } else if (hasImages) {
     tb?.startPhase("eval-vlm", "eval_vlm", "VLM Visual Evaluation", "eval");
     try {
-      // Filter images by inspection plan, then narrow further by code-review critical angles.
-      // Precedence:
-      //   1. evalPlan.inspectionPlan.angles: the spec's smallest sufficient set (default = all angles)
-      //   2. criticalAngles ∩ candidateAngles: code review's narrowing within that set
-      //   3. Always include ortho_45 baseline when criticalAngles narrows
-      //   4. Fall back to candidate set when intersection < 3 images
-      const allAngles: string[] = [...RENDER_ANGLE_NAMES];
-      const candidateAngles = input.evalPlan?.inspectionPlan?.angles ?? allAngles;
-      const candidateSet = new Set<string>(candidateAngles);
-
-      const candidateFiltered = input.images.filter(img => candidateSet.has(img.angle));
-      let vlmImages = candidateFiltered.length > 0 ? candidateFiltered : input.images;
-
-      if (criticalAngles.length > 0) {
-        const angleSet = new Set(criticalAngles.filter(a => candidateSet.has(a)));
-        if (candidateSet.has("ortho_45")) angleSet.add("ortho_45"); // baseline overview when in plan
-        const filtered = vlmImages.filter(img => angleSet.has(img.angle));
-        if (filtered.length >= 3) {
-          vlmImages = filtered;
-          logger.info(
-            { criticalAngles: [...angleSet], originalCount: input.images.length, filteredCount: filtered.length },
-            "filtered VLM images to critical angles ∩ inspection plan",
-          );
-        } else {
-          logger.info(
-            { criticalAngles, candidateAngles, filteredCount: filtered.length },
-            "critical angles ∩ inspection plan yielded < 3 images, using candidate set",
-          );
-        }
-      } else if (candidateFiltered.length > 0 && candidateFiltered.length < input.images.length) {
-        logger.info(
-          { candidateAngles, originalCount: input.images.length, filteredCount: candidateFiltered.length },
-          "filtered VLM images to inspection plan angles",
-        );
-      }
-
+      // The same eight views for every entry point (ADR 0003): no narrowing by
+      // the eval plan's angles or the code reviewer's critical angles. The
+      // judge itself selects the standard set and rejects an incomplete one.
       // Build effective checklist: filter annotated criteria by visibility (visual + both only)
       // Code-only items and items naming specific dimensions are excluded from
       // the VLM — the code reviewer handles those. deriveVisualChecklist() also
@@ -386,17 +370,16 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
       // match against a template that is free to change.
       evalChecklistState = classifyChecklist(effectiveChecklist);
 
-      logger.info({ imageCount: vlmImages.length }, "phase 3: running VLM visual evaluation");
+      logger.info({ imageCount: input.images.length }, "phase 3: running VLM visual evaluation");
       const vlmResult = await evaluateModel({
         userPrompt: input.userPrompt,
         categoryName: input.categoryName,
         complexity: input.complexity,
-        images: vlmImages,
+        images: input.images,
         verificationChecklist: effectiveChecklist,
         constructionSpec: input.constructionSpec,
         stlBase64: input.stlBase64,
         modelFormat: input.modelFormat,
-        evalPlan: input.evalPlan ?? null,
       });
 
       visualScore = vlmResult.score;
@@ -409,6 +392,8 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
       vlmRawResponse = vlmResult.rawResponse;
       vlmReasoning = vlmResult.reasoning;
       vlmSystemPrompt = vlmResult.systemPrompt;
+      vlmInstrumentId = vlmResult.instrumentId;
+      vlmThinkingEffort = vlmResult.thinkingEffort;
 
       // Zoom follow-up for uncertain checklist items — the same engine the
       // experiment executor runs (issue #54), so the two cannot drift apart.
@@ -482,14 +467,14 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
     checklistResults, vlmModel, codeReviewModel,
     totalPromptTokens: vlmPromptTokens + codePromptTokens,
     totalCompletionTokens: vlmCompletionTokens + codeCompletionTokens,
-    vlmRawResponse, vlmReasoning, vlmSystemPrompt, evalChecklistState,
+    vlmRawResponse, vlmReasoning, vlmSystemPrompt, vlmInstrumentId, vlmThinkingEffort, evalChecklistState,
     codeReviewRawResponse, codeReviewReasoning, codeReviewSystemPrompt,
   });
 
   logger.info(
     {
       compositeScore: result.compositeScore,
-      visualScore, codeScore, assertionPassRate,
+      visualScore, codeScore, assertionPassRate, vlmInstrumentId,
       source: result.source,
     },
     "evaluation pipeline completed",

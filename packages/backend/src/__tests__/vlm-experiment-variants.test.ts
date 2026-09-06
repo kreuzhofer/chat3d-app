@@ -21,10 +21,14 @@ vi.mock("../services/llm-config.service.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../services/llm-config.service.js")>();
   return { ...actual, createProviderModel: vi.fn(() => ({ modelId: "fake" })) };
 });
+vi.mock("../services/generation-settings.service.js", () => ({
+  getZoomSettings: vi.fn(async () => ({ enabled: true, resolutionPx: 1536, maxFollowUps: 3 })),
+}));
 
 import { planVlmRuns, validateJudgePromptVariants } from "../services/vlm-experiment-create.service.js";
 import { evaluateModelWithConfig } from "../services/visual-eval.service.js";
 import { ExperimentError } from "../services/experiment.service.js";
+import { STANDARD_VIEWS } from "../services/visual-eval-views.js";
 import type { LlmModelConfig } from "../services/llm-config.service.js";
 
 const models = [
@@ -90,15 +94,17 @@ describe("two runs over one example set with different variants", () => {
   };
   const input = {
     userPrompt: "a bracket", categoryName: "Brackets", complexity: 4,
-    images: [{ angle: "front", base64: "AAA" }], verificationChecklist: ["Is the gusset at 45°?"],
+    images: STANDARD_VIEWS.map((angle) => ({ angle, base64: "AAA" })), verificationChecklist: ["Is the gusset at 45°?"],
   };
   beforeEach(() => { streamCalls.length = 0; });
 
-  it("send different judge prompts, each carrying the same specimen, and record what they sent", async () => {
+  it("send different judge prompts, each carrying the same specimen, and record what they sent under the variant's id", async () => {
     const runs = planVlmRuns([models[1]], [{ id: "a", template: tplA }, { id: "b", template: tplB }]);
     const results = [];
     for (const run of runs) {
-      results.push(await evaluateModelWithConfig({ ...input, instrumentTemplate: run.judgePromptTemplate! }, cfg));
+      results.push(await evaluateModelWithConfig({
+        ...input, instrument: { name: run.judgePromptVariantId!, template: run.judgePromptTemplate! },
+      }, cfg));
     }
     expect(runs.map((r) => r.judgePromptVariantId)).toEqual(["a", "b"]);
     const sent = streamCalls.map((c) => c.system as string);
@@ -111,12 +117,18 @@ describe("two runs over one example set with different variants", () => {
       expect(s).not.toContain("PREAMBLE");
     }
     expect(results.map((r) => r.systemPrompt)).toEqual(sent);
+    expect(results[0].instrumentId).toMatch(/^a@[0-9a-f]{12}$/);
+    expect(results[1].instrumentId).toMatch(/^b@[0-9a-f]{12}$/);
+    expect(results[0].instrumentId).not.toBe(results[1].instrumentId);
   });
 
-  it("without a template the judge sees production's instrument, preamble included", async () => {
-    await evaluateModelWithConfig(input, cfg);
+  it("without an instrument the judge sees production's, stamped as production — no per-model preamble (ADR 0003)", async () => {
+    const result = await evaluateModelWithConfig(input, cfg);
     const s = streamCalls[0].system as string;
-    expect(s.startsWith("PREAMBLE\n\nYou are a 3D model quality evaluator")).toBe(true);
+    expect(s.startsWith("You are a 3D model quality evaluator")).toBe(true);
+    expect(s).not.toContain("PREAMBLE");
     expect(s).toContain("Category: Brackets (complexity level 4/10)");
+    expect(result.instrumentId).toMatch(/^production@[0-9a-f]{12}$/);
+    expect(result.thinkingEffort).toBe("off");
   });
 });

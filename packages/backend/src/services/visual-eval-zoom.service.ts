@@ -18,7 +18,7 @@ import {
   createProviderModel as createProviderModelFromConfig,
   type LlmModelConfig,
 } from "./llm-config.service.js";
-import { isZoomFollowUpEnabled, getZoomResolution, getZoomMaxFollowUps } from "./generation-settings.service.js";
+import { getZoomSettings } from "./generation-settings.service.js";
 import { buildUncertainFollowUpPrompt } from "./visual-eval-prompt.service.js";
 import {
   buildFollowUpResponseSchema,
@@ -126,9 +126,9 @@ export async function runZoomFollowUp(args: ZoomFollowUpArgs): Promise<ZoomFollo
   const uncertainCount = args.checklist.filter((c) => isUncertain(c)).length;
   if (uncertainCount === 0) return null;
 
-  const [enabled, resolution, maxFollowUps] = await Promise.all([
-    isZoomFollowUpEnabled(), getZoomResolution(), getZoomMaxFollowUps(),
-  ]);
+  // The same three settings the Instrument id hashes (ADR 0003): an admin
+  // edit here is a new revision of the procedure, not a silent change.
+  const { enabled, resolutionPx: resolution, maxFollowUps } = await getZoomSettings();
   if (!enabled) return null;
 
   logger.info({ uncertainCount, resolution, maxFollowUps }, "rendering 2x screenshots for uncertain items");

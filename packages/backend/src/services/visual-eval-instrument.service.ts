@@ -1,36 +1,31 @@
 /**
- * Instrument and specimen for the visual judge (issues #35, #36).
+ * Instrument and specimen for the visual judge (issues #35, #36; ADR 0003).
  *
  * The system prompt the judge receives is two things interleaved. The
  * INSTRUMENT — role, caveats, rubric, output shape — is the part that must
  * hold still for two evaluations to be comparable. The SPECIMEN — the user's
- * request, the views provided, the construction spec, the checklist items — is
- * the part that varies per example by design.
+ * request, the category, the construction spec, the checklist items — is the
+ * part that varies per example by design. The views are neither: every entry
+ * point sends the same eight (`visual-eval-views.ts`).
  *
  * An instrument is a template with named slots for the specimen. Production
- * ships two (`visual-eval-instrument-templates.ts`); an experiment run may
+ * ships one (`visual-eval-instrument-templates.ts`); an experiment run may
  * carry its own, and then every example in that run is judged under one
  * instrument with its own specimen injected — the loop that lets the judge's
  * instructions be changed and measured instead of edited in source (#35).
  */
-import type { BuildEvalPromptOptions } from "./visual-eval-prompt.service.js";
 
 // ── Slots ────────────────────────────────────────────────────────────
 
 /** Every slot an instrument may name, with what it renders to. */
 export const SPECIMEN_SLOTS = {
-  model_preamble: "The judge model's calibration preamble (`vlm_eval_preamble`), or empty.",
   user_prompt: "The user's request, verbatim.",
   category: "The workbench category name.",
   complexity: "The category complexity, 1–10.",
-  view_description: "The sentence naming the labelled views provided.",
-  view_count: "The number of views provided (8 when unknown).",
-  eval_plan: "The per-prompt eval plan's system prompt, or empty.",
-  zoom_tool_block: "The detail-view tool instructions when the judge has the tool, else empty.",
   construction_spec: "The construction spec text, or empty.",
   construction_spec_block: "The construction spec under its heading and framing, or empty.",
   checklist_items: "The checklist as a numbered list, or empty.",
-  checklist_block: "The numbered list plus production's pass/fail/uncertain instructions and the JSON checklist shape, or empty.",
+  checklist_block: "The numbered list plus production's pass/fail/uncertain instructions, the evidence clause and the JSON checklist shape, or empty.",
 } as const;
 
 export type SpecimenSlot = keyof typeof SPECIMEN_SLOTS;
@@ -46,31 +41,38 @@ export class InstrumentTemplateError extends Error {}
 // ── Rendering ────────────────────────────────────────────────────────
 
 /**
- * Substitute the specimen into the instrument.
+ * Substitute named values into a template.
  *
  * Paragraphs (blank-line separated) are the unit: a paragraph that is exactly
- * one slot disappears when that slot is empty for this example, so optional
- * blocks — preamble, eval plan, spec, checklist — leave no gap behind. Every
- * other paragraph is kept verbatim with its slots substituted. An unknown slot
- * is an error, never left in the prompt.
+ * one slot disappears when that slot's value is empty, so optional blocks —
+ * spec, checklist — leave no gap behind. Every other paragraph is kept
+ * verbatim with its slots substituted. A slot the values do not name is an
+ * error, never left in the prompt.
  */
-export function renderInstrument(template: string, specimen: Specimen): string {
+export function renderSlots(template: string, values: Record<string, string>): string {
   const out: string[] = [];
   for (const paragraph of template.split(PARAGRAPH)) {
     const lone = paragraph.match(LONE_SLOT);
     if (lone) {
-      const value = slotValue(lone[1], specimen);
+      const value = slotValue(lone[1], values);
       if (value !== "") out.push(value);
       continue;
     }
-    out.push(paragraph.replace(SLOT_TOKEN, (_, name: string) => slotValue(name, specimen)));
+    out.push(paragraph.replace(SLOT_TOKEN, (_, name: string) => slotValue(name, values)));
   }
   return out.join(PARAGRAPH);
 }
 
-function slotValue(name: string, specimen: Specimen): string {
-  if (!SLOT_NAMES.has(name)) throw new InstrumentTemplateError(`Unknown specimen slot {{${name}}}`);
-  return specimen[name as SpecimenSlot];
+function slotValue(name: string, values: Record<string, string>): string {
+  if (!Object.prototype.hasOwnProperty.call(values, name)) {
+    throw new InstrumentTemplateError(`Unknown specimen slot {{${name}}}`);
+  }
+  return values[name];
+}
+
+/** The instrument with this example's specimen in its slots. */
+export function renderInstrument(template: string, specimen: Specimen): string {
+  return renderSlots(template, specimen);
 }
 
 /**
@@ -99,62 +101,26 @@ export function validateInstrumentTemplate(template: string): string[] {
 
 // ── Specimen ─────────────────────────────────────────────────────────
 
+export interface SpecimenInput {
+  userPrompt: string;
+  categoryName: string;
+  complexity: number;
+  /** The checklist items to ask; blank entries are dropped. */
+  checklist: string[];
+  constructionSpec: string;
+}
+
 /** The example's side of the prompt, one string per slot. */
-export function buildSpecimen(opts: BuildEvalPromptOptions): Specimen {
-  const angles = opts.providedAngles ?? [];
+export function buildSpecimen(input: SpecimenInput): Specimen {
   return {
-    model_preamble: opts.evalPreamble ?? "",
-    user_prompt: opts.userPrompt,
-    category: opts.categoryName,
-    complexity: String(opts.complexity),
-    view_description: buildViewDescription(angles),
-    view_count: String(angles.length || 8),
-    eval_plan: opts.evalPlan?.systemPrompt ?? "",
-    zoom_tool_block: opts.hasZoomTool ? zoomToolBlock() : "",
-    construction_spec: opts.constructionSpec ?? "",
-    construction_spec_block: opts.constructionSpec ? constructionSpecBlock(opts.constructionSpec) : "",
-    checklist_items: checklistItems(opts.checklist),
-    checklist_block: checklistBlock(opts.checklist),
+    user_prompt: input.userPrompt,
+    category: input.categoryName,
+    complexity: String(input.complexity),
+    construction_spec: input.constructionSpec,
+    construction_spec_block: input.constructionSpec ? constructionSpecBlock(input.constructionSpec) : "",
+    checklist_items: checklistItems(input.checklist),
+    checklist_block: checklistBlock(input.checklist),
   };
-}
-
-const ANGLE_DISPLAY_NAMES: Record<string, string> = {
-  front: "front",
-  back: "back",
-  left: "left",
-  right: "right",
-  top: "top",
-  bottom: "bottom",
-  ortho_45: "a 45° down view",
-  ortho_45_bottom: "a 45° up view",
-  isometric: "isometric",
-};
-
-function buildViewDescription(providedAngles: string[]): string {
-  if (providedAngles.length === 0) {
-    return "You are provided labeled views: front, back, left, right, top, bottom, a 45° down view, and a 45° up view.\nTogether these cover all six faces of the model plus two complementary 3D overviews (from above and below).";
-  }
-  const names = providedAngles.map(a => ANGLE_DISPLAY_NAMES[a] ?? a);
-  return `You are provided ${names.length} labeled views: ${names.join(", ")}.\nThese views were selected to best show the key features of this model.`;
-}
-
-function zoomToolBlock(): string {
-  return `DETAIL VIEW CAPABILITY:
-You have a "request_detail_view" tool that renders a 1024px detail view with tight framing.
-ONLY use this when you genuinely CANNOT determine whether a specific feature is present or absent
-from the standard views. Most evaluations should NOT need detail views.
-
-Valid reasons to request a detail view:
-- Verifying thread pitch or gear tooth count on features smaller than ~5% of the model
-- Confirming a tiny drive recess (Phillips, Torx) that is barely visible
-
-Do NOT request detail views for:
-- Overall shape or proportion verification — use standard views
-- Feature presence that you can already see (even if small)
-- Any feature you can describe from the standard views — if you can see it, you don't need zoom
-- General "closer look" or "better inspection" — that is not a valid reason
-
-You may request up to 2 detail views. Provide your evaluation directly unless a feature is truly unresolvable.`;
 }
 
 function constructionSpecBlock(constructionSpec: string): string {
@@ -173,9 +139,11 @@ function checklistItems(checklist: string[]): string {
 }
 
 /**
- * Production's checklist block: the items plus how to answer them. Empty when
- * there is nothing real to ask — a numbered list of "undefined" is worse than
- * no checklist, because it looks to the judge like questions it must answer
+ * Production's checklist block: the items, how to answer them, and the
+ * evidence clause (issue #50: each detail names the views checked and what
+ * was seen, which makes a disagreement inspectable). Empty when there is
+ * nothing real to ask — a numbered list of "undefined" is worse than no
+ * checklist, because it looks to the judge like questions it must answer
  * (issue #33).
  */
 function checklistBlock(checklist: string[]): string {
@@ -196,9 +164,14 @@ show it due to angle or occlusion. A through-hole visible from top and bottom is
 even if the front view cannot show it. Do NOT let one ambiguous angle override clear evidence from
 another. Only mark uncertain (null) when NO view provides clear evidence either way.
 
+CRITICAL — evidence per item:
+In "detail", name the view or views you checked (front, back, left, right, top, bottom, 45° down,
+45° up) and state in one sentence what those views show at that location: the count you see, the
+shape you see, where it sits. A detail that names no view is not an answer.
+
 Include in your JSON response:
 "checklist": [
-  { "question": "...", "pass": true|false|null, "detail": "brief explanation" },
+  { "question": "...", "pass": true|false|null, "detail": "<view(s) checked>: <what was seen>" },
   ...
 ]`;
 }

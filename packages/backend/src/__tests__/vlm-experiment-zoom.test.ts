@@ -45,6 +45,7 @@ const uncertainChecklist = [
 function result(overrides: Partial<EvaluationResult> = {}): EvaluationResult {
   return {
     score: 7, issues: [], suggestions: [], vlmModel: "glm",
+    instrumentId: "production@0123456789ab", thinkingEffort: "off",
     promptTokens: 100, completionTokens: 40,
     checklistResults: uncertainChecklist, rawResponse: "{raw}", systemPrompt: "sys",
     ...overrides,

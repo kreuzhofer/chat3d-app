@@ -115,7 +115,7 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
       // Validated, not asserted — this is the path a backfill will use, and
       // legacy rows here hold bare strings (issue #33).
       annotatedCriteria: toAnnotatedCriteria(example.promptRef.verificationCriteria),
-      evalPlan: parseEvalPlan(example.promptRef.evalPlan ?? null),
+      evalPlan: parseEvalPlan(example.promptRef.evalPlan ?? null), // composite weight only (ADR 0003)
     }),
     );
   } catch (err) {
@@ -160,6 +160,8 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
       vlmRawResponse: evalResult.vlmRawResponse ?? null,
       vlmReasoning: evalResult.vlmReasoning ?? null,
       vlmSystemPrompt: evalResult.vlmSystemPrompt ?? null,
+      vlmInstrumentId: evalResult.vlmInstrumentId ?? null,
+      vlmThinkingEffort: evalResult.vlmThinkingEffort ?? null,
       evalChecklistState: evalResult.evalChecklistState ?? null,
       codeReviewRawResponse: evalResult.codeReviewRawResponse ?? null,
       codeReviewReasoning: evalResult.codeReviewReasoning ?? null,

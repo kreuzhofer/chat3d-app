@@ -126,7 +126,6 @@ async function main() {
           images,
           verificationChecklist: checklist,
           constructionSpec: ex.promptRef.constructionSpec ?? undefined,
-          evalPlan: parseEvalPlan(ex.promptRef.evalPlan ?? null),
         }, modelConfig),
       );
 

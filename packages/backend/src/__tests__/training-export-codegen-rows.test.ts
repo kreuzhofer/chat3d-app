@@ -8,6 +8,9 @@ vi.mock("../db/prisma.js", () => ({
     },
   },
 }));
+vi.mock("../services/visual-eval-instrument-id.service.js", () => ({
+  currentInstrumentId: vi.fn(async () => "production@0123456789ab"),
+}));
 
 const { prisma } = await import("../db/prisma.js");
 
@@ -25,11 +28,19 @@ describe("fetchCodegenRows", () => {
     expect(args.where.approvalStatus).toEqual({ in: ["auto_approved", "human_approved"] });
   });
 
-  it("drops approval filter when approvalOnly=false", async () => {
+  it("admits only ratings under the current instrument when approval gates the export (ADR 0003)", async () => {
+    (prisma.workbenchExample.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    await fetchCodegenRows({});
+    const args = (prisma.workbenchExample.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(args.where.vlmInstrumentId).toBe("production@0123456789ab");
+  });
+
+  it("drops approval and instrument filters when approvalOnly=false", async () => {
     (prisma.workbenchExample.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     await fetchCodegenRows({ approvalOnly: false });
     const args = (prisma.workbenchExample.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(args.where.approvalStatus).toBeUndefined();
+    expect(args.where.vlmInstrumentId).toBeUndefined();
   });
 
   it("applies minScore and categoryId when provided", async () => {

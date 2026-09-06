@@ -70,7 +70,7 @@ describe("buildExperimentEvalInput", () => {
     expect(input.verificationChecklist).toEqual(["Does it look like a hinge?"]);
   });
 
-  it("carries the eval plan and construction spec", () => {
+  it("carries the construction spec and never the eval plan — the judge does not see it (ADR 0003)", () => {
     const input = buildExperimentEvalInput(
       example({
         evalPlan: {
@@ -82,15 +82,7 @@ describe("buildExperimentEvalInput", () => {
       images,
     );
     expect(input.constructionSpec).toBe("spec text");
-    expect(input.evalPlan?.inspectionPlan.focus).toEqual({ front: "the pin" });
-  });
-
-  it("drops a malformed eval plan rather than passing it on", () => {
-    const input = buildExperimentEvalInput(
-      example({ evalPlan: { inspectionPlan: { focus: { front: "the pin" } } } }),
-      images,
-    );
-    expect(input.evalPlan).toBeNull();
+    expect("evalPlan" in input).toBe(false);
   });
 
   it("keeps the prompt, category and images intact", () => {

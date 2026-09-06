@@ -37,6 +37,9 @@ vi.mock("../services/llm-config.service.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../services/llm-config.service.js")>();
   return { ...actual, createProviderModel: vi.fn(() => ({ modelId: "fake-model" })) };
 });
+vi.mock("../services/generation-settings.service.js", () => ({
+  getZoomSettings: vi.fn(async () => ({ enabled: true, resolutionPx: 1536, maxFollowUps: 3 })),
+}));
 
 import { evaluateModelWithConfig } from "../services/visual-eval.service.js";
 import {
@@ -44,6 +47,7 @@ import {
   resolveGuidedJsonOutput,
 } from "../services/visual-eval-schema.service.js";
 import type { LlmModelConfig } from "../services/llm-config.service.js";
+import { STANDARD_VIEWS } from "../services/visual-eval-views.js";
 
 function cfg(overrides: Partial<LlmModelConfig> = {}): LlmModelConfig {
   return {
@@ -58,7 +62,7 @@ function cfg(overrides: Partial<LlmModelConfig> = {}): LlmModelConfig {
 }
 const anthropicCfg = () => cfg({ provider: "anthropic", providerType: null, modelName: "claude-sonnet-4-6", label: "anthropic/claude-sonnet-4-6", apiKey: "k" });
 
-const images = [{ angle: "front", base64: "AAA" }];
+const images = STANDARD_VIEWS.map((angle) => ({ angle, base64: "AAA" }));
 
 async function responseFormatOf(options: Record<string, unknown>) {
   const output = options.output as { responseFormat: Promise<Record<string, unknown>> } | undefined;

@@ -346,8 +346,10 @@ async function runPromotionEval(
       evalIssues: evalResult.issues,
       evalSuggestions: evalResult.suggestions,
       vlmModel: evalResult.vlmModel,
+      vlmInstrumentId: evalResult.instrumentId,
+      vlmThinkingEffort: evalResult.thinkingEffort,
     },
   });
 
-  logger.info({ exampleId, score: evalResult.score }, "VLM evaluation completed for promoted example");
+  logger.info({ exampleId, score: evalResult.score, instrumentId: evalResult.instrumentId }, "VLM evaluation completed for promoted example");
 }

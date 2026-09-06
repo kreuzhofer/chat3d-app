@@ -162,6 +162,8 @@ async function insertExamples(
         vlmRawResponse: ex.vlm_raw_response ?? null,
         vlmReasoning: ex.vlm_reasoning ?? null,
         vlmSystemPrompt: ex.vlm_system_prompt ?? null,
+        vlmInstrumentId: ex.vlm_instrument_id ?? null,
+        vlmThinkingEffort: ex.vlm_thinking_effort ?? null,
         codeReviewRawResponse: ex.code_review_raw_response ?? null,
         codeReviewReasoning: ex.code_review_reasoning ?? null,
         codeReviewSystemPrompt: ex.code_review_system_prompt ?? null,

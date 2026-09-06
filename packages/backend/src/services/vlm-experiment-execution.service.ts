@@ -20,8 +20,8 @@ import {
 } from "./experiment-lock.service.js";
 import { runWithUsageContext } from "./usage-tracking.service.js";
 import { deriveVisualChecklist } from "../utils/verification-criteria.js";
-import { parseEvalPlan } from "../utils/eval-plan.js";
 import type { EvaluateModelInput } from "./visual-eval.service.js";
+import type { JudgeInstrument } from "./visual-eval-instrument-id.service.js";
 
 const logger = createLogger("vlm-experiment-exec");
 
@@ -103,7 +103,7 @@ export async function cancelVlmExperiment(experimentId: string): Promise<void> {
 
 interface VlmExpWithRelations {
   id: string;
-  runs: Array<{ id: string; modelId: string; modelLabel: string; runOrder: number; status: string; judgePromptTemplate: string | null }>;
+  runs: Array<{ id: string; modelId: string; modelLabel: string; runOrder: number; status: string; judgePromptVariantId: string | null; judgePromptTemplate: string | null }>;
   vlmExampleSelections: Array<{ exampleId: string; selectionOrder: number }>;
 }
 
@@ -161,7 +161,8 @@ interface RunInfo {
   modelId: string;
   modelLabel: string;
   status: string;
-  /** The run's instrument (issue #35); null = production's. */
+  /** The run's instrument (issue #35); both null = production's. */
+  judgePromptVariantId: string | null;
   judgePromptTemplate: string | null;
 }
 
@@ -200,7 +201,7 @@ async function executeVlmRun(run: RunInfo, exampleIds: string[], signal: AbortSi
     try {
       const result = await runWithUsageContext(
         { source: "experiment", experimentId: run.id, experimentRunId: run.id, sourceLabel: `VLM Experiment: ${run.modelLabel}` },
-        () => evaluateExample(exampleId, modelConfig, run.judgePromptTemplate),
+        () => evaluateExample(exampleId, modelConfig, runInstrument(run)),
       );
       const durationMs = Date.now() - startMs;
 
@@ -218,10 +219,12 @@ async function executeVlmRun(run: RunInfo, exampleIds: string[], signal: AbortSi
           rawResponse: result.rawResponse ?? null,
           reasoning: result.reasoning ?? null,
           systemPrompt: result.systemPrompt ?? null,
+          instrumentId: result.instrumentId,
+          thinkingEffort: result.thinkingEffort,
         },
       });
 
-      logger.debug({ runId: run.id, exampleId, score: result.score, durationMs }, "VLM eval completed");
+      logger.debug({ runId: run.id, exampleId, score: result.score, durationMs, instrumentId: result.instrumentId }, "VLM eval completed");
     } catch (err) {
       const durationMs = Date.now() - startMs;
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -247,10 +250,22 @@ async function executeVlmRun(run: RunInfo, exampleIds: string[], signal: AbortSi
 
 // ── Load example and evaluate ───────────────────────────────────────
 
+/**
+ * The instrument a run judges under: its variant, named by the variant id so
+ * the Instrument id reads `<variant>@<hash>`; undefined = production's.
+ */
+function runInstrument(run: Pick<RunInfo, "judgePromptVariantId" | "judgePromptTemplate">): JudgeInstrument | undefined {
+  if (!run.judgePromptTemplate) return undefined;
+  if (!run.judgePromptVariantId) {
+    throw new Error("Experiment run carries an instrument template without a variant id");
+  }
+  return { name: run.judgePromptVariantId, template: run.judgePromptTemplate };
+}
+
 async function evaluateExample(
   exampleId: string,
   modelConfig: Awaited<ReturnType<typeof resolveModelConfigById>>,
-  instrumentTemplate: string | null,
+  instrument: JudgeInstrument | undefined,
 ) {
   const example = await prisma.workbenchExample.findUnique({
     where: { id: exampleId },
@@ -261,7 +276,6 @@ async function evaluateExample(
           constructionSpec: true,
           verificationChecklist: true,
           verificationCriteria: true,
-          evalPlan: true,
           category: { select: { name: true, complexity: true } },
         },
       },
@@ -291,7 +305,7 @@ async function evaluateExample(
   const stlBase64 = await loadStlBase64(example.stlPath);
   const input = {
     ...buildExperimentEvalInput(example, images, stlBase64),
-    ...(instrumentTemplate ? { instrumentTemplate } : {}),
+    ...(instrument ? { instrument } : {}),
   };
   const firstPass = await evaluateModelWithConfig(input, modelConfig);
   return applyZoomFollowUp(firstPass, input, modelConfig);
@@ -375,6 +389,7 @@ export function buildExperimentEvalInput(
       constructionSpec?: string | null;
       verificationChecklist?: unknown;
       verificationCriteria?: unknown;
+      /** Ignored: the judge no longer sees the eval plan (ADR 0003). */
       evalPlan?: unknown;
       category: { name: string; complexity: number };
     };
@@ -394,6 +409,5 @@ export function buildExperimentEvalInput(
       promptRef.verificationCriteria,
       (promptRef.verificationChecklist as string[] | null) ?? undefined,
     ),
-    evalPlan: parseEvalPlan((promptRef.evalPlan as Parameters<typeof parseEvalPlan>[0]) ?? null),
   };
 }

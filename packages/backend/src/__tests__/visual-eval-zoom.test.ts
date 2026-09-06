@@ -42,9 +42,9 @@ vi.mock("../services/llm-config.service.js", () => ({
 
 const settings = { enabled: true, resolution: 1536, maxFollowUps: 3 };
 vi.mock("../services/generation-settings.service.js", () => ({
-  isZoomFollowUpEnabled: vi.fn(async () => settings.enabled),
-  getZoomResolution: vi.fn(async () => settings.resolution),
-  getZoomMaxFollowUps: vi.fn(async () => settings.maxFollowUps),
+  getZoomSettings: vi.fn(async () => ({
+    enabled: settings.enabled, resolutionPx: settings.resolution, maxFollowUps: settings.maxFollowUps,
+  })),
 }));
 
 vi.mock("../utils/resource-limits.js", () => ({

@@ -480,6 +480,12 @@ model WorkbenchExample {
   /// placeholder. "placeholder" marks rows scored before issue #33 was
   /// fixed, whose scores are not comparable with the rest (issue #34).
   evalChecklistState    String?  @map("eval_checklist_state") @db.VarChar(16)
+  /// The instrument the visual judge answered under, `<name>@<hash12>` of
+  /// the whole procedure (ADR 0003). NULL = pre-versioning or not rated. A
+  /// rating whose id is not the current one is Stale.
+  vlmInstrumentId       String?  @map("vlm_instrument_id") @db.VarChar(80)
+  /// The judge's effective thinking effort for this rating (ADR 0004).
+  vlmThinkingEffort     String?  @map("vlm_thinking_effort") @db.VarChar(16)
   codeReviewRawResponse String?  @map("code_review_raw_response") @db.Text
   codeReviewReasoning   String?  @map("code_review_reasoning") @db.Text
   codeReviewSystemPrompt String? @map("code_review_system_prompt") @db.Text
@@ -517,6 +523,7 @@ model WorkbenchExample {
   @@index([evalScore], map: "idx_wb_examples_eval_score")
   @@index([featured], map: "idx_wb_examples_featured")
   @@index([experimentRunId], map: "idx_wb_examples_experiment_run")
+  @@index([vlmInstrumentId], map: "idx_wb_examples_vlm_instrument")
   @@map("workbench_examples")
 }
 
@@ -675,6 +682,11 @@ model VlmExperimentResult {
   rawResponse      String?  @map("raw_response") @db.Text
   reasoning        String?  @map("reasoning") @db.Text
   systemPrompt     String?  @map("system_prompt") @db.Text
+  /// The instrument this result was answered under: the run's variant id or
+  /// `production`, plus the procedure hash (ADR 0003).
+  instrumentId     String?  @map("instrument_id") @db.VarChar(80)
+  /// The judge's effective thinking effort for this result (ADR 0004).
+  thinkingEffort   String?  @map("thinking_effort") @db.VarChar(16)
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations

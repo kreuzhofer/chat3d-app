@@ -54,6 +54,8 @@ export async function insertExample(data: {
   vlmRawResponse?: string | null;
   vlmReasoning?: string | null;
   vlmSystemPrompt?: string | null;
+  vlmInstrumentId?: string | null;
+  vlmThinkingEffort?: string | null;
   evalChecklistState?: string | null;
   codeReviewRawResponse?: string | null;
   codeReviewReasoning?: string | null;
@@ -106,6 +108,8 @@ export async function insertExample(data: {
       vlmRawResponse: data.vlmRawResponse ?? null,
       vlmReasoning: data.vlmReasoning ?? null,
       vlmSystemPrompt: data.vlmSystemPrompt ?? null,
+      vlmInstrumentId: data.vlmInstrumentId ?? null,
+      vlmThinkingEffort: data.vlmThinkingEffort ?? null,
       evalChecklistState: data.evalChecklistState ?? null,
       codeReviewRawResponse: data.codeReviewRawResponse ?? null,
       codeReviewReasoning: data.codeReviewReasoning ?? null,
@@ -154,6 +158,8 @@ export async function insertExample(data: {
       vlmRawResponse: data.vlmRawResponse ?? null,
       vlmReasoning: data.vlmReasoning ?? null,
       vlmSystemPrompt: data.vlmSystemPrompt ?? null,
+      vlmInstrumentId: data.vlmInstrumentId ?? null,
+      vlmThinkingEffort: data.vlmThinkingEffort ?? null,
       evalChecklistState: data.evalChecklistState ?? null,
       codeReviewRawResponse: data.codeReviewRawResponse ?? null,
       codeReviewReasoning: data.codeReviewReasoning ?? null,

@@ -105,6 +105,8 @@ export interface ExportExample {
   rejection_note: string | null;
   llm_model: string | null;
   vlm_model: string | null;
+  vlm_instrument_id?: string | null;
+  vlm_thinking_effort?: string | null;
   vlm_raw_response: string | null;
   vlm_reasoning: string | null;
   vlm_system_prompt: string | null;
