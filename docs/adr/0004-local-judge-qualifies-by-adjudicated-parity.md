@@ -37,5 +37,6 @@ While no judge is qualified, `vlm_eval` is owned by the best candidate on the me
 
 - Rows carry judge identity that distinguishes thinking settings; `provider/model_name` alone does not (the instrument work, #59, stamps it).
 - The fine-tuning filter admits only rows that are current (ADR 0003) **and** rated by a Qualified judge (#62); at landing, every row rated so far by a local judge is Provisional.
+  - *Amended 2026-09-06 (#62, at landing):* the two conditions gate judge-derived approvals only. A human's verdict is admitted whatever the rating beside it — the verdict is the human's, not derived from that rating, and the re-rating batch never overturns it, so gating it on the instrument would exclude it for good.
 - The four-judge baseline under the old harness is superseded by the screen; self-consistency sampling is out of scope while the judge runs at temperature 0.
 - The adjudication hour is spent once per candidate and instrument revision, on the qualification run's disagreements; the reference's confirmed errors from that sheet are the discount on every future parity number.

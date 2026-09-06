@@ -12,6 +12,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import { currentInstrumentId } from "./visual-eval-instrument-id.service.js";
+import { getExportAdmission, type ExportAdmission } from "./training-export/admission.js";
 import {
   jobs, generateJobId, toSummary, runBatchReEvaluate,
   type BatchJob, type BatchJobSummary,
@@ -64,6 +65,8 @@ export interface InstrumentStatus {
   unratable: number;
   /** Stale rows the batch leaves alone because a human decided their status. */
   staleHumanDecided: number;
+  /** The training export's admission over the approved rows (ADR 0004, #62). */
+  export: ExportAdmission;
 }
 
 export async function getInstrumentStatus(): Promise<InstrumentStatus> {
@@ -77,9 +80,10 @@ export async function getInstrumentStatus(): Promise<InstrumentStatus> {
     prisma.workbenchExample.count({ where: { ...stale, ...HAS_STANDARD_VIEWS } }),
     prisma.workbenchExample.count({ where: { ...stale, approvalStatus: { notIn: JUDGE_DERIVED_STATUSES } } }),
   ]);
+  const exportAdmission = await getExportAdmission(instrumentId);
   return {
     instrumentId, rated, current, stale: staleCount, staleApproved,
-    unratable: staleCount - reRatable, staleHumanDecided,
+    unratable: staleCount - reRatable, staleHumanDecided, export: exportAdmission,
   };
 }
 

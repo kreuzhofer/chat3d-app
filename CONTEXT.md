@@ -54,6 +54,10 @@ _Avoid_: production judge (a role assignment, not a status), approved model, tru
 A rating produced under the current Instrument id by a Judge that has not cleared Qualification. Kept and gate-derived as usual, excluded from the fine-tuning filter until its Judge qualifies, then admitted without re-rating. Distinct from Stale, which needs re-rating.
 _Avoid_: untrusted, temporary, draft
 
+**Fine-tuning filter**:
+The rule that decides which approved workbench rows the training export reads. A row is admitted on one of two grounds: a human decided its status, or a Judge did under the current Instrument id while Qualified under it. Stale and Provisional rows wait outside it; a human's verdict is admitted whatever rating sits beside it, because the verdict is the human's and not derived from that rating.
+_Avoid_: export filter (the export also filters by score and category, which are not about trust), approval (the gate's verdict; admission is stricter than approval)
+
 **Screen**:
 The mechanical part of Qualification: completeness, stability, throughput and the agreement counts against the Reference standard, computed by script with no human step (`packages/backend/scripts/qualification-screen.ts`, which also writes the disagreement dump). A screen orders candidates and produces the disagreement set for inspection; it never qualifies a judge by itself.
 _Avoid_: benchmark, leaderboard, eval run

@@ -1,6 +1,7 @@
 import { prisma } from "../../db/prisma.js";
 import type { ExportRequest } from "./types.js";
 import { currentInstrumentId } from "../visual-eval-instrument-id.service.js";
+import { admittedWhere } from "./admission.js";
 
 export interface CodegenRow {
   exampleId: string;
@@ -20,10 +21,9 @@ export async function fetchCodegenRows(req: ExportRequest): Promise<CodegenRow[]
     experimentRunId: null,
   };
   if (approvalOnly) {
-    where.approvalStatus = { in: ["auto_approved", "human_approved"] };
-    // Only ratings under the current instrument feed training (ADR 0003);
-    // Stale rows wait for the re-rating batch.
-    where.vlmInstrumentId = await currentInstrumentId();
+    // A human's verdict, or a judge's under the current instrument by a
+    // qualified judge (ADR 0003, ADR 0004); Stale and Provisional rows wait.
+    Object.assign(where, admittedWhere(await currentInstrumentId()));
   }
   if (minScore != null) {
     where.evalScore = { gte: minScore };

@@ -20,6 +20,8 @@ import {
   type TrainingExportOptions,
 } from "../workbench-training-export.service.js";
 import { buildMinimalSystemPrompt } from "./minimal-system-prompt.js";
+import { currentInstrumentId } from "../visual-eval-instrument-id.service.js";
+import { admittedWhere } from "./admission.js";
 
 const logger = createLogger("training-export-synthetic");
 
@@ -94,7 +96,8 @@ export async function exportAgentSyntheticTrainingJsonl(
     experimentRunId: null,
   };
   if (approvalOnly) {
-    where.approvalStatus = { in: ["auto_approved", "human_approved"] };
+    // The same admission as every other exporter (ADR 0003, ADR 0004).
+    Object.assign(where, admittedWhere(await currentInstrumentId()));
   }
   if (minScore != null) {
     where.evalScore = { gte: minScore };

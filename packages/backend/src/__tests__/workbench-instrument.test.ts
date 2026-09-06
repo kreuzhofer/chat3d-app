@@ -14,6 +14,9 @@ const { count, findMany, runBatchReEvaluate, jobs } = vi.hoisted(() => ({
 }));
 vi.mock("../db/prisma.js", () => ({ prisma: { workbenchExample: { count: (...a: unknown[]) => count(...a), findMany: (...a: unknown[]) => findMany(...a) } } }));
 vi.mock("../services/visual-eval-instrument-id.service.js", () => ({ currentInstrumentId: vi.fn(async () => "production@0123456789ab") }));
+vi.mock("../services/visual-eval-qualified-judges.js", () => ({
+  QUALIFIED_JUDGES: [{ model: "vllm-x/qwen", thinkingEffort: "off", instrumentId: "production@0123456789ab", qualifiedOn: "2026-09-06", evidence: ["run", "sheet"] }],
+}));
 vi.mock("../services/workbench-batch.service.js", () => ({
   jobs,
   generateJobId: (t: string) => `${t}-1`,
@@ -35,15 +38,21 @@ describe("staleRatingWhere", () => {
 });
 
 describe("getInstrumentStatus", () => {
-  it("reports the current id and the stale, approved-stale, unratable and human-decided counts", async () => {
+  it("reports the current id and the stale, approved-stale, unratable and human-decided counts, and the export's admission", async () => {
     count.mockResolvedValueOnce(2618).mockResolvedValueOnce(0).mockResolvedValueOnce(2618)
-      .mockResolvedValueOnce(2305).mockResolvedValueOnce(2600).mockResolvedValueOnce(4);
+      .mockResolvedValueOnce(2305).mockResolvedValueOnce(2600).mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(2309).mockResolvedValueOnce(0).mockResolvedValueOnce(2308);
     const status = await getInstrumentStatus();
     expect(status).toEqual({
       instrumentId: CURRENT, rated: 2618, current: 0, stale: 2618, staleApproved: 2305, unratable: 18, staleHumanDecided: 4,
+      export: { qualifiedJudges: [{ model: "vllm-x/qwen", thinkingEffort: "off" }], approved: 2309, admitted: 0, provisional: 1, stale: 2308 },
     });
     expect(count.mock.calls[1][0]).toEqual({ where: { renderStatus: "success", experimentRunId: null, visualScore: { not: null }, vlmInstrumentId: CURRENT } });
     expect(count.mock.calls[5][0].where.approvalStatus).toEqual({ notIn: ["auto_approved", "pending"] });
+    expect(count.mock.calls[7][0].where.OR).toEqual([
+      { approvalStatus: "human_approved" },
+      { approvalStatus: "auto_approved", vlmInstrumentId: CURRENT, OR: [{ vlmModel: "vllm-x/qwen", vlmThinkingEffort: "off" }] },
+    ]);
   });
 });
 
