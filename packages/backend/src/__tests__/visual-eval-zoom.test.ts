@@ -196,31 +196,37 @@ describe("runZoomFollowUp", () => {
 // ── The follow-up under the main call's guards (issue #56) ───────────
 
 describe("follow-up call guards", () => {
-  it("asks at temperature 0 with the pass/detail schema as guided JSON on vLLM, and free text on Anthropic", async () => {
+  it("asks at temperature 0 with the pass/detail schema as the reply's shape on vLLM and on Anthropic alike (issue #64)", async () => {
+    const followUpShape = {
+      type: "json",
+      name: "follow_up",
+      schema: {
+        type: "object",
+        properties: { pass: { type: "boolean" }, detail: { type: "string" } },
+        required: ["pass", "detail"],
+        additionalProperties: false,
+      },
+    };
     await resolveUncertainItems(checklist, highRes, 3, undefined, cfg());
     expect(generateCalls).toHaveLength(2);
     for (const { options } of generateCalls) {
       expect(options.temperature).toBe(0);
+      expect(options.maxOutputTokens).toBe(512);
       const output = options.output as { responseFormat: Promise<Record<string, unknown>> } | undefined;
       expect(output).toBeDefined();
-      expect(await output!.responseFormat).toEqual({
-        type: "json",
-        name: "follow_up",
-        schema: {
-          type: "object",
-          properties: { pass: { type: "boolean" }, detail: { type: "string" } },
-          required: ["pass", "detail"],
-          additionalProperties: false,
-        },
-      });
+      expect(await output!.responseFormat).toEqual(followUpShape);
     }
 
+    // Sonnet's free-text follow-up wrote prose and hit the cap 11 times in 53 on the 125 (#61);
+    // the Anthropic path now gets the same shape, as native structured output or the SDK's JSON tool.
     generateCalls.length = 0;
     await resolveUncertainItems(checklist, highRes, 3, undefined, productionJudge);
     expect(generateCalls).toHaveLength(2);
     for (const { options } of generateCalls) {
       expect(options.temperature).toBe(0);
-      expect(options.output).toBeUndefined();
+      const output = options.output as { responseFormat: Promise<Record<string, unknown>> } | undefined;
+      expect(output).toBeDefined();
+      expect(await output!.responseFormat).toEqual(followUpShape);
     }
   });
 

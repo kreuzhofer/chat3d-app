@@ -21,10 +21,7 @@ import {
 import { getZoomSettings } from "./generation-settings.service.js";
 import { buildUncertainFollowUpPrompt } from "./visual-eval-prompt.service.js";
 import {
-  buildFollowUpResponseSchema,
-  resolveGuidedJsonOutput,
-  FOLLOW_UP_OUTPUT_NAME,
-  type FollowUpResponse,
+  resolveFollowUpOutput,
 } from "./visual-eval-schema.service.js";
 import type { ChecklistResult } from "./visual-eval-parser.service.js";
 import { isUncertain } from "./visual-eval-parser.service.js";
@@ -242,11 +239,11 @@ async function runSingleFollowUp(
 ): Promise<FollowUpResult> {
   const model = createProviderModelFromConfig(vlmConfig);
   const systemPrompt = buildUncertainFollowUpPrompt(question, constructionSpec);
-  // The main judge call's guards (issue #56): temperature 0, and on vLLM the
-  // answer's shape as the decoding grammar. Anthropic stays free text.
-  const guidedOutput = resolveGuidedJsonOutput<FollowUpResponse>(
-    vlmConfig, buildFollowUpResponseSchema(), FOLLOW_UP_OUTPUT_NAME,
-  );
+  // The main judge call's guards (issue #56): temperature 0, and the answer's
+  // shape as the decoding grammar on vLLM — and, since issue #64, as
+  // structured output on Anthropic too, where free text under the evidence
+  // clause turned into prose that overran the cap.
+  const guidedOutput = resolveFollowUpOutput(vlmConfig);
 
   const semaphore = getLlmSemaphore(vlmConfig.provider, vlmConfig.maxConcurrent);
   let result: Awaited<ReturnType<typeof trackedGenerateText>>;
@@ -262,7 +259,9 @@ async function runSingleFollowUp(
           { type: "image", image: imageBase64 },
         ],
       }],
-      maxOutputTokens: 256,
+      // One JSON object with a one-sentence detail; the cap only stops a runaway
+      // reply, it is not what keeps the answer short (#64 raised it from 256).
+      maxOutputTokens: 512,
       temperature: 0,
       ...(guidedOutput ? { output: guidedOutput } : {}),
     }, {

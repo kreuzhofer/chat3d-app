@@ -45,6 +45,7 @@ import { evaluateModelWithConfig } from "../services/visual-eval.service.js";
 import {
   buildEvaluationResponseSchema,
   resolveGuidedJsonOutput,
+  resolveFollowUpOutput,
 } from "../services/visual-eval-schema.service.js";
 import type { LlmModelConfig } from "../services/llm-config.service.js";
 import { STANDARD_VIEWS } from "../services/visual-eval-views.js";
@@ -99,6 +100,25 @@ describe("buildEvaluationResponseSchema", () => {
 });
 
 // ── Per-provider enforcement ─────────────────────────────────────────
+
+describe("resolveFollowUpOutput (issue #64)", () => {
+  it("constrains the follow-up on the OpenAI-compatible path and on Anthropic, and nowhere else", async () => {
+    for (const judge of [cfg(), anthropicCfg()]) {
+      const output = resolveFollowUpOutput(judge);
+      expect(output).toBeDefined();
+      const format = await (output as unknown as { responseFormat: Promise<Record<string, unknown>> }).responseFormat;
+      expect(format).toMatchObject({ type: "json", name: "follow_up" });
+      expect((format.schema as Record<string, unknown>).required).toEqual(["pass", "detail"]);
+    }
+    for (const providerType of ["ollama", "openai", "xai"] as const) {
+      expect(resolveFollowUpOutput(cfg({ providerType }))).toBeUndefined();
+    }
+  });
+
+  it("leaves the main evaluation call's resolver as it was: Anthropic stays free text there", () => {
+    expect(resolveGuidedJsonOutput(anthropicCfg(), buildEvaluationResponseSchema(3))).toBeUndefined();
+  });
+});
 
 describe("resolveGuidedJsonOutput", () => {
   it("returns a JSON output spec carrying the schema for an OpenAI-compatible judge", async () => {

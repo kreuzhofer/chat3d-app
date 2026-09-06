@@ -94,11 +94,26 @@ export function buildFollowUpResponseSchema(): JSONSchema7 {
 }
 
 /**
- * Only the OpenAI-compatible SDK path (vLLM and friends) gets the schema.
- * Every other provider type — Anthropic above all — keeps a free-text call.
+ * Only the OpenAI-compatible SDK path (vLLM and friends) gets the schema on
+ * the main evaluation call. Every other provider type — Anthropic above all —
+ * keeps a free-text call there: the reference's first pass is measured under
+ * that shape and is not moved by a follow-up fix.
  */
 export function supportsGuidedJson(cfg: LlmModelConfig): boolean {
   return sdkType(cfg) === "openai-compatible";
+}
+
+/**
+ * The zoom follow-up is constrained on Anthropic as well (issue #64): under
+ * the follow-up template's evidence clause Sonnet answered in prose and hit
+ * the output cap before any JSON on 11 of 53 follow-ups, leaving the items
+ * uncertain. The SDK's Anthropic provider turns the shape into the API's
+ * native structured output where the model supports it and into a JSON tool
+ * otherwise; either way the reply is the object or a NoObjectGeneratedError.
+ */
+export function supportsFollowUpShape(cfg: LlmModelConfig): boolean {
+  const type = sdkType(cfg);
+  return type === "openai-compatible" || type === "anthropic";
 }
 
 /**
@@ -116,4 +131,10 @@ export function resolveGuidedJsonOutput<T = EvaluationResponse>(
 ) {
   if (!supportsGuidedJson(cfg)) return undefined;
   return Output.object({ schema: jsonSchema<T>(schema), name });
+}
+
+/** The follow-up's `output` option: its `{pass, detail}` shape wherever the provider can hold a reply to it. */
+export function resolveFollowUpOutput(cfg: LlmModelConfig) {
+  if (!supportsFollowUpShape(cfg)) return undefined;
+  return Output.object({ schema: jsonSchema<FollowUpResponse>(buildFollowUpResponseSchema()), name: FOLLOW_UP_OUTPUT_NAME });
 }

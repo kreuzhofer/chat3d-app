@@ -1,0 +1,41 @@
+QUALIFICATION SCREEN — ADR 0004 mechanical terms
+candidate arm 1: Claude Sonnet 4.6 (Anthropic API, thinking off) (6f6bb5c0-7e16-414f-bf39-59743ce8fd7f)
+reference:       Claude Sonnet 4.6 (Anthropic API, thinking off) (444483ec-17d7-4ec6-a0bc-b602eb8387a5)
+examples selected: 125 | current instrument: production@22e0f10b0505 | corpus for hours-per-pass: 2618 rated rows
+
+## IDENTITY — one Instrument id and one thinking effort per run, the same id across runs
+  PASS  Claude Sonnet 4.6 (Anthropic API, thinking off): instrument production@22e0f10b0505 | effort off
+  PASS  Claude Sonnet 4.6 (Anthropic API, thinking off): instrument production@22e0f10b0505 | effort off
+  PASS  same instrument id across runs
+
+## COMPLETENESS — zero tolerance (ADR 0004)
+  (unreadable follow-ups are read from the item's zoom outcome marker; rows stored before 2026-09-06 carry none, so for those the count is blind and the log is the record)
+  Claude Sonnet 4.6 (Anthropic API, thinking off): answered 125/125, items 511, residual uncertain 4 (allowed; they fail at the gate)
+  PASS  unanswered examples: 0 (<= 0)
+  PASS  errors: 0 (<= 0)
+  PASS  truncations: 0 (<= 0)
+  PASS  missing checklists: 0 (<= 0)
+  PASS  item-count mismatches: 0 (<= 0)
+  PASS  unreadable follow-ups: 0 (<= 0)
+  reference Claude Sonnet 4.6 (Anthropic API, thinking off) (recorded): answered 125/125, items 511, residual uncertain 14, all six counts zero
+
+## STABILITY — arm 2 vs arm 1, at or inside the reference's floor
+  NOT RUN — one candidate run given; the term needs the second arm
+
+## THROUGHPUT — recorded, not gating
+  Claude Sonnet 4.6 (Anthropic API, thinking off): 25.8 s per example, 801 output tokens | wall clock 18.0 min for 125 | corpus pass 18.8 h sequential, 6.3 h at the run's own rate
+  Claude Sonnet 4.6 (Anthropic API, thinking off): 23.8 s per example, 838 output tokens | wall clock 16.6 min for 125 | corpus pass 17.3 h sequential, 5.8 h at the run's own rate
+
+## RAW AGREEMENT with the reference — recorded, not gating; produces the disagreement set
+  Claude Sonnet 4.6 (Anthropic API, thinking off) vs reference, all items: items 511 | identical 92.2% | hard flips 4.3% (22) | either uncertain 18 | pass rate ref 77.9% cand 79.1%
+    ref \ cand      P      F      U
+             P    385     11      2
+             F     11     86      2
+             U      8      6      0
+    raw false passes (cand pass, ref fail) 11 of 99 ref fails (11.1%) | raw false fails (cand fail, ref pass) 11 of 398 ref passes (2.8%)
+  first pass: identical 88.8% | hard flips 1.6% (8) | either uncertain 81
+  item gate (ADR 0001): eligible 96 | verdicts agree 82 (85.4%) | false accepts 9 | false rejects 5 | approves cand 43 ref 39
+  scores (first pass): same 72.8% | mean abs delta 0.312 | mean cand 6.57 ref 6.59 | backstop 7.5 disagreements 13 (cand pass/ref fail 6, cand fail/ref pass 7)
+
+## MECHANICAL SCREEN: INCOMPLETE (stability not run)
+  adjudicated terms are decided from the dump, by a human (ADR 0004).
