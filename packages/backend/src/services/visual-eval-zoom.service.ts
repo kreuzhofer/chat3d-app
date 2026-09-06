@@ -10,6 +10,7 @@
  */
 
 import { renderModelScreenshots, type ModelFormat, type ViewingAngle, type RenderedScreenshot } from "./stl-rendering-client.service.js";
+import { NoObjectGeneratedError } from "ai";
 import { trackedGenerateText } from "./tracked-llm.service.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import {
@@ -244,7 +245,9 @@ async function runSingleFollowUp(
   );
 
   const semaphore = getLlmSemaphore(vlmConfig.provider, vlmConfig.maxConcurrent);
-  const result = await semaphore.run(async () =>
+  let result: Awaited<ReturnType<typeof trackedGenerateText>>;
+  try {
+    result = await semaphore.run(async () =>
     trackedGenerateText({
       model,
       system: systemPrompt,
@@ -266,6 +269,20 @@ async function runSingleFollowUp(
       modelConfig: { costPer1mInput: vlmConfig.costPer1mInput, costPer1mOutput: vlmConfig.costPer1mOutput },
     }),
   );
+  } catch (err) {
+    // With guided output the SDK validates the reply before we see it; its
+    // rejection is the same outcome as ours, recorded the same way.
+    if (NoObjectGeneratedError.isInstance(err)) {
+      return {
+        pass: null,
+        detail: `reply could not be read as a pass/fail answer (finish reason "${err.finishReason ?? "unknown"}", ` +
+          `rejected by the SDK's output parser): ${snippet(err.text ?? "")}`,
+        promptTokens: err.usage?.inputTokens ?? 0,
+        completionTokens: err.usage?.outputTokens ?? 0,
+      };
+    }
+    throw err;
+  }
 
   const promptTokens = result.usage?.inputTokens ?? 0;
   const completionTokens = result.usage?.outputTokens ?? 0;

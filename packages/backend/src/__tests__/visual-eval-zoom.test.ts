@@ -8,6 +8,7 @@
  * that say "uncertain" most. These tests pin the engine both callers share.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { NoObjectGeneratedError, type LanguageModelUsage } from "ai";
 
 // ── Capture the render and the follow-up LLM calls instead of making them ──
 
@@ -22,9 +23,11 @@ vi.mock("../services/stl-rendering-client.service.js", () => ({
 
 const generateCalls: Array<{ options: Record<string, unknown>; tracking: Record<string, unknown> }> = [];
 let nextAnswer = '{"pass": true, "detail": "resolved at 2x"}';
+let nextThrow: unknown = null;
 vi.mock("../services/tracked-llm.service.js", () => ({
   trackedGenerateText: vi.fn(async (options: Record<string, unknown>, tracking: Record<string, unknown>) => {
     generateCalls.push({ options, tracking });
+    if (nextThrow) { const e = nextThrow; nextThrow = null; throw e; }
     return { text: nextAnswer, usage: { inputTokens: 11, outputTokens: 3 } };
   }),
 }));
@@ -95,6 +98,7 @@ beforeEach(() => {
   settings.resolution = 1536;
   settings.maxFollowUps = 3;
   nextAnswer = '{"pass": true, "detail": "resolved at 2x"}';
+  nextThrow = null;
 });
 
 // ── resolveUncertainItems ────────────────────────────────────────────
@@ -236,6 +240,26 @@ describe("follow-up call guards", () => {
     const result = await resolveUncertainItems(checklist, highRes, 3, undefined, cfg());
     expect(result.resolvedChecklist[1].pass).toBeNull();
     expect(result.followUpDetails[0].pass).toBeNull();
+  });
+
+  it("records the SDK's own rejection of a guided reply as unreadable, with the reply, and keeps the item uncertain", async () => {
+    // Seen once on qwen (#56 run): the guided reply reached the SDK's output parser and was rejected there.
+    nextThrow = new NoObjectGeneratedError({
+      message: "No object generated: could not parse the response.",
+      cause: new Error("Unexpected token"),
+      text: "bare-word-reply",
+      response: { id: "r", timestamp: new Date(), modelId: "m" },
+      usage: { inputTokens: 11, outputTokens: 1, totalTokens: 12 } as unknown as LanguageModelUsage,
+      finishReason: "stop",
+    });
+    const result = await resolveUncertainItems(checklist, highRes, 3, undefined, cfg());
+    expect(result.resolvedChecklist[1]).toEqual(checklist[1]);
+    expect(result.followUpDetails[0]).toMatchObject({ pass: null, angle: "top" });
+    expect(result.followUpDetails[0].detail).toMatch(/could not be read/);
+    expect(result.followUpDetails[0].detail).toContain("bare-word-reply");
+    expect(result.followUpCount).toBe(2);
+    expect(result.promptTokens).toBe(22);
+    expect(result.resolvedChecklist[3].pass).toBe(true);
   });
 
   it('stores {"pass": false} as a fail, fenced or bare', async () => {
