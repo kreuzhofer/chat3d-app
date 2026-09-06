@@ -140,6 +140,8 @@ On first launch with an empty database, the app shows an interactive setup page 
 - `POST /api/admin/curation/candidates/:id/approve` — Approve candidate and promote to workbench (admin)
 - `POST /api/admin/curation/candidates/:id/check-similarity` — Check similarity against existing workbench entries (admin)
 - `GET /api/admin/tags` — List all tags (admin)
+- `GET /api/admin/workbench/instrument` — The visual judge's current Instrument id and how much of the rated corpus is Stale (admin)
+- `POST /api/admin/workbench/re-rate-stale/batch` — Re-rate a batch of Stale ratings with the `vlm_eval` judge, resumable (admin, optional `limit`/`categoryId`)
 
 ## Key Patterns
 

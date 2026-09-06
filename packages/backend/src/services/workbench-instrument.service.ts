@@ -20,6 +20,12 @@ import {
 const logger = createLogger("workbench-instrument");
 
 const APPROVED = ["auto_approved", "human_approved"];
+/**
+ * Verdicts the judge derived, so re-rating may re-derive them. A human's
+ * decision is not the judge's to overturn: rows with any other status are
+ * reported, never re-rated here (their export admission is #62's question).
+ */
+const JUDGE_DERIVED_STATUSES = ["auto_approved", "pending"];
 const DEFAULT_BATCH_LIMIT = 250;
 const MAX_BATCH_LIMIT = 5000;
 
@@ -56,19 +62,25 @@ export interface InstrumentStatus {
   staleApproved: number;
   /** Stale rows that cannot be re-rated: a standard view is missing. */
   unratable: number;
+  /** Stale rows the batch leaves alone because a human decided their status. */
+  staleHumanDecided: number;
 }
 
 export async function getInstrumentStatus(): Promise<InstrumentStatus> {
   const instrumentId = await currentInstrumentId();
   const stale = staleRatingWhere(instrumentId);
-  const [rated, current, staleCount, staleApproved, reRatable] = await Promise.all([
+  const [rated, current, staleCount, staleApproved, reRatable, staleHumanDecided] = await Promise.all([
     prisma.workbenchExample.count({ where: RATED }),
     prisma.workbenchExample.count({ where: { ...RATED, vlmInstrumentId: instrumentId } }),
     prisma.workbenchExample.count({ where: stale }),
     prisma.workbenchExample.count({ where: { ...stale, approvalStatus: { in: APPROVED } } }),
     prisma.workbenchExample.count({ where: { ...stale, ...HAS_STANDARD_VIEWS } }),
+    prisma.workbenchExample.count({ where: { ...stale, approvalStatus: { notIn: JUDGE_DERIVED_STATUSES } } }),
   ]);
-  return { instrumentId, rated, current, stale: staleCount, staleApproved, unratable: staleCount - reRatable };
+  return {
+    instrumentId, rated, current, stale: staleCount, staleApproved,
+    unratable: staleCount - reRatable, staleHumanDecided,
+  };
 }
 
 export interface ReRateStaleOptions {
@@ -97,6 +109,7 @@ export async function startBatchReRateStale(opts: ReRateStaleOptions = {}): Prom
     where: {
       ...staleRatingWhere(instrumentId),
       ...HAS_STANDARD_VIEWS,
+      approvalStatus: { in: JUDGE_DERIVED_STATUSES },
       ...(opts.categoryId ? { promptRef: { categoryId: opts.categoryId } } : {}),
     },
     select: { id: true, promptId: true, promptRef: { select: { prompt: true } } },
