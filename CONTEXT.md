@@ -42,6 +42,22 @@ _Avoid_: version number (hand-bumped and forgettable), prompt hash (the specimen
 A stored evaluation whose Instrument id is not the current one. Still readable, excluded from any set that assumes comparability (the Reference standard, the fine-tuning filter), and re-rated as scheduled batch work by the judge `vlm_eval` points at.
 _Avoid_: outdated, invalid (the answer was valid under its own instrument)
 
+**Qualification**:
+The bar a Judge clears before it owns `vlm_eval` and its ratings feed training. On the fixed measurement set: complete, stable against itself at or inside the reference's own floor, and, on the items where it disagrees with the Reference standard, no more confirmed false passes than the reference and no more than twice its confirmed false fails, as decided by Disagreement inspection. Granted per Judge and Instrument id; provisional until the first re-rating batch is spot-checked.
+_Avoid_: benchmark, accuracy threshold, parity (with the reference — the arbiter decides, not resemblance)
+
+**Qualified judge**:
+A Judge that has cleared Qualification under the current Instrument id. Recorded with the Instrument; an instrument revision revokes it until the mechanical terms are re-run and the changed items re-inspected.
+_Avoid_: production judge (a role assignment, not a status), approved model, trusted model
+
+**Provisional**:
+A rating produced under the current Instrument id by a Judge that has not cleared Qualification. Kept and gate-derived as usual, excluded from the fine-tuning filter until its Judge qualifies, then admitted without re-rating. Distinct from Stale, which needs re-rating.
+_Avoid_: untrusted, temporary, draft
+
+**Screen**:
+The mechanical part of Qualification: completeness, stability, throughput and the agreement counts against the Reference standard, computed by script with no human step. A screen orders candidates and produces the disagreement set for inspection; it never qualifies a judge by itself.
+_Avoid_: benchmark, leaderboard, eval run
+
 **Specimen**:
 The per-example part of a Judge's prompt: the user's request, the category and its complexity, the construction spec, the Checklist items. The views are the same eight for every example and every entry point, so they are not part of what varies. Injected into the Instrument through its slots, never restated by it.
 _Avoid_: context, example data, prompt (ambiguous with the user's request)
