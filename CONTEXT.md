@@ -54,6 +54,10 @@ _Avoid_: production judge (a role assignment, not a status), approved model, tru
 A rating produced under the current Instrument id by a Judge that has not cleared Qualification. Kept and gate-derived as usual, excluded from the fine-tuning filter until its Judge qualifies, then admitted without re-rating. Distinct from Stale, which needs re-rating.
 _Avoid_: untrusted, temporary, draft
 
+**Sole tenancy**:
+The condition under which a Judge's stability is measured and its admitted ratings are produced: nothing but the judge's own calls on its served name, one request in flight per replica. A judge sharing a replica with other traffic is not the judge that qualified — the batch composition changes its arithmetic. On a shared pool it is a rule kept by hand and verified from the usage log after the run, not a property of the deployment.
+_Avoid_: quiet hours, maintenance window (about people, not the pool), isolation (implies a separate deployment)
+
 **Fine-tuning filter**:
 The rule that decides which approved workbench rows the training export reads. A row is admitted on one of two grounds: a human decided its status, or a Judge did under the current Instrument id while Qualified under it. Stale and Provisional rows wait outside it; a human's verdict is admitted whatever rating sits beside it, because the verdict is the human's and not derived from that rating.
 _Avoid_: export filter (the export also filters by score and category, which are not about trust), approval (the gate's verdict; admission is stricter than approval)
