@@ -72,6 +72,7 @@ const SETTINGS_REGISTRY = new Map<string, SettingMeta>([
   ["global.zoom_followup_enabled", { default: 1, label: "Zoom follow-up enabled", description: "Enable targeted 2x zoom for uncertain VLM checklist items (1=on, 0=off)", pipeline: "global", min: 0, max: 1, step: 1 }],
   ["global.zoom_resolution_px", { default: 1536, label: "Zoom resolution (px)", description: "Resolution for high-res follow-up screenshots", pipeline: "global", min: 1024, max: 2048, step: 256 }],
   ["global.zoom_max_followups", { default: 3, label: "Max zoom follow-ups", description: "Maximum number of uncertain items to resolve via 2x zoom per evaluation", pipeline: "global", min: 1, max: 5, step: 1 }],
+  ["global.vlm_experiment_concurrency", { default: 1, label: "VLM experiment concurrency", description: "Examples a VLM experiment run evaluates at once (1 = one after another). Only pays off when the judge's provider serves several replicas; the provider's max-concurrent limit still applies.", pipeline: "global", min: 1, max: 8, step: 1 }],
   ["global.adaptive_weight_enabled", { default: 1, label: "Adaptive eval weight", description: "Shift code/visual eval weight based on feature visibility (1=on, 0=off)", pipeline: "global", min: 0, max: 1, step: 1 }],
   ["global.adaptive_weight_range", { default: 0.2, label: "Adaptive weight range", description: "How far the code eval weight can shift from the base (±range)", pipeline: "global", min: 0.05, max: 0.4, step: 0.05 }],
   // Spec embedding
@@ -204,6 +205,10 @@ export interface ZoomSettings {
   enabled: boolean;
   resolutionPx: number;
   maxFollowUps: number;
+}
+
+export async function getVlmExperimentConcurrency(): Promise<number> {
+  return getEffective("global.vlm_experiment_concurrency");
 }
 
 export async function getZoomSettings(): Promise<ZoomSettings> {

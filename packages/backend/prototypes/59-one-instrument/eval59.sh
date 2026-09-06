@@ -21,7 +21,7 @@ psql "select left(r.id::text,8) run, r.model_label, r.status, count(x.id) rows, 
 from experiment_runs r left join vlm_experiment_results x on x.run_id=r.id where r.id in ('$NEW','$GLM_56','$GLM_50','$REF') group by r.id order by r.started_at"
 
 echo; echo "################ views promised by the stored prompt, per run ################"
-psql "select left(r.id::text,8) run, coalesce(substring(x.system_prompt from 'You are provided ([0-9]+ )?labeled views'), '?') views, count(*)
+psql "select left(r.id::text,8) run, case when x.system_prompt like '%You are provided labeled views: front, back, left, right, top, bottom, a 45° down view, and a 45° up view.%' then '8 (fixed)' else coalesce(substring(x.system_prompt from 'You are provided ([0-9]+) labeled views'), '?') end views, count(*)
 from vlm_experiment_results x join experiment_runs r on r.id=x.run_id where r.id in ('$NEW','$GLM_56','$GLM_50','$REF') group by 1,2 order by 1,2"
 
 for pair in "NEW-vs-GLM-#56-guarded(60cdd170) $NEW $GLM_56" "NEW-vs-GLM-#50-control(3b5edb08) $NEW $GLM_50" "NEW-vs-REF $NEW $REF" "GLM-#56-guarded-vs-REF $GLM_56 $REF"; do

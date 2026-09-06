@@ -20,6 +20,8 @@ import {
 } from "./experiment-lock.service.js";
 import { runWithUsageContext } from "./usage-tracking.service.js";
 import { deriveVisualChecklist } from "../utils/verification-criteria.js";
+import { runWithConcurrency } from "../utils/worker-pool.js";
+import { getVlmExperimentConcurrency } from "./generation-settings.service.js";
 import type { EvaluateModelInput } from "./visual-eval.service.js";
 import type { JudgeInstrument } from "./visual-eval-instrument-id.service.js";
 
@@ -193,10 +195,14 @@ async function executeVlmRun(run: RunInfo, exampleIds: string[], signal: AbortSi
   await prisma.experimentRun.update({ where: { id: run.id }, data: updateData });
 
   const modelConfig = await resolveModelConfigById(run.modelId);
+  // Examples in flight at once. Above 1 only pays off when the provider
+  // serves several replicas behind one name; the provider semaphore still
+  // caps the calls, and each example's zoom follow-up stays inside its own
+  // evaluation. Read once per run so a run is one setting throughout.
+  const concurrency = await getVlmExperimentConcurrency();
+  logger.info({ runId: run.id, concurrency, providerMaxConcurrent: modelConfig.maxConcurrent }, "VLM run concurrency");
 
-  for (const exampleId of remaining) {
-    if (signal.aborted) break;
-
+  await runWithConcurrency(remaining, concurrency, async (exampleId) => {
     const startMs = Date.now();
     try {
       const result = await runWithUsageContext(
@@ -238,7 +244,7 @@ async function executeVlmRun(run: RunInfo, exampleIds: string[], signal: AbortSi
       });
       logger.warn({ err: errorMsg, runId: run.id, exampleId }, "VLM eval failed for example");
     }
-  }
+  }, signal);
 
   const status = signal.aborted ? "cancelled" : "completed";
   await prisma.experimentRun.update({
