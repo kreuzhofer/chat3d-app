@@ -39,7 +39,7 @@ export interface JudgePromptVariantInput {
 }
 
 const VARIANT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const RESPONSE_SHAPES: ResponseShape[] = ["production", "inventory"];
+const RESPONSE_SHAPES: ResponseShape[] = ["production", "inventory", "evidence-first"];
 
 /** Rejects (400) anything that would produce an ambiguous or unrenderable run. */
 export function validateJudgePromptVariants(variants: JudgePromptVariantInput[]): void {

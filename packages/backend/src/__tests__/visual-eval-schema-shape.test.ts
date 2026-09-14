@@ -21,6 +21,19 @@ describe("buildEvaluationResponseSchema", () => {
     );
   });
 
+  it("evidence-first orders each item question → detail → pass, so the judge writes its evidence before it commits (issue #60)", () => {
+    const schema = buildEvaluationResponseSchema(3, "evidence-first");
+    expect(keys(schema)).toEqual(["score", "issues", "suggestions", "checklist"]);
+    const item = (schema.properties!.checklist as { items: { properties: Record<string, unknown>; required: string[] } }).items;
+    expect(Object.keys(item.properties)).toEqual(["question", "detail", "pass"]);
+    expect(item.required).toEqual(["question", "detail", "pass"]);
+    // the item's answer set is unchanged: true, false, uncertain
+    expect((item.properties.pass as { enum: unknown[] }).enum).toEqual([true, false, null]);
+    // production keeps pass before detail
+    const prod = (buildEvaluationResponseSchema(3).properties!.checklist as { items: { properties: Record<string, unknown> } }).items;
+    expect(Object.keys(prod.properties)).toEqual(["question", "pass", "detail"]);
+  });
+
   it("writes the inventory before the checklist, in properties and in required", () => {
     const schema = buildEvaluationResponseSchema(3, "inventory");
     expect(keys(schema)).toEqual(["inventory", "score", "issues", "suggestions", "checklist"]);

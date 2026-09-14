@@ -40,9 +40,12 @@ export interface EvaluationResponse {
  * checklist is written first and every item is answered with it already in
  * the judge's own context. That is the whole mechanism — the judge takes
  * stock of what is in the scene before it is asked whether a feature of it
- * is correct.
+ * is correct. `evidence-first` keeps production's keys but orders each
+ * checklist item `question → detail → pass` (issue #60): under guided
+ * decoding the judge then writes its evidence before it commits a verdict,
+ * where production commits first and explains after.
  */
-export type ResponseShape = "production" | "inventory";
+export type ResponseShape = "production" | "inventory" | "evidence-first";
 
 /** The parts inventory an `inventory`-shaped instrument answers first (issue #66). */
 export interface PartsInventory {
@@ -112,13 +115,12 @@ export function buildEvaluationResponseSchema(
       maxItems: checklistCount,
       items: {
         type: "object",
-        properties: {
-          question: { type: "string" },
-          // true = pass, false = fail, null = uncertain — mirrors the prompt.
-          pass: { enum: [true, false, null] },
-          detail: { type: "string" },
-        },
-        required: ["question", "pass", "detail"],
+        // Key order is generation order on vLLM: production commits `pass`
+        // before writing `detail`; evidence-first writes `detail` first (#60).
+        properties: shape === "evidence-first"
+          ? { question: { type: "string" }, detail: { type: "string" }, pass: { enum: [true, false, null] } }
+          : { question: { type: "string" }, pass: { enum: [true, false, null] }, detail: { type: "string" } },
+        required: shape === "evidence-first" ? ["question", "detail", "pass"] : ["question", "pass", "detail"],
         additionalProperties: false,
       },
     };
