@@ -1,0 +1,75 @@
+QUALIFICATION SCREEN — ADR 0004 mechanical terms
+candidate arm 1: qwen3.8-27b-nvfp4 (thinking off, 3-node pool) (7e2f23e6-f9a3-48ab-9f5d-f86e6408d445)
+candidate arm 2: qwen3.8-27b-nvfp4 (thinking off, 3-node pool) (767087b0-3a75-43ec-8682-7e863b7eb9c8)
+reference:       Claude Sonnet 4.6 (Anthropic API, thinking off) (bc4354d4-f946-4775-bf08-5e64f726c3a1)
+examples selected: 125 | current instrument: production@4892d8d1b160 | corpus for hours-per-pass: 2517 rated rows
+
+## IDENTITY — one Instrument id and one thinking effort per run, the same id across runs
+  PASS  qwen3.8-27b-nvfp4 (thinking off, 3-node pool): instrument evidence-first@c024692d7c91 | effort off
+  PASS  qwen3.8-27b-nvfp4 (thinking off, 3-node pool): instrument evidence-first@c024692d7c91 | effort off
+  PASS  Claude Sonnet 4.6 (Anthropic API, thinking off): instrument production@4892d8d1b160 | effort off
+  FAIL  same instrument id across runs
+
+## COMPLETENESS — zero tolerance (ADR 0004)
+  (unreadable follow-ups are read from the item's zoom outcome marker; rows stored before 2026-09-06 carry none, so for those the count is blind and the log is the record)
+  qwen3.8-27b-nvfp4 (thinking off, 3-node pool): answered 125/125, items 511, residual uncertain 0 (allowed; they fail at the gate)
+  PASS  unanswered examples: 0 (<= 0)
+  PASS  errors: 0 (<= 0)
+  PASS  truncations: 0 (<= 0)
+  PASS  missing checklists: 0 (<= 0)
+  PASS  item-count mismatches: 0 (<= 0)
+  PASS  unreadable follow-ups: 0 (<= 0)
+  qwen3.8-27b-nvfp4 (thinking off, 3-node pool): answered 125/125, items 511, residual uncertain 0 (allowed; they fail at the gate)
+  PASS  unanswered examples: 0 (<= 0)
+  PASS  errors: 0 (<= 0)
+  PASS  truncations: 0 (<= 0)
+  PASS  missing checklists: 0 (<= 0)
+  PASS  item-count mismatches: 0 (<= 0)
+  PASS  unreadable follow-ups: 0 (<= 0)
+  reference Claude Sonnet 4.6 (Anthropic API, thinking off) (recorded): answered 125/125, items 511, residual uncertain 0, all six counts zero
+
+## STABILITY — arm 2 vs arm 1, at or inside the reference's floor
+  FAIL  hard flips (arm 2 vs arm 1, all items): 7.2% (<= 2.9%)
+  PASS  identical items (arm 2 vs arm 1, all items): 92.8% (>= 90.0%)
+  all items (gating): items 511 | identical 92.8% | hard flips 7.2% (37) | either uncertain 0 | pass rate ref 77.3% cand 76.7%
+    ref \ cand      P      F      U
+             P    375     20      0
+             F     17     99      0
+             U      0      0      0
+    raw false passes (cand pass, ref fail) 17 of 116 ref fails (14.7%) | raw false fails (cand fail, ref pass) 20 of 395 ref passes (5.1%)
+  first pass (zoom-resolved re-opened; the floor's own cut): items 511 | identical 91.4% | hard flips 6.5% (33) | either uncertain 18 | pass rate ref 74.8% cand 75.7%
+    ref \ cand      P      F      U
+             P    364     16      2
+             F     17     96      0
+             U      6      3      7
+    raw false passes (cand pass, ref fail) 17 of 113 ref fails (15.0%) | raw false fails (cand fail, ref pass) 16 of 382 ref passes (4.2%)
+
+## THROUGHPUT — recorded, not gating
+  qwen3.8-27b-nvfp4 (thinking off, 3-node pool): 19.8 s per example, 424 output tokens | wall clock 13.8 min for 125 | corpus pass 13.8 h sequential, 4.6 h at the run's own rate
+  qwen3.8-27b-nvfp4 (thinking off, 3-node pool): 17.6 s per example, 410 output tokens | wall clock 12.3 min for 125 | corpus pass 12.3 h sequential, 4.1 h at the run's own rate
+  Claude Sonnet 4.6 (Anthropic API, thinking off): 22.8 s per example, 818 output tokens | wall clock 15.9 min for 125 | corpus pass 15.9 h sequential, 5.3 h at the run's own rate
+
+## RAW AGREEMENT with the reference — recorded, not gating; produces the disagreement set
+  qwen3.8-27b-nvfp4 (thinking off, 3-node pool) vs reference, all items: items 511 | identical 85.9% | hard flips 14.1% (72) | either uncertain 0 | pass rate ref 78.5% cand 77.3%
+    ref \ cand      P      F      U
+             P    362     39      0
+             F     33     77      0
+             U      0      0      0
+    raw false passes (cand pass, ref fail) 33 of 110 ref fails (30.0%) | raw false fails (cand fail, ref pass) 39 of 401 ref passes (9.7%)
+  first pass: identical 79.6% | hard flips 10.8% (55) | either uncertain 56
+  item gate (ADR 0001): eligible 96 | verdicts agree 76 (79.2%) | false accepts 15 | false rejects 5 | approves cand 48 ref 38
+  scores (first pass): same 13.6% | mean abs delta 1.504 | mean cand 7.23 ref 6.54 | backstop 7.5 disagreements 32 (cand pass/ref fail 27, cand fail/ref pass 5)
+  qwen3.8-27b-nvfp4 (thinking off, 3-node pool) vs reference, all items: items 511 | identical 85.3% | hard flips 14.7% (75) | either uncertain 0 | pass rate ref 78.5% cand 76.7%
+    ref \ cand      P      F      U
+             P    359     42      0
+             F     33     77      0
+             U      0      0      0
+    raw false passes (cand pass, ref fail) 33 of 110 ref fails (30.0%) | raw false fails (cand fail, ref pass) 42 of 401 ref passes (10.5%)
+  first pass: identical 79.3% | hard flips 11.7% (60) | either uncertain 51
+  item gate (ADR 0001): eligible 96 | verdicts agree 74 (77.1%) | false accepts 18 | false rejects 4 | approves cand 52 ref 38
+  scores (first pass): same 12.8% | mean abs delta 1.528 | mean cand 7.35 ref 6.54 | backstop 7.5 disagreements 32 (cand pass/ref fail 30, cand fail/ref pass 2)
+
+## MECHANICAL SCREEN: FAIL
+  adjudicated terms are decided from the dump, by a human (ADR 0004).
+
+disagreement dump: 72 items on 49 examples → /tmp/dump60-B2.md

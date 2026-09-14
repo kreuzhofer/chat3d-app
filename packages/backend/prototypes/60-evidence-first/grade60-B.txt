@@ -1,0 +1,17 @@
+arm: qwen3.8-27b-nvfp4 (thinking off, 3-node pool) · variant evidence-first · shape evidence-first · run 3dfed3ed-b6e1-42cb-ad6f-440bce5b29ec (halted)
+BUDGET  rows 51 | failed evaluations 0 | truncated 0  (control: failed 0, truncated 0)
+
+BENEFIT  truth-graded items on the arm's examples: 27
+  from #57 — the 69 disagreements on the 125 (first qualification): 20
+  from #85 — the 70 disagreements on the 125 (re-qualification unde: 15
+  control right → arm right 13, arm wrong 6 (BROKEN)
+  control wrong → arm right 2 (FIXED), arm wrong 6
+  net -4 | arm uncertain on graded items 0 | unanswered 0
+
+DIRECTION  items both answered 185 | identical 94.6%
+  control \ arm      P      F      U
+          P       147      9      0
+          F         1     28      0
+          U         0      0      0
+  hard flips: fail→pass 1, pass→fail 9 (5.4%; the floor is 2.9%)
+  pass rate control 75.7% → arm 80.0% | uncertain control 0 → arm 0
