@@ -163,6 +163,7 @@ PostgreSQL tables:
 - `users` — id (UUID), email, password_hash, display_name, role, timestamps
 - `chat_contexts` — id (UUID), name, model IDs, owner_id (FK→users), deleted_at, timestamps
 - `chat_items` — id (UUID), chat_context_id (FK→chat_contexts), role, messages (JSONB), rating, download_count, owner_id, timestamps
+- `workbench_examples.gate_version` — the approval-gate rule that derived `approval_status` (ADR 0001, `approval-gate.service.ts`); NULL = pre-versioning or a human decision. `scripts/rederive-gate.ts` recomputes verdicts from stored items when the rule changes (dry run by default, `--apply` writes)
 - `curation_candidates` — id (UUID), chat_context_id (FK→chat_contexts, unique), status, reviewed_at, notes, distilled_prompt, original_prompt, timestamps
 - `tags` — id (UUID), name (unique), created_at
 - `curation_candidate_tags` — candidate_id (FK→curation_candidates), tag_id (FK→tags), suggested_by, composite PK
