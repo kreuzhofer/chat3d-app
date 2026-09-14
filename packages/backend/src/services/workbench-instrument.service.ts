@@ -8,6 +8,7 @@
  * selection the moment its new rating is written, so re-running after an
  * interruption picks up where it stopped.
  */
+import { CODE_REVIEW_SKIP_VLM_THRESHOLD } from "./eval-orchestrator.service.js";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
@@ -71,6 +72,38 @@ export interface InstrumentStatus {
   staleHumanDecided: number;
   /** The training export's admission over the approved rows (ADR 0004, #62). */
   export: ExportAdmission;
+  /**
+   * Production rows the pipeline rejected before the judge was asked (issue
+   * #68): assertions failed, or code review scored at or below the skip
+   * threshold — pending, no visual score, no instrument id, so outside every
+   * count above. Split by the reason the row itself stores.
+   */
+  rejectedBeforeJudge: RejectedBeforeJudge;
+}
+
+export interface RejectedBeforeJudge {
+  total: number;
+  /** `assertion_pass_rate` below 1: the assertions failed and nothing further ran. */
+  assertionsFailed: number;
+  /** Assertions passed (or none ran) and `code_eval_score` ≤ CODE_REVIEW_SKIP_VLM_THRESHOLD: the VLM was skipped. */
+  codeReviewRejected: number;
+  /** Unrated pending rows with neither reason stored — a state the pipeline should not leave. */
+  unexplained: number;
+}
+
+/** A production row that reached the pipeline and left it without a rating. */
+const UNRATED_PENDING: Prisma.WorkbenchExampleWhereInput = {
+  renderStatus: "success", experimentRunId: null, visualScore: null, vlmInstrumentId: null, approvalStatus: "pending",
+};
+const ASSERTIONS_PASSED_OR_NONE: Prisma.WorkbenchExampleWhereInput = { OR: [{ assertionPassRate: null }, { assertionPassRate: { gte: 1 } }] };
+
+async function countRejectedBeforeJudge(): Promise<RejectedBeforeJudge> {
+  const [assertionsFailed, codeReviewRejected, unexplained] = await Promise.all([
+    prisma.workbenchExample.count({ where: { ...UNRATED_PENDING, assertionPassRate: { lt: 1 } } }),
+    prisma.workbenchExample.count({ where: { ...UNRATED_PENDING, ...ASSERTIONS_PASSED_OR_NONE, codeEvalScore: { lte: CODE_REVIEW_SKIP_VLM_THRESHOLD } } }),
+    prisma.workbenchExample.count({ where: { ...UNRATED_PENDING, AND: [ASSERTIONS_PASSED_OR_NONE, { OR: [{ codeEvalScore: null }, { codeEvalScore: { gt: CODE_REVIEW_SKIP_VLM_THRESHOLD } }] }] } }),
+  ]);
+  return { total: assertionsFailed + codeReviewRejected + unexplained, assertionsFailed, codeReviewRejected, unexplained };
 }
 
 export async function getInstrumentStatus(): Promise<InstrumentStatus> {
@@ -85,9 +118,10 @@ export async function getInstrumentStatus(): Promise<InstrumentStatus> {
     prisma.workbenchExample.count({ where: { ...stale, approvalStatus: { notIn: JUDGE_DERIVED_STATUSES } } }),
   ]);
   const exportAdmission = await getExportAdmission(instrumentId);
+  const rejectedBeforeJudge = await countRejectedBeforeJudge();
   return {
     instrumentId, rated, current, stale: staleCount, staleApproved,
-    unratable: staleCount - reRatable, staleHumanDecided, export: exportAdmission,
+    unratable: staleCount - reRatable, staleHumanDecided, export: exportAdmission, rejectedBeforeJudge,
   };
 }
 

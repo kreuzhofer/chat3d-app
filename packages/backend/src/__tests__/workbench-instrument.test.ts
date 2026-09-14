@@ -65,12 +65,18 @@ describe("getInstrumentStatus", () => {
   it("reports the current id and the stale, approved-stale, unratable and human-decided counts, and the export's admission", async () => {
     count.mockResolvedValueOnce(2618).mockResolvedValueOnce(0).mockResolvedValueOnce(2618)
       .mockResolvedValueOnce(2305).mockResolvedValueOnce(2600).mockResolvedValueOnce(4)
-      .mockResolvedValueOnce(2309).mockResolvedValueOnce(0).mockResolvedValueOnce(2308);
+      .mockResolvedValueOnce(2309).mockResolvedValueOnce(0).mockResolvedValueOnce(2308)
+      .mockResolvedValueOnce(25).mockResolvedValueOnce(116).mockResolvedValueOnce(1);
     const status = await getInstrumentStatus();
     expect(status).toEqual({
       instrumentId: CURRENT, rated: 2618, current: 0, stale: 2618, staleApproved: 2305, unratable: 18, staleHumanDecided: 4,
       export: { qualifiedJudges: [{ model: "vllm-x/qwen", thinkingEffort: "off" }], approved: 2309, admitted: 0, provisional: 1, stale: 2308 },
+      // Rows the pipeline rejected before the judge (issue #68): pending, never rated, no id — outside every count above.
+      rejectedBeforeJudge: { total: 142, assertionsFailed: 25, codeReviewRejected: 116, unexplained: 1 },
     });
+    // the reason split reads the row's own stored outcome, never the batch's log
+    expect(count.mock.calls[9][0].where).toMatchObject({ renderStatus: "success", experimentRunId: null, visualScore: null, vlmInstrumentId: null, approvalStatus: "pending", assertionPassRate: { lt: 1 } });
+    expect(count.mock.calls[10][0].where).toMatchObject({ codeEvalScore: { lte: 3 } });
     expect(count.mock.calls[1][0]).toEqual({ where: { renderStatus: "success", experimentRunId: null, visualScore: { not: null }, vlmInstrumentId: CURRENT } });
     expect(count.mock.calls[5][0].where.approvalStatus).toEqual({ notIn: ["auto_approved", "pending"] });
     expect(count.mock.calls[7][0].where.OR).toEqual([

@@ -28,7 +28,7 @@ import type { EvalPlan } from "../utils/eval-plan.js";
 const logger = createLogger("eval-orchestrator");
 
 /** Code review score at or below this threshold skips VLM to save cost. */
-const CODE_REVIEW_SKIP_VLM_THRESHOLD = 3;
+export const CODE_REVIEW_SKIP_VLM_THRESHOLD = 3;
 
 // ── Input / Output Types ──────────────────────────────────────────────
 
