@@ -5,6 +5,7 @@
  */
 
 import { prisma } from "../db/prisma.js";
+import { isResponseShape } from "./visual-eval-schema.service.js";
 import { createLogger } from "../utils/logger.js";
 import { ExperimentError } from "./experiment.service.js";
 import { resolveModelConfigById } from "./llm-config.service.js";
@@ -320,7 +321,7 @@ function runInstrument(
     throw new Error("Experiment run carries an instrument template without a variant id");
   }
   const shape = run.judgeResponseShape;
-  if (shape !== null && shape !== "production" && shape !== "inventory") {
+  if (shape !== null && !isResponseShape(shape)) {
     throw new Error(`Experiment run carries an unknown judge response shape "${shape}"`);
   }
   return {

@@ -11,7 +11,7 @@ import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import { ExperimentError } from "./experiment.service.js";
 import { validateInstrumentTemplate } from "./visual-eval-instrument.service.js";
-import type { ResponseShape } from "./visual-eval-schema.service.js";
+import { isResponseShape, RESPONSE_SHAPES, type ResponseShape } from "./visual-eval-schema.service.js";
 import {
   getVlmExperiment,
   queryEligibleExamples,
@@ -39,7 +39,6 @@ export interface JudgePromptVariantInput {
 }
 
 const VARIANT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const RESPONSE_SHAPES: ResponseShape[] = ["production", "inventory", "evidence-first"];
 
 /** Rejects (400) anything that would produce an ambiguous or unrenderable run. */
 export function validateJudgePromptVariants(variants: JudgePromptVariantInput[]): void {
@@ -57,7 +56,7 @@ export function validateJudgePromptVariants(variants: JudgePromptVariantInput[])
     if (errors.length > 0) {
       throw new ExperimentError(`Variant "${v.id}" is not a valid instrument: ${errors.join("; ")}`, 400);
     }
-    if (v.responseShape !== undefined && !RESPONSE_SHAPES.includes(v.responseShape)) {
+    if (v.responseShape !== undefined && !isResponseShape(v.responseShape)) {
       throw new ExperimentError(
         `Variant "${v.id}" has responseShape ${JSON.stringify(v.responseShape)}; known shapes: ${RESPONSE_SHAPES.join(", ")}`,
         400,

@@ -45,7 +45,13 @@ export interface EvaluationResponse {
  * decoding the judge then writes its evidence before it commits a verdict,
  * where production commits first and explains after.
  */
-export type ResponseShape = "production" | "inventory" | "evidence-first";
+export const RESPONSE_SHAPES = ["production", "inventory", "evidence-first"] as const;
+export type ResponseShape = (typeof RESPONSE_SHAPES)[number];
+
+/** The one check every path that reads a stored shape uses (the create validation and the run executor). */
+export function isResponseShape(value: unknown): value is ResponseShape {
+  return typeof value === "string" && (RESPONSE_SHAPES as readonly string[]).includes(value);
+}
 
 /** The parts inventory an `inventory`-shaped instrument answers first (issue #66). */
 export interface PartsInventory {

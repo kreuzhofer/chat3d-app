@@ -7,7 +7,7 @@
  * miss the entire mechanism.
  */
 import { describe, it, expect } from "vitest";
-import { buildEvaluationResponseSchema } from "../services/visual-eval-schema.service.js";
+import { buildEvaluationResponseSchema, isResponseShape, RESPONSE_SHAPES } from "../services/visual-eval-schema.service.js";
 
 const keys = (schema: ReturnType<typeof buildEvaluationResponseSchema>) =>
   Object.keys(schema.properties as Record<string, unknown>);
@@ -51,5 +51,14 @@ describe("buildEvaluationResponseSchema", () => {
   it("keeps the inventory when no checklist is asked — the shape is the instrument's, not the specimen's", () => {
     const schema = buildEvaluationResponseSchema(0, "inventory");
     expect(keys(schema)).toEqual(["inventory", "score", "issues", "suggestions"]);
+  });
+});
+
+describe("isResponseShape", () => {
+  it("accepts every declared shape and nothing else — the executor and the create validation read this one list", () => {
+    for (const shape of RESPONSE_SHAPES) expect(isResponseShape(shape)).toBe(true);
+    expect(RESPONSE_SHAPES).toContain("evidence-first");
+    expect(isResponseShape("pass-first")).toBe(false);
+    expect(isResponseShape(null)).toBe(false);
   });
 });
