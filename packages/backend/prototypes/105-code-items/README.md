@@ -36,3 +36,10 @@ every row re-stamped; the corpus reads **1,001 approved / 1,516 pending; the exp
 answers that carry code-routed criteria, concurrency 2, ~28 s a review — about ten hours at the pool's R=2 (spark-02
 lent to dgx-manager for the Flash-Next TP2 gate that day). Runs detached on the host against the dev database; when
 it ends, `scripts/rederive-gate.ts --apply` recomputes the verdicts and the counts go on the ticket.
+
+## Outcome (2026-09-15)
+
+Backfill done 19:05 → ~04:10 UTC: 2,388 rows, 9,370 item answers, 37 unanswered (0.4 %), 0 failed; reviews ran ~11 s
+after the first hour. Re-derived in four passes as rows landed (29 + 168 + 689 + 217 = 1,103 verdicts changed after the
+125-only pass). Corpus: 2,517 rated, 2,508 with code answers, 10,008 code items (598 fails), 11 rows still below three
+items; **1,925 approved / 592 pending; the export admits 1,925** (992 after #88, 2,112 before the item gate).
