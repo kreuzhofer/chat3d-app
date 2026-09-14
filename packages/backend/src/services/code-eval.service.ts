@@ -46,6 +46,8 @@ export interface CodeReviewResult {
   promptTokens: number;
   completionTokens: number;
   assertionSummary: AssertionCheckSummary | null;
+  /** The reviewer's pass/fail per code-routed criterion, aligned to the criteria asked (ADR 0001, #105). */
+  itemResults: CodeItemResult[];
   rawResponse?: string;
   reasoning?: string;
   systemPrompt?: string;
@@ -121,8 +123,10 @@ IMPORTANT: Return ONLY a JSON object — no analysis, no explanation, no preambl
 {
   "score": <integer 1-10>,
   "issues": ["<code-level problem>", ...],
-  "criticalAngles": ["ortho_45", "<angle>", ...]
+  "criticalAngles": ["ortho_45", "<angle>", ...],
+  "items": [{"question": "<the code-only criterion, verbatim>", "pass": true|false, "detail": "<what in the code decides it>"}, ...]
 }
+"items" answers the Code-Only Verification list in order, one entry per criterion (an empty array when there is none).
 
 Issues must be ACTUAL PROBLEMS only — not analysis or verification steps.
 Do NOT include issues that conclude with "this is correct" or "this is acceptable".
@@ -145,8 +149,9 @@ Do NOT write analysis before the JSON. Output the JSON object directly.`;
   const codeOnlyItems = codeOnlyCriteria(annotatedCriteria);
   if (codeOnlyItems.length > 0) {
     prompt += `\n\n## Code-Only Verification (VLM cannot check these — YOU are the sole verifier)
-Pay special attention to these features which are too small or internal to verify visually:
-${codeOnlyItems.map(c => `- ${c.text}`).join("\n")}`;
+Pay special attention to these features which are too small or internal to verify visually, and answer EACH one
+in the "items" array below, in this order, as pass or fail with the line of code that decides it:
+${codeOnlyItems.map((c, i) => `${i + 1}. ${c.text}`).join("\n")}`;
   }
 
   if (codegenSystemPrompt) {
@@ -162,6 +167,46 @@ interface ParsedCodeReview {
   score: number;
   issues: string[];
   criticalAngles: string[];
+  /** The reviewer's answers to the code-only criteria, as returned (unaligned). */
+  items: Array<{ question: string; pass: boolean | null; detail: string }>;
+}
+
+/** The reviewer's answer to one code-routed criterion (ADR 0001, #105): the code-side twin of a visual ChecklistResult. */
+export interface CodeItemResult {
+  question: string;
+  /** true = pass, false = fail, null = the reviewer did not answer it — which fails the gate. */
+  pass: boolean | null;
+  detail: string;
+}
+
+function parseItems(raw: unknown): ParsedCodeReview["items"] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((it) => {
+    if (typeof it !== "object" || it === null) return [];
+    const o = it as { question?: unknown; pass?: unknown; detail?: unknown };
+    return [{
+      question: typeof o.question === "string" ? o.question : "",
+      pass: o.pass === true ? true : o.pass === false ? false : null,
+      detail: typeof o.detail === "string" ? o.detail : "",
+    }];
+  });
+}
+
+/**
+ * Align the reviewer's answers to the criteria it was asked: by position,
+ * with the question text as the check; a criterion the reviewer skipped or
+ * mislabelled gets `pass: null` — unanswered, which the gate counts as a
+ * fail — never a guess. Pure.
+ */
+export function alignCodeItems(criteria: ReadonlyArray<{ text: string }>, answers: ReadonlyArray<{ question: string; pass: boolean | null; detail: string }>): CodeItemResult[] {
+  const norm = (t: string) => t.trim().toLowerCase().replace(/\s+/g, " ");
+  return criteria.map((c, i) => {
+    const byPos = answers[i];
+    const match = byPos && (byPos.question === "" || norm(byPos.question) === norm(c.text)) ? byPos
+      : answers.find((a) => norm(a.question) === norm(c.text));
+    if (!match) return { question: c.text, pass: null, detail: "not answered by the code reviewer" };
+    return { question: c.text, pass: match.pass, detail: match.detail };
+  });
 }
 
 function clampScore(score: number): number {
@@ -178,7 +223,7 @@ function parseCriticalAngles(raw: unknown): string[] {
 
 function parseCodeReviewResponse(content: string): ParsedCodeReview {
   if (!content || typeof content !== "string") {
-    return { score: 1, issues: ["Empty response"], criticalAngles: [] };
+    return { score: 1, issues: ["Empty response"], criticalAngles: [], items: [] };
   }
 
   let jsonStr = content;
@@ -195,6 +240,7 @@ function parseCodeReviewResponse(content: string): ParsedCodeReview {
         ? (parsed.issues as unknown[]).filter((i): i is string => typeof i === "string")
         : [],
       criticalAngles: parseCriticalAngles(parsed.criticalAngles),
+      items: parseItems(parsed.items),
     };
   } catch {
     // fall through
@@ -212,7 +258,7 @@ function parseCodeReviewResponse(content: string): ParsedCodeReview {
     }
   }
 
-  return { score, issues, criticalAngles: [] };
+  return { score, issues, criticalAngles: [], items: [] };
 }
 
 // ── Model Resolution ──────────────────────────────────────────────────
@@ -326,10 +372,12 @@ export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResu
         );
 
         const usage = await resolved.usage;
+        const itemResults = alignCodeItems(codeOnlyCriteria(input.annotatedCriteria), parsed.items);
         const reviewResult: CodeReviewResult = {
           score: parsed.score,
           issues: allIssues,
           criticalAngles: parsed.criticalAngles,
+          itemResults,
           codeReviewModel: label,
           promptTokens: usage?.inputTokens ?? 0,
           completionTokens: usage?.outputTokens ?? 0,
@@ -369,6 +417,7 @@ export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResu
         `[CODE] Code review failed: ${lastError?.message ?? "Unknown error"}`,
       ],
       criticalAngles: [],
+      itemResults: alignCodeItems(codeOnlyCriteria(input.annotatedCriteria), []),
       codeReviewModel: label,
       promptTokens: 0,
       completionTokens: 0,

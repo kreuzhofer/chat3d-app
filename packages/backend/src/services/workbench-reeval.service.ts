@@ -169,6 +169,8 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
       evalIssues: mergedIssues.length > 0 ? mergedIssues : undefined,
       evalSuggestions: evalResult.vlmSuggestions.length > 0 ? evalResult.vlmSuggestions : undefined,
       evalChecklistResults: evalResult.checklistResults ?? undefined,
+      // The same JSON-input cast the row's other JSON columns need (see evalChecklistResults above).
+      codeChecklistResults: (evalResult.codeItemResults ?? undefined) as unknown as undefined,
       vlmModel: evalResult.vlmModel,
       vlmRawResponse: evalResult.vlmRawResponse ?? null,
       vlmReasoning: evalResult.vlmReasoning ?? null,

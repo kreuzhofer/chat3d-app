@@ -39,6 +39,8 @@ export async function insertExample(data: {
   evalIssues: string[] | null;
   evalSuggestions: string[] | null;
   evalChecklistResults: Array<{ question: string; pass: boolean; detail: string }> | null;
+  /** The code reviewer's answers to the code-routed items (ADR 0001, #105). */
+  codeChecklistResults?: Array<{ question: string; pass: boolean | null; detail: string }> | null;
   approvalStatus: string;
   /** The gate rule that derived approvalStatus (ADR 0001); null when a human or an early exit set it. */
   gateVersion?: string | null;
@@ -95,6 +97,7 @@ export async function insertExample(data: {
       evalIssues: data.evalIssues ?? undefined,
       evalSuggestions: data.evalSuggestions ?? undefined,
       evalChecklistResults: data.evalChecklistResults ?? undefined,
+      codeChecklistResults: data.codeChecklistResults ?? undefined,
       approvalStatus: data.approvalStatus,
       gateVersion: data.gateVersion ?? null,
       rejectionNote: data.rejectionNote ?? null,
@@ -146,6 +149,7 @@ export async function insertExample(data: {
       evalIssues: data.evalIssues ?? undefined,
       evalSuggestions: data.evalSuggestions ?? undefined,
       evalChecklistResults: data.evalChecklistResults ?? undefined,
+      codeChecklistResults: data.codeChecklistResults ?? undefined,
       approvalStatus: data.approvalStatus,
       gateVersion: data.gateVersion ?? null,
       rejectionNote: data.rejectionNote ?? null,

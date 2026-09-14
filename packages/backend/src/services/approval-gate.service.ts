@@ -9,7 +9,8 @@
  * outside the item logic. The composite score stays beside the items as a
  * temporary backstop until the ADR's three conditions hold; when it leaves,
  * the gate version changes and every stored verdict is re-derived from the
- * items it was computed on. Pure: no I/O.
+ * items it was computed on. v2 (#105): the code reviewer's answers to the
+ * code-routed items count beside the visual judge's. Pure: no I/O.
  */
 
 /**
@@ -17,7 +18,17 @@
  * different rules are distinguishable and re-derivable. Bump on any change
  * to the rule below — the backstop's removal above all.
  */
-export const GATE_VERSION = "items-v1+backstop";
+export const GATE_VERSION = "items-v2+backstop";
+
+/**
+ * The items the gate counts: the visual judge's answers and the code
+ * reviewer's, in that order (ADR 0001, #105). Either list may be absent —
+ * a row evaluated before the reviewer answered items has no code answers,
+ * and is judged on the visual ones alone, as under v1.
+ */
+export function gateItems(visual: ReadonlyArray<GateItem> | null | undefined, code: ReadonlyArray<GateItem> | null | undefined): GateItem[] {
+  return [...(visual ?? []), ...(code ?? [])];
+}
 
 /** Fewer stored items than this and the Gate cannot decide the example (ADR 0001). */
 export const MIN_GATE_ITEMS = 3;

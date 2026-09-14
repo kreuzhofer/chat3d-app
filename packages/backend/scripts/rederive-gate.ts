@@ -13,7 +13,7 @@
  * gate version is stamped on every row in the frame, changed or not.
  */
 import { prisma } from "../src/db/prisma.js";
-import { deriveVerdict, GATE_VERSION, type GateItem } from "../src/services/approval-gate.service.js";
+import { deriveVerdict, gateItems, GATE_VERSION, type GateItem } from "../src/services/approval-gate.service.js";
 import { getAutoApproveThreshold } from "../src/services/generation-settings.service.js";
 
 const apply = process.argv.includes("--apply");
@@ -23,14 +23,16 @@ async function main(): Promise<void> {
   const threshold = thrArg >= 0 ? Number(process.argv[thrArg + 1]) : await getAutoApproveThreshold("workbench");
   const rows = await prisma.workbenchExample.findMany({
     where: { experimentRunId: null, renderStatus: "success", vlmInstrumentId: { not: null }, approvalStatus: { in: ["auto_approved", "pending"] } },
-    select: { id: true, approvalStatus: true, evalScore: true, assertionPassRate: true, evalChecklistResults: true, gateVersion: true },
+    select: { id: true, approvalStatus: true, evalScore: true, assertionPassRate: true, evalChecklistResults: true, codeChecklistResults: true, gateVersion: true },
   });
   const transitions = new Map<string, number>();
   const reasons = new Map<string, number>();
   const changes: Array<{ id: string; status: string }> = [];
   let alreadyStamped = 0;
   for (const r of rows) {
-    const items = Array.isArray(r.evalChecklistResults) ? (r.evalChecklistResults as GateItem[]) : [];
+    const visual = Array.isArray(r.evalChecklistResults) ? (r.evalChecklistResults as GateItem[]) : [];
+    const code = Array.isArray(r.codeChecklistResults) ? (r.codeChecklistResults as GateItem[]) : [];
+    const items = gateItems(visual, code);
     const v = deriveVerdict({
       renderSuccess: true,
       assertionsFailed: r.assertionPassRate !== null && Number(r.assertionPassRate) < 1,

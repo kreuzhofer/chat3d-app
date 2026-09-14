@@ -850,7 +850,7 @@ async function _runPipeline(
     screenshotOrtho45: filePaths.screenshotOrtho45Path, screenshotOrtho45Bottom: filePaths.screenshotOrtho45BottomPath,
     screenshotIso: filePaths.screenshotIsoPath, screenshotIsoBack: filePaths.screenshotIsoBackPath,
     evalScore: finalScore, evalIssues, evalSuggestions: agFullEval?.vlmSuggestions ?? null,
-    evalChecklistResults: agFullEval?.checklistResults ?? null, approvalStatus, gateVersion: GATE_VERSION,
+    evalChecklistResults: agFullEval?.checklistResults ?? null, codeChecklistResults: agFullEval?.codeItemResults ?? null, approvalStatus, gateVersion: GATE_VERSION,
     llmModel: wbAgentModelConfig.label, vlmModel: agFullEval?.vlmModel ?? null,
     promptTokens: totalPipelinePromptTokens, completionTokens: totalPipelineCompletionTokens,
     visualScore: agFullEval?.visualScore ?? null, codeEvalScore: agFullEval?.codeScore ?? null,

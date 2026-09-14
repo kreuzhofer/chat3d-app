@@ -199,6 +199,7 @@ export async function reRenderForExample(
     evalIssues: rrMergedIssues.length > 0 ? rrMergedIssues : null,
     evalSuggestions: evalResult?.vlmSuggestions ?? null,
     evalChecklistResults: evalResult?.checklistResults ?? null,
+    codeChecklistResults: evalResult?.codeItemResults ?? null,
     approvalStatus: approved ? "auto_approved" : "pending",
       gateVersion: GATE_VERSION,
     llmModel: existingExample.llmModel ?? "unknown", vlmModel: evalResult?.vlmModel ?? null,

@@ -10,7 +10,7 @@
  */
 
 import { evaluateModel, type LabeledImage, type ChecklistResult } from "./visual-eval.service.js";
-import { evaluateCode, type CodeEvalInput } from "./code-eval.service.js";
+import { evaluateCode, type CodeItemResult, type CodeEvalInput } from "./code-eval.service.js";
 import { checkAssertions, type AssertionCheckSummary } from "./code-eval-assertions.service.js";
 import { computeCompositeScore, resolveCodeEvalWeight, type ResolvedWeight } from "./code-eval-composite.service.js";
 import { runZoomFollowUp } from "./visual-eval-zoom.service.js";
@@ -83,6 +83,8 @@ export interface FullEvalResult {
   vlmIssues: string[];
   vlmSuggestions: string[];
   codeIssues: string[];
+  /** The code reviewer's answers to the code-routed items (ADR 0001, #105). */
+  codeItemResults?: CodeItemResult[];
   checklistResults?: ChecklistResult[];
   vlmModel: string | null;
   codeReviewModel: string | null;
@@ -122,6 +124,8 @@ function buildResult(opts: {
   vlmSuggestions: string[];
   codeIssues: string[];
   checklistResults?: ChecklistResult[];
+  /** The code reviewer's answers to the code-routed items (ADR 0001, #105); undefined when no reviewer ran. */
+  codeItemResults?: CodeItemResult[];
   vlmModel: string | null;
   codeReviewModel: string | null;
   totalPromptTokens: number;
@@ -155,6 +159,7 @@ function buildResult(opts: {
     vlmIssues: opts.vlmIssues,
     vlmSuggestions: opts.vlmSuggestions,
     codeIssues: opts.codeIssues,
+    codeItemResults: opts.codeItemResults,
     checklistResults: opts.checklistResults,
     vlmModel: opts.vlmModel,
     codeReviewModel: opts.codeReviewModel,
@@ -259,6 +264,7 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
   // ── Phase 2: Code review LLM (cheap) ───────────────────────────────
   let codeScore: number | null = null;
   let codeIssues: string[] = [];
+  let codeItemResults: CodeItemResult[] | undefined;
   let codeReviewModel: string | null = null;
   let codePromptTokens = 0;
   let codeCompletionTokens = 0;
@@ -282,6 +288,7 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
     const codeResult = await evaluateCode(codeEvalInput);
     codeScore = codeResult.score;
     codeIssues = codeResult.issues;
+    codeItemResults = codeResult.itemResults;
     codeReviewModel = codeResult.codeReviewModel;
     codePromptTokens = codeResult.promptTokens;
     codeCompletionTokens = codeResult.completionTokens;
@@ -327,7 +334,7 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
       assertionPassRate: assertionSummary?.passRate ?? null, assertionsFailed: false,
       codeEvalWeight: resolvedWeight.weight,
       compositeWeightSource: resolvedWeight.source,
-      vlmIssues: [], vlmSuggestions: [], codeIssues,
+      vlmIssues: [], vlmSuggestions: [], codeIssues, codeItemResults,
       vlmModel: null, codeReviewModel,
       totalPromptTokens: codePromptTokens, totalCompletionTokens: codeCompletionTokens,
     });
@@ -495,7 +502,7 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
     assertionPassRate, assertionsFailed: false,
     codeEvalWeight: resolvedWeight.weight,
     compositeWeightSource: resolvedWeight.source,
-    vlmIssues, vlmSuggestions, codeIssues,
+    vlmIssues, vlmSuggestions, codeIssues, codeItemResults,
     checklistResults, vlmModel, codeReviewModel,
     totalPromptTokens: vlmPromptTokens + codePromptTokens,
     totalCompletionTokens: vlmCompletionTokens + codeCompletionTokens,
