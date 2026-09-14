@@ -6,6 +6,7 @@
  * Updates the example in place — no new code generation or rendering.
  */
 
+import { GATE_VERSION } from "./approval-gate.service.js";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import { toAnnotatedCriteria } from "../utils/verification-criteria.js";
@@ -179,6 +180,7 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
       codeReviewReasoning: evalResult.codeReviewReasoning ?? null,
       codeReviewSystemPrompt: evalResult.codeReviewSystemPrompt ?? null,
       approvalStatus: approved ? "auto_approved" : "pending",
+      gateVersion: GATE_VERSION,
     },
   });
 

@@ -60,7 +60,8 @@ export const STABILITY_FLOOR = { maxHardFlipRate: 0.029, minIdenticalRate: 0.9 }
 /** The composite backstop (ADR 0001); scores are recorded, never gating here. */
 export const SCORE_GATE_THRESHOLD = 7.5;
 /** Fewer items than this is not gate-eligible (ADR 0001). */
-export const MIN_GATE_ITEMS = 3;
+export { MIN_GATE_ITEMS } from "./approval-gate.service.js";
+import { MIN_GATE_ITEMS } from "./approval-gate.service.js";
 
 export interface Term {
   name: string;

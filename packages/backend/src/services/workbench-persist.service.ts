@@ -40,6 +40,8 @@ export async function insertExample(data: {
   evalSuggestions: string[] | null;
   evalChecklistResults: Array<{ question: string; pass: boolean; detail: string }> | null;
   approvalStatus: string;
+  /** The gate rule that derived approvalStatus (ADR 0001); null when a human or an early exit set it. */
+  gateVersion?: string | null;
   rejectionNote?: string | null;
   llmModel: string;
   vlmModel: string | null;
@@ -94,6 +96,7 @@ export async function insertExample(data: {
       evalSuggestions: data.evalSuggestions ?? undefined,
       evalChecklistResults: data.evalChecklistResults ?? undefined,
       approvalStatus: data.approvalStatus,
+      gateVersion: data.gateVersion ?? null,
       rejectionNote: data.rejectionNote ?? null,
       llmModel: data.llmModel,
       vlmModel: data.vlmModel,
@@ -144,6 +147,7 @@ export async function insertExample(data: {
       evalSuggestions: data.evalSuggestions ?? undefined,
       evalChecklistResults: data.evalChecklistResults ?? undefined,
       approvalStatus: data.approvalStatus,
+      gateVersion: data.gateVersion ?? null,
       rejectionNote: data.rejectionNote ?? null,
       llmModel: data.llmModel,
       vlmModel: data.vlmModel,

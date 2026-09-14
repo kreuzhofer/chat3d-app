@@ -482,6 +482,8 @@ model WorkbenchExample {
   /// placeholder. "placeholder" marks rows scored before issue #33 was
   /// fixed, whose scores are not comparable with the rest (issue #34).
   evalChecklistState    String?  @map("eval_checklist_state") @db.VarChar(16)
+  /// The approval gate rule that derived `approvalStatus` (ADR 0001, #88): verdicts under different rules are distinguishable and re-derivable. NULL = derived before versions existed, or by a human.
+  gateVersion           String?  @map("gate_version") @db.VarChar(32)
   /// The instrument the visual judge answered under, `<name>@<hash12>` of
   /// the whole procedure (ADR 0003). NULL = pre-versioning or not rated. A
   /// rating whose id is not the current one is Stale.

@@ -8,6 +8,7 @@
  * Extracted from workbench-codegen.service.ts.
  */
 
+import { GATE_VERSION } from "./approval-gate.service.js";
 import crypto from "node:crypto";
 import { createLogger } from "../utils/logger.js";
 import { toAnnotatedCriteria } from "../utils/verification-criteria.js";
@@ -199,6 +200,7 @@ export async function reRenderForExample(
     evalSuggestions: evalResult?.vlmSuggestions ?? null,
     evalChecklistResults: evalResult?.checklistResults ?? null,
     approvalStatus: approved ? "auto_approved" : "pending",
+      gateVersion: GATE_VERSION,
     llmModel: existingExample.llmModel ?? "unknown", vlmModel: evalResult?.vlmModel ?? null,
     vlmInstrumentId: evalResult?.vlmInstrumentId ?? null,
     vlmThinkingEffort: evalResult?.vlmThinkingEffort ?? null,

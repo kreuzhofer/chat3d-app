@@ -4,6 +4,7 @@
  * Incremental trace persistence: saved at pipeline start, updated after each phase.
  */
 
+import { GATE_VERSION } from "./approval-gate.service.js";
 import { runWithUsageContext } from "./usage-tracking.service.js";
 import { createLogger } from "../utils/logger.js";
 import { prisma } from "../db/prisma.js";
@@ -849,7 +850,7 @@ async function _runPipeline(
     screenshotOrtho45: filePaths.screenshotOrtho45Path, screenshotOrtho45Bottom: filePaths.screenshotOrtho45BottomPath,
     screenshotIso: filePaths.screenshotIsoPath, screenshotIsoBack: filePaths.screenshotIsoBackPath,
     evalScore: finalScore, evalIssues, evalSuggestions: agFullEval?.vlmSuggestions ?? null,
-    evalChecklistResults: agFullEval?.checklistResults ?? null, approvalStatus,
+    evalChecklistResults: agFullEval?.checklistResults ?? null, approvalStatus, gateVersion: GATE_VERSION,
     llmModel: wbAgentModelConfig.label, vlmModel: agFullEval?.vlmModel ?? null,
     promptTokens: totalPipelinePromptTokens, completionTokens: totalPipelineCompletionTokens,
     visualScore: agFullEval?.visualScore ?? null, codeEvalScore: agFullEval?.codeScore ?? null,

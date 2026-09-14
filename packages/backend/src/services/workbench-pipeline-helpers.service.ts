@@ -5,6 +5,7 @@
  * context loading, approval logic, result builders, model resolution.
  */
 
+import { deriveVerdict } from "./approval-gate.service.js";
 import { prisma } from "../db/prisma.js";
 import { getModelForPurposeWithFallback, type LlmModelConfig } from "./llm-config.service.js";
 import { WorkbenchCatalogError } from "./workbench-catalog.service.js";
@@ -98,22 +99,19 @@ export async function resolveCodegenModel(): Promise<{ model: any; label: string
  * on a field the caller may omit is not a guard; every caller knows whether
  * its render succeeded.
  */
+/**
+ * The gate's boolean for callers that only branch on it (ADR 0001, #88):
+ * every item must pass, three or more items, the composite as backstop.
+ * The rule and its version live in approval-gate.service; this wrapper
+ * carries no rule of its own. Assertions are the caller's own branch.
+ */
 export function shouldAutoApprove(
   score: number | null,
   threshold: number,
-  checklistResults: Array<{ pass: boolean | null }> | null | undefined,
+  checklistResults: ReadonlyArray<{ pass: boolean | null }> | null | undefined,
   renderSuccess: boolean,
 ): boolean {
-  if (!renderSuccess) return false;
-  if (score === null || score < threshold) return false;
-  if (!checklistResults || checklistResults.length === 0) return false;
-  // Uncertain (null) counts as not-passing for approval purposes
-  const passRate = checklistResults.filter(r => r.pass === true).length / checklistResults.length;
-  // When both evaluators strongly agree (composite ≥ threshold + 1.5),
-  // relax checklist gate to 50% — a single borderline VLM answer shouldn't
-  // override strong agreement from both evaluators.
-  const relaxedThreshold = score >= threshold + 1.5 ? 0.5 : 0.8;
-  return passRate >= relaxedThreshold;
+  return deriveVerdict({ renderSuccess, assertionsFailed: false, items: checklistResults, compositeScore: score, threshold }).status === "auto_approved";
 }
 
 // ── Result builders ──────────────────────────────────────────────────

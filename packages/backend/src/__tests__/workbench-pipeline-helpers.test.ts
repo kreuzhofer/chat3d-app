@@ -37,12 +37,17 @@ describe("shouldAutoApprove — the gate needs its inputs", () => {
     expect(shouldAutoApprove(8, THRESHOLD, pass(5), true)).toBe(true);
   });
 
-  it("keeps the item pass-rate rule: 80 % at the threshold, 50 % when the composite is 1.5 above it", () => {
+  it("every item must pass (ADR 0001, #88): no pass-rate, no relaxation for a high composite", () => {
     const fourOfFive = [...pass(4), { pass: false, question: "q4" }];
-    const threeOfFive = [...pass(3), { pass: false, question: "q3" }, { pass: false, question: "q4" }];
-    expect(shouldAutoApprove(8, THRESHOLD, fourOfFive, true)).toBe(true);
-    expect(shouldAutoApprove(8, THRESHOLD, threeOfFive, true)).toBe(false);
-    expect(shouldAutoApprove(9, THRESHOLD, threeOfFive, true)).toBe(true);
+    expect(shouldAutoApprove(8, THRESHOLD, fourOfFive, true)).toBe(false);
+    expect(shouldAutoApprove(10, THRESHOLD, fourOfFive, true)).toBe(false);
+    expect(shouldAutoApprove(8, THRESHOLD, pass(5), true)).toBe(true);
+  });
+
+  it("fewer than three items is not gate-eligible (ADR 0001, #88)", () => {
+    expect(shouldAutoApprove(10, THRESHOLD, pass(2), true)).toBe(false);
+    expect(shouldAutoApprove(10, THRESHOLD, pass(1), true)).toBe(false);
+    expect(shouldAutoApprove(8, THRESHOLD, pass(3), true)).toBe(true);
   });
 
   it("counts an uncertain item as not passing", () => {
