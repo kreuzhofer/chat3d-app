@@ -333,7 +333,10 @@ export async function evaluateCode(input: CodeEvalInput): Promise<CodeReviewResu
           model: providerModel,
           system: systemPrompt,
           messages: [{ role: "user", content: userContent }],
-          maxOutputTokens: 1024,
+          // The answer now carries one entry per code-routed criterion (#105);
+          // at 1024 the reviewer hit the cap on 42 of 120 rows and the cut
+          // JSON parsed as no items — every one of them unanswered.
+          maxOutputTokens: 4096,
           temperature: 0,
         }, {
           purpose: "code_evaluation",
