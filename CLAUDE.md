@@ -56,6 +56,11 @@ cd packages/frontend && npm run dev
 
 # Run database migrations
 cd packages/backend && npx knex migrate:latest
+
+# Run the backend test suite — it prepares and migrates its OWN database
+# (chat3d_test on the same Postgres; TEST_DB_NAME overrides; must end in _test)
+# and refuses to run against the app's database (issue #90)
+cd packages/backend && npm test
 ```
 
 ### Docker Hub Pull Failures

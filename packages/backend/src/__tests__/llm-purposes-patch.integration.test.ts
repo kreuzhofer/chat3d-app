@@ -9,8 +9,11 @@
  * override on its own.
  *
  * These tests operate on `tag_suggest`, a curation purpose the generation
- * pipeline does not use, and snapshot/restore its row so a shared database
- * serving a live run is not disturbed.
+ * pipeline does not use. The suite runs against its own database (#90), so
+ * the fixture is self-contained: a keyless provider, two models of its own
+ * and the purpose row itself, created if absent and removed afterwards. If
+ * the row already exists (a database shared with a live run), it is
+ * snapshotted and restored exactly.
  */
 import bcrypt from "bcryptjs";
 import request from "supertest";
@@ -22,6 +25,7 @@ import { getModelForPurpose } from "../services/llm-config.service.js";
 const PURPOSE = "tag_suggest";
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const adminEmail = `llm-purpose-admin-${suffix}@example.test`;
+const providerName = `purpose-patch-${suffix}`.slice(0, 50);
 const password = "S3curePass!123";
 
 describe("PATCH /api/admin/llm-purposes/:purpose", () => {
@@ -45,24 +49,26 @@ describe("PATCH /api/admin/llm-purposes/:purpose", () => {
     const login = await request(app).post("/api/auth/login").send({ email: adminEmail, password });
     token = (login.body as { token: string }).token;
 
-    // Snapshot whatever this purpose currently points at, so afterAll restores it exactly.
-    const row = await prisma.llmPurposeMap.findUnique({ where: { purpose: PURPOSE } });
-    if (!row) throw new Error(`${PURPOSE} has no assignment row; cannot run safely`);
-    originalRow = {
-      modelId: row.modelId,
-      overrideThinkingEffort: row.overrideThinkingEffort,
-      overrideMaxOutputTokens: row.overrideMaxOutputTokens,
-    };
-    modelId = row.modelId;
-
-    const model = await prisma.llmModel.findUnique({ where: { id: modelId }, select: { defaultThinkingEffort: true } });
-    modelDefaultEffort = model?.defaultThinkingEffort ?? null;
-
-    // A throwaway model of our own: reusing an arbitrary existing one made the
-    // model-only case pass vacuously on a single-model database.
-    const seeded = await prisma.llmModel.create({
+    // Our own provider and models: an openai-compatible provider resolves
+    // keyless, so getModelForPurpose() works without any secret in the test.
+    await prisma.llmProvider.create({
+      data: { name: providerName, providerType: "openai-compatible", displayName: "Purpose Patch", endpointUrl: "http://localhost:1/v1" },
+    });
+    const own = await prisma.llmModel.create({
       data: {
-        provider: (await prisma.llmModel.findUnique({ where: { id: modelId }, select: { provider: true } }))!.provider,
+        provider: providerName,
+        modelName: `purpose-patch-${suffix}`,
+        displayName: `Purpose Patch ${suffix}`,
+        costPer1mInput: 0,
+        costPer1mOutput: 0,
+        defaultThinkingEffort: "medium",
+      },
+      select: { id: true, defaultThinkingEffort: true },
+    });
+    // A second model, so the model-only case cannot pass vacuously.
+    const other = await prisma.llmModel.create({
+      data: {
+        provider: providerName,
         modelName: `purpose-patch-target-${suffix}`,
         displayName: `Purpose Patch Target ${suffix}`,
         costPer1mInput: 0,
@@ -70,23 +76,46 @@ describe("PATCH /api/admin/llm-purposes/:purpose", () => {
       },
       select: { id: true },
     });
-    otherModelId = seeded.id;
+    otherModelId = other.id;
+
+    // Snapshot whatever this purpose currently points at, so afterAll restores
+    // it exactly; on the suite's own database there is nothing, and the row is ours.
+    const row = await prisma.llmPurposeMap.findUnique({ where: { purpose: PURPOSE } });
+    if (row) {
+      originalRow = {
+        modelId: row.modelId,
+        overrideThinkingEffort: row.overrideThinkingEffort,
+        overrideMaxOutputTokens: row.overrideMaxOutputTokens,
+      };
+      await prisma.llmPurposeMap.update({
+        where: { purpose: PURPOSE },
+        data: { modelId: own.id, overrideThinkingEffort: null, overrideMaxOutputTokens: null, updatedAt: new Date() },
+      });
+    } else {
+      await prisma.llmPurposeMap.create({ data: { purpose: PURPOSE, modelId: own.id } });
+    }
+    modelId = own.id;
+    modelDefaultEffort = own.defaultThinkingEffort;
     expect(otherModelId).not.toBe(modelId);
   });
 
-  // Restore after every test, not just at the end: an interrupted run must not
-  // leave a live purpose row pointing at a throwaway model.
+  // Reset after every test, not just at the end: an interrupted run must not
+  // leave the purpose row pointing at the wrong model with overrides set.
   afterEach(async () => {
-    if (originalRow) {
-      await prisma.llmPurposeMap.update({ where: { purpose: PURPOSE }, data: { ...originalRow, updatedAt: new Date() } });
-    }
+    await prisma.llmPurposeMap.update({
+      where: { purpose: PURPOSE },
+      data: { modelId, overrideThinkingEffort: null, overrideMaxOutputTokens: null, updatedAt: new Date() },
+    });
   });
 
   afterAll(async () => {
     if (originalRow) {
       await prisma.llmPurposeMap.update({ where: { purpose: PURPOSE }, data: { ...originalRow, updatedAt: new Date() } });
+    } else {
+      await prisma.llmPurposeMap.deleteMany({ where: { purpose: PURPOSE, modelId: { in: [modelId, otherModelId] } } });
     }
-    await prisma.llmModel.deleteMany({ where: { id: otherModelId } });
+    await prisma.llmModel.deleteMany({ where: { provider: providerName } });
+    await prisma.llmProvider.deleteMany({ where: { name: providerName } });
     await prisma.user.deleteMany({ where: { id: adminId } });
   });
 
@@ -154,7 +183,7 @@ describe("PATCH /api/admin/llm-purposes/:purpose", () => {
     const res = await patch(PURPOSE, { overrideThinkingEffort: "enthusiastic" });
 
     expect(res.status).toBe(400);
-    expect((await row())?.overrideThinkingEffort).toBe(originalRow?.overrideThinkingEffort ?? null);
+    expect((await row())?.overrideThinkingEffort).toBeNull();
   });
 
   it("rejects a fractional max-output, which the integer column cannot hold", async () => {

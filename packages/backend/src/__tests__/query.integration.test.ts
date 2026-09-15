@@ -81,8 +81,17 @@ describe("Milestone 9 query pipeline", () => {
   let userId = "";
   let token = "";
   let contextId = "";
+  // The registry lists whatever models the database holds; on the suite's own
+  // database (#90) that is nothing until this test seeds one of its own.
+  const providerName = `m9-registry-${Date.now()}`.slice(0, 50);
 
   beforeAll(async () => {
+    await prisma.llmProvider.create({
+      data: { name: providerName, providerType: "openai-compatible", displayName: "M9 Registry", endpointUrl: "http://localhost:1/v1" },
+    });
+    await prisma.llmModel.create({
+      data: { provider: providerName, modelName: "m9-registry-model", displayName: "M9 Registry Model", costPer1mInput: 0, costPer1mOutput: 0 },
+    });
     await prisma.notification.deleteMany({ where: { user: { email: userEmail } } });
     await prisma.chatItem.deleteMany({ where: { owner: { email: userEmail } } });
     await prisma.chatContext.deleteMany({ where: { owner: { email: userEmail } } });
@@ -105,6 +114,8 @@ describe("Milestone 9 query pipeline", () => {
     await prisma.chatItem.deleteMany({ where: { ownerId: userId } });
     await prisma.chatContext.deleteMany({ where: { ownerId: userId } });
     await prisma.user.deleteMany({ where: { id: userId } });
+    await prisma.llmModel.deleteMany({ where: { provider: providerName } });
+    await prisma.llmProvider.deleteMany({ where: { name: providerName } });
     await prisma.$disconnect();
   });
 

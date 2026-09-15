@@ -10,8 +10,9 @@
     "db:migrate": "npx prisma migrate deploy",
     "db:bootstrap": "npm run db:migrate",
     "worker:account-deletion": "tsx src/workers/account-deletion.worker.ts",
-    "test": "npm run db:migrate && vitest run",
-    "test:integration": "npm run db:migrate && vitest run src/__tests__/auth.integration.test.ts src/__tests__/waitlist.integration.test.ts src/__tests__/invitations.integration.test.ts src/__tests__/admin.integration.test.ts src/__tests__/account-lifecycle.integration.test.ts src/__tests__/chat-files.integration.test.ts src/__tests__/query.integration.test.ts src/__tests__/hardening.integration.test.ts"
+    "db:test:prepare": "tsx scripts/ensure-test-db.ts && DB_NAME=${TEST_DB_NAME:-chat3d_test} prisma migrate deploy",
+    "test": "npm run db:test:prepare && vitest run",
+    "test:integration": "npm run db:test:prepare && vitest run src/__tests__/auth.integration.test.ts src/__tests__/waitlist.integration.test.ts src/__tests__/invitations.integration.test.ts src/__tests__/admin.integration.test.ts src/__tests__/account-lifecycle.integration.test.ts src/__tests__/chat-files.integration.test.ts src/__tests__/query.integration.test.ts src/__tests__/hardening.integration.test.ts"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^5.0.34",

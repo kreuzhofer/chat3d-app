@@ -1,3 +1,4 @@
+import bcrypt from "bcryptjs";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../app.js";
@@ -5,8 +6,15 @@ import { prisma } from "../db/prisma.js";
 
 describe("public config routes", () => {
   const app = createApp();
+  // /config reports waitlistEnabled=false while setup is required (no users
+  // yet); on the suite's own database (#90) this test must be the one to
+  // ensure a user exists.
+  const userEmail = `public-config-${Date.now()}@example.test`;
 
   beforeAll(async () => {
+    await prisma.user.create({
+      data: { email: userEmail, passwordHash: await bcrypt.hash("S3curePass!123", 4), displayName: "Public Config", role: "user", status: "active" },
+    });
     await prisma.appSettings.upsert({
       where: { id: true },
       create: {
@@ -27,6 +35,7 @@ describe("public config routes", () => {
   });
 
   afterAll(async () => {
+    await prisma.user.deleteMany({ where: { email: userEmail } });
     await prisma.$disconnect();
   });
 

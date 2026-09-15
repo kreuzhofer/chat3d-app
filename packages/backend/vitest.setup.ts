@@ -10,6 +10,13 @@
 // `import` here would load config.ts BEFORE a statement-level env mutation
 // could take effect. Dynamic imports keep load order deterministic: env
 // first, then everything else.
+// The suite's own database (issue #90): resolved through one guard from the
+// environment as the caller left it, then written into DB_NAME before
+// `db/prisma.ts` (via config.ts) reads it at module load. A run can no
+// longer reach the app's database by omission; `npm test` creates and
+// migrates this one first (scripts/ensure-test-db.ts).
+const { resolveTestDatabaseName } = await import("./src/utils/test-database.js");
+process.env.DB_NAME = resolveTestDatabaseName(process.env);
 process.env.EMAIL_TRANSPORT = "memory";
 
 // Same reasoning for the query pipeline: docker-compose passes
@@ -34,13 +41,12 @@ initializeEmailTemplates();
 // the waitlist or email-confirmation flows opt back in via their own
 // beforeAll. fileParallelism is disabled in vitest.config so per-file
 // flag flipping is safe.
+// Upsert, not update: the suite's own database (issue #90) starts empty —
+// the app seeds this singleton at boot, the tests do not boot the app.
 beforeAll(async () => {
-  await prisma.appSettings.update({
+  await prisma.appSettings.upsert({
     where: { id: true },
-    data: {
-      waitlistEnabled: false,
-      emailConfirmationEnabled: false,
-      updatedAt: new Date(),
-    },
+    create: { id: true, waitlistEnabled: false, emailConfirmationEnabled: false },
+    update: { waitlistEnabled: false, emailConfirmationEnabled: false, updatedAt: new Date() },
   });
 });
