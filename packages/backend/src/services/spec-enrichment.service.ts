@@ -5,7 +5,11 @@
  * plus research results (knowledge about specific components like RPi 4 port
  * layouts) and produces a precise geometric blueprint with exact dimensions.
  *
- * Design: fail-open — if enrichment fails, the original rough spec is used.
+ * Design: fail-open — if the model call fails, the original rough spec is used.
+ * The criteria, though, are a contract (ADR 0002, issue #104): atoms in
+ * `{ text, visibility }`, one requirement per entry; a reply of bare strings
+ * or bundled atoms is retried once and then surfaced on the result, with the
+ * rough spec's atoms kept — never normalised to `both`.
  */
 
 import { trackedStreamText } from "./tracked-llm.service.js";
@@ -21,7 +25,7 @@ import type { ResearchPackage } from "./research-agent.service.js";
 import type { SpecResult } from "./spec-generation.service.js";
 import { createLogger } from "../utils/logger.js";
 import type { AnnotatedCriterion } from "./spec-generation.service.js";
-import { toAnnotatedCriteria } from "../utils/verification-criteria.js";
+import { ATOMS_RULES, parseEnrichmentAtoms, type AtomsFailureReason } from "./spec-enrichment-atoms.js";
 
 const logger = createLogger("spec-enrich");
 
@@ -35,6 +39,13 @@ export interface EnrichmentResult {
    * consumer reading `.text` got `undefined` (issue #33).
    */
   verificationCriteria: AnnotatedCriterion[];
+  /** The pass-1 atoms enrichment started from, kept beside the result so before/after is measurable. */
+  roughCriteria: AnnotatedCriterion[];
+  /**
+   * Set when the model never met the atoms contract: `verificationCriteria`
+   * is then `roughCriteria`, and the reasons name what each attempt returned.
+   */
+  criteriaFailure?: { attempts: number; reasons: AtomsFailureReason[] };
   promptTokens: number;
   /** Raw LLM response for training data. */
   rawResponse?: string;
@@ -58,13 +69,35 @@ Rules:
 - Keep the same structure as the input spec, just make it more precise
 - If reference data contradicts the rough spec, prefer the reference data
 - If no reference data is relevant to a particular line, keep the original value
-- Also produce 3-6 verification criteria: objective structural checks referencing ONLY geometry (not object identity)
+- Also produce 3-8 verification criteria: objective structural checks referencing ONLY geometry (not object identity), as REQUIREMENT ATOMS:
+${ATOMS_RULES}
 
 Return JSON only:
 {
   "constructionSpec": "- step 1 with exact dims\\n- step 2 with exact dims\\n...",
-  "verificationCriteria": ["structural check 1", "structural check 2", ...]
+  "verificationCriteria": [
+    {"text": "Exactly four standoff posts inside the box", "visibility": "visual"},
+    {"text": "Standoff posts sit near the corners", "visibility": "visual"},
+    {"text": "Standoff post offset from each corner is 5mm", "visibility": "code"}
+  ]
 }`;
+
+/** How many times the model is asked before the criteria are declared failed. */
+const CRITERIA_ATTEMPTS = 2;
+
+/** The retry names the defect; the model is not asked to guess what was wrong. */
+function retryMessage(reason: AtomsFailureReason, offending: unknown): string {
+  const shown = typeof offending === "string" ? JSON.stringify(offending) : JSON.stringify(offending)?.slice(0, 300);
+  const why: Record<AtomsFailureReason, string> = {
+    "not-an-array": "verificationCriteria was not a list",
+    "empty": "verificationCriteria was empty",
+    "bare-string": `an entry was a bare string (${shown}); every entry must be {"text", "visibility"}`,
+    "missing-visibility": `an entry had no valid visibility (${shown}); use "visual", "code" or "both"`,
+    "empty-text": `an entry had no text (${shown})`,
+    "bundled": `a "visual"/"both" entry contained a measurement (${shown}); split it — the fact stays visual, the number becomes its own "code" entry`,
+  };
+  return `Your previous reply did not meet the criteria contract: ${why[reason]}. Return the same JSON again with verificationCriteria as requirement atoms only.`;
+}
 
 // ── Main function ────────────────────────────────────────────────────
 
@@ -91,6 +124,7 @@ export async function enrichSpec(
     return {
       constructionSpec: roughSpec.constructionSpec,
       verificationCriteria: roughSpec.verificationCriteria,
+      roughCriteria: roughSpec.verificationCriteria,
       promptTokens: 0,
       completionTokens: 0,
     };
@@ -112,73 +146,50 @@ export async function enrichSpec(
 
   try {
     const semaphore = getLlmSemaphore(config.provider, config.maxConcurrent);
-    const streamResult = await semaphore.run(async () => {
-      const stream = trackedStreamText({
-        model,
-        system: ENRICHMENT_SYSTEM_PROMPT,
-        messages: [{ role: "user", content: userMessage }],
-        maxOutputTokens: 4096,
-        temperature: 0.5,
-      }, {
-        purpose: "spec_generation",
-        providerName: config.provider,
-        modelId: config.id,
-        modelName: config.modelName,
-        modelConfig: { costPer1mInput: config.costPer1mInput, costPer1mOutput: config.costPer1mOutput },
-      });
-      // Consume stream to get full text (reasoning goes to separate channel, not content)
-      let text = "";
-      for await (const part of stream.fullStream) {
-        if (part.type === "text-delta") text += part.text;
+    const messages: Array<{ role: "user" | "assistant"; content: string }> = [{ role: "user", content: userMessage }];
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let enrichedSpec = roughSpec.constructionSpec;
+    let rawResponse = "";
+    let atoms: AnnotatedCriterion[] | null = null;
+    const reasons: AtomsFailureReason[] = [];
+
+    for (let attempt = 1; attempt <= CRITERIA_ATTEMPTS; attempt++) {
+      const streamResult = await semaphore.run(() => callEnrichmentModel(model, config, messages));
+      promptTokens += streamResult.usage?.inputTokens ?? 0;
+      completionTokens += streamResult.usage?.outputTokens ?? 0;
+      rawResponse = streamResult.text;
+
+      const parsed = JSON.parse(extractJson(streamResult.text)) as { constructionSpec?: unknown; verificationCriteria?: unknown };
+      if (typeof parsed.constructionSpec === "string" && parsed.constructionSpec.trim()) {
+        enrichedSpec = parsed.constructionSpec;
       }
-      const resolved = await stream;
-      return { text, usage: await resolved.usage };
-    });
-
-    const promptTokens = streamResult.usage?.inputTokens ?? 0;
-    const completionTokens = streamResult.usage?.outputTokens ?? 0;
-
-    // Parse response — extract JSON robustly from LLM output that may contain
-    // thinking content, code fences, or other non-JSON text
-    let jsonStr = streamResult.text;
-    // Strategy: find JSON by code fence first, then brace extraction
-    const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenceMatch) {
-      jsonStr = fenceMatch[1].trim();
-    } else {
-      // No code fence — extract from first { to last }
-      const firstBrace = jsonStr.indexOf("{");
-      const lastBrace = jsonStr.lastIndexOf("}");
-      if (firstBrace !== -1 && lastBrace > firstBrace) {
-        jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
+      const result = parseEnrichmentAtoms(parsed.verificationCriteria);
+      if (result.ok) { atoms = result.atoms; break; }
+      reasons.push(result.reason);
+      logger.warn({ attempt, reason: result.reason, offending: result.offending }, "enrichment criteria refused: not requirement atoms");
+      if (attempt < CRITERIA_ATTEMPTS) {
+        messages.push({ role: "assistant", content: streamResult.text });
+        messages.push({ role: "user", content: retryMessage(result.reason, result.offending) });
       }
     }
 
-    const parsed = JSON.parse(jsonStr) as {
-      constructionSpec?: string;
-      // The enrichment model is asked for plain strings, but accept either
-      // shape — toAnnotatedCriteria() normalises and drops anything textless.
-      verificationCriteria?: unknown;
-    };
-
-    const enrichedSpec = typeof parsed.constructionSpec === "string" && parsed.constructionSpec.trim()
-      ? parsed.constructionSpec
-      : roughSpec.constructionSpec;
-
-    const parsedCriteria = toAnnotatedCriteria(parsed.verificationCriteria);
-    const enrichedCriteria = parsedCriteria.length > 0
-      ? parsedCriteria
-      : roughSpec.verificationCriteria;
-
+    const criteriaFailure = atoms ? undefined : { attempts: reasons.length, reasons };
+    if (criteriaFailure) {
+      logger.warn({ ...criteriaFailure, roughCriteria: roughSpec.verificationCriteria.length }, "enrichment criteria failed the atoms contract; rough atoms kept");
+    }
     logger.info(
-      { specLength: enrichedSpec.length, criteriaCount: enrichedCriteria.length, promptTokens, completionTokens },
+      { specLength: enrichedSpec.length, criteriaCount: (atoms ?? roughSpec.verificationCriteria).length, attempts: reasons.length + (atoms ? 1 : 0), promptTokens, completionTokens },
       "spec enriched with research data",
     );
 
     return {
-      constructionSpec: enrichedSpec, verificationCriteria: enrichedCriteria,
+      constructionSpec: enrichedSpec,
+      verificationCriteria: atoms ?? roughSpec.verificationCriteria,
+      roughCriteria: roughSpec.verificationCriteria,
+      ...(criteriaFailure ? { criteriaFailure } : {}),
       promptTokens, completionTokens,
-      rawResponse: streamResult.text, systemPrompt: ENRICHMENT_SYSTEM_PROMPT, userMessage,
+      rawResponse, systemPrompt: ENRICHMENT_SYSTEM_PROMPT, userMessage,
     };
   } catch (error) {
     if (isProviderQuotaError(error)) throw error;
@@ -188,8 +199,45 @@ export async function enrichSpec(
     return {
       constructionSpec: roughSpec.constructionSpec,
       verificationCriteria: roughSpec.verificationCriteria,
+      roughCriteria: roughSpec.verificationCriteria,
       promptTokens: 0,
       completionTokens: 0,
     };
   }
+}
+
+/** One streamed call; reasoning goes to a separate channel, so only text deltas are the reply. */
+async function callEnrichmentModel(
+  model: ReturnType<typeof createProviderModelFromConfig>,
+  config: LlmModelConfig,
+  messages: Array<{ role: "user" | "assistant"; content: string }>,
+): Promise<{ text: string; usage: { inputTokens?: number; outputTokens?: number } | undefined }> {
+  const stream = trackedStreamText({
+    model,
+    system: ENRICHMENT_SYSTEM_PROMPT,
+    messages,
+    maxOutputTokens: 4096,
+    temperature: 0.5,
+  }, {
+    purpose: "spec_generation",
+    providerName: config.provider,
+    modelId: config.id,
+    modelName: config.modelName,
+    modelConfig: { costPer1mInput: config.costPer1mInput, costPer1mOutput: config.costPer1mOutput },
+  });
+  let text = "";
+  for await (const part of stream.fullStream) {
+    if (part.type === "text-delta") text += part.text;
+  }
+  const resolved = await stream;
+  return { text, usage: await resolved.usage };
+}
+
+/** The JSON object in a reply that may carry fences, thinking or prose around it. */
+function extractJson(reply: string): string {
+  const fenceMatch = reply.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenceMatch) return fenceMatch[1].trim();
+  const firstBrace = reply.indexOf("{");
+  const lastBrace = reply.lastIndexOf("}");
+  return firstBrace !== -1 && lastBrace > firstBrace ? reply.slice(firstBrace, lastBrace + 1) : reply;
 }
