@@ -20,7 +20,7 @@ import { runWithUsageContext } from "./usage-tracking.service.js";
 import { runWithConcurrency } from "../utils/worker-pool.js";
 import { getVlmExperimentConcurrency } from "./generation-settings.service.js";
 import { openServingGate, ServingHaltError, type ServingGate } from "./serving-gate.service.js";
-import type { JudgeInstrument } from "./visual-eval-instrument-id.service.js";
+import { withJudgeThinking, type JudgeInstrument } from "./visual-eval-instrument-id.service.js";
 
 const logger = createLogger("vlm-experiment-exec");
 
@@ -97,7 +97,7 @@ interface VlmExpWithRelations {
   runs: Array<{
     id: string; modelId: string; modelLabel: string; runOrder: number; status: string;
     judgePromptVariantId: string | null; judgePromptTemplate: string | null;
-    judgeResponseShape: string | null;
+    judgeResponseShape: string | null; judgeThinkingEffort: string | null;
     servingViolation: string | null; servingBackoffs: number;
   }>;
   vlmExampleSelections: Array<{ exampleId: string; selectionOrder: number }>;
@@ -173,6 +173,8 @@ interface RunInfo {
   servingBackoffs: number;
   /** The answer shape that instrument asks for (issue #66); null = production's. */
   judgeResponseShape: string | null;
+  /** The effort the run judges at (issue #99); null = a run from before the column, which ran at its row default. */
+  judgeThinkingEffort: string | null;
 }
 
 async function executeVlmRun(
@@ -205,7 +207,9 @@ async function executeVlmRun(
   if (run.status !== "running") updateData.startedAt = new Date();
   await prisma.experimentRun.update({ where: { id: run.id }, data: updateData });
 
-  const modelConfig = await resolveModelConfigById(run.modelId);
+  // The judge runs at thinking off unless this run explicitly asks otherwise
+  // (issue #99): the model row default never decides what an experiment measures.
+  const modelConfig = withJudgeThinking(await resolveModelConfigById(run.modelId), run.judgeThinkingEffort);
   // Examples in flight at once. Above 1 only pays off when the provider
   // serves several replicas behind one name; the provider semaphore still
   // caps the calls, and each example's zoom follow-up stays inside its own

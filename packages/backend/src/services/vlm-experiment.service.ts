@@ -104,7 +104,7 @@ export async function listVlmExperiments(options: { limit?: number; offset?: num
     prisma.experiment.findMany({
       where: { type: "vlm_comparison" },
       include: {
-        runs: { orderBy: { runOrder: "asc" }, select: { id: true, modelLabel: true, status: true, judgePromptVariantId: true } },
+        runs: { orderBy: { runOrder: "asc" }, select: { id: true, modelLabel: true, status: true, judgePromptVariantId: true, judgeThinkingEffort: true } },
       },
       orderBy: { createdAt: "desc" },
       take: limit,
@@ -265,6 +265,7 @@ export async function updateVlmExperiment(experimentId: string, input: UpdateVlm
             modelId: id,
             modelLabel: model.displayName || `${model.provider}/${model.modelName}`,
             runOrder,
+            judgeThinkingEffort: "off",
           },
         });
       }
@@ -357,7 +358,7 @@ export async function getVlmExperimentStatus(experimentId: string) {
 
   const runs = await prisma.experimentRun.findMany({
     where: { experimentId },
-    select: { id: true, modelLabel: true, status: true, runOrder: true, judgePromptVariantId: true },
+    select: { id: true, modelLabel: true, status: true, runOrder: true, judgePromptVariantId: true, judgeThinkingEffort: true },
     orderBy: { runOrder: "asc" },
   });
 
@@ -377,6 +378,7 @@ export async function getVlmExperimentStatus(experimentId: string) {
       runId: r.id,
       modelLabel: r.modelLabel,
       judgePromptVariantId: r.judgePromptVariantId,
+      judgeThinkingEffort: r.judgeThinkingEffort,
       status: r.status,
       completedExamples: countMap.get(r.id) ?? 0,
       totalExamples,

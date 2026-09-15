@@ -12,6 +12,7 @@ import { createLogger } from "../utils/logger.js";
 import { ExperimentError } from "./experiment.service.js";
 import { validateInstrumentTemplate } from "./visual-eval-instrument.service.js";
 import { isResponseShape, RESPONSE_SHAPES, type ResponseShape } from "./visual-eval-schema.service.js";
+import { THINKING_EFFORTS, isThinkingEffort } from "../utils/thinking-effort.js";
 import {
   getVlmExperiment,
   queryEligibleExamples,
@@ -74,6 +75,8 @@ export interface PlannedRun {
   judgePromptVariantId: string | null;
   judgePromptTemplate: string | null;
   judgeResponseShape: string | null;
+  /** The effort the run judges at (issue #99): explicit on every planned run, "off" unless asked. */
+  judgeThinkingEffort: string;
 }
 
 interface ModelForRun {
@@ -81,22 +84,64 @@ interface ModelForRun {
   displayName: string | null;
   provider: string;
   modelName: string;
+  supportsThinking: boolean;
 }
 
-/** One run per model; with variants, one per model and variant, model-major, in the order given. */
-export function planVlmRuns(models: ModelForRun[], variants: JudgePromptVariantInput[] | undefined): PlannedRun[] {
+/** Every run judges at thinking off unless the experiment asks for other efforts. */
+const DEFAULT_JUDGE_THINKING_EFFORTS: readonly string[] = ["off"];
+
+/**
+ * Rejects (400) an effort list that would plan an ambiguous or unrunnable run
+ * (issue #99): unknown or repeated efforts, or a non-off effort for a model
+ * that cannot think — the judge path would refuse it at dispatch, so refuse it
+ * here where the caller can still see why.
+ */
+export function validateJudgeThinkingEfforts(efforts: string[], models: ModelForRun[]): void {
+  if (efforts.length === 0) {
+    throw new ExperimentError("judgeThinkingEfforts needs at least one effort; omit it to judge with thinking off", 400);
+  }
+  const seen = new Set<string>();
+  for (const effort of efforts) {
+    if (!isThinkingEffort(effort)) {
+      throw new ExperimentError(`Thinking effort ${JSON.stringify(effort)} is not one of ${THINKING_EFFORTS.join(", ")}`, 400);
+    }
+    if (seen.has(effort)) throw new ExperimentError(`Duplicate thinking effort "${effort}"`, 400);
+    seen.add(effort);
+  }
+  if (efforts.some((e) => e !== "off")) {
+    const cannot = models.filter((m) => !m.supportsThinking);
+    if (cannot.length > 0) {
+      const names = cannot.map((m) => `${m.provider}/${m.modelName}`).join(", ");
+      throw new ExperimentError(`A thinking effort other than off was asked for, but ${names} does not support thinking`, 400);
+    }
+  }
+}
+
+/**
+ * One run per model; with variants, one per model and variant; with efforts,
+ * one per model, variant and effort — model-major, then variant, then effort,
+ * in the order given. Without efforts every run judges at thinking off (#99).
+ */
+export function planVlmRuns(
+  models: ModelForRun[],
+  variants: JudgePromptVariantInput[] | undefined,
+  efforts: readonly string[] = DEFAULT_JUDGE_THINKING_EFFORTS,
+): PlannedRun[] {
   const instruments: Array<JudgePromptVariantInput | null> = variants && variants.length > 0 ? variants : [null];
   const runs: PlannedRun[] = [];
   for (const model of models) {
     for (const variant of instruments) {
-      runs.push({
-        modelId: model.id,
-        modelLabel: model.displayName || `${model.provider}/${model.modelName}`,
-        runOrder: runs.length + 1,
-        judgePromptVariantId: variant?.id ?? null,
-        judgePromptTemplate: variant?.template ?? null,
-        judgeResponseShape: variant?.responseShape ?? null,
-      });
+      for (const effort of efforts) {
+        runs.push({
+          modelId: model.id,
+          modelLabel: model.displayName || `${model.provider}/${model.modelName}`,
+          runOrder: runs.length + 1,
+          judgePromptVariantId: variant?.id ?? null,
+          judgePromptTemplate: variant?.template ?? null,
+          judgeResponseShape: variant?.responseShape ?? null,
+          judgeThinkingEffort: effort,
+        });
+      }
     }
   }
   return runs;
@@ -119,6 +164,13 @@ export interface CreateVlmExperimentInput {
   modelIds: string[];
   /** Optional instruments to judge under; omitted = production's (issue #35). */
   judgePromptVariants?: JudgePromptVariantInput[];
+  /**
+   * Thinking efforts to judge at, one run per model (and variant) and effort;
+   * omitted = every run at "off", the only setting a judge has been qualified
+   * under (issue #99). A non-off effort is a deliberate experiment and is
+   * stamped on every result it writes.
+   */
+  judgeThinkingEfforts?: string[];
   createdBy: string;
 }
 
@@ -166,14 +218,15 @@ async function resolveSelection(input: CreateVlmExperimentInput): Promise<Resolv
 }
 
 export async function createVlmExperiment(input: CreateVlmExperimentInput) {
-  const { name, modelIds, judgePromptVariants, createdBy } = input;
+  const { name, modelIds, judgePromptVariants, judgeThinkingEfforts, createdBy } = input;
 
   const { categoryIds, selectedIds, exampleCount, exampleSeed } = await resolveSelection(input);
   const { models, uniqueIds } = await validateModels(modelIds);
   if (judgePromptVariants !== undefined) validateJudgePromptVariants(judgePromptVariants);
 
   const orderedModels = uniqueIds.map((id) => models.find((m) => m.id === id)!);
-  const plannedRuns = planVlmRuns(orderedModels, judgePromptVariants);
+  if (judgeThinkingEfforts !== undefined) validateJudgeThinkingEfforts(judgeThinkingEfforts, orderedModels);
+  const plannedRuns = planVlmRuns(orderedModels, judgePromptVariants, judgeThinkingEfforts);
 
   const experiment = await prisma.$transaction(async (tx) => {
     const exp = await tx.experiment.create({
@@ -202,7 +255,7 @@ export async function createVlmExperiment(input: CreateVlmExperimentInput) {
   });
 
   logger.info(
-    { experimentId: experiment.id, exampleCount, modelCount: uniqueIds.length, variantCount: judgePromptVariants?.length ?? 0, runCount: plannedRuns.length },
+    { experimentId: experiment.id, exampleCount, modelCount: uniqueIds.length, variantCount: judgePromptVariants?.length ?? 0, efforts: judgeThinkingEfforts ?? DEFAULT_JUDGE_THINKING_EFFORTS, runCount: plannedRuns.length },
     "VLM experiment created",
   );
   return getVlmExperiment(experiment.id);

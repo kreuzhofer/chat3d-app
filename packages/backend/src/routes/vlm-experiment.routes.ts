@@ -43,9 +43,9 @@ function handleError(err: unknown, res: Response) {
 
 vlmExperimentRouter.post("/", async (req: Request, res: Response) => {
   try {
-    const { name, categoryIds, exampleCount, exampleSeed, exampleIds, modelIds, judgePromptVariants } = req.body;
+    const { name, categoryIds, exampleCount, exampleSeed, exampleIds, modelIds, judgePromptVariants, judgeThinkingEfforts } = req.body;
     const experiment = await createVlmExperiment({
-      name, categoryIds, exampleCount, exampleSeed, exampleIds, modelIds, judgePromptVariants,
+      name, categoryIds, exampleCount, exampleSeed, exampleIds, modelIds, judgePromptVariants, judgeThinkingEfforts,
       createdBy: req.authUser!.id,
     });
     res.status(201).json(experiment);

@@ -63,6 +63,7 @@ function stuckExperiment() {
     runs: [{
       id: "run1", modelId: "m1", modelLabel: "qwen", runOrder: 1, status: "running",
       judgePromptVariantId: null as string | null, judgePromptTemplate: null as string | null,
+      judgeResponseShape: null as string | null, judgeThinkingEffort: null as string | null,
       servingViolation: null as string | null, servingBackoffs: 0,
     }],
     vlmExampleSelections: EXAMPLE_IDS.map((exampleId, i) => ({ exampleId, selectionOrder: i })),

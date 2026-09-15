@@ -21,6 +21,7 @@
  */
 import { createHash } from "node:crypto";
 import type { LlmModelConfig } from "./llm-config.service.js";
+import { THINKING_EFFORTS, isThinkingEffort } from "../utils/thinking-effort.js";
 import { getZoomSettings, type ZoomSettings } from "./generation-settings.service.js";
 import { FOLLOW_UP_VIEWS } from "./visual-eval-views.js";
 import {
@@ -93,4 +94,29 @@ export async function currentInstrumentId(): Promise<string> {
 export function judgeThinkingEffort(cfg: Pick<LlmModelConfig, "supportsThinking" | "thinkingEffort">): string | null {
   if (!cfg.supportsThinking) return "off";
   return cfg.thinkingEffort ?? null;
+}
+
+/**
+ * The config a judge is actually run with (issue #99): thinking **off** unless
+ * the caller explicitly asks for another effort. A judge is qualified per
+ * (model, thinking setting, instrument) under ADR 0004, so the model row's
+ * `default_thinking_effort` must never decide what an evaluation measures —
+ * it is a hand-maintained convention, and a purpose override is editable. A
+ * model without thinking support is returned as is; asking it for an effort
+ * other than off is refused rather than silently ignored.
+ */
+export function withJudgeThinking<C extends Pick<LlmModelConfig, "supportsThinking" | "thinkingEffort">>(
+  cfg: C,
+  requested: string | null | undefined,
+): C {
+  if (requested != null && !isThinkingEffort(requested)) {
+    throw new Error(`Judge thinking effort ${JSON.stringify(requested)} is not one of ${THINKING_EFFORTS.join(", ")}`);
+  }
+  if (!cfg.supportsThinking) {
+    if (requested != null && requested !== "off") {
+      throw new Error(`Judge thinking effort "${requested}" was asked for, but the model does not support thinking`);
+    }
+    return cfg;
+  }
+  return { ...cfg, thinkingEffort: requested ?? "off" };
 }

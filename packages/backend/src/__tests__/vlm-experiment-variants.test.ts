@@ -25,15 +25,15 @@ vi.mock("../services/generation-settings.service.js", () => ({
   getZoomSettings: vi.fn(async () => ({ enabled: true, resolutionPx: 1536, maxFollowUps: 3 })),
 }));
 
-import { planVlmRuns, validateJudgePromptVariants } from "../services/vlm-experiment-create.service.js";
+import { planVlmRuns, validateJudgePromptVariants, validateJudgeThinkingEfforts } from "../services/vlm-experiment-create.service.js";
 import { evaluateModelWithConfig } from "../services/visual-eval.service.js";
 import { ExperimentError } from "../services/experiment.service.js";
 import { STANDARD_VIEWS } from "../services/visual-eval-views.js";
 import type { LlmModelConfig } from "../services/llm-config.service.js";
 
 const models = [
-  { id: "m-glm", displayName: "glm-5.3-flash (thinking off)", provider: "vllm-dgx-14", modelName: "glm-5.3-flash" },
-  { id: "m-sonnet", displayName: null, provider: "anthropic", modelName: "claude-sonnet-4-6" },
+  { id: "m-glm", displayName: "glm-5.3-flash (thinking off)", provider: "vllm-dgx-14", modelName: "glm-5.3-flash", supportsThinking: true },
+  { id: "m-sonnet", displayName: null, provider: "anthropic", modelName: "claude-sonnet-4-6", supportsThinking: true },
 ];
 const tplA = 'Instrument A.\n\n"{{user_prompt}}"\n\n{{checklist_block}}';
 const tplB = 'Instrument B — default to fail.\n\n"{{user_prompt}}"\n\n{{checklist_items}}';
@@ -42,8 +42,8 @@ describe("planVlmRuns", () => {
   it("without variants plans one run per model under production's instrument, as before", () => {
     const runs = planVlmRuns(models, undefined);
     expect(runs).toEqual([
-      { modelId: "m-glm", modelLabel: "glm-5.3-flash (thinking off)", runOrder: 1, judgePromptVariantId: null, judgePromptTemplate: null, judgeResponseShape: null },
-      { modelId: "m-sonnet", modelLabel: "anthropic/claude-sonnet-4-6", runOrder: 2, judgePromptVariantId: null, judgePromptTemplate: null, judgeResponseShape: null },
+      { modelId: "m-glm", modelLabel: "glm-5.3-flash (thinking off)", runOrder: 1, judgePromptVariantId: null, judgePromptTemplate: null, judgeResponseShape: null, judgeThinkingEffort: "off" },
+      { modelId: "m-sonnet", modelLabel: "anthropic/claude-sonnet-4-6", runOrder: 2, judgePromptVariantId: null, judgePromptTemplate: null, judgeResponseShape: null, judgeThinkingEffort: "off" },
     ]);
   });
 
@@ -130,5 +130,42 @@ describe("two runs over one example set with different variants", () => {
     expect(s).toContain("Category: Brackets (complexity level 4/10)");
     expect(result.instrumentId).toMatch(/^production@[0-9a-f]{12}$/);
     expect(result.thinkingEffort).toBe("off");
+  });
+});
+
+describe("judge thinking efforts on planned runs (issue #99)", () => {
+  const thinkers = models;
+
+  it("plans every run at thinking off unless efforts are given — the row's default never decides", () => {
+    const runs = planVlmRuns(thinkers, undefined);
+    expect(runs.map((r) => r.judgeThinkingEffort)).toEqual(["off", "off"]);
+  });
+
+  it("with efforts plans one run per model, variant and effort, model-major then variant then effort", () => {
+    const runs = planVlmRuns(thinkers, [{ id: "a", template: tplA }], ["off", "medium"]);
+    expect(runs.map((r) => [r.modelId, r.judgePromptVariantId, r.judgeThinkingEffort])).toEqual([
+      ["m-glm", "a", "off"], ["m-glm", "a", "medium"],
+      ["m-sonnet", "a", "off"], ["m-sonnet", "a", "medium"],
+    ]);
+    expect(runs.map((r) => r.runOrder)).toEqual([1, 2, 3, 4]);
+  });
+
+  const reject = (efforts: string[], ms: typeof thinkers, re: RegExp) => {
+    let err: unknown;
+    try { validateJudgeThinkingEfforts(efforts, ms); } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(ExperimentError);
+    expect((err as ExperimentError).statusCode).toBe(400);
+    expect((err as Error).message).toMatch(re);
+  };
+
+  it("accepts known, distinct efforts on thinking models", () => {
+    expect(() => validateJudgeThinkingEfforts(["off", "medium"], thinkers)).not.toThrow();
+  });
+  it("rejects an empty list — omit the field for thinking off", () => reject([], thinkers, /at least one/i));
+  it("rejects an effort outside the vocabulary", () => reject(["sometimes"], thinkers, /sometimes/));
+  it("rejects a repeated effort", () => reject(["off", "off"], thinkers, /duplicate/i));
+  it("rejects a non-off effort for a model that cannot think, naming the model", () => {
+    const mixed = [thinkers[0], { ...models[1], supportsThinking: false }];
+    reject(["medium"], mixed, /claude-sonnet-4-6.*does not support thinking/);
   });
 });

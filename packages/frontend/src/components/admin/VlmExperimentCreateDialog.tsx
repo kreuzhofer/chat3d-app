@@ -27,7 +27,11 @@ interface VlmModel {
   modelName: string;
   provider: string;
   supportsVision: boolean;
+  supportsThinking: boolean;
 }
+
+/** The judge thinking efforts an experiment can ask for (issue #99); "off" is the only qualified setting. */
+const JUDGE_THINKING_EFFORTS = ["off", "low", "medium", "high", "max"] as const;
 
 interface Category {
   id: string;
@@ -46,6 +50,8 @@ export function VlmExperimentCreateDialog({ token, onClose, onSaved, experiment 
     experiment?.runs.map((r) => r.modelId).filter(Boolean) as string[] ?? [],
   );
 
+  // One run per model and effort; "off" unless the experiment deliberately asks otherwise (issue #99).
+  const [judgeEfforts, setJudgeEfforts] = useState<string[]>(["off"]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [vlmModels, setVlmModels] = useState<VlmModel[]>([]);
   const [preview, setPreview] = useState<{ totalEligible: number; selected: PreviewExample[] } | null>(null);
@@ -96,13 +102,19 @@ export function VlmExperimentCreateDialog({ token, onClose, onSaved, experiment 
     }
   }, [token, selectedCategoryIds, exampleCount, exampleSeed]);
 
-  const totalRuns = selectedModelIds.length;
+  const totalRuns = isEdit ? selectedModelIds.length : selectedModelIds.length * judgeEfforts.length;
+  const thinkingAsked = judgeEfforts.some((e) => e !== "off");
+  const cannotThink = vlmModels.filter((m) => selectedModelIds.includes(m.id) && !m.supportsThinking);
+  const toggleEffort = (effort: string) => {
+    setJudgeEfforts((prev) => prev.includes(effort) ? prev.filter((e) => e !== effort) : [...prev, effort]);
+  };
   const hasModels = totalRuns >= 1;
 
   const handleSubmit = async () => {
     if (!name.trim()) { setError("Name is required"); return; }
     if (selectedCategoryIds.length === 0) { setError("Select at least one category"); return; }
     if (!hasModels) { setError("Select at least one VLM model"); return; }
+    if (!isEdit && judgeEfforts.length === 0) { setError("Select at least one judge thinking effort"); return; }
 
     setSubmitting(true);
     setError(null);
@@ -122,6 +134,7 @@ export function VlmExperimentCreateDialog({ token, onClose, onSaved, experiment 
           exampleCount,
           exampleSeed,
           modelIds: selectedModelIds,
+          judgeThinkingEfforts: judgeEfforts,
         });
       }
       onSaved();
@@ -227,6 +240,36 @@ export function VlmExperimentCreateDialog({ token, onClose, onSaved, experiment 
             </p>
           )}
         </div>
+
+        {/* Judge thinking effort (issue #99): off unless deliberately asked */}
+        {!isEdit && (
+          <div>
+            <Label>Judge thinking (one run per model and effort; qualified judges run at off)</Label>
+            <div className="flex flex-wrap gap-3 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] p-2">
+              {JUDGE_THINKING_EFFORTS.map((effort) => (
+                <label key={effort} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-[hsl(var(--muted))]">
+                  <input
+                    type="checkbox"
+                    checked={judgeEfforts.includes(effort)}
+                    onChange={() => toggleEffort(effort)}
+                    className="accent-[hsl(var(--primary))]"
+                  />
+                  <span className="text-sm text-[hsl(var(--foreground))]">{effort}</span>
+                </label>
+              ))}
+            </div>
+            {thinkingAsked && cannotThink.length > 0 && (
+              <p className="mt-2 text-xs text-[hsl(var(--destructive))]">
+                {cannotThink.map((m) => `${m.provider}/${m.modelName}`).join(", ")} does not support thinking; only off can run there.
+              </p>
+            )}
+            {thinkingAsked && cannotThink.length === 0 && (
+              <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
+                A judge at any effort other than off is not the qualified judge; its rows are stamped with the effort they ran at.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Preview button + results */}
         <div>

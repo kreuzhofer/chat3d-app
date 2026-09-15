@@ -20,10 +20,20 @@ async function request<T>(token: string, path: string, init: RequestInit = {}): 
 
 // ── Types ───────────────────────────────────────────────────────────
 
-/** Display name of a run: the model, plus the judge-prompt variant when it has one. */
-export function runDisplayLabel(run: { modelLabel: string; judgePromptVariantId?: string | null }, short = false): string {
+/**
+ * Display name of a run: the model, plus the judge-prompt variant when it has
+ * one, plus the thinking effort when it is not the default "off" (issue #99) —
+ * two runs of one model at different efforts are two judges.
+ */
+export function runDisplayLabel(
+  run: { modelLabel: string; judgePromptVariantId?: string | null; judgeThinkingEffort?: string | null },
+  short = false,
+): string {
   const model = short ? (run.modelLabel.split("/").pop() ?? run.modelLabel) : run.modelLabel;
-  return run.judgePromptVariantId ? `${model} · ${run.judgePromptVariantId}` : model;
+  const parts = [model];
+  if (run.judgePromptVariantId) parts.push(run.judgePromptVariantId);
+  if (run.judgeThinkingEffort && run.judgeThinkingEffort !== "off") parts.push(`thinking ${run.judgeThinkingEffort}`);
+  return parts.join(" · ");
 }
 
 export interface VlmExperimentRun {
@@ -31,6 +41,8 @@ export interface VlmExperimentRun {
   modelLabel: string;
   /** Judge-prompt variant this run judges under; null = production's instrument. */
   judgePromptVariantId?: string | null;
+  /** Thinking effort the run judges at (issue #99); null = a run from before the field, at its row default. */
+  judgeThinkingEffort?: string | null;
   status: string;
   model?: { displayName: string | null };
 }
@@ -57,7 +69,7 @@ export interface VlmExperimentListItem {
   categoryNames: string[];
   promptCount: number;
   status: string;
-  runs: Array<{ id: string; modelLabel: string; status: string; judgePromptVariantId?: string | null }>;
+  runs: Array<{ id: string; modelLabel: string; status: string; judgePromptVariantId?: string | null; judgeThinkingEffort?: string | null }>;
   createdAt: string;
 }
 
@@ -67,6 +79,7 @@ export interface VlmExperimentStatus {
     runId: string;
     modelLabel: string;
     judgePromptVariantId?: string | null;
+    judgeThinkingEffort?: string | null;
     status: string;
     completedExamples: number;
     totalExamples: number;
@@ -77,6 +90,7 @@ export interface VlmRunMetrics {
   runId: string;
   modelLabel: string;
   judgePromptVariantId?: string | null;
+  judgeThinkingEffort?: string | null;
   runOrder: number;
   totalExamples: number;
   evaluatedCount: number;
@@ -153,6 +167,8 @@ export async function createVlmExperiment(
     name: string; categoryIds: string[]; exampleCount: number; exampleSeed?: number; modelIds: string[];
     /** One run per model and variant; omit for production's instrument. */
     judgePromptVariants?: Array<{ id: string; template: string }>;
+    /** Thinking efforts to judge at, one run per model and effort; omitted = every run at "off" (issue #99). */
+    judgeThinkingEfforts?: string[];
   },
 ): Promise<VlmExperiment> {
   return request(token, "", { method: "POST", body: JSON.stringify(input) });

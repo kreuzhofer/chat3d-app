@@ -22,7 +22,7 @@ Per-model (or per-purpose override) control of reasoning depth: `low`/`medium`/`
 _Avoid_: reasoning budget (that is one provider-specific realization of effort)
 
 **Short internal call**:
-A small utility LLM call with a tight output cap that is not user-visible chat (chat naming, tag suggestion, decomposition decision). Short internal calls always run with thinking off, regardless of the assigned Model's thinking configuration.
+A small utility LLM call with a tight output cap that is not user-visible chat (chat naming, tag suggestion, decomposition decision). Short internal calls always run with thinking off, regardless of the assigned Model's thinking configuration. A **judge evaluation in a VLM experiment** likewise runs at `off` unless the run explicitly carries another effort (issue #99): a Judge is qualified per thinking setting (ADR 0004), so the Model row's default never decides what an experiment measures.
 
 ### Evaluation
 

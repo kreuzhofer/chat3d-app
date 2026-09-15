@@ -16,6 +16,7 @@ import {
   computeInstrumentId,
   currentInstrumentId,
   judgeThinkingEffort,
+  withJudgeThinking,
   PRODUCTION_INSTRUMENT,
   PRODUCTION_INSTRUMENT_NAME,
 } from "../services/visual-eval-instrument-id.service.js";
@@ -89,5 +90,30 @@ describe("judgeThinkingEffort", () => {
 
   it("is null when a thinking model runs on its server default", () => {
     expect(judgeThinkingEffort({ supportsThinking: true, thinkingEffort: null })).toBeNull();
+  });
+});
+
+describe("withJudgeThinking (issue #99)", () => {
+  const row = { supportsThinking: true, thinkingEffort: "medium" as string | null };
+
+  it("runs a judge at thinking off whatever the model row's default says", () => {
+    expect(withJudgeThinking(row, null).thinkingEffort).toBe("off");
+    expect(withJudgeThinking({ ...row, thinkingEffort: null }, null).thinkingEffort).toBe("off");
+  });
+
+  it("runs at the effort an experiment explicitly asks for", () => {
+    expect(withJudgeThinking(row, "medium").thinkingEffort).toBe("medium");
+    expect(withJudgeThinking({ ...row, thinkingEffort: "off" }, "high").thinkingEffort).toBe("high");
+  });
+
+  it("leaves a model that cannot think alone, and refuses to ask it to", () => {
+    const plain = { supportsThinking: false, thinkingEffort: null };
+    expect(withJudgeThinking(plain, null)).toEqual(plain);
+    expect(withJudgeThinking(plain, "off")).toEqual(plain);
+    expect(() => withJudgeThinking(plain, "medium")).toThrow(/does not support thinking/);
+  });
+
+  it("refuses an effort the vocabulary does not know", () => {
+    expect(() => withJudgeThinking(row, "sometimes")).toThrow(/sometimes/);
   });
 });

@@ -647,6 +647,8 @@ model ExperimentRun {
   /// The answer shape the run's instrument asks for (issue #66). NULL =
   /// production's score/issues/suggestions/checklist.
   judgeResponseShape   String? @map("judge_response_shape") @db.VarChar(32)
+  /// The thinking effort this run judges at (issue #99); NULL = created before the column, ran at the row default.
+  judgeThinkingEffort  String? @map("judge_thinking_effort") @db.VarChar(16)
 
   // Relations
   experiment Experiment              @relation(fields: [experimentId], references: [id], onDelete: Cascade, onUpdate: NoAction)

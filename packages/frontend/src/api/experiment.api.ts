@@ -266,6 +266,7 @@ export async function listLlmModels(token: string) {
     displayName: (m.display_name ?? m.displayName ?? null) as string | null,
     isActive: (m.is_active ?? m.isActive ?? true) as boolean,
     supportsVision: (m.supports_vision ?? m.supportsVision ?? false) as boolean,
+    supportsThinking: (m.supports_thinking ?? m.supportsThinking ?? false) as boolean,
   }));
 }
 
