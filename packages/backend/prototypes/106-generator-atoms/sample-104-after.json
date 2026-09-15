@@ -1,0 +1,1202 @@
+{
+  "summary": {
+    "seed": 104,
+    "size": 23,
+    "skippedNoKnowledge": 0,
+    "roughAtomsPerPrompt": 8.173913043478262,
+    "roughAskablePerPrompt": 3.739130434782609,
+    "enrichedAtomsPerPrompt": 9.608695652173912,
+    "enrichedAskablePerPrompt": 4.130434782608695,
+    "shareAtLeast3Askable": 1,
+    "roughShareAtLeast3Askable": 0.8260869565217391,
+    "firstReplyAccepted": 1,
+    "retriedThenAccepted": 0,
+    "failedAfterRetry": 0,
+    "failureReasons": []
+  },
+  "rows": [
+    {
+      "promptId": "73057277-0993-4eea-a5d9-47247affc23f",
+      "category": "Sketch Operations",
+      "prompt": "A flat triangular plate with a circular hole: equilateral triangle 100mm sides with a 20mm-diameter hole at the centroid",
+      "roughAtoms": 7,
+      "roughAskable": 4,
+      "enrichedAtoms": 8,
+      "enrichedAskable": 4,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "Overall shape is a flat equilateral triangle",
+          "visibility": "visual"
+        },
+        {
+          "text": "A single circular through-hole is visible at the center of the triangle",
+          "visibility": "visual"
+        },
+        {
+          "text": "The hole is centered on the triangle centroid",
+          "visibility": "visual"
+        },
+        {
+          "text": "The plate has uniform thickness (flat top and bottom faces)",
+          "visibility": "visual"
+        },
+        {
+          "text": "All three sides of the triangle are 100 mm",
+          "visibility": "code"
+        },
+        {
+          "text": "The circular hole has a diameter of 20 mm",
+          "visibility": "code"
+        },
+        {
+          "text": "The plate thickness is 5 mm",
+          "visibility": "code"
+        },
+        {
+          "text": "The hole center coincides with the centroid of the equilateral triangle at (0, 0)",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "0f55ec89-bee6-438e-81ca-1052e4063e10",
+      "category": "Missing Examples",
+      "prompt": "A panel-mount housing modeled by revolving a stepped profile 360 degrees around its central axis. The profile has a hori",
+      "roughAtoms": 9,
+      "roughAskable": 4,
+      "enrichedAtoms": 9,
+      "enrichedAskable": 3,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "The part is a single revolved solid with a wider flange at the base and a narrower cylindrical body on top",
+          "visibility": "visual"
+        },
+        {
+          "text": "A flat annular shoulder ring is visible between the flange and the cylindrical body",
+          "visibility": "visual"
+        },
+        {
+          "text": "The flange is visibly wider than the cylindrical body",
+          "visibility": "visual"
+        },
+        {
+          "text": "Flange outer diameter is 22 mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Flange thickness is 3 mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Cylindrical body diameter is 16 mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Cylindrical body height is 15 mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Total part height is 18 mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Radial step from flange to body is 3 mm (radius 11 mm to 8 mm)",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "70103410-8366-41a5-be2a-a611d4159306",
+      "category": "Electronic Components",
+      "prompt": "A heatsink: rectangular base 40mm x 40mm x 4mm with five vertical rectangular fins on top, each 40mm long, 20mm tall, 2m",
+      "roughAtoms": 7,
+      "roughAskable": 4,
+      "enrichedAtoms": 8,
+      "enrichedAskable": 4,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "Exactly five vertical rectangular fins are present on top of the base",
+          "visibility": "visual"
+        },
+        {
+          "text": "Fins are evenly spaced with equal gaps between adjacent fins",
+          "visibility": "visual"
+        },
+        {
+          "text": "Fins run the full length of the base, flush with both X-edges",
+          "visibility": "visual"
+        },
+        {
+          "text": "Fins are parallel to each other and perpendicular to the base top face",
+          "visibility": "visual"
+        },
+        {
+          "text": "Base plate dimensions are 40mm (X) × 40mm (Y) × 4mm (Z)",
+          "visibility": "code"
+        },
+        {
+          "text": "Each fin is 40mm (X) × 2mm (Y) × 20mm (Z)",
+          "visibility": "code"
+        },
+        {
+          "text": "Center-to-center spacing between adjacent fins is 7.5mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Fin Y-axis center positions are -15.0, -7.5, 0.0, +7.5, +15.0 mm",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "0ef1d5f6-f509-459a-9ce0-a699f600329e",
+      "category": "bd_warehouse Examples",
+      "prompt": "A metric trapezoidal external thread Tr10x2, 30mm long, with a fade-in start and chamfered end.",
+      "roughAtoms": 7,
+      "roughAskable": 3,
+      "enrichedAtoms": 11,
+      "enrichedAskable": 4,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "Overall shape is a cylindrical screw with a visible helical thread ridge running along its length",
+          "visibility": "visual"
+        },
+        {
+          "text": "Thread is external, projecting outward from the core cylinder surface",
+          "visibility": "visual"
+        },
+        {
+          "text": "Start end shows a smooth fade-in with no abrupt thread onset",
+          "visibility": "visual"
+        },
+        {
+          "text": "Far end shows a visible chamfered bevel",
+          "visibility": "visual"
+        },
+        {
+          "text": "Major diameter of the thread is 10mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Minor diameter (core) is 8mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Thread pitch is 2mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Total thread length is 30mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Thread included angle is 30 degrees (15 degrees per flank)",
+          "visibility": "code"
+        },
+        {
+          "text": "Far-end chamfer is 45 degrees with 0.5mm axial extent",
+          "visibility": "code"
+        },
+        {
+          "text": "Radial thread height from core to crest is 1mm",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "8a234f7e-411e-4e7a-9c95-d1e334664609",
+      "category": "Missing Examples",
+      "prompt": "A cylinder 30mm diameter and 20mm tall with a concave groove cut around its full circumference at mid-height. The groove",
+      "roughAtoms": 10,
+      "roughAskable": 4,
+      "enrichedAtoms": 9,
+      "enrichedAskable": 4,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "The part has a visible concave groove around its full circumference at mid-height, creating a pinched waist",
+          "visibility": "visual"
+        },
+        {
+          "text": "Top and bottom faces are flat and wider than the waist",
+          "visibility": "visual"
+        },
+        {
+          "text": "The groove is centered at the mid-height of the cylinder",
+          "visibility": "visual"
+        },
+        {
+          "text": "Outer diameter of the cylinder is 30mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Total height of the cylinder is 20mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Radial depth of the groove from outer surface to apex is 3mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Axial width of the groove at the outer surface is 4mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Minimum diameter at the groove apex is 24mm",
+          "visibility": "code"
+        },
+        {
+          "text": "The solid is a single connected body of revolution with no internal cavities",
+          "visibility": "both"
+        }
+      ]
+    },
+    {
+      "promptId": "c28feb3a-d4d1-4436-b419-86e68dd8a878",
+      "category": "Boolean Operations",
+      "prompt": "A hollow cube, open at the top: a 60mm solid cube with a 50mm cube subtracted from the centre, leaving 5mm walls.",
+      "roughAtoms": 0,
+      "roughAskable": 0,
+      "enrichedAtoms": 8,
+      "enrichedAskable": 3,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "The part is a hollow open-top tray (no top face present)",
+          "visibility": "visual"
+        },
+        {
+          "text": "The outer shape is a cube with equal length, width, and height",
+          "visibility": "visual"
+        },
+        {
+          "text": "The interior cavity is visible from above through the open top",
+          "visibility": "visual"
+        },
+        {
+          "text": "Outer cube side length is 60mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Wall thickness on all closed faces is 5mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Interior cavity X and Y dimensions are 50mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Interior cavity Z dimension is 55mm",
+          "visibility": "code"
+        },
+        {
+          "text": "The top rim width in plan view is 5mm",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "bda7db94-3090-4adf-a854-a530a956b465",
+      "category": "Missing Examples",
+      "prompt": "A straight picture frame moulding bar 100mm long with a cross-section 30mm wide and 25mm tall, featuring a flat back fac",
+      "roughAtoms": 10,
+      "roughAskable": 5,
+      "enrichedAtoms": 8,
+      "enrichedAskable": 4,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "The part is a solid rectangular bar with a single rectangular groove on one bottom edge and no other openings or holes",
+          "visibility": "visual"
+        },
+        {
+          "text": "The rabbet groove is visible on one side of the bottom edge, running the full length of the bar",
+          "visibility": "visual"
+        },
+        {
+          "text": "The back face (opposite the rabbet side) is completely flat and uncut",
+          "visibility": "visual"
+        },
+        {
+          "text": "The rabbet appears as a narrow, shallow step relative to the overall bar cross-section",
+          "visibility": "visual"
+        },
+        {
+          "text": "Overall bar bounding box is 100mm × 30mm × 25mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Rabbet width is 5mm and rabbet depth is 4mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Rabbet centerline is at 12.5mm from the bar centerline on the Y axis",
+          "visibility": "code"
+        },
+        {
+          "text": "Rabbet length equals the full 100mm bar length with no end gaps",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "fa80dec5-a859-46b2-b88a-a9dafa2bac0a",
+      "category": "Missing Examples",
+      "prompt": "A cable duct assembly 200mm long consisting of two parts. The main body is a U-channel extruded 200mm along its length, ",
+      "roughAtoms": 10,
+      "roughAskable": 3,
+      "enrichedAtoms": 12,
+      "enrichedAskable": 5,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "The assembly consists of two separate parts: a U-channel base and a flat lid cover",
+          "visibility": "visual"
+        },
+        {
+          "text": "The U-channel base has an open top with a visible rectangular inner cavity running the full length",
+          "visibility": "visual"
+        },
+        {
+          "text": "The cover plate is a flat rectangular solid with no raised features or lips",
+          "visibility": "visual"
+        },
+        {
+          "text": "The cover plate spans the full outer width of the U-channel, flush with both side walls",
+          "visibility": "visual"
+        },
+        {
+          "text": "The U-channel cross-section is U-shaped with the open side facing upward",
+          "visibility": "visual"
+        },
+        {
+          "text": "U-channel outer width is 46mm",
+          "visibility": "code"
+        },
+        {
+          "text": "U-channel outer height is 33mm",
+          "visibility": "code"
+        },
+        {
+          "text": "U-channel inner cavity is 40mm wide and 30mm deep",
+          "visibility": "code"
+        },
+        {
+          "text": "Wall thickness is uniformly 3mm on the bottom and both side walls",
+          "visibility": "code"
+        },
+        {
+          "text": "U-channel extrusion length is 200mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Cover plate is 46mm wide, 200mm long, and 3mm thick",
+          "visibility": "code"
+        },
+        {
+          "text": "Total assembly height is 36mm",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "e9d7f575-1ebc-41bf-be24-688cf21ca2ea",
+      "category": "PCB Cases",
+      "prompt": "A Arduino Mega 2560 case: rectangular box 110mm x 62mm x 25mm with 2mm walls. Four M2.5 standoffs (5mm tall) inside at t",
+      "roughAtoms": 15,
+      "roughAskable": 7,
+      "enrichedAtoms": 13,
+      "enrichedAskable": 6,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "Two separate solid parts are visible: an open-top box and a flat plate",
+          "visibility": "visual"
+        },
+        {
+          "text": "The box is open on top with no lid covering it",
+          "visibility": "visual"
+        },
+        {
+          "text": "Four small cylindrical posts are visible inside the box at the corners",
+          "visibility": "visual"
+        },
+        {
+          "text": "A rectangular opening is visible in one of the short-side walls of the box",
+          "visibility": "visual"
+        },
+        {
+          "text": "The flat plate is positioned upside-down (thick face down) next to the box",
+          "visibility": "visual"
+        },
+        {
+          "text": "The box and the plate are separated and not touching",
+          "visibility": "visual"
+        },
+        {
+          "text": "Case outer dimensions are 110mm x 62mm x 25mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Wall and floor thickness is 2mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Each standoff has an outer diameter of 5mm and a height of 5mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Each standoff has a center bore of 2.5mm diameter",
+          "visibility": "code"
+        },
+        {
+          "text": "Port cutout measures 12mm x 7mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Lid plate measures 110mm x 62mm x 3mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Gap between the nearest edges of the case and the lid is 20mm",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "b7b5f960-cb8f-462d-9759-c8219776e28b",
+      "category": "Extrusions and Revolutions",
+      "prompt": "A round knob for a drawer: mushroom profile revolved — 35mm diameter cap, 10mm stem, 20mm total height.",
+      "roughAtoms": 6,
+      "roughAskable": 3,
+      "enrichedAtoms": 10,
+      "enrichedAskable": 5,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "Mushroom silhouette: wider rounded top over a narrower cylindrical stem",
+          "visibility": "visual"
+        },
+        {
+          "text": "Flat circular bottom face",
+          "visibility": "visual"
+        },
+        {
+          "text": "Top is a rounded dome, not a flat circular face",
+          "visibility": "visual"
+        },
+        {
+          "text": "Single continuous solid with no visible seams or separate parts",
+          "visibility": "visual"
+        },
+        {
+          "text": "Stem is visibly narrower than the cap",
+          "visibility": "visual"
+        },
+        {
+          "text": "Stem diameter is 10 mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Cap maximum diameter is 35 mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Total height from bottom face to dome apex is 20 mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Cylindrical stem section height is 12 mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Cap dome section spans 6 mm of height (Z=14 to Z=20)",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "1eab8ae5-17aa-42fd-9fc3-aa05c5ee5350",
+      "category": "Missing Examples",
+      "prompt": "A cable management clip measuring 30mm long, 8mm wide, and 4mm tall designed to hold a flat FFC cable against a surface.",
+      "roughAtoms": 8,
+      "roughAskable": 2,
+      "enrichedAtoms": 12,
+      "enrichedAskable": 4,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "The clip is a rectangular box with an open bottom, forming a U-channel profile when viewed from the end",
+          "visibility": "visual"
+        },
+        {
+          "text": "A rectangular slot is visible in the top face, centered and running along the length",
+          "visibility": "visual"
+        },
+        {
+          "text": "Retention lips are visible on both inner long walls, protruding inward",
+          "visibility": "visual"
+        },
+        {
+          "text": "The bottom face is completely open with no floor material",
+          "visibility": "visual"
+        },
+        {
+          "text": "Outer bounding box is 30mm × 8mm × 4mm",
+          "visibility": "code"
+        },
+        {
+          "text": "End wall and top face thickness is 1.5mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Top slot measures 22mm × 2mm and is centered in the 30mm × 8mm top face",
+          "visibility": "code"
+        },
+        {
+          "text": "Slot margins are 4mm on each short end and 3mm on each long side",
+          "visibility": "code"
+        },
+        {
+          "text": "Retention lip protrusion is 0.5mm inward from the inner wall face",
+          "visibility": "code"
+        },
+        {
+          "text": "Retention lip bottom face is at Z=1.0mm and lip top face is at Z=1.5mm (0.5mm vertical height)",
+          "visibility": "code"
+        },
+        {
+          "text": "Retention lips span the full 30mm length in the X direction",
+          "visibility": "code"
+        },
+        {
+          "text": "Clear gap between the two retention lip inner edges is 4.0mm",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "a3a81880-1b3f-4a23-ac10-35ba62597ffa",
+      "category": "Arrays and Patterns",
+      "prompt": "A flat plate 150mm × 100mm × 5mm with a 4×3 grid of embossed circular labels (raised rings 20mm OD, 14mm ID, 1mm tall).",
+      "roughAtoms": 11,
+      "roughAskable": 5,
+      "enrichedAtoms": 8,
+      "enrichedAskable": 4,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "Overall shape is a flat rectangular plate with a uniform thickness",
+          "visibility": "visual"
+        },
+        {
+          "text": "Twelve raised circular rings are visible on the top face in a 4×3 grid arrangement",
+          "visibility": "visual"
+        },
+        {
+          "text": "Each ring is annular (has a visible circular opening in its center)",
+          "visibility": "visual"
+        },
+        {
+          "text": "Rings are raised above the plate surface (embossed), not recessed",
+          "visibility": "visual"
+        },
+        {
+          "text": "Plate dimensions are 150 mm × 100 mm × 5 mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Ring outer diameter is 20 mm and inner diameter is 14 mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Ring height above the plate top face is 1 mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Column center-to-center spacing is 37.5 mm and row center-to-center spacing is 33.333 mm",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "7b465774-d9cd-4410-9d32-30de898b58ef",
+      "category": "Missing Examples",
+      "prompt": "A 16mm diameter, 15mm tall cylinder rising from the center of the top face of a 22mm diameter, 3mm thick circular disc, ",
+      "roughAtoms": 5,
+      "roughAskable": 2,
+      "enrichedAtoms": 9,
+      "enrichedAskable": 4,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "The solid has a wider flat circular base and a narrower taller cylindrical top, forming a stepped coaxial profile",
+          "visibility": "visual"
+        },
+        {
+          "text": "The top cylinder is centered on the base disc (coaxial alignment)",
+          "visibility": "visual"
+        },
+        {
+          "text": "The solid is a single unified piece with no visible seam, gap, or separation between the disc and the cylinder",
+          "visibility": "visual"
+        },
+        {
+          "text": "The base disc is visibly wider than the top cylinder, producing a flat annular overhang at the junction",
+          "visibility": "visual"
+        },
+        {
+          "text": "Base disc diameter is 22mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Base disc thickness is 3mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Top cylinder diameter is 16mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Top cylinder height is 15mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Total solid height from bottom of disc to top of cylinder is 18mm",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "1edc2e4b-2f08-4002-989b-fa28b1a872f8",
+      "category": "Missing Examples",
+      "prompt": "A flat disc 24mm in diameter and 2.5mm thick, centered on top of a 10mm diameter by 8mm tall cylinder, all as one solid ",
+      "roughAtoms": 9,
+      "roughAskable": 5,
+      "enrichedAtoms": 9,
+      "enrichedAskable": 3,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "The part has a two-tier silhouette: a narrow cylindrical lower section topped by a wider flat disc, resembling a button or pin head",
+          "visibility": "visual"
+        },
+        {
+          "text": "The upper disc is visibly wider than the lower cylinder, with a flat annular shoulder between them",
+          "visibility": "visual"
+        },
+        {
+          "text": "No holes, openings, or internal cavities are visible on any face of the part",
+          "visibility": "visual"
+        },
+        {
+          "text": "The lower cylinder has a diameter of 10mm",
+          "visibility": "code"
+        },
+        {
+          "text": "The lower cylinder has a height of 8mm",
+          "visibility": "code"
+        },
+        {
+          "text": "The upper disc has a diameter of 24mm",
+          "visibility": "code"
+        },
+        {
+          "text": "The upper disc has a thickness of 2.5mm",
+          "visibility": "code"
+        },
+        {
+          "text": "The total part height from base to top is 10.5mm",
+          "visibility": "code"
+        },
+        {
+          "text": "The annular shoulder radial width is 7mm",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "3cca49ea-b5f3-4b3d-a9e3-c9254665b499",
+      "category": "Missing Examples",
+      "prompt": "A U-shaped channel 200mm long, 40mm wide inner cavity, 30mm deep inner cavity, with 3mm wall thickness on the bottom and",
+      "roughAtoms": 6,
+      "roughAskable": 2,
+      "enrichedAtoms": 8,
+      "enrichedAskable": 4,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "The cross-section is a U-shape open at the top",
+          "visibility": "visual"
+        },
+        {
+          "text": "Both ends of the channel are fully open with no end caps",
+          "visibility": "visual"
+        },
+        {
+          "text": "The channel is open along the entire top face with no top wall",
+          "visibility": "both"
+        },
+        {
+          "text": "Walls appear thin relative to the inner cavity",
+          "visibility": "visual"
+        },
+        {
+          "text": "Overall outer length is 200mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Overall outer width is 46mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Overall outer height is 33mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Wall thickness is 3mm on the bottom and each side",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "67b3ddfe-d2d0-4182-83ef-cf6c65ff179b",
+      "category": "Missing Examples",
+      "prompt": "A solid consisting of a 12mm diameter × 10mm tall cylinder stacked on top of a 18mm diameter × 2mm flat disc, fused into",
+      "roughAtoms": 9,
+      "roughAskable": 4,
+      "enrichedAtoms": 13,
+      "enrichedAskable": 6,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "Two-tier mushroom/peg shape with a wider flat base and a narrower cylinder stacked on top",
+          "visibility": "visual"
+        },
+        {
+          "text": "A single circular opening is visible at both the top and bottom faces, indicating a through-hole",
+          "visibility": "visual"
+        },
+        {
+          "text": "The base disc is visibly wider than the upper cylinder",
+          "visibility": "visual"
+        },
+        {
+          "text": "The upper cylinder is visibly taller than the base disc",
+          "visibility": "visual"
+        },
+        {
+          "text": "The model is a single fused solid with no visible seam or gap between the two tiers",
+          "visibility": "visual"
+        },
+        {
+          "text": "Base disc diameter is 18mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Base disc thickness is 2mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Upper cylinder diameter is 12mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Upper cylinder height is 10mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Central through-hole diameter is 5mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Total model height is 12mm",
+          "visibility": "code"
+        },
+        {
+          "text": "The through-hole extends the full 12mm height of the solid from bottom face to top face",
+          "visibility": "code"
+        },
+        {
+          "text": "The through-hole is coaxial with both the disc and the cylinder (same central axis)",
+          "visibility": "both"
+        }
+      ]
+    },
+    {
+      "promptId": "008049fc-f49b-4a63-8115-9c01f49e9a83",
+      "category": "Boolean Operations",
+      "prompt": "A pipe flange: cylinder 80mm diameter and 15mm tall fused to a disc 140mm diameter and 10mm tall, with four 12mm bolt ho",
+      "roughAtoms": 8,
+      "roughAskable": 3,
+      "enrichedAtoms": 11,
+      "enrichedAskable": 5,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "Overall shape is a stepped cylinder with a wider lower disc and a narrower upper hub",
+          "visibility": "visual"
+        },
+        {
+          "text": "Exactly four holes are visible in the flat ring area of the flange",
+          "visibility": "visual"
+        },
+        {
+          "text": "The four holes are arranged in a symmetric 90-degree circular pattern",
+          "visibility": "visual"
+        },
+        {
+          "text": "Holes are located in the annular region between the hub wall and the flange outer edge",
+          "visibility": "visual"
+        },
+        {
+          "text": "The radial step between the flange and hub is clearly visible as a ledge",
+          "visibility": "both"
+        },
+        {
+          "text": "Total height of the solid is 25mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Flange diameter is 140mm and flange thickness is 10mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Hub diameter is 80mm and hub height is 15mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Each hole has a diameter of 12mm and passes fully through the 10mm flange thickness",
+          "visibility": "code"
+        },
+        {
+          "text": "Bolt circle radius is 55mm (110mm diameter)",
+          "visibility": "code"
+        },
+        {
+          "text": "Radial step at the flange-to-hub transition is 30mm",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "edddb863-6d4a-4641-a1f8-323d77f00ee2",
+      "category": "Simple Everyday Objects",
+      "prompt": "A simple wine bottle stopper: cylinder 19mm diameter and 30mm long (the cork portion), topped by a wider flat disc 40mm ",
+      "roughAtoms": 8,
+      "roughAskable": 3,
+      "enrichedAtoms": 8,
+      "enrichedAskable": 3,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "Two distinct cylindrical sections are visible: a narrow lower cylinder and a wider upper disc",
+          "visibility": "visual"
+        },
+        {
+          "text": "The upper section is clearly wider in diameter than the lower section",
+          "visibility": "visual"
+        },
+        {
+          "text": "The handle disc sits directly on top of the cork cylinder with no visible gap between them",
+          "visibility": "visual"
+        },
+        {
+          "text": "Lower cylinder diameter is 19mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Lower cylinder height is 30mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Upper cylinder diameter is 40mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Upper cylinder thickness is 10mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Total model height from bottom face to top face is 40mm",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "4f3213aa-0536-45a1-b649-ff1cd912a431",
+      "category": "Missing Examples",
+      "prompt": "A 200mm long extruded L-shaped lip profile: the vertical leg is 4mm tall and 2mm thick, the horizontal leg is 3mm wide a",
+      "roughAtoms": 7,
+      "roughAskable": 3,
+      "enrichedAtoms": 8,
+      "enrichedAskable": 3,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "Cross-section has an L-shape with two perpendicular legs meeting at a right angle",
+          "visibility": "visual"
+        },
+        {
+          "text": "The profile is uniform and constant along the full extrusion length with no taper or variation",
+          "visibility": "visual"
+        },
+        {
+          "text": "The vertical leg is visibly taller than the horizontal leg is wide",
+          "visibility": "visual"
+        },
+        {
+          "text": "Extrusion length is 200mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Vertical leg height is 4mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Vertical leg thickness is 2mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Horizontal leg width is 3mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Horizontal leg thickness is 2mm",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "8469f936-684e-4237-a5c0-3d00e43d552a",
+      "category": "Arrays and Patterns",
+      "prompt": "A large disc 150mm diameter and 20mm thick with eight 10mm holes on a 120mm bolt circle.",
+      "roughAtoms": 9,
+      "roughAskable": 5,
+      "enrichedAtoms": 8,
+      "enrichedAskable": 3,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "A flat cylindrical disc shape with a circular cross-section",
+          "visibility": "visual"
+        },
+        {
+          "text": "Eight through-holes are visible as open circular openings on the disc face",
+          "visibility": "visual"
+        },
+        {
+          "text": "Holes are evenly spaced around the disc center",
+          "visibility": "visual"
+        },
+        {
+          "text": "Disc outer diameter is 150mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Disc thickness is 20mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Each through-hole diameter is 10mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Holes are centered on a 120mm diameter bolt circle",
+          "visibility": "code"
+        },
+        {
+          "text": "Angular spacing between adjacent holes is 45 degrees",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "d4035453-4218-4bee-8b65-137d0aab5265",
+      "category": "Surface Modifications",
+      "prompt": "A cylindrical container: cylinder 80mm diameter and 120mm tall, shelled to 3mm, open at the top, with a 2mm fillet on th",
+      "roughAtoms": 9,
+      "roughAskable": 5,
+      "enrichedAtoms": 12,
+      "enrichedAskable": 5,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "Overall shape is a cylinder with a circular cross-section",
+          "visibility": "visual"
+        },
+        {
+          "text": "Top is open (no lid, no cap, no cover)",
+          "visibility": "visual"
+        },
+        {
+          "text": "Bottom is closed (no opening at base)",
+          "visibility": "visual"
+        },
+        {
+          "text": "No holes, no handles, no protrusions on the body",
+          "visibility": "visual"
+        },
+        {
+          "text": "Top rim shows a smooth rounded fillet transition on both the outer and inner edges",
+          "visibility": "visual"
+        },
+        {
+          "text": "Outer diameter is 80mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Total height is 120mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Wall thickness is 3mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Inner diameter is 74mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Bottom plate thickness is 3mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Fillet radius on the outer top rim edge is 2mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Fillet radius on the inner top rim edge is 2mm",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "6db71ea7-b909-49f0-8238-520437e0e5b0",
+      "category": "Missing Examples",
+      "prompt": "Two solid rectangular blocks, both 30mm long and 10mm wide. The bottom block is 10mm tall, sitting on the ground plane w",
+      "roughAtoms": 8,
+      "roughAskable": 4,
+      "enrichedAtoms": 11,
+      "enrichedAskable": 5,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "Two separate solid rectangular blocks are visible, not connected to each other",
+          "visibility": "visual"
+        },
+        {
+          "text": "A clearly open gap is visible between the two blocks",
+          "visibility": "visual"
+        },
+        {
+          "text": "The bottom block is visibly taller than the top block",
+          "visibility": "visual"
+        },
+        {
+          "text": "Both blocks share the same width and depth footprint",
+          "visibility": "visual"
+        },
+        {
+          "text": "The gap between the blocks is visibly larger than the top block's height",
+          "visibility": "visual"
+        },
+        {
+          "text": "Bottom block dimensions are 30mm × 10mm × 10mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Top block dimensions are 30mm × 10mm × 5mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Bottom block bottom face is at Z=0",
+          "visibility": "code"
+        },
+        {
+          "text": "Top block bottom face is at Z=25mm",
+          "visibility": "code"
+        },
+        {
+          "text": "The vertical air gap between the top face of the bottom block and the bottom face of the top block is 15mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Both blocks are solid prisms with no internal cavities, holes, or hollow features",
+          "visibility": "code"
+        }
+      ]
+    },
+    {
+      "promptId": "587760a2-8b36-484b-999b-7c1b01fbc46c",
+      "category": "Generic Enclosures",
+      "prompt": "A simple cable organiser box for a desk: 150mm × 100mm × 80mm with a 80mm × 60mm opening on the back for cable exit and ",
+      "roughAtoms": 10,
+      "roughAskable": 6,
+      "enrichedAtoms": 8,
+      "enrichedAskable": 4,
+      "attempts": 1,
+      "failure": null,
+      "enriched": [
+        {
+          "text": "Rectangular box with a closed top and closed bottom",
+          "visibility": "visual"
+        },
+        {
+          "text": "Two rectangular cutouts present: one on the front face and one on the back face",
+          "visibility": "visual"
+        },
+        {
+          "text": "The front opening is visibly wider than the back opening",
+          "visibility": "visual"
+        },
+        {
+          "text": "Side walls are solid with no cutouts",
+          "visibility": "visual"
+        },
+        {
+          "text": "Outer box dimensions are 150mm (X) × 100mm (Y) × 80mm (Z)",
+          "visibility": "code"
+        },
+        {
+          "text": "Uniform wall thickness is 3mm",
+          "visibility": "code"
+        },
+        {
+          "text": "Front access opening measures 100mm (X) × 40mm (Z)",
+          "visibility": "code"
+        },
+        {
+          "text": "Back cable-exit opening measures 80mm (X) × 60mm (Z)",
+          "visibility": "code"
+        }
+      ]
+    }
+  ]
+}
