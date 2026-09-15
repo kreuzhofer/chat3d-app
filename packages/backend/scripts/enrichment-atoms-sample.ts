@@ -19,7 +19,7 @@ import { prisma } from "../src/db/prisma.js";
 import { generateSpec } from "../src/services/spec-generation.service.js";
 import { runResearch } from "../src/services/research-agent.service.js";
 import { enrichSpec } from "../src/services/spec-enrichment.service.js";
-import { judgeAskable } from "../src/services/spec-enrichment-atoms.js";
+import { judgeAskable } from "../src/services/requirement-atoms.js";
 import { detectPromptOperations } from "../src/prompts/system-prompts.js";
 import { createLogger } from "../src/utils/logger.js";
 

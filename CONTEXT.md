@@ -86,6 +86,10 @@ _Avoid_: context, example data, prompt (ambiguous with the user's request)
 A property of an example that the prompt states or necessarily implies ("four standoffs" means exactly four; "a through hole" passes through). Requirements are what criteria are generated from, and the only things a Checklist item may gate on.
 _Avoid_: detail, feature, spec
 
+**Requirement atom**:
+The unit spec generation and enrichment emit for a Requirement: `{text, visibility}`, one requirement per entry, the visibility saying which evaluator can answer it (`visual` for what a render shows — shape, openings, and the count, presence, openness and placement the prompt states; `code` for every measurement; `both` only without a number). A bare string, an entry without a visibility, or a bundled entry (a visual fact carrying a millimetre figure) is a refused reply, retried once and then surfaced — never an atom by default (ADR 0002).
+_Avoid_: criterion string, check, annotated criterion
+
 **Assumption**:
 A choice the spec made where the prompt was silent. Never gates. Becomes a Requirement only once a clarification pass writes it into the prompt.
 _Avoid_: default, interpretation

@@ -194,6 +194,7 @@ describe("formatDisambiguationResponse", () => {
       requiresDecomposition: false,
       decompositionReasoning: "",
       evalPlan: null,
+      parseLevel: "json",
     };
 
     const result = formatDisambiguationResponse("I'd be happy to help you create that!", spec);
@@ -221,6 +222,7 @@ describe("formatDisambiguationResponse", () => {
       requiresDecomposition: false,
       decompositionReasoning: "",
       evalPlan: null,
+      parseLevel: "json",
     };
 
     const result = formatDisambiguationResponse("Let me help.", spec);

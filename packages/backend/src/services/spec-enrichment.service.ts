@@ -25,7 +25,7 @@ import type { ResearchPackage } from "./research-agent.service.js";
 import type { SpecResult } from "./spec-generation.service.js";
 import { createLogger } from "../utils/logger.js";
 import type { AnnotatedCriterion } from "./spec-generation.service.js";
-import { ATOMS_RULES, parseEnrichmentAtoms, type AtomsFailureReason } from "./spec-enrichment-atoms.js";
+import { REQUIREMENT_ATOMS_RULES, parseRequirementAtoms, type AtomsFailureReason } from "./requirement-atoms.js";
 
 const logger = createLogger("spec-enrich");
 
@@ -70,7 +70,7 @@ Rules:
 - If reference data contradicts the rough spec, prefer the reference data
 - If no reference data is relevant to a particular line, keep the original value
 - Also produce 3-8 verification criteria: objective structural checks referencing ONLY geometry (not object identity), as REQUIREMENT ATOMS:
-${ATOMS_RULES}
+${REQUIREMENT_ATOMS_RULES}
 
 Return JSON only:
 {
@@ -174,7 +174,7 @@ export async function enrichSpec(
         enrichedSpec = parsed.constructionSpec;
       }
       const result = parsed
-        ? parseEnrichmentAtoms(parsed.verificationCriteria)
+        ? parseRequirementAtoms(parsed.verificationCriteria)
         : { ok: false as const, reason: "unparseable" as const, offending: streamResult.text.slice(-120) };
       if (result.ok) { atoms = result.atoms; break; }
       reasons.push(result.reason);
