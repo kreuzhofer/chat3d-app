@@ -98,6 +98,19 @@ describe("enrichSpec emits atoms by contract", () => {
     expect(result.constructionSpec).toBe("- exact dims");
   });
 
+  it("treats an unparseable reply as a failed attempt and retries it, instead of failing open", async () => {
+    respondInOrder(
+      '{"constructionSpec": "- exact dims", "verificationCriteria": [{"text": "cut off',
+      JSON.stringify({ constructionSpec: "- exact dims", verificationCriteria: ATOMS }),
+    );
+
+    const result = await enrichSpec(roughSpec as never, RESEARCH);
+
+    expect(streamTextMock).toHaveBeenCalledTimes(2);
+    expect(result.verificationCriteria).toEqual(ATOMS);
+    expect(result.criteriaFailure).toBeUndefined();
+  });
+
   it("keeps the rough spec's atoms when the model returns nothing usable at all", async () => {
     respondInOrder(
       JSON.stringify({ constructionSpec: "- refined", verificationCriteria: [] }),

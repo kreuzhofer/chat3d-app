@@ -15,6 +15,7 @@ import { namesAMeasurement } from "../utils/verification-criteria.js";
 import type { AnnotatedCriterion } from "./spec-generation.service.js";
 
 export type AtomsFailureReason =
+  | "unparseable"
   | "not-an-array"
   | "empty"
   | "bare-string"

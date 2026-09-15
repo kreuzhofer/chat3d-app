@@ -89,6 +89,7 @@ const CRITERIA_ATTEMPTS = 2;
 function retryMessage(reason: AtomsFailureReason, offending: unknown): string {
   const shown = typeof offending === "string" ? JSON.stringify(offending) : JSON.stringify(offending)?.slice(0, 300);
   const why: Record<AtomsFailureReason, string> = {
+    "unparseable": "the reply was not valid JSON (truncated or malformed)",
     "not-an-array": "verificationCriteria was not a list",
     "empty": "verificationCriteria was empty",
     "bare-string": `an entry was a bare string (${shown}); every entry must be {"text", "visibility"}`,
@@ -160,11 +161,18 @@ export async function enrichSpec(
       completionTokens += streamResult.usage?.outputTokens ?? 0;
       rawResponse = streamResult.text;
 
-      const parsed = JSON.parse(extractJson(streamResult.text)) as { constructionSpec?: unknown; verificationCriteria?: unknown };
-      if (typeof parsed.constructionSpec === "string" && parsed.constructionSpec.trim()) {
+      let parsed: { constructionSpec?: unknown; verificationCriteria?: unknown } | null = null;
+      try {
+        parsed = JSON.parse(extractJson(streamResult.text)) as typeof parsed;
+      } catch (err) {
+        logger.warn({ attempt, err: err instanceof Error ? err.message : String(err) }, "enrichment reply was not JSON");
+      }
+      if (parsed && typeof parsed.constructionSpec === "string" && parsed.constructionSpec.trim()) {
         enrichedSpec = parsed.constructionSpec;
       }
-      const result = parseEnrichmentAtoms(parsed.verificationCriteria);
+      const result = parsed
+        ? parseEnrichmentAtoms(parsed.verificationCriteria)
+        : { ok: false as const, reason: "unparseable" as const, offending: streamResult.text.slice(-120) };
       if (result.ok) { atoms = result.atoms; break; }
       reasons.push(result.reason);
       logger.warn({ attempt, reason: result.reason, offending: result.offending }, "enrichment criteria refused: not requirement atoms");
