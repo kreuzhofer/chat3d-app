@@ -9,6 +9,7 @@
  *   GET /export/spec-gen-jsonl       — (legacy) Spec generation training data
  *   GET /export/spec-enrichment-jsonl — (legacy) Spec enrichment training data
  *   GET /export/agent-tools          — Tool definitions JSON (for inspection)
+ *   GET /export/judge-sft.tar.gz     — The judge fine-tuning set as one tarball: samples.jsonl, manifest.json, images/ (#94)
  */
 
 import { Router } from "express";
@@ -20,6 +21,9 @@ import {
 } from "../services/workbench-training-export.service.js";
 import { exportAgentSyntheticTrainingJsonl } from "../services/training-export/agent-synthetic.exporter.js";
 import { listFormats, getFormat } from "../services/training-export/registry.js";
+import { buildJudgeSftExport } from "../services/training-export/judge-sft.exporter.js";
+import { getStorageAbsolutePath } from "../services/file-storage.service.js";
+import archiver from "archiver";
 import type { ExportFormatId } from "../services/training-export/types.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -118,4 +122,34 @@ trainingExportRouter.get("/export/agent-tools", async (_req, res) => {
     logger.error({ err: error }, "agent tools export failed");
     res.status(500).json({ error: "Export failed", detail: String(error) });
   }
+});
+
+/**
+ * The judge fine-tuning set in its handover shape (#94): one gzipped tarball
+ * with the samples, the manifest and the PNGs by the relative paths the
+ * samples use. Built fully before the first byte is sent, so a failure is a
+ * 500 and never a truncated archive.
+ */
+trainingExportRouter.get("/export/judge-sft.tar.gz", async (_req, res) => {
+  let built;
+  try {
+    built = await buildJudgeSftExport();
+  } catch (error) {
+    logger.error({ err: error }, "judge sft export failed");
+    res.status(500).json({ error: "Export failed", detail: String(error) });
+    return;
+  }
+  res.setHeader("Content-Type", "application/gzip");
+  res.setHeader("Content-Disposition", "attachment; filename=judge-sft.tar.gz");
+  const archive = archiver("tar", { gzip: true });
+  archive.on("error", (err: Error) => { logger.error({ err }, "judge sft archive failed"); res.destroy(err); });
+  archive.pipe(res);
+  archive.append(built.jsonl, { name: "samples.jsonl" });
+  archive.append(JSON.stringify(built.manifest, null, 2), { name: "manifest.json" });
+  for (const image of built.images) {
+    if (image.storagePath) archive.file(getStorageAbsolutePath(image.storagePath), { name: image.name });
+    else if (image.inline) archive.append(Buffer.from(image.inline.replace(/^data:[^,]*,/, ""), "base64"), { name: image.name });
+  }
+  logger.info({ samples: built.manifest.counts.samples, items: built.manifest.counts.items, images: built.images.length }, "judge sft export streamed");
+  void archive.finalize();
 });

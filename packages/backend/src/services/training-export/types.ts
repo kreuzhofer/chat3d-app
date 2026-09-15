@@ -1,7 +1,8 @@
 export type ExportFormatId =
   | "openai-multitask"
   | "sharegpt-codegen"
-  | "alpaca-codegen";
+  | "alpaca-codegen"
+  | "judge-sft";
 
 export type CommentMode = "none" | "smart" | "smarter";
 
