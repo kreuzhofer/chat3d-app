@@ -52,7 +52,10 @@ const HAS_STANDARD_VIEWS: Prisma.WorkbenchExampleWhereInput = {
 
 /** Rated rows whose Instrument id is not `currentId` (pre-versioning rows included). */
 export function staleRatingWhere(currentId: string): Prisma.WorkbenchExampleWhereInput {
-  return { ...RATED, OR: [{ vlmInstrumentId: null }, { vlmInstrumentId: { not: currentId } }] };
+  // Stale by instrument (ADR 0003) or by items: the prompt's criteria were
+  // regenerated after the rating (#89), so the answers are to questions that
+  // no longer exist.
+  return { ...RATED, OR: [{ vlmInstrumentId: null }, { vlmInstrumentId: { not: currentId } }, { ratingItemsStale: true }] };
 }
 
 export interface InstrumentStatus {

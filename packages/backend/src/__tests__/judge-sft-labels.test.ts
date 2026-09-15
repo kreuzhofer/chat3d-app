@@ -30,12 +30,13 @@ describe("labelPairs", () => {
     const { items, drops } = labelPairs(pairs, new Map([decision(4, "N"), decision(5, "R")]), "s1");
     expect(items.map((i) => [i.index, i.pass, i.source])).toEqual([[0, true, "agreed"], [1, false, "agreed"]]);
     expect(items[0].detail).toBe("ref saw 0");
-    expect(drops).toEqual({ open: 1, neither: 1, uncertain: 2 });
+    expect(drops).toEqual({ open: 1, neither: 1, uncertain: 2, orphaned: 0 });
   });
 
-  it("refuses an adjudication whose question no longer matches the item at its index", () => {
-    expect(() => labelPairs([pair(0, false, true, "is the lid present?")], new Map([decision(0, "R", "is the base flat?")]), "s1"))
-      .toThrow(/asks "is the base flat\?" but the paired item asks "is the lid present\?"/);
+  it("drops and counts an adjudication whose question no longer matches the item at its index", () => {
+    const { items, drops } = labelPairs([pair(0, false, true, "is the lid present?")], new Map([decision(0, "R", "is the base flat?")]), "s1");
+    expect(items).toEqual([]);
+    expect(drops.orphaned).toBe(1);
   });
 
   it("strips the zoom merge's prefix from the evidence", () => {

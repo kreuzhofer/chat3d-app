@@ -176,6 +176,8 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
       vlmReasoning: evalResult.vlmReasoning ?? null,
       vlmSystemPrompt: evalResult.vlmSystemPrompt ?? null,
       vlmInstrumentId: evalResult.vlmInstrumentId ?? null,
+      // The rating now answers the current items (#89).
+      ratingItemsStale: false,
       vlmThinkingEffort: evalResult.vlmThinkingEffort ?? null,
       evalChecklistState: evalResult.evalChecklistState ?? null,
       codeReviewRawResponse: evalResult.codeReviewRawResponse ?? null,

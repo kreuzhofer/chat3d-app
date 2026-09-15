@@ -18,6 +18,8 @@ import { getLlmSemaphore } from "../utils/resource-limits.js";
 import {
   getModelForPurpose,
   createProviderModel as createProviderModelFromConfig,
+  buildGenerateOptions,
+  maxOutputWithThinking,
   type LlmModelConfig,
 } from "./llm-config.service.js";
 import { formatResearchSection } from "./research-format.service.js";
@@ -227,7 +229,11 @@ async function callEnrichmentModel(
     model,
     system: ENRICHMENT_SYSTEM_PROMPT,
     messages,
-    maxOutputTokens: 4096,
+    // The model's thinking setting and a budget that holds it (as the
+    // generator does): without them the recipe's default reasoning ate the
+    // 4,096-token budget and replies came back cut off (#89 dry run).
+    ...buildGenerateOptions(config),
+    maxOutputTokens: maxOutputWithThinking(4096, config),
     temperature: 0.5,
   }, {
     purpose: "spec_generation",

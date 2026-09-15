@@ -425,6 +425,10 @@ model WorkbenchExamplePrompt {
   codeAssertions           Json?                          @map("code_assertions") @db.JsonB
   verificationChecklist    Json?                          @map("verification_checklist") @db.JsonB
   verificationCriteria     Json?                          @map("verification_criteria") @db.JsonB
+  /// The criteria this prompt carried before its last regeneration (issue #89), kept for before/after coverage.
+  verificationCriteriaPrevious Json?                      @map("verification_criteria_previous") @db.JsonB
+  /// When the criteria were last regenerated as requirement atoms; NULL = never.
+  criteriaRegeneratedAt    DateTime?                      @map("criteria_regenerated_at") @db.Timestamptz(6)
   specRawResponse          String?                        @map("spec_raw_response") @db.Text
   specSystemPrompt         String?                        @map("spec_system_prompt") @db.Text
   enrichmentRawResponse    String?                        @map("enrichment_raw_response") @db.Text
@@ -490,6 +494,9 @@ model WorkbenchExample {
   /// the whole procedure (ADR 0003). NULL = pre-versioning or not rated. A
   /// rating whose id is not the current one is Stale.
   vlmInstrumentId       String?  @map("vlm_instrument_id") @db.VarChar(80)
+  /// True when the prompt's criteria were regenerated after this rating (issue #89):
+  /// the rating answers items that no longer exist, so it is Stale by items. Cleared by the re-rating.
+  ratingItemsStale      Boolean  @default(false) @map("rating_items_stale")
   /// The judge's effective thinking effort for this rating (ADR 0004).
   vlmThinkingEffort     String?  @map("vlm_thinking_effort") @db.VarChar(16)
   codeReviewRawResponse String?  @map("code_review_raw_response") @db.Text

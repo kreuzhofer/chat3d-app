@@ -41,6 +41,8 @@ export interface LabelDrops {
   neither: number;
   /** Both judges uncertain, or the judge that was right had said uncertain. */
   uncertain: number;
+  /** Adjudicated, but the item's question has since been regenerated (#89): the verdict no longer has an item. */
+  orphaned: number;
 }
 
 export const decisionKey = (exampleId: string, index: number): string => `${exampleId}:${index}`;
@@ -52,10 +54,11 @@ export function cleanDetail(item: StoredChecklistItem): string {
 }
 
 /**
- * Label every paired item of one sitting. Throws when an adjudication's
- * question no longer matches the item at its index — the candidate side of a
- * drawn sitting is read live from the corpus, and a re-generated checklist
- * would silently shift every verdict onto the wrong question.
+ * Label every paired item of one sitting. An adjudication whose question no
+ * longer matches the item at its index is **orphaned** — the candidate side
+ * of a drawn sitting is read live from the corpus, and a regenerated
+ * checklist (#89) has replaced the question the verdict was about. It is
+ * dropped and counted, never re-paired onto the new question.
  */
 export function labelPairs(
   pairs: ItemPair[],
@@ -63,17 +66,13 @@ export function labelPairs(
   sittingId: string,
 ): { items: LabelledItem[]; drops: LabelDrops } {
   const items: LabelledItem[] = [];
-  const drops: LabelDrops = { open: 0, neither: 0, uncertain: 0 };
+  const drops: LabelDrops = { open: 0, neither: 0, uncertain: 0, orphaned: 0 };
   for (const p of pairs) {
     const d = decisions.get(decisionKey(p.exampleId, p.index));
     const refState = itemState(p.ref);
     const candState = itemState(p.cand);
     if (d) {
-      if (d.question.trim() !== p.question.trim()) {
-        throw new Error(
-          `Adjudication on ${p.exampleId} item ${p.index} asks "${d.question}" but the paired item asks "${p.question}" (sitting ${sittingId})`,
-        );
-      }
+      if (d.question.trim() !== p.question.trim()) { drops.orphaned++; continue; }
       if (d.decision === "N") { drops.neither++; continue; }
       const right = d.decision === "R" ? p.ref : p.cand;
       if (typeof right.pass !== "boolean") { drops.uncertain++; continue; }

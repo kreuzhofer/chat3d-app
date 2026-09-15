@@ -56,7 +56,7 @@ describe("staleRatingWhere", () => {
   it("selects rated production rows under another id or under none", () => {
     expect(staleRatingWhere(CURRENT)).toEqual({
       renderStatus: "success", experimentRunId: null, visualScore: { not: null },
-      OR: [{ vlmInstrumentId: null }, { vlmInstrumentId: { not: CURRENT } }],
+      OR: [{ vlmInstrumentId: null }, { vlmInstrumentId: { not: CURRENT } }, { ratingItemsStale: true }],
     });
   });
 });
@@ -93,7 +93,7 @@ describe("startBatchReRateStale", () => {
     findMany.mockResolvedValue([row]);
     const summary = await startBatchReRateStale({ limit: 40, categoryId: "cat1" });
     const args = findMany.mock.calls[0][0];
-    expect(args.where.OR).toEqual([{ vlmInstrumentId: null }, { vlmInstrumentId: { not: CURRENT } }]);
+    expect(args.where.OR).toEqual([{ vlmInstrumentId: null }, { vlmInstrumentId: { not: CURRENT } }, { ratingItemsStale: true }]);
     for (const f of ["screenshotFront", "screenshotBack", "screenshotLeft", "screenshotRight", "screenshotTop", "screenshotBottom", "screenshotOrtho45", "screenshotOrtho45Bottom"]) {
       expect(args.where[f]).toEqual({ not: null });
     }
