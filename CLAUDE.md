@@ -147,6 +147,8 @@ On first launch with an empty database, the app shows an interactive setup page 
 - `GET /api/admin/tags` — List all tags (admin)
 - `GET /api/admin/workbench/instrument` — The visual judge's current Instrument id, how much of the rated corpus is Stale, the export's admission, and the rows the pipeline rejected before the judge, split by reason (admin)
 - `POST /api/admin/workbench/re-rate-stale/batch` — Re-rate a batch of Stale ratings with the `vlm_eval` judge, resumable (admin, optional `limit`/`categoryId`)
+- `GET /api/admin/workbench/export/training-jsonl?format=judge-sft` — The judge fine-tuning set as JSONL (OpenAI chat format, the eight views as image parts by relative path; #94)
+- `GET /api/admin/workbench/export/judge-sft.tar.gz` — The same set in its handover shape: `samples.jsonl`, `manifest.json` (instrument id, label source per item, judge pairs, held-out ids) and `images/` (admin)
 - `GET /api/admin/workbench/adjudication/sittings` — List adjudication sittings with their tally under ADR 0004's terms (admin)
 - `POST /api/admin/workbench/adjudication/sittings` — Start a sitting: `referenceRunId` plus one of `candidateRunId` / `productionExperimentId`; the disagreement set is frozen (admin)
 - `GET /api/admin/workbench/adjudication/sittings/:id` — A sitting's items (both judges' answers, the triage, the decision) and tally (admin)

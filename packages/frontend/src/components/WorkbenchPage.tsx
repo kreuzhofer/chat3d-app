@@ -267,7 +267,7 @@ export function WorkbenchPage() {
     if (!token) return;
     const item = EXPORT_MENU_ITEMS.find((it) => it.menuId === menuId);
     if (!item) return;
-    const url =
+    const url = item.path ??
       `/api/admin/workbench/export/training-jsonl` +
       `?format=${encodeURIComponent(item.formatId)}` +
       `&commentMode=${encodeURIComponent(item.commentMode)}`;

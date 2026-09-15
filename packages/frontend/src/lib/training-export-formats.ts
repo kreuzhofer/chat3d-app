@@ -1,4 +1,4 @@
-export type ExportFormatId = "openai-multitask" | "sharegpt-codegen" | "alpaca-codegen";
+export type ExportFormatId = "openai-multitask" | "sharegpt-codegen" | "alpaca-codegen" | "judge-sft";
 export type CommentMode = "none" | "smart" | "smarter";
 
 export interface ExportMenuItem {
@@ -8,6 +8,8 @@ export interface ExportMenuItem {
   commentMode: CommentMode;
   label: string;
   filename: string;
+  /** A route of its own instead of the format dispatch (the judge tarball, #94). */
+  path?: string;
 }
 
 export const EXPORT_MENU_ITEMS: ExportMenuItem[] = [
@@ -59,5 +61,20 @@ export const EXPORT_MENU_ITEMS: ExportMenuItem[] = [
     commentMode: "smart",
     label: "Alpaca — smart strip (densest UI-safe)",
     filename: "training-data-alpaca-codegen-smart.jsonl",
+  },
+  {
+    menuId: "judge-sft-jsonl",
+    formatId: "judge-sft",
+    commentMode: "none",
+    label: "Judge SFT — JSONL only (images by path)",
+    filename: "judge-sft.jsonl",
+  },
+  {
+    menuId: "judge-sft-tarball",
+    formatId: "judge-sft",
+    commentMode: "none",
+    label: "Judge SFT — tarball with images and manifest",
+    filename: "judge-sft.tar.gz",
+    path: "/api/admin/workbench/export/judge-sft.tar.gz",
   },
 ];
