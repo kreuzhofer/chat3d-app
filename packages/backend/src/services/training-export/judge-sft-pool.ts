@@ -10,7 +10,7 @@ import { drawIds } from "../adjudication-draw.service.js";
 import { pairItems } from "../qualification-screen.service.js";
 import { loadProductionRun, loadRun, RunNotPairableError } from "../qualification-screen-load.service.js";
 import { currentInstrumentId } from "../visual-eval-instrument-id.service.js";
-import { heldOutExampleIds, HELD_OUT_EXPERIMENT_IDS } from "./judge-sft-held-out.js";
+import { heldOutRows, HELD_OUT_EXPERIMENT_IDS, type HeldOutRows } from "./judge-sft-held-out.js";
 import {
   capAgreedPasses, decisionKey, labelPairs, mergeLabels,
   type CapReport, type DecisionRecord, type LabelDrops, type LabelledItem,
@@ -43,7 +43,7 @@ export interface ReferenceSummary { score: number | null; issues: string[]; sugg
 
 export interface JudgePool {
   instrumentId: string;
-  heldOut: { experimentIds: string[]; exampleIds: string[] };
+  heldOut: { experimentIds: string[] } & HeldOutRows;
   sittings: PoolSitting[];
   skipped: SkippedSitting[];
   cap: CapReport;
@@ -54,8 +54,8 @@ export interface JudgePool {
 
 export async function loadJudgePool(): Promise<JudgePool> {
   const instrumentId = await currentInstrumentId();
-  const heldOutIds = await heldOutExampleIds();
-  const heldOut = new Set(heldOutIds);
+  const held = await heldOutRows();
+  const heldOut = new Set([...held.exampleIds, ...held.siblingExampleIds]);
   const sittings = await prisma.adjudicationSitting.findMany({
     where: { completedAt: { not: null } },
     orderBy: { createdAt: "asc" },
@@ -125,7 +125,7 @@ export async function loadJudgePool(): Promise<JudgePool> {
   const { items, cap } = capAgreedPasses(merged, PASSES_PER_FAIL, (keys, n) => drawIds(keys, n, CAP_DRAW_SEED));
   return {
     instrumentId,
-    heldOut: { experimentIds: [...HELD_OUT_EXPERIMENT_IDS], exampleIds: heldOutIds },
+    heldOut: { experimentIds: [...HELD_OUT_EXPERIMENT_IDS], ...held },
     sittings: pool, skipped, cap, items, reference,
   };
 }

@@ -19,7 +19,7 @@ export interface JudgeSftManifest {
   instrumentId: string;
   /** How each sample's fields were filled, for the training side's reading. */
   rules: { evidence: string; scoreAndIssues: string; views: string };
-  heldOut: JudgePool["heldOut"] & { count: number };
+  heldOut: JudgePool["heldOut"] & { count: number; siblingCount: number };
   judgePairs: Array<Pick<JudgePool["sittings"][number], "id" | "title" | "candidateLabel" | "referenceLabel" | "labelled" | "heldOut" | "drops">>;
   skippedSittings: JudgePool["skipped"];
   cap: JudgePool["cap"];
@@ -100,7 +100,7 @@ export async function buildJudgeSftExport(): Promise<JudgeSftExport> {
       scoreAndIssues: "the reference's score, issues and suggestions for the whole example; the checklist lists only the labelled items, in corpus order.",
       views: "the eight standard views, labelled as the judge's user message labels them, by path relative to the tarball root.",
     },
-    heldOut: { ...pool.heldOut, count: pool.heldOut.exampleIds.length },
+    heldOut: { ...pool.heldOut, count: pool.heldOut.exampleIds.length, siblingCount: pool.heldOut.siblingExampleIds.length },
     judgePairs: pool.sittings.map(({ id, title, candidateLabel, referenceLabel, labelled, heldOut, drops }) => ({ id, title, candidateLabel, referenceLabel, labelled, heldOut, drops })),
     skippedSittings: pool.skipped,
     cap: pool.cap,

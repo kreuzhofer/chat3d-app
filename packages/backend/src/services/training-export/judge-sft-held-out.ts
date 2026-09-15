@@ -7,6 +7,10 @@
  * #87); its sample experiment is listed here by hand when the check is run,
  * and the manifest names every id, so the training side can verify the
  * exclusion rather than trust it.
+ *
+ * The cut is by prompt as well as by id (issue #95): another generation of
+ * a held-out prompt shares its prompt and checklist with the measurement
+ * set, so it is held out too. The manifest names those siblings separately.
  */
 import { prisma } from "../../db/prisma.js";
 import { HELD_OUT_EXPERIMENT_ID } from "../adjudication-draw.service.js";
@@ -29,4 +33,37 @@ export async function heldOutExampleIds(): Promise<string[]> {
     select: { exampleId: true },
   });
   return [...new Set(rows.map((r) => r.exampleId))].sort();
+}
+
+export interface HeldOutRows {
+  /** The measurement set and the spot-check samples, by example id, sorted. */
+  exampleIds: string[];
+  /** The prompts those examples were generated from, sorted. */
+  promptIds: string[];
+  /** Other examples of those prompts, not themselves selected, sorted. */
+  siblingExampleIds: string[];
+}
+
+/** Pure: the held-out prompts and their other generations among `rows`. */
+export function siblingsByPrompt(
+  heldOut: ReadonlySet<string>,
+  rows: ReadonlyArray<{ id: string; promptId: string }>,
+): Pick<HeldOutRows, "promptIds" | "siblingExampleIds"> {
+  const promptIds = new Set(rows.filter((r) => heldOut.has(r.id)).map((r) => r.promptId));
+  const siblings = rows.filter((r) => promptIds.has(r.promptId) && !heldOut.has(r.id)).map((r) => r.id);
+  return { promptIds: [...promptIds].sort(), siblingExampleIds: [...new Set(siblings)].sort() };
+}
+
+/** The held-out ids widened by prompt; the union is what the export cuts. */
+export async function heldOutRows(): Promise<HeldOutRows> {
+  const exampleIds = await heldOutExampleIds();
+  const heldOut = new Set(exampleIds);
+  const promptIds = await prisma.workbenchExample.findMany({
+    where: { id: { in: exampleIds } }, select: { promptId: true },
+  });
+  const rows = await prisma.workbenchExample.findMany({
+    where: { promptId: { in: [...new Set(promptIds.map((r) => r.promptId))] } },
+    select: { id: true, promptId: true },
+  });
+  return { exampleIds, ...siblingsByPrompt(heldOut, rows) };
 }
