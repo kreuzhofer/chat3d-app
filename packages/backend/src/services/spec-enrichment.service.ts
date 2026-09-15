@@ -82,6 +82,9 @@ Return JSON only:
   ]
 }`;
 
+/** The JSON the model is asked for; both fields are validated after parsing. */
+interface EnrichmentReply { constructionSpec?: unknown; verificationCriteria?: unknown }
+
 /** How many times the model is asked before the criteria are declared failed. */
 const CRITERIA_ATTEMPTS = 2;
 
@@ -161,9 +164,9 @@ export async function enrichSpec(
       completionTokens += streamResult.usage?.outputTokens ?? 0;
       rawResponse = streamResult.text;
 
-      let parsed: { constructionSpec?: unknown; verificationCriteria?: unknown } | null = null;
+      let parsed: EnrichmentReply | null = null;
       try {
-        parsed = JSON.parse(extractJson(streamResult.text)) as typeof parsed;
+        parsed = JSON.parse(extractJson(streamResult.text)) as EnrichmentReply;
       } catch (err) {
         logger.warn({ attempt, err: err instanceof Error ? err.message : String(err) }, "enrichment reply was not JSON");
       }
