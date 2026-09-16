@@ -1,0 +1,43 @@
+A. by model | Fable (imported sittings) |  | 172 | 170 | 145 | 25 | 2 | 72 | 100
+A. by model | Kimi K3 (app sittings) |  | 50 | 50 | 37 | 13 | 0 | 21 | 29
+A. by model | none |  | 1 | 0 | 0 | 0 | 1 | 0 | 1
+B. by model x direction | Fable (imported sittings) | cand fails / ref passes (false-fail question) | 101 | 101 | 90 | 11 | 0 | 55 | 46
+B. by model x direction | Fable (imported sittings) | cand passes / ref fails (false-pass question) | 66 | 64 | 50 | 14 | 2 | 16 | 50
+B. by model x direction | Fable (imported sittings) | one side uncertain | 5 | 5 | 5 | 0 | 0 | 1 | 4
+B. by model x direction | Kimi K3 (app sittings) | cand fails / ref passes (false-fail question) | 24 | 24 | 18 | 6 | 0 | 14 | 10
+B. by model x direction | Kimi K3 (app sittings) | cand passes / ref fails (false-pass question) | 21 | 21 | 16 | 5 | 0 | 4 | 17
+B. by model x direction | Kimi K3 (app sittings) | one side uncertain | 5 | 5 | 3 | 2 | 0 | 3 | 2
+B. by model x direction | none | cand passes / ref fails (false-pass question) | 1 | 0 | 0 | 0 | 1 | 0 | 1
+C. by model x triage side | Fable (imported sittings) | triage says C | 77 | 77 | 76 | 1 | 0 | 1 | 76
+C. by model x triage side | Fable (imported sittings) | triage says N | 2 | 0 | 0 | 0 | 2 | 2 | 0
+C. by model x triage side | Fable (imported sittings) | triage says R | 93 | 93 | 69 | 24 | 0 | 69 | 24
+C. by model x triage side | Kimi K3 (app sittings) | triage says C | 24 | 24 | 20 | 4 | 0 | 4 | 20
+C. by model x triage side | Kimi K3 (app sittings) | triage says R | 26 | 26 | 17 | 9 | 0 | 17 | 9
+C. by model x triage side | none | triage says - | 1 | 0 | 0 | 0 | 1 | 0 | 1
+D. by model x confidence | Fable (imported sittings) | confidence high | 95 | 95 | 89 | 6 | 0 | 45 | 50
+D. by model x confidence | Fable (imported sittings) | confidence low | 11 | 9 | 8 | 1 | 2 | 6 | 5
+D. by model x confidence | Fable (imported sittings) | confidence medium | 66 | 66 | 48 | 18 | 0 | 21 | 45
+D. by model x confidence | Kimi K3 (app sittings) | confidence high | 43 | 43 | 34 | 9 | 0 | 18 | 25
+D. by model x confidence | Kimi K3 (app sittings) | confidence medium | 7 | 7 | 3 | 4 | 0 | 3 | 4
+D. by model x confidence | none | confidence - | 1 | 0 | 0 | 0 | 1 | 0 | 1
+E. side x confidence | Fable | says C @ high | 44 | 44 | 0
+E. side x confidence | Fable | says C @ low | 4 | 4 | 0
+E. side x confidence | Fable | says C @ medium | 29 | 28 | 1
+E. side x confidence | Fable | says R @ high | 51 | 45 | 6
+E. side x confidence | Fable | says R @ low | 5 | 4 | 1
+E. side x confidence | Fable | says R @ medium | 37 | 20 | 17
+E. side x confidence | Kimi K3 | says C @ high | 20 | 18 | 2
+E. side x confidence | Kimi K3 | says C @ medium | 4 | 2 | 2
+E. side x confidence | Kimi K3 | says R @ high | 23 | 16 | 7
+E. side x confidence | Kimi K3 | says R @ medium | 3 | 1 | 2
+F. side x direction | Fable | says C on false-fail question | 37 | 36 | 1
+F. side x direction | Fable | says C on false-pass question | 36 | 36 | 0
+F. side x direction | Fable | says C on one side uncertain | 4 | 4 | 0
+F. side x direction | Fable | says R on false-fail question | 64 | 54 | 10
+F. side x direction | Fable | says R on false-pass question | 28 | 14 | 14
+F. side x direction | Fable | says R on one side uncertain | 1 | 1 | 0
+F. side x direction | Kimi K3 | says C on false-fail question | 8 | 6 | 2
+F. side x direction | Kimi K3 | says C on false-pass question | 16 | 14 | 2
+F. side x direction | Kimi K3 | says R on false-fail question | 16 | 12 | 4
+F. side x direction | Kimi K3 | says R on false-pass question | 5 | 2 | 3
+F. side x direction | Kimi K3 | says R on one side uncertain | 5 | 3 | 2
