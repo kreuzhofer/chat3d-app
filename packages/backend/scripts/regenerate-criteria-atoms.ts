@@ -13,7 +13,9 @@
  * spot-check sample — are never touched (Daniel, 2026-09-15): the grant, the
  * reference run and every screen compare on those items.
  *
- * Usage: npx tsx scripts/regenerate-criteria-atoms.ts [--dry-run] [--limit N] [--concurrency 4] [--out report.json]
+ * Usage: npx tsx scripts/regenerate-criteria-atoms.ts [--dry-run] [--limit N] [--concurrency 4] [--out report.json] [--include-atoms]
+ *   --include-atoms: also take prompts that already carry atoms but were never
+ *   regenerated — the ones written under the generator's old rule (#109).
  */
 import { writeFileSync } from "fs";
 import { prisma } from "../src/db/prisma.js";
@@ -32,8 +34,9 @@ function arg(name: string, fallback: string): string {
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 const DRY = process.argv.includes("--dry-run");
+const INCLUDE_ATOMS = process.argv.includes("--include-atoms");
 
-type Kind = "bare" | "empty" | "null";
+type Kind = "bare" | "empty" | "null" | "atoms";
 function kindOf(criteria: unknown): Kind | "atoms" {
   if (criteria == null) return "null";
   if (!Array.isArray(criteria)) return "bare";
@@ -68,7 +71,7 @@ async function main() {
       examples: { select: { id: true, visualScore: true } },
     },
     orderBy: { id: "asc" },
-  })).filter((p) => kindOf(p.verificationCriteria) !== "atoms" && !heldPrompts.has(p.id));
+  })).filter((p) => (INCLUDE_ATOMS || kindOf(p.verificationCriteria) !== "atoms") && !heldPrompts.has(p.id));
   const todo = limit > 0 ? candidates.slice(0, limit) : candidates;
 
   // Before/after: the approval status of every affected example at the start.
@@ -76,7 +79,8 @@ async function main() {
   const approvalBefore = await prisma.workbenchExample.groupBy({
     by: ["approvalStatus"], where: { id: { in: affectedIds } }, _count: { _all: true },
   });
-  logger.info({ candidates: candidates.length, todo: todo.length, heldOutPrompts: heldPrompts.size, dryRun: DRY, approvalBefore }, "regenerating criteria as atoms");
+  const byKind = todo.reduce<Record<string, number>>((acc, p) => { const k = kindOf(p.verificationCriteria); acc[k] = (acc[k] ?? 0) + 1; return acc; }, {});
+  logger.info({ candidates: candidates.length, todo: todo.length, byKind, includeAtoms: INCLUDE_ATOMS, heldOutPrompts: heldPrompts.size, dryRun: DRY, approvalBefore }, "regenerating criteria as atoms");
 
   const outcomes: Outcome[] = [];
   let next = 0;
@@ -133,7 +137,7 @@ async function main() {
   const done = outcomes.filter((o) => o.status === "regenerated");
   const n = done.length;
   const summary = {
-    dryRun: DRY, candidates: candidates.length, attempted: todo.length, regenerated: n,
+    dryRun: DRY, includeAtoms: INCLUDE_ATOMS, byKind, candidates: candidates.length, attempted: todo.length, regenerated: n,
     failed: outcomes.filter((o) => o.status === "failed").length,
     failureReasons: outcomes.filter((o) => o.status === "failed").map((o) => `${o.promptId}: ${o.reason}`),
     bySource: { generator: done.filter((o) => o.source === "generator").length, enrichment: done.filter((o) => o.source === "enrichment").length },
@@ -147,6 +151,9 @@ async function main() {
   writeFileSync(out, JSON.stringify({ summary, outcomes }, null, 2));
   logger.info({ ...summary, failureReasons: summary.failureReasons.length, out }, "regeneration finished");
   await prisma.$disconnect();
+  // A pub/sub subscription opened by an imported service keeps the event loop
+  // alive after the work is done; end the process explicitly.
+  process.exit(0);
 }
 
 main().catch((err) => { logger.error({ err }, "regeneration failed"); process.exit(1); });
