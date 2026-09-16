@@ -69,3 +69,17 @@ describe("a judge that returns a score and omits the checklist", () => {
     expect(shouldAutoApprove(9, THRESHOLD, parseChecklistResults(reply), true)).toBe(false);
   });
 });
+
+// The gate counts the code reviewer's items beside the judge's (ADR 0001, #105;
+// the live paths passed the visual list alone until #109).
+import { shouldAutoApprove as gateWithCodeItems } from "../services/workbench-pipeline-helpers.service.js";
+describe("shouldAutoApprove counts code items", () => {
+  const pass = { pass: true }; const fail = { pass: false };
+  it("reaches eligibility with two visual items and one code item", () => {
+    expect(gateWithCodeItems(9, 7.5, [pass, pass], true)).toBe(false);
+    expect(gateWithCodeItems(9, 7.5, [pass, pass], true, [pass])).toBe(true);
+  });
+  it("a failed code item pends the row even when every visual item passes", () => {
+    expect(gateWithCodeItems(9, 7.5, [pass, pass, pass], true, [fail])).toBe(false);
+  });
+});

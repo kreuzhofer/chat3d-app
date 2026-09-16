@@ -689,7 +689,7 @@ async function _runPipeline(
     ? false
     : agFullEval?.assertionsFailed
       ? false
-      : shouldAutoApprove(finalScore, dynAutoApprove, agFullEval?.checklistResults, agResult.renderSuccess);
+      : shouldAutoApprove(finalScore, dynAutoApprove, agFullEval?.checklistResults, agResult.renderSuccess, agFullEval?.codeItemResults);
   if (vlmMissing) {
     logger.warn({ exampleId: earlyExampleId }, "screenshots failed, VLM eval skipped — blocking auto-approval");
   }
@@ -759,7 +759,7 @@ async function _runPipeline(
 
         const fixApproved = fixEval?.assertionsFailed
           ? false
-          : shouldAutoApprove(finalScore, dynAutoApprove, fixEval?.checklistResults, fixResult.renderSuccess);
+          : shouldAutoApprove(finalScore, dynAutoApprove, fixEval?.checklistResults, fixResult.renderSuccess, fixEval?.codeItemResults);
 
         logger.info({ fixAttempt, newScore: finalScore, approved: fixApproved, promptId: ctx.promptId }, "fix attempt completed");
         traceBuilder.endPhase("completed");

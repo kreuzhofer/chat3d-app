@@ -5,7 +5,7 @@
  * context loading, approval logic, result builders, model resolution.
  */
 
-import { deriveVerdict } from "./approval-gate.service.js";
+import { deriveVerdict, gateItems } from "./approval-gate.service.js";
 import { prisma } from "../db/prisma.js";
 import { getModelForPurposeWithFallback, type LlmModelConfig } from "./llm-config.service.js";
 import { WorkbenchCatalogError } from "./workbench-catalog.service.js";
@@ -105,13 +105,23 @@ export async function resolveCodegenModel(): Promise<{ model: any; label: string
  * The rule and its version live in approval-gate.service; this wrapper
  * carries no rule of its own. Assertions are the caller's own branch.
  */
+/**
+ * The gate over the stored items of BOTH evaluators (ADR 0001, #105): the
+ * visual judge's answers and the code reviewer's. Passing the visual list
+ * alone — as every live path did until #109's re-rating showed 267 rows
+ * pending on "fewer than three items" with code items sitting beside them —
+ * misses items that failed and under-counts eligibility.
+ */
 export function shouldAutoApprove(
   score: number | null,
   threshold: number,
   checklistResults: ReadonlyArray<{ pass: boolean | null }> | null | undefined,
   renderSuccess: boolean,
+  codeItemResults?: ReadonlyArray<{ pass: boolean | null }> | null,
 ): boolean {
-  return deriveVerdict({ renderSuccess, assertionsFailed: false, items: checklistResults, compositeScore: score, threshold }).status === "auto_approved";
+  return deriveVerdict({
+    renderSuccess, assertionsFailed: false, items: gateItems(checklistResults, codeItemResults), compositeScore: score, threshold,
+  }).status === "auto_approved";
 }
 
 // ── Result builders ──────────────────────────────────────────────────

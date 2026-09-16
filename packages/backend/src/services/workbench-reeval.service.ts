@@ -139,7 +139,7 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
   const approved = evalResult.assertionsFailed
     ? false
     // The render was checked above: a row that is not `success` never reaches here.
-    : shouldAutoApprove(score, autoApproveThreshold, evalResult.checklistResults, true);
+    : shouldAutoApprove(score, autoApproveThreshold, evalResult.checklistResults, true, evalResult.codeItemResults);
 
   if (!approved && score !== null && score >= autoApproveThreshold) {
     const clResults = evalResult.checklistResults ?? [];
