@@ -172,6 +172,8 @@ PostgreSQL tables:
 - `chat_items` — id (UUID), chat_context_id (FK→chat_contexts), role, messages (JSONB), rating, download_count, owner_id, timestamps
 - `workbench_examples.gate_version` — the approval-gate rule that derived `approval_status` (ADR 0001, `approval-gate.service.ts`); NULL = pre-versioning or a human decision. `scripts/rederive-gate.ts` recomputes verdicts from stored items when the rule changes (dry run by default, `--apply` writes)
 - `workbench_examples.code_checklist_results` — the code reviewer's pass/fail per code-routed criterion (ADR 0001, #105), counted by the gate beside the visual judge's items; `scripts/backfill-code-items.ts` fills it on rows without answers (dry run by default)
+- `workbench_examples.rating_items_stale` — true when the prompt's criteria were regenerated after this rating (#89): Stale by items, taken by the re-rating batch beside Stale-by-instrument rows, cleared by the re-rating
+- `workbench_example_prompts.verification_criteria_previous` / `criteria_regenerated_at` — the criteria before the last regeneration as requirement atoms and when it happened (#89, `scripts/regenerate-criteria-atoms.ts`, held-out prompts never touched)
 - `curation_candidates` — id (UUID), chat_context_id (FK→chat_contexts, unique), status, reviewed_at, notes, distilled_prompt, original_prompt, timestamps
 - `tags` — id (UUID), name (unique), created_at
 - `curation_candidate_tags` — candidate_id (FK→curation_candidates), tag_id (FK→tags), suggested_by, composite PK
