@@ -1076,6 +1076,8 @@ model Adjudication {
   /// R the reference was right, C the candidate was right, N neither / unanswerable. NULL = open.
   decision         String?   @db.Char(1)
   note             String    @default("") @db.Text
+  /// Who decided: "human", or "auto-triage" for #108's one-sided rule (#111). NULL when undecided.
+  decisionSource   String?  @map("decision_source") @db.VarChar(16)
   agreedWithTriage Boolean   @default(false) @map("agreed_with_triage")
   decidedById      String?   @map("decided_by") @db.Uuid
   decidedAt        DateTime? @map("decided_at") @db.Timestamptz()

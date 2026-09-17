@@ -10,6 +10,7 @@ import {
 } from "../services/adjudication-sitting.service.js";
 import { RunNotPairableError } from "../services/qualification-screen-load.service.js";
 import { startTriageJob } from "../services/adjudication-triage.service.js";
+import { preDecideSitting } from "../services/adjudication-pre-decide.js";
 import { startSittingDraw } from "../services/adjudication-draw.service.js";
 
 export const workbenchAdjudicationRouter = Router();
@@ -88,6 +89,16 @@ workbenchAdjudicationRouter.post("/adjudication/sittings/:id/complete", async (r
 });
 
 /** Read every open item with the triage model (issue #93); progress via GET /jobs/:jobId. */
+/** Apply #108's one-sided rule to a sitting's open items (#111); idempotent. */
+workbenchAdjudicationRouter.post("/adjudication/sittings/:id/pre-decide", async (req, res) => {
+  try {
+    res.json(await preDecideSitting(req.params.id));
+  } catch (error) {
+    const status = (error as { statusCode?: number }).statusCode ?? 500;
+    res.status(status).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
 workbenchAdjudicationRouter.post("/adjudication/sittings/:id/triage", async (req, res) => {
   try {
     const redo = (req.body as { redo?: unknown } | undefined)?.redo === true;

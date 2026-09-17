@@ -126,3 +126,16 @@ describe("tallyAdjudications", () => {
     expect(t.falseFailAllowance).toBe(0);
   });
 });
+
+// #111: the rule's decisions are outside the terms, not open.
+import { tallyAdjudications as tallyWithAuto } from "../services/adjudication-tally.js";
+describe("tally with auto-decided items", () => {
+  it("counts auto decisions apart, excludes them from the terms, and lets the sitting complete", () => {
+    const t = tallyWithAuto([
+      { refState: "pass", candState: "fail", decision: "R", decisionSource: "human" },
+      { refState: "pass", candState: "fail", decision: "C", decisionSource: "auto-triage" },
+      { refState: "fail", candState: "pass", decision: "C", decisionSource: "auto-triage" },
+    ]);
+    expect(t).toMatchObject({ hard: 3, decided: 1, autoDecided: 2, open: 0, complete: true, candFalseFail: 1, refFalsePass: 0, refFalseFail: 0 });
+  });
+});

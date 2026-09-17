@@ -11,7 +11,8 @@
  */
 import { itemState, ZOOM_PREFIX, type ItemPair, type StoredChecklistItem } from "../qualification-screen.service.js";
 
-export type LabelSource = "adjudicated" | "agreed";
+/** "adjudicated": a person decided; "auto-C": #108's one-sided rule did (#111); "agreed": both judges agreed. */
+export type LabelSource = "adjudicated" | "auto-C" | "agreed";
 export type Decision = "R" | "C" | "N";
 
 export interface LabelledItem {
@@ -32,6 +33,8 @@ export interface DecisionRecord {
   exampleId: string;
   question: string;
   decision: Decision;
+  /** "human" or "auto-triage" (#111); absent reads as human. */
+  source?: string | null;
 }
 
 export interface LabelDrops {
@@ -74,11 +77,14 @@ export function labelPairs(
     if (d) {
       if (d.question.trim() !== p.question.trim()) { drops.orphaned++; continue; }
       if (d.decision === "N") { drops.neither++; continue; }
+      const auto = d.source === "auto-triage";
+      // The rule only ever records C; anything else under its name is not a label.
+      if (auto && d.decision !== "C") { drops.open++; continue; }
       const right = d.decision === "R" ? p.ref : p.cand;
       if (typeof right.pass !== "boolean") { drops.uncertain++; continue; }
       items.push({
         exampleId: p.exampleId, index: p.index, question: p.question, pass: right.pass,
-        detail: cleanDetail(right), source: "adjudicated", decision: d.decision, sittingId,
+        detail: cleanDetail(right), source: auto ? "auto-C" : "adjudicated", decision: d.decision, sittingId,
       });
       continue;
     }
@@ -135,7 +141,9 @@ export function mergeLabels(all: LabelledItem[]): LabelledItem[] {
     if (have.source === "adjudicated" && item.source === "adjudicated" && have.pass !== item.pass) {
       throw new Error(`Conflicting adjudications on ${item.exampleId} item ${item.index}: sittings ${have.sittingId} and ${item.sittingId}`);
     }
-    if (have.source === "agreed" && item.source === "adjudicated") byKey.set(key, item);
+    // Precedence: a person's verdict > the rule's > agreement.
+    const rank = (src: LabelSource) => (src === "adjudicated" ? 2 : src === "auto-C" ? 1 : 0);
+    if (rank(item.source) > rank(have.source)) byKey.set(key, item);
   }
   return [...byKey.values()].sort((a, b) => a.exampleId.localeCompare(b.exampleId) || a.index - b.index);
 }

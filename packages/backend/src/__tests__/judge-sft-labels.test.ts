@@ -45,7 +45,7 @@ describe("labelPairs", () => {
   });
 });
 
-const item = (index: number, pass: boolean, source: "adjudicated" | "agreed", exampleId = "ex", sittingId = "s1"): LabelledItem =>
+const item = (index: number, pass: boolean, source: LabelledItem["source"], exampleId = "ex", sittingId = "s1"): LabelledItem =>
   ({ exampleId, index, question: `q${index}`, pass, detail: "d", source, decision: source === "adjudicated" ? "R" : null, sittingId });
 
 describe("capAgreedPasses", () => {
@@ -73,5 +73,26 @@ describe("mergeLabels", () => {
     const merged = mergeLabels([item(0, true, "agreed", "ex", "s1"), item(0, false, "adjudicated", "ex", "s2")]);
     expect(merged).toEqual([expect.objectContaining({ pass: false, sittingId: "s2" })]);
     expect(() => mergeLabels([item(0, true, "adjudicated", "ex", "s1"), item(0, false, "adjudicated", "ex", "s2")])).toThrow(/Conflicting adjudications/);
+  });
+});
+
+// #111: the rule's C is its own label source; a person's verdict outranks it; the rule never labels R.
+import { labelPairs as labelWithAuto, mergeLabels as mergeWithAuto } from "../services/training-export/judge-sft-labels.js";
+describe("auto-C labels", () => {
+  it("labels an auto-triage C from the candidate's evidence as auto-C, and drops an auto R", () => {
+    const pairs = [pair(0, false, true), pair(1, true, false)];
+    const decisions = new Map<string, DecisionRecord>([
+      [decisionKey("ex", 0), { itemIndex: 0, exampleId: "ex", question: "q0", decision: "C", source: "auto-triage" }],
+      [decisionKey("ex", 1), { itemIndex: 1, exampleId: "ex", question: "q1", decision: "R", source: "auto-triage" }],
+    ]);
+    const { items, drops } = labelWithAuto(pairs, decisions, "s1");
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ index: 0, source: "auto-C", pass: true });
+    expect(drops.open).toBe(1);
+  });
+  it("lets a person's verdict outrank the rule's on the same item", () => {
+    const merged = mergeWithAuto([item(0, true, "auto-C", "ex", "s1"), item(0, false, "adjudicated", "ex", "s2")]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({ source: "adjudicated", pass: false });
   });
 });

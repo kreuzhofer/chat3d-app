@@ -87,7 +87,7 @@ export async function listSittings() {
     orderBy: { createdAt: "desc" },
     include: {
       adjudicator: { select: { id: true, displayName: true, email: true } },
-      items: { select: { refState: true, candState: true, decision: true } },
+      items: { select: { refState: true, candState: true, decision: true, decisionSource: true } },
     },
   });
   return sittings.map(({ items, ...s }) => ({ ...s, tally: tallyAdjudications(items) }));
@@ -107,6 +107,8 @@ export interface SittingItemView {
   arm2State: string | null;
   arm2Detail: string | null;
   decision: string | null;
+  /** "human" or "auto-triage" (#111). */
+  decisionSource: string | null;
   note: string;
   agreedWithTriage: boolean;
   decidedAt: Date | null;
@@ -131,7 +133,7 @@ export async function getSitting(id: string) {
     prompt: it.example.promptRef.prompt, category: it.example.promptRef.category.name,
     refState: it.refState, refDetail: it.refDetail, candState: it.candState, candDetail: it.candDetail,
     arm2State: it.arm2State, arm2Detail: it.arm2Detail,
-    decision: it.decision, note: it.note, agreedWithTriage: it.agreedWithTriage, decidedAt: it.decidedAt,
+    decision: it.decision, decisionSource: it.decisionSource, note: it.note, agreedWithTriage: it.agreedWithTriage, decidedAt: it.decidedAt,
     triage: it.triageVerdict
       ? { verdict: it.triageVerdict, confidence: it.triageConfidence, what: it.triageWhat, view: it.triageView, resolvedBy: it.triageResolvedBy, model: it.triageModel, at: it.triageAt }
       : null,
@@ -159,20 +161,21 @@ export async function recordAdjudication(sittingId: string, itemId: string, inpu
     where: { id: itemId },
     data: {
       decision: input.decision,
+      decisionSource: input.decision ? "human" : null,
       note: input.note ?? "",
       agreedWithTriage: input.decision ? agreed : false,
       decidedById: input.decision ? userId : null,
       decidedAt: input.decision ? new Date() : null,
     },
-    select: { id: true, decision: true, note: true, agreedWithTriage: true, decidedAt: true },
+    select: { id: true, decision: true, decisionSource: true, note: true, agreedWithTriage: true, decidedAt: true },
   });
-  const tallyRows = await prisma.adjudication.findMany({ where: { sittingId }, select: { refState: true, candState: true, decision: true } });
+  const tallyRows = await prisma.adjudication.findMany({ where: { sittingId }, select: { refState: true, candState: true, decision: true, decisionSource: true } });
   return { item: updated, tally: tallyAdjudications(tallyRows) };
 }
 
 /** Close a sitting once every hard flip carries a decision; `reopen` clears the close. */
 export async function completeSitting(id: string, reopen = false) {
-  const s = await prisma.adjudicationSitting.findUnique({ where: { id }, include: { items: { select: { refState: true, candState: true, decision: true } } } });
+  const s = await prisma.adjudicationSitting.findUnique({ where: { id }, include: { items: { select: { refState: true, candState: true, decision: true, decisionSource: true } } } });
   if (!s) throw new SittingError(`Sitting ${id} not found`, 404);
   if (reopen) {
     await prisma.adjudicationSitting.update({ where: { id }, data: { completedAt: null } });

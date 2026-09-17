@@ -17,13 +17,18 @@ export interface TallyItem {
   refState: string;
   candState: string;
   decision: string | null;
+  /** "human" or "auto-triage" (#111); absent or null reads as human for rows before the column. */
+  decisionSource?: string | null;
 }
 
 export interface AdjudicationTally {
   items: number;
   /** Hard pass/fail flips: the items the two terms are counted over. */
   hard: number;
+  /** Hard flips a person decided — the only ones the terms count. */
   decided: number;
+  /** Hard flips #108's rule decided (C, training labels): outside both terms, but not open. */
+  autoDecided: number;
   open: number;
   n: number;
   candFalsePass: number;
@@ -43,12 +48,13 @@ export function isHardFlip(it: Pick<TallyItem, "refState" | "candState">): boole
 }
 
 export function tallyAdjudications(items: TallyItem[]): AdjudicationTally {
-  const t = { hard: 0, decided: 0, n: 0, candFalsePass: 0, refFalsePass: 0, candFalseFail: 0, refFalseFail: 0 };
+  const t = { hard: 0, decided: 0, autoDecided: 0, n: 0, candFalsePass: 0, refFalsePass: 0, candFalseFail: 0, refFalseFail: 0 };
   for (const it of items) {
     if (!isHardFlip(it)) continue;
     t.hard++;
     const d = it.decision;
     if (d !== "R" && d !== "C" && d !== "N") continue;
+    if (it.decisionSource === "auto-triage") { t.autoDecided++; continue; }
     t.decided++;
     if (d === "N") { t.n++; continue; }
     if (it.candState === "fail") {
@@ -60,11 +66,11 @@ export function tallyAdjudications(items: TallyItem[]): AdjudicationTally {
   return {
     items: items.length,
     ...t,
-    open: t.hard - t.decided,
+    open: t.hard - t.decided - t.autoDecided,
     falseFailAllowance: 2 * t.refFalseFail,
     falsePassHolds: t.candFalsePass <= t.refFalsePass,
     falseFailHolds: t.candFalseFail <= 2 * t.refFalseFail,
-    complete: t.decided === t.hard,
+    complete: t.decided + t.autoDecided === t.hard,
   };
 }
 

@@ -85,6 +85,8 @@ export interface SittingItem {
   arm2Detail: string | null;
   decision: Decision | null;
   note: string;
+  /** "human" or "auto-triage": #108's one-sided rule pre-decided it (#111). */
+  decisionSource?: string | null;
   agreedWithTriage: boolean;
   decidedAt: string | null;
   triage: Triage | null;

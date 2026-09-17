@@ -162,7 +162,7 @@ export function AdjudicationSittingView({ token, sittingId, onBack }: Props) {
           <section>
             <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
               <span className="font-mono">{pos + 1} / {ordered.length}</span><span>{item.category}</span><span className="font-mono">{item.exampleId.slice(0, 8)} · item {item.itemIndex + 1}</span><DirectionChip item={item} />
-              {item.decision ? <span className="rounded bg-[hsl(var(--primary))] px-1.5 text-[hsl(var(--primary-foreground))]">{item.decision}{item.agreedWithTriage ? " · with triage" : ""}</span> : null}
+              {item.decision ? <span className={`rounded px-1.5 ${item.decisionSource === "auto-triage" ? "bg-[hsl(var(--muted))] text-[hsl(var(--foreground))] ring-1 ring-[hsl(var(--primary))]" : "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"}`} title={item.decisionSource === "auto-triage" ? item.note : undefined}>{item.decision}{item.decisionSource === "auto-triage" ? ` · auto (${item.triage?.model ?? "third judge"}${item.triage?.confidence ? `, ${item.triage.confidence}` : ""}) — yours to overrule` : item.agreedWithTriage ? " · with triage" : ""}</span> : null}
               {saving ? <span>saving…</span> : null}
             </div>
             <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">{item.question}</h3>

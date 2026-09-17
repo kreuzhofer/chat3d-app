@@ -88,10 +88,10 @@ export async function loadJudgePool(): Promise<JudgePool> {
       const decisions = new Map<string, DecisionRecord>();
       for (const a of await prisma.adjudication.findMany({
         where: { sittingId: s.id, decision: { not: null } },
-        select: { exampleId: true, itemIndex: true, question: true, decision: true },
+        select: { exampleId: true, itemIndex: true, question: true, decision: true, decisionSource: true },
       })) {
         decisions.set(decisionKey(a.exampleId, a.itemIndex), {
-          exampleId: a.exampleId, itemIndex: a.itemIndex, question: a.question, decision: a.decision as DecisionRecord["decision"],
+          exampleId: a.exampleId, itemIndex: a.itemIndex, question: a.question, decision: a.decision as DecisionRecord["decision"], source: a.decisionSource,
         });
       }
       const { items, drops } = labelPairs(pairs, decisions, s.id);

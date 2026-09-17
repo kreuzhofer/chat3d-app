@@ -10,6 +10,7 @@
  * party to the sitting: not the reference, not the candidate.
  */
 import { prisma } from "../db/prisma.js";
+import { preDecideSitting } from "./adjudication-pre-decide.js";
 import { createLogger } from "../utils/logger.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import { createProviderModel, getModelForPurpose, maxOutputWithThinking, type LlmModelConfig } from "./llm-config.service.js";
@@ -282,4 +283,8 @@ async function runTriage(job: BatchJob, cfg: LlmModelConfig, sitting: { referenc
   job.exampleId = null;
   job.currentPromptText = null;
   logger.info({ jobId: job.jobId, completed: job.completed, failed: job.failed, status: job.status }, "triage finished");
+  // #111: the C-side readings become training labels without review.
+  if (job.status === "completed" || job.completed > 0) {
+    try { await preDecideSitting(job.categoryId!); } catch (error) { logger.warn({ err: error, sittingId: job.categoryId }, "pre-decision after triage failed"); }
+  }
 }
