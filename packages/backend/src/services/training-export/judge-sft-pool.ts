@@ -12,7 +12,7 @@ import { loadProductionRun, loadRun, RunNotPairableError } from "../qualificatio
 import { currentInstrumentId } from "../visual-eval-instrument-id.service.js";
 import { heldOutRows, HELD_OUT_EXPERIMENT_IDS, type HeldOutRows } from "./judge-sft-held-out.js";
 import {
-  capAgreedPasses, decisionKey, labelPairs, mergeLabels,
+  capAgreedPasses, decisionKey, dropUnpaired, labelPairs, mergeLabels,
   type CapReport, type DecisionRecord, type LabelDrops, type LabelledItem,
 } from "./judge-sft-labels.js";
 
@@ -94,7 +94,10 @@ export async function loadJudgePool(): Promise<JudgePool> {
           exampleId: a.exampleId, itemIndex: a.itemIndex, question: a.question, decision: a.decision as DecisionRecord["decision"], source: a.decisionSource,
         });
       }
-      const { items, drops } = labelPairs(pairs, decisions, s.id);
+      const paired = dropUnpaired(pairs);
+      const { items, drops } = labelPairs(paired.pairs, decisions, s.id);
+      drops.unpaired = paired.unpaired;
+      if (paired.unpaired > 0) logger.warn({ sittingId: s.id, unpaired: paired.unpaired, of: pairs.length }, "positions where the judges answered different questions were not paired");
       const kept = items.filter((i) => !heldOut.has(i.exampleId));
       all.push(...kept);
       for (const r of await prisma.vlmExperimentResult.findMany({

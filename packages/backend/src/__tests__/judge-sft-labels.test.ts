@@ -30,7 +30,7 @@ describe("labelPairs", () => {
     const { items, drops } = labelPairs(pairs, new Map([decision(4, "N"), decision(5, "R")]), "s1");
     expect(items.map((i) => [i.index, i.pass, i.source])).toEqual([[0, true, "agreed"], [1, false, "agreed"]]);
     expect(items[0].detail).toBe("ref saw 0");
-    expect(drops).toEqual({ open: 1, neither: 1, uncertain: 2, orphaned: 0 });
+    expect(drops).toEqual({ open: 1, neither: 1, uncertain: 2, orphaned: 0, unpaired: 0 });
   });
 
   it("drops and counts an adjudication whose question no longer matches the item at its index", () => {
@@ -94,5 +94,25 @@ describe("auto-C labels", () => {
     const merged = mergeWithAuto([item(0, true, "auto-C", "ex", "s1"), item(0, false, "adjudicated", "ex", "s2")]);
     expect(merged).toHaveLength(1);
     expect(merged[0]).toMatchObject({ source: "adjudicated", pass: false });
+  });
+});
+
+
+// #89/#109: a regenerated checklist makes position i a different question on each side; such positions are never paired.
+import { dropUnpaired, sameQuestion } from "../services/training-export/judge-sft-labels.js";
+describe("dropUnpaired", () => {
+  it("keeps positions where both judges answered the same question and counts the rest", () => {
+    const same = pair(0, true, true, "is the lid present?");
+    const shifted = { ...pair(1, true, true, "is the base flat?"), cand: { ...pair(1, true, true).cand, question: "are there four holes?" } };
+    expect(sameQuestion(same)).toBe(true);
+    expect(sameQuestion(shifted)).toBe(false);
+    const { pairs, unpaired } = dropUnpaired([same, shifted]);
+    expect(pairs).toEqual([same]);
+    expect(unpaired).toBe(1);
+  });
+  it("ignores whitespace and case, and refuses empty questions", () => {
+    const p = pair(0, true, true, " Is the LID present? ");
+    expect(sameQuestion({ ...p, cand: { ...p.cand, question: "is the lid present?" } })).toBe(true);
+    expect(sameQuestion({ ...p, ref: { ...p.ref, question: "" }, cand: { ...p.cand, question: "" } })).toBe(false);
   });
 });

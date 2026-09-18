@@ -46,6 +46,28 @@ export interface LabelDrops {
   uncertain: number;
   /** Adjudicated, but the item's question has since been regenerated (#89): the verdict no longer has an item. */
   orphaned: number;
+  /** Positions where the two judges answered different questions — a checklist regenerated between the runs (#89, #109). Never paired. */
+  unpaired: number;
+}
+
+/** True when both judges answered the same question at this position (whitespace and case aside). */
+export function sameQuestion(p: ItemPair): boolean {
+  const norm = (q: string | null | undefined) => (q ?? "").trim().toLowerCase();
+  const r = norm(p.ref.question);
+  const c = norm(p.cand.question);
+  return r.length > 0 && r === c;
+}
+
+/**
+ * Keep only positions where both judges answered the same question. Pairing
+ * is positional (the screen's `pairItems`), which is exact while two runs
+ * share a checklist; a regeneration between them (#89, #109) makes position
+ * i a different question on each side, and an "agreement" of states across
+ * two questions is not a label.
+ */
+export function dropUnpaired(pairs: ItemPair[]): { pairs: ItemPair[]; unpaired: number } {
+  const kept = pairs.filter(sameQuestion);
+  return { pairs: kept, unpaired: pairs.length - kept.length };
 }
 
 export const decisionKey = (exampleId: string, index: number): string => `${exampleId}:${index}`;
@@ -69,7 +91,7 @@ export function labelPairs(
   sittingId: string,
 ): { items: LabelledItem[]; drops: LabelDrops } {
   const items: LabelledItem[] = [];
-  const drops: LabelDrops = { open: 0, neither: 0, uncertain: 0, orphaned: 0 };
+  const drops: LabelDrops = { open: 0, neither: 0, uncertain: 0, orphaned: 0, unpaired: 0 };
   for (const p of pairs) {
     const d = decisions.get(decisionKey(p.exampleId, p.index));
     const refState = itemState(p.ref);
