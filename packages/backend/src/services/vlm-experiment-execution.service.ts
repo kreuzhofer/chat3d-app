@@ -85,9 +85,18 @@ export async function startVlmExperiment(experimentId: string): Promise<void> {
 // ── Cancel ──────────────────────────────────────────────────────────
 
 export async function cancelVlmExperiment(experimentId: string): Promise<void> {
-  if (!cancelRunningExperiment(experimentId)) {
-    throw new ExperimentError("VLM experiment is not running", 409);
-  }
+  if (cancelRunningExperiment(experimentId)) return;
+  // No runner holds it. A row still "running" is an orphan: the process that
+  // ran it restarted (a rebuild, a crash) and nothing else will ever finish
+  // it — and while it says running, no other experiment may start. Cancel is
+  // the honest end for it, stamped like an aborted run.
+  const exp = await prisma.experiment.findUnique({ where: { id: experimentId }, select: { id: true, status: true, type: true } });
+  if (!exp || exp.type !== "vlm_comparison") throw new ExperimentError("VLM experiment not found", 404);
+  if (exp.status !== "running") throw new ExperimentError("VLM experiment is not running", 409);
+  const now = new Date();
+  await prisma.experimentRun.updateMany({ where: { experimentId, status: { in: ["running", "pending"] } }, data: { status: "cancelled", completedAt: now } });
+  await prisma.experiment.update({ where: { id: experimentId }, data: { status: "cancelled", completedAt: now } });
+  logger.warn({ experimentId }, "experiment was running with no runner in this process (interrupted by a restart); marked cancelled");
 }
 
 // ── Internal execution ──────────────────────────────────────────────
