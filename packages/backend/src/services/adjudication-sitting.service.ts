@@ -8,6 +8,7 @@
  * and the judge training export reads them (listAdjudicatedItems).
  */
 import { prisma } from "../db/prisma.js";
+import { carryIntoSitting } from "./adjudication-carry.js";
 import { createLogger } from "../utils/logger.js";
 import { disagreements } from "./qualification-screen-dump.js";
 import { loadProductionRun, loadRun, RunNotPairableError, type LoadedRun } from "./qualification-screen-load.service.js";
@@ -79,6 +80,8 @@ export async function createSitting(input: CreateSittingInput, adjudicatorId: st
     select: { id: true },
   });
   logger.info({ sittingId: sitting.id, items: rows.length, examples: exampleCount, instrumentId: candId }, "sitting created");
+  // #102: items a person already decided against this reference run open decided, marked carried.
+  await carryIntoSitting(sitting.id, input.referenceRunId);
   return getSitting(sitting.id);
 }
 

@@ -13,6 +13,8 @@ const db = vi.hoisted(() => ({
 }));
 const loaders = vi.hoisted(() => ({ loadRun: vi.fn(), loadProductionRun: vi.fn() }));
 
+// #102: the carry has its own tests; here the sitting is created without prior verdicts.
+vi.mock("../services/adjudication-carry.js", () => ({ carryIntoSitting: vi.fn().mockResolvedValue(0), CARRIED_SOURCE: "carried" }));
 vi.mock("../db/prisma.js", () => ({
   prisma: {
     adjudicationSitting: {
