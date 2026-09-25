@@ -20,7 +20,7 @@ for (const [, runId, model, sel] of plan) {
   if (sel !== "gold") continue;
   let run; try { run = await loadRun(runId); } catch (e) { rows.push(`${model}\tgold\tunloadable: ${(e as Error).message.slice(0, 60)}`); continue; }
   let answered = 0, items = 0, unanswered = 0, right = 0, wrong = 0, uncertain = 0, missed = 0; const byDir: Record<string, number> = {};
-  for (const r of run.results) {
+  for (const r of run.rows) {
     if (!r.checklistResults) { unanswered++; continue; }
     answered++;
     r.checklistResults.forEach((it, i) => {
@@ -32,7 +32,7 @@ for (const [, runId, model, sel] of plan) {
       if (s === t.state) right++; else { wrong++; const k = `${t.incumbent === "fail" ? "false-fail item" : "false-pass item"}: says ${s}`; byDir[k] = (byDir[k] ?? 0) + 1; }
     });
   }
-  rows.push(`${model}\tgold\texamples ${answered}/${run.results.length}\tgold items ${items}\tright ${right}\twrong ${wrong}\tuncertain ${uncertain}\tquestion-mismatch ${missed}\t${JSON.stringify(byDir)}`);
+  rows.push(`${model}\tgold\texamples ${answered}/${run.rows.length}\tgold items ${items}\tright ${right}\twrong ${wrong}\tuncertain ${uncertain}\tquestion-mismatch ${missed}\t${JSON.stringify(byDir)}`);
 }
 console.log(rows.join("\n"));
 await prisma.$disconnect(); process.exit(0);
