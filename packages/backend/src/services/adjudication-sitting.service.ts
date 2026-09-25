@@ -38,6 +38,13 @@ function singleInstrument(run: LoadedRun, role: string): string {
   return run.instrumentIds[0];
 }
 
+/** The reference's pass count over every item it answered on the run (ADR 0004's false-fail floor base). */
+export function referencePassCount(run: LoadedRun): number {
+  let n = 0;
+  for (const r of run.rows) for (const it of r.checklistResults ?? []) if (it.pass === true) n++;
+  return n;
+}
+
 /** Draw the disagreement set and freeze it as a sitting. */
 export async function createSitting(input: CreateSittingInput, adjudicatorId: string | null) {
   const cand = "runId" in input.candidate ? await loadRun(input.candidate.runId) : await loadProductionRun(input.candidate.productionExperimentId);
@@ -63,6 +70,7 @@ export async function createSitting(input: CreateSittingInput, adjudicatorId: st
       notes: input.notes?.trim() || null,
       itemCount: rows.length,
       exampleCount,
+      referencePasses: referencePassCount(ref),
       items: {
         create: rows.map((r) => ({
           exampleId: r.exampleId,
@@ -93,7 +101,7 @@ export async function listSittings() {
       items: { select: { refState: true, candState: true, decision: true, decisionSource: true } },
     },
   });
-  return sittings.map(({ items, ...s }) => ({ ...s, tally: tallyAdjudications(items) }));
+  return sittings.map(({ items, ...s }) => ({ ...s, tally: tallyAdjudications(items, s.referencePasses) }));
 }
 
 export interface SittingItemView {
@@ -141,7 +149,7 @@ export async function getSitting(id: string) {
       ? { verdict: it.triageVerdict, confidence: it.triageConfidence, what: it.triageWhat, view: it.triageView, resolvedBy: it.triageResolvedBy, model: it.triageModel, at: it.triageAt }
       : null,
   }));
-  return { ...sitting, items: views, tally: tallyAdjudications(items) satisfies AdjudicationTally };
+  return { ...sitting, items: views, tally: tallyAdjudications(items, sitting.referencePasses) satisfies AdjudicationTally };
 }
 
 export interface RecordAdjudicationInput {
@@ -173,7 +181,8 @@ export async function recordAdjudication(sittingId: string, itemId: string, inpu
     select: { id: true, decision: true, decisionSource: true, note: true, agreedWithTriage: true, decidedAt: true },
   });
   const tallyRows = await prisma.adjudication.findMany({ where: { sittingId }, select: { refState: true, candState: true, decision: true, decisionSource: true } });
-  return { item: updated, tally: tallyAdjudications(tallyRows) };
+  const sit = await prisma.adjudicationSitting.findUnique({ where: { id: sittingId }, select: { referencePasses: true } });
+  return { item: updated, tally: tallyAdjudications(tallyRows, sit?.referencePasses) };
 }
 
 /** Close a sitting once every hard flip carries a decision; `reopen` clears the close. */
@@ -184,7 +193,7 @@ export async function completeSitting(id: string, reopen = false) {
     await prisma.adjudicationSitting.update({ where: { id }, data: { completedAt: null } });
     return getSitting(id);
   }
-  const t = tallyAdjudications(s.items);
+  const t = tallyAdjudications(s.items, s.referencePasses);
   if (!t.complete) throw new SittingError(`${t.open} of ${t.hard} hard flips are still open`, 409);
   await prisma.adjudicationSitting.update({ where: { id }, data: { completedAt: new Date() } });
   logger.info({ sittingId: id, ...t }, "sitting completed");

@@ -139,3 +139,22 @@ describe("tally with auto-decided items", () => {
     expect(t).toMatchObject({ hard: 3, decided: 1, autoDecided: 2, open: 0, complete: true, candFalseFail: 1, refFalsePass: 0, refFalseFail: 0 });
   });
 });
+
+// ADR 0004 amended (2026-09-25): the false-fail allowance has an absolute floor beside the ratio.
+import { falseFailAllowance, tallyAdjudications as tallyFloor } from "../services/adjudication-tally.js";
+describe("false-fail allowance floor", () => {
+  it("is the larger of 2 × reference false fails and 5 % of the reference's passes", () => {
+    expect(falseFailAllowance(2, 425)).toBe(21);
+    expect(falseFailAllowance(20, 425)).toBe(40);
+    expect(falseFailAllowance(2, null)).toBe(4);
+    expect(falseFailAllowance(0, undefined)).toBe(0);
+  });
+  it("lets a candidate hold the term under a lenient reference", () => {
+    const items = [
+      ...Array.from({ length: 11 }, () => ({ refState: "pass", candState: "fail", decision: "R", decisionSource: "human" })),
+      ...Array.from({ length: 2 }, () => ({ refState: "fail", candState: "pass", decision: "C", decisionSource: "human" })),
+    ];
+    expect(tallyFloor(items).falseFailHolds).toBe(false);
+    expect(tallyFloor(items, 425)).toMatchObject({ falseFailAllowance: 21, falseFailHolds: true });
+  });
+});

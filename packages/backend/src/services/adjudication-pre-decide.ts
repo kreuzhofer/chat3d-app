@@ -44,7 +44,7 @@ export function autoDecision(it: PreDecideInput): { decision: "C"; note: string 
 export async function preDecideSitting(sittingId: string) {
   const sitting = await prisma.adjudicationSitting.findUnique({
     where: { id: sittingId },
-    select: { completedAt: true, items: { select: { id: true, decision: true, triageVerdict: true, triageConfidence: true, triageModel: true } } },
+    select: { completedAt: true, referencePasses: true, items: { select: { id: true, decision: true, triageVerdict: true, triageConfidence: true, triageModel: true } } },
   });
   if (!sitting) throw new SittingError(`Sitting ${sittingId} not found`, 404);
   if (sitting.completedAt) throw new SittingError("The sitting is completed; reopen it to pre-decide", 409);
@@ -60,5 +60,5 @@ export async function preDecideSitting(sittingId: string) {
   }
   const rows = await prisma.adjudication.findMany({ where: { sittingId }, select: { refState: true, candState: true, decision: true, decisionSource: true } });
   logger.info({ sittingId, decided, items: sitting.items.length }, "pre-decided C-side items");
-  return { decided, tally: tallyAdjudications(rows) };
+  return { decided, tally: tallyAdjudications(rows, sitting.referencePasses) };
 }

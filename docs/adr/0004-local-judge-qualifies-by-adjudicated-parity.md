@@ -41,3 +41,9 @@ While no judge is qualified, `vlm_eval` is owned by the best candidate on the me
   - *Amended 2026-09-06 (#62, at landing):* the two conditions gate judge-derived approvals only. A human's verdict is admitted whatever the rating beside it — the verdict is the human's, not derived from that rating, and the re-rating batch never overturns it, so gating it on the instrument would exclude it for good.
 - The four-judge baseline under the old harness is superseded by the screen; self-consistency sampling is out of scope while the judge runs at temperature 0.
 - The adjudication hour is spent once per candidate and instrument revision, on the qualification run's disagreements; the reference's confirmed errors from that sheet are the discount on every future parity number.
+
+## Amendment, 2026-09-25 — the reference is Kimi K3, and the false-fail term has an absolute floor
+
+Sonnet 4.6 is no longer used (Daniel: no Claude API calls). The reference was re-made by measurement (#112): **Kimi K3, thinking off**, on the Nebius token factory — self-pair floor 1.8 % on the 125, right on 60 of 83 decided items against GLM-5.3-Flash, 74 % on the gold. The stability term is read against Kimi's own floor.
+
+Kimi is a lenient reference: it false-fails 2 items on the 125 where Sonnet false-failed 20. The false-fail term as written — at most twice the reference's confirmed false fails — then allows 4, a bar no judge stricter than the reference can clear however good it is. **The term becomes: candidate confirmed false fails ≤ max(2 × reference confirmed false fails, 5 % of the reference's passes over the sitting's example set).** The ratio still rules when the reference errs often; the floor rules when it rarely does. The false-pass term is unchanged. The reference's pass count is frozen with each sitting (`adjudication_sittings.reference_passes`). On the 125 under Kimi the floor is 21.

@@ -1041,6 +1041,8 @@ model AdjudicationSitting {
   origin             String    @default("app") @db.VarChar(20)
   notes              String?   @db.Text
   itemCount          Int       @map("item_count")
+  /// The reference's pass count over the sitting's whole example set, frozen at creation — the base of ADR 0004's absolute false-fail floor. NULL before the amendment.
+  referencePasses    Int?      @map("reference_passes")
   exampleCount       Int       @map("example_count")
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz()
   completedAt        DateTime? @map("completed_at") @db.Timestamptz()
