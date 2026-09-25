@@ -26,6 +26,15 @@ describe("QUALIFIED_JUDGES", () => {
     }));
   });
 
+  it("records rc0 (chat3d-judge-rc0, thinking off) under production@4892d8d1b160 — qualified against Kimi K3 under the amended ADR 0004 (#96, #112)", () => {
+    expect(QUALIFIED_JUDGES).toContainEqual(expect.objectContaining({
+      model: "vllm-dgx-14/chat3d-judge-rc0",
+      thinkingEffort: "off",
+      instrumentId: "production@4892d8d1b160",
+      qualifiedOn: "2026-09-25",
+    }));
+  });
+
   it("names every judge as stamped, under a well-formed instrument id, with its qualification run and adjudication sheet linked", () => {
     for (const judge of QUALIFIED_JUDGES) {
       expect(judge.model).toMatch(/^[^\s/]+\/\S+$/);
