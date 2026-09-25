@@ -24,12 +24,16 @@ export const SPOT_CHECK_87_EXPERIMENT_ID = "dadf32f4-32c1-49b9-8826-979cf3f831d6
 export const REFERENCE_112_GLM_EXPERIMENT_ID = "518373e9-8cb8-400a-9ff0-304ccc7bb6a1";
 export const REFERENCE_112_KIMI_EXPERIMENT_ID = "15a568f9-9e1b-4112-8738-a106bc60c724";
 
+/** #96's corpus step: rc0 on 125 corpus rows (seed 96); the reference's run on the same rows is a sitting, so the rows are a spot-check sample. */
+export const SPOT_CHECK_96_EXPERIMENT_ID = "d80a891c-9c05-4737-b6bb-747c97ed8849";
+
 export const HELD_OUT_EXPERIMENT_IDS: readonly string[] = [
   HELD_OUT_EXPERIMENT_ID,
   SPOT_CHECK_63_EXPERIMENT_ID,
   SPOT_CHECK_87_EXPERIMENT_ID,
   REFERENCE_112_GLM_EXPERIMENT_ID,
   REFERENCE_112_KIMI_EXPERIMENT_ID,
+  SPOT_CHECK_96_EXPERIMENT_ID,
 ];
 
 /** Every example id selected by a held-out experiment, sorted. */
