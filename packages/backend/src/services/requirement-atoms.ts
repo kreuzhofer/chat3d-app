@@ -35,7 +35,7 @@ export const REQUIREMENT_ATOMS_RULES = `- "verificationCriteria" is a list of RE
 - Where a measurement has a visible proportion (a wall clearly thin, a hole clearly near an edge), add a separate "visual" entry stating the proportion, without the number.
 - "visibility": "both" only for medium-size structural features the render confirms AND code verifies, with no number in the text.
 - Requirements come from the request and the reference material it names. Do not invent checks for choices the request left open, and never place a feature somewhere other than where the request puts it ("near each end" is never "in the middle").
-- ORIENTATION: the render's front/back/left/right/top/bottom are the camera's, not the part's. Use such words ONLY when the request itself uses them for that feature; otherwise locate features by the part's own geometry ("on one short end face", "on the face opposite the opening", "on the curved outer surface"). Never ask how a part lies on the build plate (upside down, face down, on the XY plane) unless the request demands it.
+- ORIENTATION: the render's front/back/left/right are the camera's, not the part's — a part turned 180° swaps them. Use those words ONLY when the request itself uses them for that feature (top/bottom are fine: the render's up is the part's up); otherwise locate features by the part's own geometry ("on one short end face", "on the face opposite the opening", "on the curved outer surface"). Never ask how a part lies on the build plate (upside down, face down, on the XY plane) unless the request demands it.
 - No colour or material checks: renders carry no colour.
 - A comparison of two sizes ("thicker than", "larger than") or a fine edge feature (chamfer, fillet, thread form, angle, taper, tangency) is "code", never "visual" — a render cannot settle it.
 - One question per entry, in plain words: no "and"/"while" chains, no jargon without a plain description, no counts that depend on how the reader groups features ("four magnet holes" on a 2×2 base means per corner or in total — say which).`;
@@ -46,8 +46,15 @@ function usable(value: unknown): string | null {
   return t.length > 0 ? t : null;
 }
 
-/** Words that name a direction in the render's frame, and a part's pose on the plate. */
-const FRAME_WORDS = /\b(front|back|rear|left|right|top|bottom|upside[- ]down|face[- ]?(?:up|down)|underside|xy[- ]plane)\b/gi;
+/**
+ * Words whose meaning the render frame does NOT fix: front/back/left/right are
+ * arbitrary around the vertical axis (a part turned 180° swaps them), and a
+ * pose on the plate (upside down, face down, on the XY plane) is layout, not
+ * the part. Top/bottom are kept: the camera's up axis is the part's Z, so the
+ * top and bottom views do fix them (the sample of 2026-09-25 dropped 20
+ * sound "top/bottom face is flat" atoms before this narrowing).
+ */
+const FRAME_WORDS = /\b(front|back|rear|left|right|upside[- ]down|face[- ]?(?:up|down)|xy[- ]plane)\b/gi;
 const COLOUR_WORDS = /\b(colou?r(?:ed)?|translucent|transparent|red|blue|green|yellow|black|white|grey|gray)\b/i;
 const COMPARATIVE = /\b(thicker|thinner|larger|smaller|wider|narrower|taller|shorter|deeper|shallower)\b[^.]*\bthan\b/i;
 const FINE_FEATURE = /\b(chamfer(?:ed)?|fillet(?:ed)?|thread (?:form|profile)|trapezoidal|acme|included angle|taper(?:ed)?|tangen(?:t|cy)|cusp|fade-?in|ogee|draft angle)\b/i;

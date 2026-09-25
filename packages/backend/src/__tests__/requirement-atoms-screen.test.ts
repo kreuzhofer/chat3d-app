@@ -18,7 +18,7 @@ describe("screenAtoms", () => {
     expect(screenAtoms([v("Looks like a translucent blue enclosure")], "a translucent blue case").dropped[0].reason).toBe("colour");
   });
   it("routes comparisons and fine features to code", () => {
-    const r = screenAtoms([v("Long walls are thicker than short walls"), v("Bottom inner edge has a chamfer"), v("Exactly four standoffs")], "a block, chamfer the bottom inner edge");
+    const r = screenAtoms([v("Long walls are thicker than short walls"), v("Bottom inner edge has a chamfer"), v("Exactly four standoffs")], "a block");
     expect(r.routed.map((a) => a.text)).toEqual(["Long walls are thicker than short walls", "Bottom inner edge has a chamfer"]);
     expect(r.kept.find((a) => a.text === "Exactly four standoffs")?.visibility).toBe("visual");
   });
@@ -26,5 +26,12 @@ describe("screenAtoms", () => {
     const r = screenAtoms([{ text: "Front wall is 2mm", visibility: "code" }, v("Hole on the front face")]);
     expect(r.dropped).toEqual([]);
     expect(r.kept).toHaveLength(2);
+  });
+});
+
+describe("screenAtoms keeps top/bottom", () => {
+  it("does not drop top/bottom — the render's up axis is the part's", () => {
+    const r = screenAtoms([v("The top and bottom faces of the tube are flat annular rings")], "a tube 20mm outer diameter");
+    expect(r.dropped).toEqual([]);
   });
 });
