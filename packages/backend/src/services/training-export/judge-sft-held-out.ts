@@ -20,10 +20,16 @@ export const SPOT_CHECK_63_EXPERIMENT_ID = "09411bc4-f4be-4024-8d3b-527df01f4aae
 /** #87's spot check of the re-rating batch under production@4892d8d1b160 (125 rows). */
 export const SPOT_CHECK_87_EXPERIMENT_ID = "dadf32f4-32c1-49b9-8826-979cf3f831d6";
 
+/** #112's reference measurement: GLM-5.3-Flash and Kimi K3 on 250 corpus rows (seed 112), reserved until the sitting is decided. */
+export const REFERENCE_112_GLM_EXPERIMENT_ID = "518373e9-8cb8-400a-9ff0-304ccc7bb6a1";
+export const REFERENCE_112_KIMI_EXPERIMENT_ID = "052c393c-1e94-476b-9264-27ec68aec63d";
+
 export const HELD_OUT_EXPERIMENT_IDS: readonly string[] = [
   HELD_OUT_EXPERIMENT_ID,
   SPOT_CHECK_63_EXPERIMENT_ID,
   SPOT_CHECK_87_EXPERIMENT_ID,
+  REFERENCE_112_GLM_EXPERIMENT_ID,
+  REFERENCE_112_KIMI_EXPERIMENT_ID,
 ];
 
 /** Every example id selected by a held-out experiment, sorted. */
