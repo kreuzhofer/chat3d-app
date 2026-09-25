@@ -441,7 +441,7 @@ async function _runPipeline(
       onProgress?.("enriching", "Enriching specification with reference data...");
       try {
         const enrichModelCfg = await getModelForPurposeWithFallback("spec_generation", "conversation");
-        const enriched = await enrichSpec(specResult, researchPackage);
+        const enriched = await enrichSpec(specResult, researchPackage, ctx.prompt);
         enrichmentResult = enriched;
         if (enriched.constructionSpec) {
           specResult = { ...specResult, constructionSpec: enriched.constructionSpec, verificationCriteria: enriched.verificationCriteria };

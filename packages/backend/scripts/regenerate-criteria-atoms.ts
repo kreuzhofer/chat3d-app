@@ -99,7 +99,7 @@ async function main() {
         detectedOperations: detectPromptOperations(p.prompt, spec.interpretation),
       });
       if (research.knowledge.length > 0) {
-        const enriched = await enrichSpec(spec, research);
+        const enriched = await enrichSpec(spec, research, p.prompt);
         if (!enriched.criteriaFailure && enriched.verificationCriteria.length > 0) { atoms = enriched.verificationCriteria; source = "enrichment"; }
         attempts += enriched.criteriaFailure?.attempts ?? 1;
       }

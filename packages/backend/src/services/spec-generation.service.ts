@@ -21,7 +21,7 @@ import {
   type LlmModelConfig,
 } from "./llm-config.service.js";
 import { createLogger } from "../utils/logger.js";
-import { parseRequirementAtoms, type AtomsFailureReason } from "./requirement-atoms.js";
+import { parseRequirementAtoms, screenAtoms, type AtomsFailureReason } from "./requirement-atoms.js";
 import { SPEC_SYSTEM_PROMPT } from "../prompts/spec-generation-system-prompt.js";
 import { type EvalPlan, parseEvalPlan } from "../utils/eval-plan.js";
 import type { ComplexityTriggerReason } from "@chat3d/shared";
@@ -340,6 +340,15 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
         messages.push({ role: "assistant", content: reply.text });
         messages.push({ role: "user", content: specRetryMessage(reason, truncated) });
       }
+    }
+    // #113: drop orientation/colour atoms the request does not support, route
+    // comparisons and fine features to code — the wrong-question classes.
+    if (parsed.verificationCriteria.length > 0) {
+      const screen = screenAtoms(parsed.verificationCriteria, promptText);
+      if (screen.dropped.length > 0 || screen.routed.length > 0) {
+        logger.info({ dropped: screen.dropped.map((d) => ({ reason: d.reason, word: d.word, text: d.atom.text.slice(0, 80) })), routed: screen.routed.length }, "spec atoms screened");
+      }
+      parsed = { ...parsed, verificationCriteria: screen.kept };
     }
     const criteriaFailure = parsed.verificationCriteria.length > 0 ? undefined : refusals.length > 0 ? { attempts: refusals.length, reasons: refusals } : undefined;
     if (criteriaFailure) {

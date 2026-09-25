@@ -72,7 +72,7 @@ async function main() {
       detectedOperations: detectPromptOperations(p.prompt, spec.interpretation),
     });
     if (research.knowledge.length === 0) { skippedNoKnowledge++; logger.info({ promptId: p.id }, "no knowledge; enrichment would not run — redrawn"); return null; }
-    const enriched = await enrichSpec(spec, research);
+    const enriched = await enrichSpec(spec, research, p.prompt);
     return {
       promptId: p.id, category: p.category?.name ?? null, prompt: p.prompt.slice(0, 120),
       roughAtoms: spec.verificationCriteria.length, roughAskable: judgeAskable(spec.verificationCriteria).length,
@@ -112,6 +112,7 @@ async function main() {
   writeFileSync(out, JSON.stringify({ summary, rows }, null, 2));
   logger.info({ ...summary, out }, "sample measured");
   await prisma.$disconnect();
+  process.exit(0);
 }
 
 main().catch((err) => { logger.error({ err }, "sample failed"); process.exit(1); });

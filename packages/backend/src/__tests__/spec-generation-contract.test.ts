@@ -67,7 +67,7 @@ describe("generateSpec retries a refused reply once, then surfaces it", () => {
 
   it("asks once when the first reply is atoms", async () => {
     respondInOrder({ text: spec(ATOMS) });
-    const result = await generateSpec("an open box with four standoffs");
+    const result = await generateSpec("an open-top box with four standoffs");
     expect(streamTextMock).toHaveBeenCalledTimes(1);
     expect(result.verificationCriteria).toEqual(ATOMS);
     expect(result.criteriaFailure).toBeUndefined();
@@ -75,7 +75,7 @@ describe("generateSpec retries a refused reply once, then surfaces it", () => {
 
   it("retries bare strings with the defect named and takes the second reply's atoms", async () => {
     respondInOrder({ text: spec(["Four standoffs", "Open top"]) }, { text: spec(ATOMS) });
-    const result = await generateSpec("an open box with four standoffs");
+    const result = await generateSpec("an open-top box with four standoffs");
     expect(streamTextMock).toHaveBeenCalledTimes(2);
     const second = streamTextMock.mock.calls[1][0] as { messages: Array<{ role: string; content: string }> };
     expect(second.messages).toHaveLength(3);
@@ -86,7 +86,7 @@ describe("generateSpec retries a refused reply once, then surfaces it", () => {
 
   it("retries a reply cut off at the output cap instead of accepting a spec with no criteria", async () => {
     respondInOrder({ text: '{"interpretation": "An open box", "constructionSpec": "- box', finishReason: "length" }, { text: spec(ATOMS) });
-    const result = await generateSpec("an open box with four standoffs");
+    const result = await generateSpec("an open-top box with four standoffs");
     expect(streamTextMock).toHaveBeenCalledTimes(2);
     const second = streamTextMock.mock.calls[1][0] as { messages: Array<{ content: string }> };
     expect(second.messages[2].content).toMatch(/cut off/);
@@ -95,7 +95,7 @@ describe("generateSpec retries a refused reply once, then surfaces it", () => {
 
   it("surfaces criteriaFailure with empty criteria after two refused replies — the checklist is not lifted", async () => {
     respondInOrder({ text: spec(["Four standoffs"]) }, { text: spec([{ text: "Wall 2mm thick", visibility: "visual" }]) });
-    const result = await generateSpec("an open box with four standoffs");
+    const result = await generateSpec("an open-top box with four standoffs");
     expect(streamTextMock).toHaveBeenCalledTimes(2);
     expect(result.verificationCriteria).toEqual([]);
     expect(result.criteriaFailure).toEqual({ attempts: 2, reasons: ["bare-string", "bundled"] });

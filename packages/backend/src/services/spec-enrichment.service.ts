@@ -27,7 +27,7 @@ import type { ResearchPackage } from "./research-agent.service.js";
 import type { SpecResult } from "./spec-generation.service.js";
 import { createLogger } from "../utils/logger.js";
 import type { AnnotatedCriterion } from "./spec-generation.service.js";
-import { REQUIREMENT_ATOMS_RULES, parseRequirementAtoms, type AtomsFailureReason } from "./requirement-atoms.js";
+import { REQUIREMENT_ATOMS_RULES, parseRequirementAtoms, screenAtoms, type AtomsFailureReason } from "./requirement-atoms.js";
 
 const logger = createLogger("spec-enrich");
 
@@ -110,6 +110,8 @@ function retryMessage(reason: AtomsFailureReason, offending: unknown): string {
 export async function enrichSpec(
   roughSpec: SpecResult,
   researchPackage: ResearchPackage,
+  /** The user's request, for #113's orientation screen; without it only colour and routing are screened. */
+  requestText?: string,
 ): Promise<EnrichmentResult> {
   let config: LlmModelConfig;
   for (const purpose of ["spec_enrichment", "spec_generation", "conversation"] as const) {
@@ -187,6 +189,14 @@ export async function enrichSpec(
       }
     }
 
+    if (atoms) {
+      const screen = screenAtoms(atoms, requestText);
+      if (screen.dropped.length > 0 || screen.routed.length > 0) {
+        logger.info({ dropped: screen.dropped.map((d) => ({ reason: d.reason, word: d.word, text: d.atom.text.slice(0, 80) })), routed: screen.routed.length }, "enriched atoms screened");
+      }
+      atoms = screen.kept.length > 0 ? screen.kept : null;
+      if (!atoms) reasons.push("empty");
+    }
     const criteriaFailure = atoms ? undefined : { attempts: reasons.length, reasons };
     if (criteriaFailure) {
       logger.warn({ ...criteriaFailure, roughCriteria: roughSpec.verificationCriteria.length }, "enrichment criteria failed the atoms contract; rough atoms kept");
