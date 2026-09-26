@@ -52,34 +52,12 @@ export const QUALIFIED_JUDGES: readonly QualifiedJudge[] = [
       "packages/backend/prototypes/96-rc0/",
     ],
   },
-  {
-    // TRANSITIONAL (2026-09-25): fails ADR 0004's amended false-fail term
-    // against Kimi K3 (24 vs 21 on the 125). Its existing ratings stay
-    // admitted only until rc0 has re-rated the corpus (#96); remove this
-    // entry when that batch completes.
-    // Qualified under the three-view revision. On the 125: issue #83's screen
-    // (identity, completeness, stability at 2.7% against the 2.9% floor) and
-    // issue #85's adjudication of the 70 disagreements with the reference
-    // (Daniel's verdicts: false passes 6 vs the reference's 18, false fails
-    // 17 vs 20 against an allowance of 40, 9 N). Confirmed by the re-rating
-    // batch's spot check (issue #87, 2026-09-09): on 125 sampled corpus rows
-    // against the reference once, Daniel's verdicts on the 31 hard flips gave
-    // false passes 3 vs 4 and false fails 10 vs 10 against an allowance of
-    // 20, 4 N. No longer provisional; the next instrument revision revokes it.
-    model: "vllm-dgx-14/qwen3.8-27b-nvfp4",
-    thinkingEffort: "off",
-    instrumentId: "production@4892d8d1b160",
-    qualifiedOn: "2026-09-09",
-    evidence: [
-      "https://github.com/kreuzhofer/chat3d-app/issues/85",
-      "https://github.com/kreuzhofer/chat3d-app/issues/83",
-      "packages/backend/prototypes/85-adjudication/",
-      "https://claude.ai/code/artifact/e265b10f-06a3-4e37-86eb-4778acff385c",
-      "https://github.com/kreuzhofer/chat3d-app/issues/87",
-      "packages/backend/prototypes/87-batch/",
-      "https://claude.ai/code/artifact/77301d83-215d-4b90-9581-5250257318a4",
-    ],
-  },
+  // qwen3.8-27b-nvfp4 (thinking off) under production@4892d8d1b160 was
+  // qualified 2026-09-09 against Sonnet 4.6 (#85, #87) and RETIRED
+  // 2026-09-26: against the new reference Kimi K3 it fails ADR 0004's
+  // amended false-fail term (24 vs 21 on the 125, #96); its entry stayed
+  // transitional until rc0 had re-rated all 2,505 of its ratings.
+  //
   // No judge is qualified under production@22e0f10b0505 (superseded).
   //
   // qwen3.8-27b-nvfp4 (thinking off; model row 98d284fe, the pooled

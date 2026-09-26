@@ -17,12 +17,11 @@ describe("QUALIFIED_JUDGES", () => {
     }));
   });
 
-  it("records qwen3.8-27b-nvfp4 (thinking off) under production@4892d8d1b160 — re-qualified on the 125 (#83's screen, #85's adjudication), provisional until #87's spot check", () => {
-    expect(QUALIFIED_JUDGES).toContainEqual(expect.objectContaining({
+  it("no longer records qwen3.8-27b-nvfp4 (thinking off) under production@4892d8d1b160 — retired against Kimi K3 once rc0 re-rated the corpus (#96)", () => {
+    expect(QUALIFIED_JUDGES).not.toContainEqual(expect.objectContaining({
       model: "vllm-dgx-14/qwen3.8-27b-nvfp4",
       thinkingEffort: "off",
       instrumentId: "production@4892d8d1b160",
-      qualifiedOn: "2026-09-09",
     }));
   });
 
