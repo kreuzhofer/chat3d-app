@@ -13,9 +13,12 @@
  * spot-check sample — are never touched (Daniel, 2026-09-15): the grant, the
  * reference run and every screen compare on those items.
  *
- * Usage: npx tsx scripts/regenerate-criteria-atoms.ts [--dry-run] [--limit N] [--concurrency 4] [--out report.json] [--include-atoms]
+ * Usage: npx tsx scripts/regenerate-criteria-atoms.ts [--dry-run] [--limit N] [--concurrency 4] [--out report.json] [--include-atoms] [--regenerated-before ISO]
  *   --include-atoms: also take prompts that already carry atoms but were never
  *   regenerated — the ones written under the generator's old rule (#109).
+ *   --regenerated-before: a full pass under a new generator rule (#113): also
+ *   take prompts regenerated before that instant, whatever their criteria.
+ *   Rerunning with the same instant resumes (prompts done since are skipped).
  */
 import { writeFileSync } from "fs";
 import { prisma } from "../src/db/prisma.js";
@@ -34,7 +37,8 @@ function arg(name: string, fallback: string): string {
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 const DRY = process.argv.includes("--dry-run");
-const INCLUDE_ATOMS = process.argv.includes("--include-atoms");
+const REGENERATED_BEFORE = arg("regenerated-before", "");
+const INCLUDE_ATOMS = process.argv.includes("--include-atoms") || REGENERATED_BEFORE !== "";
 
 type Kind = "bare" | "empty" | "null" | "atoms";
 function kindOf(criteria: unknown): Kind | "atoms" {
@@ -65,7 +69,12 @@ async function main() {
   })).map((e) => e.promptId));
 
   const candidates = (await prisma.workbenchExamplePrompt.findMany({
-    where: { examples: { some: {} }, criteriaRegeneratedAt: null },
+    where: {
+      examples: { some: {} },
+      ...(REGENERATED_BEFORE
+        ? { OR: [{ criteriaRegeneratedAt: null }, { criteriaRegeneratedAt: { lt: new Date(REGENERATED_BEFORE) } }] }
+        : { criteriaRegeneratedAt: null }),
+    },
     select: {
       id: true, prompt: true, verificationCriteria: true, category: { select: { name: true } },
       examples: { select: { id: true, visualScore: true } },
@@ -80,7 +89,7 @@ async function main() {
     by: ["approvalStatus"], where: { id: { in: affectedIds } }, _count: { _all: true },
   });
   const byKind = todo.reduce<Record<string, number>>((acc, p) => { const k = kindOf(p.verificationCriteria); acc[k] = (acc[k] ?? 0) + 1; return acc; }, {});
-  logger.info({ candidates: candidates.length, todo: todo.length, byKind, includeAtoms: INCLUDE_ATOMS, heldOutPrompts: heldPrompts.size, dryRun: DRY, approvalBefore }, "regenerating criteria as atoms");
+  logger.info({ candidates: candidates.length, todo: todo.length, byKind, includeAtoms: INCLUDE_ATOMS, regeneratedBefore: REGENERATED_BEFORE || null, heldOutPrompts: heldPrompts.size, dryRun: DRY, approvalBefore }, "regenerating criteria as atoms");
 
   const outcomes: Outcome[] = [];
   let next = 0;
