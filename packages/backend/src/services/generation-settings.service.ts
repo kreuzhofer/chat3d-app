@@ -73,6 +73,7 @@ const SETTINGS_REGISTRY = new Map<string, SettingMeta>([
   ["global.zoom_resolution_px", { default: 1536, label: "Zoom resolution (px)", description: "Resolution for high-res follow-up screenshots", pipeline: "global", min: 1024, max: 2048, step: 256 }],
   ["global.zoom_max_followups", { default: 3, label: "Max zoom follow-ups", description: "Maximum number of uncertain items to resolve via 2x zoom per evaluation", pipeline: "global", min: 1, max: 5, step: 1 }],
   ["global.vlm_experiment_concurrency", { default: 1, label: "VLM experiment concurrency", description: "Examples a VLM experiment run evaluates at once (1 = one after another). Only pays off when the judge's provider serves several replicas; the provider's max-concurrent limit still applies.", pipeline: "global", min: 1, max: 8, step: 1 }],
+  ["global.judge_calls_per_replica", { default: 1, label: "Judge calls per replica", description: "Judge calls this app keeps in flight per serving replica of the judge (#120). 1 is ADR 0006's uncontended condition; above 1 trades rating reproducibility (co-tenancy flips ~3% of items) for judge throughput.", pipeline: "global", min: 1, max: 8, step: 1 }],
   ["global.adaptive_weight_enabled", { default: 1, label: "Adaptive eval weight", description: "Shift code/visual eval weight based on feature visibility (1=on, 0=off)", pipeline: "global", min: 0, max: 1, step: 1 }],
   ["global.adaptive_weight_range", { default: 0.2, label: "Adaptive weight range", description: "How far the code eval weight can shift from the base (±range)", pipeline: "global", min: 0.05, max: 0.4, step: 0.05 }],
   // Spec embedding
@@ -209,6 +210,10 @@ export interface ZoomSettings {
 
 export async function getVlmExperimentConcurrency(): Promise<number> {
   return getEffective("global.vlm_experiment_concurrency");
+}
+
+export async function getJudgeCallsPerReplica(): Promise<number> {
+  return getEffective("global.judge_calls_per_replica");
 }
 
 export async function getZoomSettings(): Promise<ZoomSettings> {

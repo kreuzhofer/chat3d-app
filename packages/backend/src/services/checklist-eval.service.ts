@@ -14,6 +14,7 @@ import {
   type LlmModelConfig,
 } from "./llm-config.service.js";
 import { trackedStreamText } from "./tracked-llm.service.js";
+import { withJudgeSlot } from "./judge-slots.service.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 
 const logger = createLogger("checklist-eval");
@@ -222,7 +223,7 @@ export async function verifyChecklistItemVisual(
 
   const semaphore = getLlmSemaphore(vlmConfig.provider, vlmConfig.maxConcurrent);
 
-  return semaphore.run(async () => {
+  return withJudgeSlot(vlmConfig, () => semaphore.run(async () => {
     const providerModel = createProviderModelFromConfig(vlmConfig);
     logger.info({ item: args.item, model: vlmConfig.label, imageCount: images.length }, "verifyChecklistItemVisual calling VLM");
 
@@ -248,7 +249,7 @@ export async function verifyChecklistItemVisual(
 
     logger.debug({ item: args.item, response: text }, "verifyChecklistItemVisual raw response");
     return parseChecklistVerdictText(text);
-  });
+  }));
 }
 
 export async function verifyChecklistItemCode(

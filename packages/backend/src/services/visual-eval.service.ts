@@ -11,6 +11,7 @@
 
 import { trackedStreamText, type TrackingMeta } from "./tracked-llm.service.js";
 import { isQuotaExhaustion, asQuotaError, isRateLimitError } from "../utils/llm-errors.js";
+import { withJudgeSlot } from "./judge-slots.service.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import { createLogger } from "../utils/logger.js";
 import {
@@ -186,7 +187,7 @@ export async function evaluateModelWithConfig(
 
   // Wrap evaluation (including retries) with per-provider semaphore
   const semaphore = getLlmSemaphore(vlmConfig.provider, vlmConfig.maxConcurrent);
-  return semaphore.run(async () => {
+  return withJudgeSlot(vlmConfig, () => semaphore.run(async () => {
     let lastError: Error | null = null;
     for (let attempt = 0; attempt <= EVAL_MAX_RETRIES; attempt++) {
       try {
@@ -250,7 +251,7 @@ export async function evaluateModelWithConfig(
       suggestions: [], vlmModel: vlmConfig.label, instrumentId: null, thinkingEffort,
       promptTokens: 0, completionTokens: 0,
     };
-  });
+  }));
 }
 
 // ── Build final result from VLM text ─────────────────────────────────

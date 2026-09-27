@@ -12,6 +12,7 @@
 import { renderModelScreenshots, type ModelFormat, type ViewingAngle, type RenderedScreenshot } from "./stl-rendering-client.service.js";
 import { NoObjectGeneratedError } from "ai";
 import { trackedGenerateText } from "./tracked-llm.service.js";
+import { withJudgeSlot } from "./judge-slots.service.js";
 import { getLlmSemaphore } from "../utils/resource-limits.js";
 import {
   getModelForPurpose,
@@ -258,7 +259,7 @@ async function runSingleFollowUp(
   const semaphore = getLlmSemaphore(vlmConfig.provider, vlmConfig.maxConcurrent);
   let result: Awaited<ReturnType<typeof trackedGenerateText>>;
   try {
-    result = await semaphore.run(async () =>
+    result = await withJudgeSlot(vlmConfig, () => semaphore.run(async () =>
     trackedGenerateText({
       model,
       system: systemPrompt,
@@ -289,7 +290,7 @@ async function runSingleFollowUp(
       // whose views decide the answer — it records its condition too (ADR 0005).
       endpointUrl: vlmConfig.endpointUrl,
     }),
-  );
+  ));
   } catch (err) {
     // With guided output the SDK validates the reply before we see it; its
     // rejection is the same outcome as ours, recorded the same way.

@@ -1,8 +1,10 @@
 /**
- * Batch generation in lanes (#120): `concurrency` runs up to that many prompts
- * at once, capped by the serving gate (ADR 0006 — each new row is rated by the
- * judge, so lanes never exceed its replicas); without it the batch stays one
- * prompt at a time and opens no gate.
+ * Batch generation in lanes (#120): `concurrency` runs that many prompts at
+ * once. The judge calls inside them queue for the judge's replicas on their
+ * own (judge-slots), so lanes are not clamped to the replica count; the
+ * serving gate still refuses a pool with nothing serving and admits every
+ * dispatch (ADR 0006). Without `concurrency` the batch stays one prompt at a
+ * time and opens no gate.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -52,11 +54,12 @@ describe("startBatchJob lanes", () => {
     expect(h.maxInFlight).toBe(1);
     expect(h.openGate).not.toHaveBeenCalled();
   });
-  it("runs lanes up to the gate's width and admits every dispatch", async () => {
+  it("runs the requested lanes, not the judge's replica count, and admits every dispatch", async () => {
     const job = await finished((await startBatchJob("cat", { onlyMissing: true, concurrency: 6 })).jobId);
     expect(job.completed).toBe(7);
-    expect(h.maxInFlight).toBe(3);
-    expect(job.concurrency).toBe(3);
+    expect(h.maxInFlight).toBe(6);
+    expect(job.concurrency).toBe(6);
+    expect(h.openGate).toHaveBeenCalledTimes(1);
     expect(h.admit).toHaveBeenCalledTimes(7);
   });
 });

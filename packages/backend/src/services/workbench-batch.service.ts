@@ -258,10 +258,11 @@ export async function startBatchJob(
 
   const skippedCount = allPrompts.length - promptsToProcess.length;
 
-  // Lanes (#120): every generated row is rated by the judge, so more than one
-  // lane goes through the serving gate like any rating batch (ADR 0006) —
-  // never more lanes than judge replicas, each dispatch admitted.
-  const requested = Math.min(Math.max(1, Math.floor(options.concurrency ?? 1)), 8);
+  // Lanes (#120): every generated row is rated by the judge. The judge calls
+  // queue for its replicas on their own (judge-slots), so the lanes are not
+  // clamped to the replica count; the serving gate still refuses a pool with
+  // nothing serving and admits each dispatch (ADR 0006).
+  const requested = Math.min(Math.max(1, Math.floor(options.concurrency ?? 1)), 24);
   let gate: ServingGate | undefined;
   if (requested > 1) {
     const judge = await getModelForPurpose("vlm_eval");
@@ -289,7 +290,7 @@ export async function startBatchJob(
     pendingPromptIds: new Set(promptsToProcess.map((p) => p.id)),
     userId: userId ?? null,
     abortController: new AbortController(),
-    concurrency: gate?.concurrency ?? 1,
+    concurrency: requested,
   };
 
   jobs.set(jobId, job);
