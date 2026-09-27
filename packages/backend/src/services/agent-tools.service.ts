@@ -542,6 +542,8 @@ export function buildAgentTools(
             vlmInstrumentId: fullEval.vlmInstrumentId ?? null,
             vlmThinkingEffort: fullEval.vlmThinkingEffort ?? null,
             evalChecklistState: fullEval.evalChecklistState ?? null,
+            checklistResults: fullEval.checklistResults,
+            codeItemResults: fullEval.codeItemResults,
             codeReviewRawResponse: fullEval.codeReviewRawResponse,
             codeReviewReasoning: fullEval.codeReviewReasoning,
             codeReviewSystemPrompt: fullEval.codeReviewSystemPrompt,

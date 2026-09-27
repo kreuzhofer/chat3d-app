@@ -38,6 +38,9 @@ export interface AgentEvalResult {
   vlmThinkingEffort?: string | null;
   /** Which checklist the visual judge was shown — provenance for issue #34. */
   evalChecklistState?: import("../utils/checklist-state.js").ChecklistState | null;
+  /** The visual judge's item answers and the code reviewer's items — what the Gate decides on (#120). */
+  checklistResults?: import("./eval-orchestrator.service.js").FullEvalResult["checklistResults"];
+  codeItemResults?: import("./eval-orchestrator.service.js").FullEvalResult["codeItemResults"];
   codeReviewRawResponse?: string;
   codeReviewReasoning?: string;
   codeReviewSystemPrompt?: string;

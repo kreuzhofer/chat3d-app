@@ -24,6 +24,7 @@ import { runResearch, type ResearchPackage } from "./research-agent.service.js";
 import type { RenderedScreenshot } from "./stl-rendering-client.service.js";
 import { renderModelScreenshots } from "./stl-rendering-client.service.js";
 import { runFullEvaluation, type FullEvalResult } from "./eval-orchestrator.service.js";
+import { fullEvalFromAgent } from "./agent-eval-reuse.js";
 import { validatePrompt } from "./workbench-prompt-validation.service.js";
 import {
   getAutoApproveThreshold,
@@ -629,36 +630,7 @@ async function _runPipeline(
   if (agResult.submitted && agResult.evalResult) {
     // Reuse agent's in-loop full eval result — same pipeline, same score
     logger.info({ score: agResult.evalResult.score, visualScore: agResult.evalResult.visualScore, codeScore: agResult.evalResult.codeScore }, "reusing agent in-loop eval result — skipping post-loop eval");
-    agFullEval = {
-      compositeScore: agResult.evalResult.score,
-      visualScore: agResult.evalResult.visualScore,
-      // The agent ran the same pipeline; carry its outcome, or read it off the
-      // score for a result produced before the outcome was recorded.
-      judgeOutcome: agResult.evalResult.judgeOutcome
-        ?? (agResult.evalResult.visualScore !== null ? "rated" : "skipped_no_images"),
-      codeScore: agResult.evalResult.codeScore,
-      assertionPassRate: agResult.evalResult.assertionPassRate,
-      assertionsFailed: false, // agent wouldn't have submitted if assertions failed
-      source: "agent_submitted",
-      compositeWeightSource: null,
-      vlmIssues: agResult.evalResult.issues.filter(i => !i.startsWith("[CODE]")),
-      vlmSuggestions: agResult.evalResult.suggestions,
-      codeIssues: agResult.evalResult.issues.filter(i => i.startsWith("[CODE]")),
-      checklistResults: undefined,
-      vlmModel: agResult.evalResult.vlmModel,
-      codeReviewModel: agResult.evalResult.codeReviewModel,
-      totalPromptTokens: 0,
-      totalCompletionTokens: 0,
-      vlmRawResponse: agResult.evalResult.vlmRawResponse,
-      vlmReasoning: agResult.evalResult.vlmReasoning,
-      vlmSystemPrompt: agResult.evalResult.vlmSystemPrompt,
-      vlmInstrumentId: agResult.evalResult.vlmInstrumentId ?? null,
-      vlmThinkingEffort: agResult.evalResult.vlmThinkingEffort ?? null,
-      evalChecklistState: agResult.evalResult.evalChecklistState ?? null,
-      codeReviewRawResponse: agResult.evalResult.codeReviewRawResponse,
-      codeReviewReasoning: agResult.evalResult.codeReviewReasoning,
-      codeReviewSystemPrompt: agResult.evalResult.codeReviewSystemPrompt,
-    };
+    agFullEval = fullEvalFromAgent(agResult.evalResult);
   } else if (agScreenshots.length > 0 || agAllCode.trim()) {
     // Agent didn't submit — run full eval post-loop
     onProgress?.("evaluating", "Evaluating quality...");
