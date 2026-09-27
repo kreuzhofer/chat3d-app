@@ -13,7 +13,9 @@
  * set, so it is held out too. The manifest names those siblings separately.
  */
 import { prisma } from "../../db/prisma.js";
-import { HELD_OUT_EXPERIMENT_ID } from "../adjudication-draw.service.js";
+
+/** The measurement set of ADR 0004: the selections of experiment 7337a398, where every harness lever was chosen. Never drawn on. */
+export const HELD_OUT_EXPERIMENT_ID = "7337a398-425c-40ed-8455-a8b4ff0d1ec4";
 
 /** #63's spot check of the first re-rating batch (seed 63, 125 rows). */
 export const SPOT_CHECK_63_EXPERIMENT_ID = "09411bc4-f4be-4024-8d3b-527df01f4aae";

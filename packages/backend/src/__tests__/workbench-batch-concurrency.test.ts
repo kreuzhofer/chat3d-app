@@ -1,95 +1,62 @@
 /**
- * The re-evaluation batch keeps a bounded number of rows in flight (#63).
- *
- * The stale re-rating batch and the category re-evaluation share one loop.
- * One at a time is the default; a batch started with a concurrency above 1
- * keeps that many rows in flight, one judge call per pooled replica, and
- * stops pulling new rows when cancelled while the in-flight ones finish.
+ * Batch generation in lanes (#120): `concurrency` runs up to that many prompts
+ * at once, capped by the serving gate (ADR 0006 — each new row is rated by the
+ * judge, so lanes never exceed its replicas); without it the batch stays one
+ * prompt at a time and opens no gate.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { reEvaluateExample } = vi.hoisted(() => ({ reEvaluateExample: vi.fn() }));
-vi.mock("../services/workbench-reeval.service.js", () => ({ reEvaluateExample: (...a: unknown[]) => reEvaluateExample(...a) }));
-vi.mock("../services/workbench-codegen.service.js", () => ({ generateForPrompt: vi.fn(), reRenderForExample: vi.fn() }));
+const h = vi.hoisted(() => ({ inFlight: 0, maxInFlight: 0, openGate: vi.fn(), admit: vi.fn(async () => {}) }));
+const prompts = Array.from({ length: 7 }, (_, i) => ({ id: `p${i}`, prompt: `prompt ${i}` }));
+
+vi.mock("../db/prisma.js", () => ({
+  prisma: {
+    workbenchCategory: { findUnique: vi.fn(async () => ({ name: "Missing Examples" })) },
+    workbenchExamplePrompt: { findMany: vi.fn(async () => prompts) },
+    workbenchExample: { findMany: vi.fn(async () => []) },
+  },
+}));
+vi.mock("../services/workbench-codegen.service.js", () => ({
+  generateForPrompt: vi.fn(async (id: string) => {
+    h.inFlight++; h.maxInFlight = Math.max(h.maxInFlight, h.inFlight);
+    await new Promise((r) => setTimeout(r, 5));
+    h.inFlight--;
+    return { exampleId: `ex-${id}`, approvalStatus: "pending", evalScore: 5 };
+  }),
+  reRenderForExample: vi.fn(),
+}));
 vi.mock("../services/workbench-embeddings.service.js", () => ({ embedAndStorePrompt: vi.fn() }));
 vi.mock("../services/workbench-examples.service.js", () => ({ cleanupExamplesForPrompt: vi.fn() }));
-vi.mock("../services/sse.service.js", () => ({ sseService: { publish: vi.fn(), publishToUser: vi.fn() } }));
+vi.mock("../services/sse.service.js", () => ({ sseService: { publish: vi.fn(), broadcast: vi.fn() } }));
+vi.mock("../services/llm-config.service.js", () => ({ getModelForPurpose: vi.fn(async () => ({ endpointUrl: "http://gw", modelName: "rc0" })) }));
+vi.mock("../services/serving-gate.service.js", async (orig) => ({
+  ...(await orig<typeof import("../services/serving-gate.service.js")>()),
+  openServingGate: (...a: unknown[]) => h.openGate(...a),
+}));
 
-import { runBatchReEvaluate, type BatchJob } from "../services/workbench-batch.service.js";
+import { startBatchJob, jobs } from "../services/workbench-batch.service.js";
 
-const tick = () => new Promise<void>((r) => setTimeout(r, 5));
-const ok = (exampleId: string) => ({ exampleId, evalScore: 8, visualScore: 8, codeEvalScore: 8, assertionPassRate: null, approvalStatus: "auto_approved", source: "vlm" });
-
-function job(): BatchJob {
-  return {
-    jobId: "batch-re-rate-stale-1", type: "batch-re-rate-stale", categoryId: "*", categoryName: "Stale ratings (all categories)",
-    status: "running", total: 0, completed: 0, failed: 0, skipped: 0, currentPromptId: null, currentPromptText: null,
-    exampleId: null, results: [], error: null, createdAt: new Date().toISOString(), finishedAt: null,
-    pendingPromptIds: new Set(), userId: null, abortController: new AbortController(),
-  };
+async function finished(jobId: string) {
+  for (let i = 0; i < 200 && jobs.get(jobId)!.status === "running"; i++) await new Promise((r) => setTimeout(r, 5));
+  return jobs.get(jobId)!;
 }
-const examples = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `ex${i}`, promptId: `p${i}`, promptRef: { prompt: `prompt ${i}` } }));
 
-beforeEach(() => reEvaluateExample.mockReset());
-
-describe("runBatchReEvaluate", () => {
-  it("keeps at most `concurrency` rows in flight and completes every row", async () => {
-    let inFlight = 0, peak = 0;
-    reEvaluateExample.mockImplementation(async (id: string) => {
-      inFlight++; peak = Math.max(peak, inFlight);
-      await tick();
-      inFlight--;
-      return ok(id);
-    });
-    const j = job();
-    await runBatchReEvaluate(j, examples(7), 3);
-    expect(peak).toBe(3);
-    expect(j.completed).toBe(7);
-    expect(j.failed).toBe(0);
-    expect(j.status).toBe("completed");
-    expect(j.finishedAt).not.toBeNull();
-    expect(j.results.map((r) => r.exampleId).sort()).toEqual(examples(7).map((e) => e.id).sort());
+describe("startBatchJob lanes", () => {
+  beforeEach(() => {
+    jobs.clear(); h.inFlight = 0; h.maxInFlight = 0; h.openGate.mockReset(); h.admit.mockClear();
+    h.openGate.mockImplementation(async (o: { configuredConcurrency: number }) => ({ concurrency: Math.min(o.configuredConcurrency, 3), admit: h.admit, backoffs: 0 }));
   });
-
-  it("runs one row at a time by default", async () => {
-    let inFlight = 0, peak = 0;
-    reEvaluateExample.mockImplementation(async (id: string) => {
-      inFlight++; peak = Math.max(peak, inFlight);
-      await tick();
-      inFlight--;
-      return ok(id);
-    });
-    const j = job();
-    await runBatchReEvaluate(j, examples(3));
-    expect(peak).toBe(1);
-    expect(j.completed).toBe(3);
+  it("runs one prompt at a time and opens no gate by default", async () => {
+    const job = await finished((await startBatchJob("cat", { onlyMissing: true })).jobId);
+    expect(job.completed).toBe(7);
+    expect(h.maxInFlight).toBe(1);
+    expect(h.openGate).not.toHaveBeenCalled();
   });
-
-  it("records a failed row and goes on with the rest", async () => {
-    reEvaluateExample.mockImplementation(async (id: string) => {
-      await tick();
-      if (id === "ex1") throw new Error("judge unreachable");
-      return ok(id);
-    });
-    const j = job();
-    await runBatchReEvaluate(j, examples(3), 2);
-    expect(j.completed).toBe(2);
-    expect(j.failed).toBe(1);
-    expect(j.results.find((r) => r.status === "error")?.error).toBe("judge unreachable");
-    expect(j.status).toBe("completed");
-  });
-
-  it("stops pulling rows once cancelled, letting the in-flight ones finish", async () => {
-    const j = job();
-    reEvaluateExample.mockImplementation(async (id: string) => {
-      await tick();
-      if (id === "ex1") { j.status = "cancelled"; j.abortController.abort(); }
-      return ok(id);
-    });
-    await runBatchReEvaluate(j, examples(8), 2);
-    expect(j.status).toBe("cancelled");
-    expect(j.completed).toBeGreaterThanOrEqual(2);
-    expect(j.completed).toBeLessThan(8);
-    expect(j.finishedAt).not.toBeNull();
+  it("runs lanes up to the gate's width and admits every dispatch", async () => {
+    const job = await finished((await startBatchJob("cat", { onlyMissing: true, concurrency: 6 })).jobId);
+    expect(job.completed).toBe(7);
+    expect(h.maxInFlight).toBe(3);
+    expect(job.concurrency).toBe(3);
+    expect(h.admit).toHaveBeenCalledTimes(7);
   });
 });

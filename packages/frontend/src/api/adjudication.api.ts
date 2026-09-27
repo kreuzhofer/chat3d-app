@@ -171,3 +171,9 @@ export function carefulLookRank(it: Pick<SittingItem, "triage">): number {
   if (c.startsWith("med")) return 2;
   return 3;
 }
+
+/** "False passes first" (#120): the candidate passed and the reference failed — what the next release must fix — then the rest, each by the careful-look rank. */
+export function falsePassFirstRank(it: Pick<SittingItem, "triage" | "candState" | "refState">): number {
+  const falsePass = it.candState === "pass" && it.refState === "fail";
+  return (falsePass ? 0 : 10) + carefulLookRank(it);
+}

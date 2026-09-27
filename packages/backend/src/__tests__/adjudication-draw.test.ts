@@ -18,7 +18,7 @@ vi.mock("../services/adjudication-sitting.service.js", async (importOriginal) =>
 });
 vi.mock("../services/adjudication-triage.service.js", () => ({ startTriageJob: vi.fn() }));
 
-import { drawIds, drawSample, seededRandom } from "../services/adjudication-draw.service.js";
+import { drawIds, drawSample, inFrame, seededRandom } from "../services/adjudication-draw.service.js";
 
 const ids = Array.from({ length: 40 }, (_, i) => `ex-${String(i).padStart(2, "0")}`);
 
@@ -44,8 +44,8 @@ describe("drawSample", () => {
   beforeEach(() => {
     db.queryRaw.mockReset();
     db.queryRaw.mockResolvedValue([
-      ...ids.slice(0, 30).map((id) => ({ id, excluded: false })),
-      ...ids.slice(30).map((id) => ({ id, excluded: true })),
+      ...ids.slice(0, 30).map((id) => ({ id, heldOut: false, lastSampledAt: null, criteriaRegeneratedAt: null })),
+      ...ids.slice(30).map((id) => ({ id, heldOut: false, lastSampledAt: new Date("2026-09-20"), criteriaRegeneratedAt: null })),
     ]);
   });
   it("draws only from rows outside the held-out set and earlier samples, and reports the frame", async () => {
@@ -59,5 +59,24 @@ describe("drawSample", () => {
     await expect(drawSample({ size: 0, seed: 1 })).rejects.toMatchObject({ statusCode: 400 });
     await expect(drawSample({ size: 5, seed: -1 })).rejects.toMatchObject({ statusCode: 400 });
     await expect(drawSample({ size: 5.5, seed: 1 })).rejects.toMatchObject({ statusCode: 400 });
+  });
+});
+
+describe("inFrame (#120)", () => {
+  const before = new Date("2026-09-20"), regen = new Date("2026-09-26"), after = new Date("2026-09-27");
+  it("admits a row never sampled", () => {
+    expect(inFrame({ heldOut: false, lastSampledAt: null, criteriaRegeneratedAt: null })).toBe(true);
+    expect(inFrame({ heldOut: false, lastSampledAt: null, criteriaRegeneratedAt: regen })).toBe(true);
+  });
+  it("re-admits a row whose criteria were regenerated after its last sample — its adjudicated questions are gone", () => {
+    expect(inFrame({ heldOut: false, lastSampledAt: before, criteriaRegeneratedAt: regen })).toBe(true);
+  });
+  it("keeps out a row sampled under its current criteria", () => {
+    expect(inFrame({ heldOut: false, lastSampledAt: before, criteriaRegeneratedAt: null })).toBe(false);
+    expect(inFrame({ heldOut: false, lastSampledAt: after, criteriaRegeneratedAt: regen })).toBe(false);
+  });
+  it("never admits a held-out row", () => {
+    expect(inFrame({ heldOut: true, lastSampledAt: null, criteriaRegeneratedAt: null })).toBe(false);
+    expect(inFrame({ heldOut: true, lastSampledAt: before, criteriaRegeneratedAt: regen })).toBe(false);
   });
 });

@@ -122,6 +122,10 @@ _Avoid_: rating session, labelling, review
 One bounded pass of Disagreement inspection: a Disagreement set drawn from one candidate and one reference under one Instrument id, worked by one adjudicator until every item carries an Adjudication or is left open. A sitting is the unit that is started, resumed and completed.
 _Avoid_: session (auth and chat already own the word), sheet, batch
 
+**Frame**:
+The corpus rows a Sitting may be drawn from: current rows outside the held-out prompts, and not sampled since their prompt's criteria last changed. Regenerating a prompt's criteria re-opens its rows, because an Adjudication belongs to a question, not to a row.
+_Avoid_: pool, population, unsampled rows
+
 **Disagreement set**:
 The checklist items on which the candidate and the reference answered differently, paired by example and position, as the Screen finds them. Fixed when the Sitting starts; it never grows.
 _Avoid_: dump, sample (the sample is the examples the runs covered; the set is the items that disagree)

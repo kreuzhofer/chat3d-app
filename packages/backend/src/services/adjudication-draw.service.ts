@@ -3,13 +3,17 @@
  * draws the rows, runs the reference judge on exactly those rows, and opens
  * the sitting when the run completes.
  *
- * The frame is the corpus's current rows outside the held-out 125 and
- * outside every earlier sitting's sample, so a row is adjudicated at most
- * once. The reference judge is the `adjudication_reference` purpose — the
+ * The frame is the corpus's current rows outside the export's held-out
+ * prompts (the 125, every spot check — cut by prompt, as the export cuts) and
+ * outside every earlier sitting's sample taken under the row's current
+ * criteria, so no question is adjudicated twice: regenerating a prompt's
+ * criteria replaces the questions, which re-opens its rows (#120). The reference judge is the `adjudication_reference` purpose — the
  * reference standard of the bar, Sonnet 4.6 thinking off by standing
  * decision — assigned in the admin UI like any other purpose.
  */
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
+import { HELD_OUT_EXPERIMENT_ID, HELD_OUT_EXPERIMENT_IDS } from "./training-export/judge-sft-held-out.js";
 import { createLogger } from "../utils/logger.js";
 import { currentInstrumentId } from "./visual-eval-instrument-id.service.js";
 import { getModelForPurpose } from "./llm-config.service.js";
@@ -22,8 +26,7 @@ import { generateJobId, jobs, toSummary, type BatchJob, type BatchJobSummary } f
 
 const logger = createLogger("sitting-draw");
 
-/** The measurement set of ADR 0004: the selections of experiment 7337a398, where every harness lever was chosen. Never drawn on. */
-export const HELD_OUT_EXPERIMENT_ID = "7337a398-425c-40ed-8455-a8b4ff0d1ec4";
+export { HELD_OUT_EXPERIMENT_ID };
 export const REFERENCE_PURPOSE = "adjudication_reference" as const;
 /** Fewer items than this and the Gate cannot decide the example (ADR 0001); such rows are not worth a judge's disagreement. */
 const MIN_CHECKLIST_ITEMS = 3;
@@ -63,17 +66,35 @@ export function drawIds(ids: string[], size: number, seed: number): string[] {
   return pool.slice(0, size).sort();
 }
 
-/** The frame: current rows with a gate-eligible checklist, outside the held-out set and every earlier sitting's sample. */
+export interface FrameFacts {
+  heldOut: boolean;
+  /** When the latest sitting whose sample holds the row was created; null if never sampled. */
+  lastSampledAt: Date | null;
+  criteriaRegeneratedAt: Date | null;
+}
+
+/** A row is in the frame unless held out, or sampled since its prompt's criteria last changed. */
+export function inFrame(r: FrameFacts): boolean {
+  if (r.heldOut) return false;
+  if (!r.lastSampledAt) return true;
+  return r.criteriaRegeneratedAt !== null && r.criteriaRegeneratedAt > r.lastSampledAt;
+}
+
+/** The frame: current rows with a gate-eligible checklist, outside the held-out set and every sample taken under their current criteria. */
 export async function drawSample(input: DrawInput): Promise<DrawResult> {
   if (!Number.isInteger(input.size) || input.size < 1 || input.size > 500) throw new SittingError("size must be a whole number between 1 and 500", 400);
   if (!Number.isInteger(input.seed) || input.seed < 0) throw new SittingError("seed must be a non-negative whole number", 400);
   const instrumentId = await currentInstrumentId();
-  const rows = await prisma.$queryRaw<Array<{ id: string; excluded: boolean }>>`
+  const rows = await prisma.$queryRaw<Array<FrameFacts & { id: string }>>`
     select e.id,
-      (e.id in (select example_id from vlm_experiment_example_selections where experiment_id = ${HELD_OUT_EXPERIMENT_ID}::uuid)
-       or e.id in (select sel.example_id from adjudication_sittings s
-                   join vlm_experiment_example_selections sel on sel.experiment_id = s.sample_experiment_id)) as excluded
+      (e.prompt_id in (select he.prompt_id from vlm_experiment_example_selections hs join workbench_examples he on he.id = hs.example_id
+                        where hs.experiment_id in (${Prisma.join(HELD_OUT_EXPERIMENT_IDS.map((id) => Prisma.sql`${id}::uuid`))}))) as "heldOut",
+      (select max(s.created_at) from adjudication_sittings s
+         join vlm_experiment_example_selections sel on sel.experiment_id = s.sample_experiment_id
+        where sel.example_id = e.id) as "lastSampledAt",
+      p.criteria_regenerated_at as "criteriaRegeneratedAt"
     from workbench_examples e
+    join workbench_example_prompts p on p.id = e.prompt_id
     where e.vlm_instrument_id = ${instrumentId}
       and e.experiment_run_id is null
       and e.render_status = 'success'
@@ -81,9 +102,9 @@ export async function drawSample(input: DrawInput): Promise<DrawResult> {
       and jsonb_typeof(e.eval_checklist_results) = 'array'
       and jsonb_array_length(e.eval_checklist_results) >= ${MIN_CHECKLIST_ITEMS}
     order by e.id`;
-  const frame = rows.filter((r) => !r.excluded).map((r) => r.id);
+  const frame = rows.filter(inFrame).map((r) => r.id);
   const excluded = rows.length - frame.length;
-  if (frame.length < input.size) throw new SittingError(`The frame holds ${frame.length} rows outside the held-out set and earlier samples; ${input.size} were asked for`, 409);
+  if (frame.length < input.size) throw new SittingError(`The frame holds ${frame.length} rows outside the held-out set and samples taken under their current criteria; ${input.size} were asked for`, 409);
   return { instrumentId, frame: frame.length, excluded, exampleIds: drawIds(frame, input.size, input.seed) };
 }
 

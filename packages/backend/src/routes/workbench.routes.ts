@@ -500,16 +500,21 @@ workbenchRouter.post("/examples/:id/re-render", async (req, res) => {
 
 workbenchRouter.post("/generate/batch", async (req, res) => {
   try {
-    const { categoryId, skipApproved, onlyMissing } = req.body as {
+    const { categoryId, skipApproved, onlyMissing, concurrency } = req.body as {
       categoryId?: string;
       skipApproved?: boolean;
       onlyMissing?: boolean;
+      concurrency?: number;
     };
     if (!categoryId || typeof categoryId !== "string") {
       res.status(400).json({ error: "categoryId is required" });
       return;
     }
-    const job = await startBatchJob(categoryId, { skipApproved: skipApproved ?? true, onlyMissing }, req.authUser!.id);
+    if (concurrency !== undefined && !(Number.isInteger(concurrency) && concurrency >= 1)) {
+      res.status(400).json({ error: "concurrency must be a whole number of at least 1" });
+      return;
+    }
+    const job = await startBatchJob(categoryId, { skipApproved: skipApproved ?? true, onlyMissing, concurrency }, req.authUser!.id);
     res.status(202).json(job);
   } catch (error) {
     if (error instanceof WorkbenchCatalogError) {

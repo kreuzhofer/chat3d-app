@@ -17,7 +17,8 @@ import { cleanupExamplesForPrompt, type CleanupPreview } from "./workbench-examp
 import { createLogger } from "../utils/logger.js";
 import { runWithConcurrency } from "../utils/worker-pool.js";
 import { runWithUsageContext } from "./usage-tracking.service.js";
-import { ServingHaltError, type ServingGate } from "./serving-gate.service.js";
+import { openServingGate, ServingHaltError, type ServingGate } from "./serving-gate.service.js";
+import { getModelForPurpose } from "./llm-config.service.js";
 import { sseService } from "./sse.service.js";
 
 const logger = createLogger("workbench-batch");
@@ -198,7 +199,7 @@ export function getRunningJobs(): BatchJobSummary[] {
  */
 export async function startBatchJob(
   categoryId: string,
-  options: { skipApproved?: boolean; onlyMissing?: boolean } = {},
+  options: { skipApproved?: boolean; onlyMissing?: boolean; concurrency?: number } = {},
   userId?: string,
 ): Promise<BatchJobSummary> {
   // Prevent double-starts
@@ -257,6 +258,16 @@ export async function startBatchJob(
 
   const skippedCount = allPrompts.length - promptsToProcess.length;
 
+  // Lanes (#120): every generated row is rated by the judge, so more than one
+  // lane goes through the serving gate like any rating batch (ADR 0006) —
+  // never more lanes than judge replicas, each dispatch admitted.
+  const requested = Math.min(Math.max(1, Math.floor(options.concurrency ?? 1)), 8);
+  let gate: ServingGate | undefined;
+  if (requested > 1) {
+    const judge = await getModelForPurpose("vlm_eval");
+    gate = await openServingGate({ endpointUrl: judge.endpointUrl, publishedName: judge.modelName, configuredConcurrency: requested, label: "batch generation" });
+  }
+
   const jobId = generateJobId("batch");
   const job: BatchJob = {
     jobId,
@@ -278,12 +289,13 @@ export async function startBatchJob(
     pendingPromptIds: new Set(promptsToProcess.map((p) => p.id)),
     userId: userId ?? null,
     abortController: new AbortController(),
+    concurrency: gate?.concurrency ?? 1,
   };
 
   jobs.set(jobId, job);
 
   // Run in background — don't await
-  void runBatchJob(job, promptsToProcess);
+  void runBatchJob(job, promptsToProcess, gate);
 
   return toSummary(job);
 }
@@ -636,11 +648,25 @@ export function toSummary(job: BatchJob): BatchJobSummary {
 async function runBatchJob(
   job: BatchJob,
   prompts: Array<{ id: string; prompt: string }>,
+  gate?: ServingGate,
 ): Promise<void> {
-  for (const prompt of prompts) {
-    // Check for cancellation before starting next prompt
-    if (job.status === "cancelled") {
-      break;
+  const lanes = job.concurrency ?? 1;
+  await runWithUsageContext({ driverConcurrency: lanes }, () =>
+  runWithConcurrency(prompts, lanes, async (prompt) => {
+    if (job.status !== "running") return;
+    if (gate) {
+      try {
+        await gate.admit();
+      } catch (err) {
+        if (!(err instanceof ServingHaltError)) throw err;
+        job.status = "halted";
+        job.servingHalt = err.reason;
+        job.servingBackoffs = gate.backoffs;
+        job.abortController.abort();
+        logger.error({ jobId: job.jobId, reason: err.reason, completed: job.completed }, "serving condition violated — generation batch halted; rerun with onlyMissing to resume");
+        return;
+      }
+      job.servingBackoffs = gate.backoffs;
     }
 
     job.currentPromptId = prompt.id;
@@ -750,7 +776,7 @@ async function runBatchJob(
         "prompt generation failed",
       );
     }
-  }
+  }, job.abortController.signal));
 
   job.currentPromptId = null;
   job.currentPromptText = null;

@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { InlineAlert } from "../../layout/InlineAlert";
 import { Button } from "../../ui/button";
 import {
-  carefulLookRank, completeSitting, getSitting, recordDecision, startTriage, VIEW_ORDER,
+  carefulLookRank, falsePassFirstRank, completeSitting, getSitting, recordDecision, startTriage, VIEW_ORDER,
   type AdjudicationTally, type DecisionInput, type Sitting, type SittingItem, type ViewName,
 } from "../../../api/adjudication.api";
 import { getJobStatus } from "../../../api/workbench.api";
@@ -20,7 +20,7 @@ interface Props { token: string; sittingId: string; onBack: () => void }
 export function AdjudicationSittingView({ token, sittingId, onBack }: Props) {
   const [sitting, setSitting] = useState<Sitting | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [order, setOrder] = useState<"careful" | "sheet">("careful");
+  const [order, setOrder] = useState<"false-pass" | "careful" | "sheet">("false-pass");
   const [pos, setPos] = useState(0);
   const [lightbox, setLightbox] = useState<ViewName | null>(null);
   const [saving, setSaving] = useState(false);
@@ -34,6 +34,7 @@ export function AdjudicationSittingView({ token, sittingId, onBack }: Props) {
 
   const ordered = useMemo(() => {
     const items = sitting?.items.slice() ?? [];
+    if (order === "false-pass") items.sort((a, b) => falsePassFirstRank(a) - falsePassFirstRank(b));
     if (order === "careful") items.sort((a, b) => carefulLookRank(a) - carefulLookRank(b));
     return items;
   }, [sitting, order]);
@@ -126,7 +127,8 @@ export function AdjudicationSittingView({ token, sittingId, onBack }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <select className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] px-2 py-1 text-xs" value={order} onChange={(e) => setOrder(e.target.value as "careful" | "sheet")}>
+          <select className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--surface-2))] px-2 py-1 text-xs" value={order} onChange={(e) => setOrder(e.target.value as "false-pass" | "careful" | "sheet")}>
+            <option value="false-pass">False passes first</option>
             <option value="careful">Careful look first</option>
             <option value="sheet">Sheet order</option>
           </select>
@@ -147,7 +149,7 @@ export function AdjudicationSittingView({ token, sittingId, onBack }: Props) {
         <aside className="space-y-3 self-start lg:sticky lg:top-4">
           <TallyMeters t={t} agreed={agreed} overruled={decidedCount - agreed} layout="column" />
           <div className="rounded border border-[hsl(var(--border))] p-2">
-            <div className="mb-1 text-xs text-[hsl(var(--muted-foreground))]">Items · {order === "careful" ? "careful look first" : "sheet order"}</div>
+            <div className="mb-1 text-xs text-[hsl(var(--muted-foreground))]">Items · {order === "false-pass" ? "false passes first" : order === "careful" ? "careful look first" : "sheet order"}</div>
             <div className="flex flex-wrap gap-1">
               {ordered.map((it, i) => (
                 <button key={it.id} type="button" title={`${it.category} · ${it.exampleId.slice(0, 8)} · ${it.question}`} onClick={() => setPos(i)}
