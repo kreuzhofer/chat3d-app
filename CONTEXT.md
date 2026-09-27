@@ -122,9 +122,17 @@ _Avoid_: rating session, labelling, review
 One bounded pass of Disagreement inspection: a Disagreement set drawn from one candidate and one reference under one Instrument id, worked by one adjudicator until every item carries an Adjudication or is left open. A sitting is the unit that is started, resumed and completed.
 _Avoid_: session (auth and chat already own the word), sheet, batch
 
-**Frame**:
+**Model frame**:
+The one orientation every model is built, rendered and asked about in: Z up as the object is used (not as it is printed), front facing −Y, right facing +X. The front render looks at the −Y face. A model is built in the model frame; it is never turned to fit its renders.
+_Avoid_: world frame, print orientation, camera frame
+
+**Orientation declaration**:
+A prompt's written statement of how its object sits in the Model frame: what is up, and which feature faces front, or "no front" for an object without one. A prompt's own direction words map onto it (its "front" is −Y). Questions may use direction words only where the declaration gives them a meaning.
+_Avoid_: pose, facing, orientation hint
+
+**Draw frame**:
 The corpus rows a Sitting may be drawn from: current rows outside the held-out prompts, and not sampled since their prompt's criteria last changed. Regenerating a prompt's criteria re-opens its rows, because an Adjudication belongs to a question, not to a row.
-_Avoid_: pool, population, unsampled rows
+_Avoid_: frame (the Model frame is orientation), pool, population, unsampled rows
 
 **Disagreement set**:
 The checklist items on which the candidate and the reference answered differently, paired by example and position, as the Screen finds them. Fixed when the Sitting starts; it never grows.
