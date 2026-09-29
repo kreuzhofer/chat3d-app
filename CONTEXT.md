@@ -154,6 +154,10 @@ _Avoid_: unlisted issue, gap
 Labels produced by running a frontier judge several times over the same examples and taking the majority per item. Cheaper than gold; inherits that judge's blind spots, so it iterates but never validates.
 _Avoid_: silver set
 
+**Release subset**:
+One of the published dataset's two views of the same examples: the *codegen* subset (prompt → code) and the *judge* subset (an example's views and checklist → the answers). Rows of both subsets about one example share its example id; rows of one prompt share its prompt id.
+_Avoid_: split (a split is train/test/held-out), config, part
+
 **Held-out set**:
 Prompts reserved for benchmarking the codegen model and excluded from its training data. Not a reference for the judge.
 _Avoid_: gold set, test set
