@@ -257,11 +257,23 @@ export async function startBatchJob(
   }
 
   const skippedCount = allPrompts.length - promptsToProcess.length;
+  return launchGenerationBatch({ categoryId, categoryName }, promptsToProcess, { concurrency: options.concurrency, skipped: skippedCount }, userId);
+}
 
-  // Lanes (#120): every generated row is rated by the judge. The judge calls
-  // queue for its replicas on their own (judge-slots), so the lanes are not
-  // clamped to the replica count; the serving gate still refuses a pool with
-  // nothing serving and admits each dispatch (ADR 0006).
+/**
+ * Start a generation job over an explicit list of prompts (the category batch
+ * and the prompt-list batch share it). Lanes (#120): every generated row is
+ * rated by the judge. The judge calls queue for its replicas on their own
+ * (judge-slots), so the lanes are not clamped to the replica count; the
+ * serving gate still refuses a pool with nothing serving and admits each
+ * dispatch (ADR 0006).
+ */
+export async function launchGenerationBatch(
+  label: { categoryId: string; categoryName: string },
+  promptsToProcess: Array<{ id: string; prompt: string }>,
+  options: { concurrency?: number; skipped?: number },
+  userId?: string,
+): Promise<BatchJobSummary> {
   const requested = Math.min(Math.max(1, Math.floor(options.concurrency ?? 1)), 24);
   let gate: ServingGate | undefined;
   if (requested > 1) {
@@ -273,13 +285,13 @@ export async function startBatchJob(
   const job: BatchJob = {
     jobId,
     type: "batch",
-    categoryId,
-    categoryName,
+    categoryId: label.categoryId,
+    categoryName: label.categoryName,
     status: "running",
     total: promptsToProcess.length,
     completed: 0,
     failed: 0,
-    skipped: skippedCount,
+    skipped: options.skipped ?? 0,
     currentPromptId: null,
     currentPromptText: null,
     exampleId: null,

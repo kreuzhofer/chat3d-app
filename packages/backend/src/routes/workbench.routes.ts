@@ -76,6 +76,7 @@ import {
 import { prisma } from "../db/prisma.js";
 import express from "express";
 import { getTraceRecordForWorkbenchExample } from "../services/trace-persistence.service.js";
+import { startPromptListBatch, PromptListError } from "../services/workbench-batch-prompts.service.js";
 
 const logger = createLogger("workbench-routes");
 
@@ -527,6 +528,29 @@ workbenchRouter.post("/generate/batch", async (req, res) => {
       return;
     }
     res.status(500).json({ error: "Batch generation failed", detail: String(error) });
+  }
+});
+
+// Another row for each listed prompt (#120's top-up); held-out prompts are refused.
+workbenchRouter.post("/generate/batch/prompts", async (req, res) => {
+  try {
+    const { promptIds, concurrency } = req.body as { promptIds?: unknown; concurrency?: unknown };
+    if (!Array.isArray(promptIds) || !promptIds.every((x) => typeof x === "string")) {
+      res.status(400).json({ error: "promptIds must be an array of ids" });
+      return;
+    }
+    if (concurrency !== undefined && !(Number.isInteger(concurrency) && (concurrency as number) >= 1)) {
+      res.status(400).json({ error: "concurrency must be a whole number of at least 1" });
+      return;
+    }
+    const job = await startPromptListBatch({ promptIds: promptIds as string[], concurrency: concurrency as number | undefined }, req.authUser!.id);
+    res.status(202).json(job);
+  } catch (error) {
+    if (error instanceof PromptListError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "Prompt-list generation failed", detail: String(error) });
   }
 });
 
