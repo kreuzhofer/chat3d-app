@@ -143,9 +143,8 @@ The examples are rows of the Chat3D workbench corpus: a natural-language request
 ## Intended use
 
 Supervised fine-tuning of the Chat3D visual judge (rc1), starting from Qwen3.8-27B or rc0, then qualification under chat3d-app ADR 0004 on the held-out ids. Requests made for rc1 alongside this set:
-- LoRA targets excluding `mtp.*`;
-- a parity check by tensor name;
-- an aligned MTP head;
+- the MTP drafter **trained as its own step** against rc1's outputs (an aligned head), never adapted by accident through the judge LoRA's suffix-matched targets (`mtp.*` excluded from those);
+- a parity check by tensor name against the base;
 - an NVFP4 build beside BF16.
 
 Not intended for public redistribution. Licensing and provenance of a public release are decided separately (chat3d-app #79).
