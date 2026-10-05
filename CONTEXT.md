@@ -102,6 +102,14 @@ _Avoid_: check, question, criterion (the source, not the question)
 The rule that turns Checklist item answers into a Verdict for an example. Items are the unit: every item must pass, across whichever evaluators answered them. A judge's emitted score is never the gate; at most a temporary backstop beside it.
 _Avoid_: threshold, auto-approve, scoring
 
+**Structural item**:
+A checklist item about what the object *is*: how many separate bodies it has, whether parts the request names separately are separate, which parts are connected, whether the overall shape is recognisably the requested object. Every other item is a feature item. A structural item answered "fail" makes the example's feature items Not assessable.
+_Avoid_: core item, primary check
+
+**Not assessable**:
+The Gate's treatment of a feature item on an example whose structural item failed: the judge's answer is kept but neither counted by the Gate nor used as a training label. A treatment, never a judge's answer.
+_Avoid_: skipped, n/a, uncertain (uncertain is the judge's answer)
+
 **Gate-eligible**:
 An example the Gate can decide at all: its render succeeded and it holds the stored Checklist item answers the rule needs. An example that is not gate-eligible has no Verdict to derive and stays pending — it is never approved because the check could not be performed, and never rejected for it either.
 _Avoid_: skipped (implies the gate ran and stood aside), no-gate, bypass
