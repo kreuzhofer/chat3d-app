@@ -158,6 +158,10 @@ _Avoid_: silver set
 One of the published dataset's two views of the same examples: the *codegen* subset (prompt → code) and the *judge* subset (an example's views and checklist → the answers). Rows of both subsets about one example share its example id; rows of one prompt share its prompt id.
 _Avoid_: split (a split is train/test/held-out), config, part
 
+**Measurement set**:
+The frozen examples a judge's qualification and every comparison between judges are measured on, never trained on. The first was the 125 (bare-string criteria); its successor is drawn under atoms, larger and stratified by category, and frozen before the judge it measures is trained.
+_Avoid_: test set, benchmark, the 125 (one instance, not the concept)
+
 **Held-out set**:
 Prompts reserved for benchmarking the codegen model and excluded from its training data. Not a reference for the judge.
 _Avoid_: gold set, test set
