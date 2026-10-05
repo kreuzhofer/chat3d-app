@@ -13,7 +13,7 @@
  */
 import { createLogger } from "./logger.js";
 import { ChecklistVisibilityEnum, type ChecklistVisibility } from "./component-checklist.js";
-import type { AnnotatedCriterion } from "../services/spec-generation.service.js";
+import type { AnnotatedCriterion, AtomRole } from "../services/spec-generation.service.js";
 
 const logger = createLogger("verification-criteria");
 
@@ -52,6 +52,11 @@ export function routeVisibility(text: string, visibility: ChecklistVisibility): 
   return namesAMeasurement(text) ? "code" : visibility;
 }
 
+/** An atom's role (#136), or null when absent or not one of the two. */
+export function parseAtomRole(value: unknown): AtomRole | null {
+  return value === "structural" || value === "feature" ? value : null;
+}
+
 function usableText(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -67,6 +72,7 @@ export function toAnnotatedCriteria(value: unknown): AnnotatedCriterion[] {
 
   const out: AnnotatedCriterion[] = [];
   let dropped = 0;
+  let invalidRoles = 0;
   for (const entry of value) {
     const asString = usableText(entry);
     if (asString) {
@@ -79,13 +85,25 @@ export function toAnnotatedCriteria(value: unknown): AnnotatedCriterion[] {
       const parsedVisibility = ChecklistVisibilityEnum.safeParse(
         (entry as { visibility?: unknown }).visibility,
       );
-      out.push({ text, visibility: routeVisibility(text, parsedVisibility.success ? parsedVisibility.data : DEFAULT_VISIBILITY) });
+      // A role is kept when stored and valid; criteria written before #136
+      // carry none and load without one — never a guessed role.
+      const rawRole = (entry as { role?: unknown }).role;
+      const role = parseAtomRole(rawRole);
+      if (rawRole !== undefined && !role) invalidRoles++;
+      out.push({
+        text,
+        visibility: routeVisibility(text, parsedVisibility.success ? parsedVisibility.data : DEFAULT_VISIBILITY),
+        ...(role ? { role } : {}),
+      });
       continue;
     }
     dropped++;
   }
   if (dropped > 0) {
     logger.warn({ dropped, kept: out.length }, "dropped verification criteria with no usable text");
+  }
+  if (invalidRoles > 0) {
+    logger.warn({ invalidRoles }, "criteria kept without their stored role: not structural or feature");
   }
   return out;
 }

@@ -21,6 +21,8 @@ export interface CachedSpec {
   codeAssertions: CodeAssertion[] | null;
   verificationChecklist: string[] | null;
   verificationCriteria: AnnotatedCriterion[] | null;
+  /** Carried through the cache so a re-generation writes it back, not NULL (#136). */
+  expectedBodyCount: number | null;
   // Training-data fields preserved through the cached-spec reuse path so the
   // codegen persist step doesn't overwrite them with NULL on re-generation.
   specRawResponse: string | null;
@@ -69,6 +71,7 @@ export async function loadPromptContext(promptId: string): Promise<PromptContext
       verificationChecklist: row.verificationChecklist as string[] | null,
       // Validated, not asserted — see issue #33.
       verificationCriteria: toAnnotatedCriteria(row.verificationCriteria),
+      expectedBodyCount: row.expectedBodyCount,
       specRawResponse: row.specRawResponse,
       specSystemPrompt: row.specSystemPrompt,
       requiresDecomposition: row.requiresDecomposition ?? null,

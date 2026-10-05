@@ -44,8 +44,24 @@ describe("persistSpecToPrompt evalPlan", () => {
       promptTokens: 0,
       completionTokens: 0,
       evalPlan: plan,
+      expectedBodyCount: null,
     };
   }
+
+  it("persists the expected body count and the atoms' roles (#136)", async () => {
+    const criteria = [
+      { text: "The lid is a separate part", visibility: "visual" as const, role: "structural" as const },
+      { text: "Four vent slots in the lid", visibility: "visual" as const, role: "feature" as const },
+    ];
+    await persistSpecToPrompt({
+      promptId,
+      specResult: { ...makeSpec(null), verificationCriteria: criteria, expectedBodyCount: 2 },
+      specCameFromNullDecompositionCache: false,
+    });
+    const row = await prisma.workbenchExamplePrompt.findUnique({ where: { id: promptId } });
+    expect(row?.expectedBodyCount).toBe(2);
+    expect(row?.verificationCriteria).toEqual(criteria);
+  });
 
   it("persists evalPlan as JSONB when present", async () => {
     const plan: EvalPlan = {

@@ -8,10 +8,16 @@
  * refused here, retried once by the caller, then surfaced — never normalised
  * to `both` by default, which is how issue #33 stayed hidden for months.
  *
+ * Since #136 (ADR 0001's 2026-10-05 amendment) each atom also carries a
+ * `role` — structural or feature, the split the Gate cascades on — and the
+ * spec states the expected body count the measured solid count is checked
+ * against. A missing or invalid role or count is refused the same way: a
+ * silent default would decide the cascade for the model.
+ *
  * Pure: input is whatever the model returned, output is atoms or a reason.
  */
 import { ChecklistVisibilityEnum } from "../utils/component-checklist.js";
-import { namesAMeasurement } from "../utils/verification-criteria.js";
+import { namesAMeasurement, parseAtomRole } from "../utils/verification-criteria.js";
 import type { AnnotatedCriterion } from "./spec-generation.service.js";
 
 export type AtomsFailureReason =
@@ -20,6 +26,8 @@ export type AtomsFailureReason =
   | "empty"
   | "bare-string"
   | "missing-visibility"
+  | "missing-role"
+  | "missing-body-count"
   | "empty-text"
   | "bundled";
 
@@ -28,7 +36,7 @@ export type AtomsParse =
   | { ok: false; reason: AtomsFailureReason; offending: unknown };
 
 /** The rules in the words the prompt uses; kept beside the parser that enforces them. */
-export const REQUIREMENT_ATOMS_RULES = `- "verificationCriteria" is a list of REQUIREMENTS, one per entry, each {"text": ..., "visibility": ...}. NEVER a bare string.
+export const REQUIREMENT_ATOMS_RULES = `- "verificationCriteria" is a list of REQUIREMENTS, one per entry, each {"text": ..., "visibility": ..., "role": ...}. NEVER a bare string.
 - One fact per entry. Never bundle a visual fact with a measurement: "four standoffs near the corners" and "standoff offset is 5mm" are two entries, not one.
 - "visibility": "visual" for what a 768px render shows — overall shape, openings, proportions, and the COUNT, PRESENCE, OPENNESS and PLACEMENT of parts the request states ("exactly four standoffs", "lid is separate", "open top", "holes near the corners"). These are mandatory when the request states them.
 - "visibility": "code" for every measurement — lengths, thicknesses, radii, angles, spacings, tolerances — and for features too small to see. A "visual" or "both" entry must not contain a number with a unit.
@@ -38,7 +46,16 @@ export const REQUIREMENT_ATOMS_RULES = `- "verificationCriteria" is a list of RE
 - ORIENTATION: the render's front/back/left/right are the camera's, not the part's — a part turned 180° swaps them. Use those words ONLY when the request itself uses them for that feature (top/bottom are fine: the render's up is the part's up); otherwise locate features by the part's own geometry ("on one short end face", "on the face opposite the opening", "on the curved outer surface"). Never ask how a part lies on the build plate (upside down, face down, on the XY plane) unless the request demands it.
 - No colour or material checks: renders carry no colour.
 - A comparison of two sizes ("thicker than", "larger than") or a fine edge feature (chamfer, fillet, thread form, angle, taper, tangency) is "code", never "visual" — a render cannot settle it.
+- "role": "structural" for whether this is the right object at all — the count and separation of the parts the request names separately ("the lid is a separate part", "two halves"), the connections between parts ("the arm is joined to the base"), and the recognisable overall shape ("an open-top rectangular box", "an L-shaped bracket"). "role": "feature" for everything else — holes, slots, standoffs, vents, ribs, text, edge treatments and every measurement. When unsure, it is a feature: a failed structural item voids every feature item.
 - One question per entry, in plain words: no "and"/"while" chains, no jargon without a plain description, no counts that depend on how the reader groups features ("four magnet holes" on a 2×2 base means per corner or in total — say which).`;
+
+/** The body-count rule; spec generation only (enrichment keeps the spec's count). */
+export const EXPECTED_BODY_COUNT_RULE = `"expectedBodyCount" is an integer ≥ 1: the number of separate solid bodies the finished model consists of. Count the parts the request names separately (a box and its lid = 2, a two-piece clamshell = 2); features joined to a part (standoffs, ribs, a handle) are not bodies. It is 1 when the request names no separate parts. Never omit it.`;
+
+/** The expected body count, or null when it is not an integer of at least one. Never defaulted. */
+export function parseExpectedBodyCount(raw: unknown): number | null {
+  return typeof raw === "number" && Number.isInteger(raw) && raw >= 1 ? raw : null;
+}
 
 function usable(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -107,8 +124,10 @@ export function parseRequirementAtoms(raw: unknown): AtomsParse {
     if (!text) return { ok: false, reason: "empty-text", offending: entry };
     const vis = ChecklistVisibilityEnum.safeParse((entry as { visibility?: unknown }).visibility);
     if (!vis.success) return { ok: false, reason: "missing-visibility", offending: entry };
+    const role = parseAtomRole((entry as { role?: unknown }).role);
+    if (!role) return { ok: false, reason: "missing-role", offending: entry };
     if (vis.data !== "code" && namesAMeasurement(text)) return { ok: false, reason: "bundled", offending: entry };
-    atoms.push({ text, visibility: vis.data });
+    atoms.push({ text, visibility: vis.data, role });
   }
   return { ok: true, atoms };
 }

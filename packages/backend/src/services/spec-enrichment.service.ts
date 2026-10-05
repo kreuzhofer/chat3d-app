@@ -78,9 +78,10 @@ Return JSON only:
 {
   "constructionSpec": "- step 1 with exact dims\\n- step 2 with exact dims\\n...",
   "verificationCriteria": [
-    {"text": "Exactly four standoff posts inside the box", "visibility": "visual"},
-    {"text": "Standoff posts sit near the corners", "visibility": "visual"},
-    {"text": "Standoff post offset from each corner is 5mm", "visibility": "code"}
+    {"text": "Open-top rectangular box", "visibility": "visual", "role": "structural"},
+    {"text": "Exactly four standoff posts inside the box", "visibility": "visual", "role": "feature"},
+    {"text": "Standoff posts sit near the corners", "visibility": "visual", "role": "feature"},
+    {"text": "Standoff post offset from each corner is 5mm", "visibility": "code", "role": "feature"}
   ]
 }`;
 
@@ -97,8 +98,11 @@ function retryMessage(reason: AtomsFailureReason, offending: unknown): string {
     "unparseable": "the reply was not valid JSON (truncated or malformed)",
     "not-an-array": "verificationCriteria was not a list",
     "empty": "verificationCriteria was empty",
-    "bare-string": `an entry was a bare string (${shown}); every entry must be {"text", "visibility"}`,
+    "bare-string": `an entry was a bare string (${shown}); every entry must be {"text", "visibility", "role"}`,
     "missing-visibility": `an entry had no valid visibility (${shown}); use "visual", "code" or "both"`,
+    "missing-role": `an entry had no valid role (${shown}); use "structural" or "feature"`,
+    // Enrichment is never asked for a body count; listed because the reasons are shared.
+    "missing-body-count": "expectedBodyCount was missing",
     "empty-text": `an entry had no text (${shown})`,
     "bundled": `a "visual"/"both" entry contained a measurement (${shown}); split it — the fact stays visual, the number becomes its own "code" entry`,
   };

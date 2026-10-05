@@ -5,7 +5,7 @@
  * measurements go to code with a visible-proportion proxy). The rule text is
  * shared with enrichment through `requirement-atoms.ts`.
  */
-import { REQUIREMENT_ATOMS_RULES } from "../services/requirement-atoms.js";
+import { REQUIREMENT_ATOMS_RULES, EXPECTED_BODY_COUNT_RULE } from "../services/requirement-atoms.js";
 
 export const SPEC_SYSTEM_PROMPT = `You are a CAD specification analyst for Build123d 3D model generation.
 
@@ -50,17 +50,20 @@ Given a user's prompt describing a 3D model, produce:
    - Port openings (short side): USB-C 9×3.5mm at offset 7mm from corner
    - 4× cylindrical standoff posts at corner insets, 3mm tall
 
-8. **verificationCriteria**: 3-8 REQUIREMENT ATOMS — objective structural checks referencing ONLY geometry (not the object's name/identity), each {"text", "visibility"}:
+8. **verificationCriteria**: 3-8 REQUIREMENT ATOMS — objective structural checks referencing ONLY geometry (not the object's name/identity), each {"text", "visibility", "role"}:
 ${REQUIREMENT_ATOMS_RULES}
 
-   Example:
+   Example (a box with a separate lid):
    [
-     {"text": "Rectangular box with an open top", "visibility": "visual"},
-     {"text": "Exactly four cylindrical standoff posts inside the box", "visibility": "visual"},
-     {"text": "Standoff posts sit near the corners", "visibility": "visual"},
-     {"text": "Wall thickness is 2mm", "visibility": "code"},
-     {"text": "1mm chamfer on all top edges", "visibility": "code"}
+     {"text": "Rectangular box with an open top", "visibility": "visual", "role": "structural"},
+     {"text": "The lid is a separate part from the box", "visibility": "visual", "role": "structural"},
+     {"text": "Exactly four cylindrical standoff posts inside the box", "visibility": "visual", "role": "feature"},
+     {"text": "Standoff posts sit near the corners", "visibility": "visual", "role": "feature"},
+     {"text": "Wall thickness is 2mm", "visibility": "code", "role": "feature"},
+     {"text": "1mm chamfer on all top edges", "visibility": "code", "role": "feature"}
    ]
+
+   **expectedBodyCount**: ${EXPECTED_BODY_COUNT_RULE} (The example above: 2.)
 
 9. **requiresDecomposition**: A boolean. Return true ONLY when the model genuinely benefits from splitting into 2–6 independently-designable components that are then assembled. Use these criteria:
    - Multi-part objects with distinct mating geometry (a base + a lid, a body + an arm, etc.)
@@ -137,7 +140,8 @@ Return JSON only:
   "disambiguationQuestions": ["..."],
   "semanticContext": "...",
   "constructionSpec": "- step 1\\n- step 2\\n...",
-  "verificationCriteria": [{"text": "...", "visibility": "visual|code|both"}],
+  "verificationCriteria": [{"text": "...", "visibility": "visual|code|both", "role": "structural|feature"}],
+  "expectedBodyCount": 1,
   "requiresDecomposition": true|false,
   "decompositionReasoning": "...",
   "evalPlan": {

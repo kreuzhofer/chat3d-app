@@ -45,9 +45,9 @@ const roughSpec = {
 };
 
 const ATOMS = [
-  { text: "Vertical plate is present", visibility: "visual" },
-  { text: "Base plate is present", visibility: "visual" },
-  { text: "Base plate thickness is 5mm", visibility: "code" },
+  { text: "Vertical plate is present", visibility: "visual", role: "structural" },
+  { text: "Base plate is present", visibility: "visual", role: "structural" },
+  { text: "Base plate thickness is 5mm", visibility: "code", role: "feature" },
 ];
 
 describe("enrichSpec emits atoms by contract", () => {
@@ -86,7 +86,7 @@ describe("enrichSpec emits atoms by contract", () => {
   it("surfaces a failure after the retry and keeps the rough spec's atoms — never lifts to both", async () => {
     respondInOrder(
       JSON.stringify({ constructionSpec: "- exact dims", verificationCriteria: ["Vertical plate is present"] }),
-      JSON.stringify({ constructionSpec: "- exact dims", verificationCriteria: [{ text: "Base plate 5mm thick", visibility: "visual" }] }),
+      JSON.stringify({ constructionSpec: "- exact dims", verificationCriteria: [{ text: "Base plate 5mm thick", visibility: "visual", role: "feature" }] }),
     );
 
     const result = await enrichSpec(roughSpec as never, RESEARCH);
@@ -96,6 +96,20 @@ describe("enrichSpec emits atoms by contract", () => {
     expect(result.criteriaFailure).toEqual({ attempts: 2, reasons: ["bare-string", "bundled"] });
     // The enriched construction spec is still used: the failure is the criteria's, not the spec's.
     expect(result.constructionSpec).toBe("- exact dims");
+  });
+
+  it("refuses atoms without a role and names the defect in the retry (#136)", async () => {
+    respondInOrder(
+      JSON.stringify({ constructionSpec: "- exact dims", verificationCriteria: [{ text: "Vertical plate is present", visibility: "visual" }] }),
+      JSON.stringify({ constructionSpec: "- exact dims", verificationCriteria: ATOMS }),
+    );
+
+    const result = await enrichSpec(roughSpec as never, RESEARCH);
+
+    expect(streamTextMock).toHaveBeenCalledTimes(2);
+    const secondCall = streamTextMock.mock.calls[1][0] as { messages: Array<{ role: string; content: string }> };
+    expect(secondCall.messages.at(-1)?.content).toMatch(/"structural" or "feature"/);
+    expect(result.verificationCriteria).toEqual(ATOMS);
   });
 
   it("treats an unparseable reply as a failed attempt and retries it, instead of failing open", async () => {

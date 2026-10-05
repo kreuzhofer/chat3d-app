@@ -36,6 +36,20 @@ describe("toAnnotatedCriteria", () => {
       .toEqual([]);
   });
 
+  it("keeps a stored role and leaves it absent on criteria written before roles (#136)", () => {
+    expect(toAnnotatedCriteria([
+      { text: "The lid is a separate part", visibility: "visual", role: "structural" },
+      { text: "Four vent slots", visibility: "visual", role: "feature" },
+      { text: "Open top", visibility: "visual" },
+      { text: "Rounded corners", visibility: "visual", role: "decorative" },
+    ])).toEqual([
+      { text: "The lid is a separate part", visibility: "visual", role: "structural" },
+      { text: "Four vent slots", visibility: "visual", role: "feature" },
+      { text: "Open top", visibility: "visual" },
+      { text: "Rounded corners", visibility: "visual" },
+    ]);
+  });
+
   it("returns an empty list for a non-array", () => {
     expect(toAnnotatedCriteria(undefined)).toEqual([]);
     expect(toAnnotatedCriteria("not a list")).toEqual([]);

@@ -297,6 +297,7 @@ async function _runPipeline(
         codeAssertions: ctx.cachedSpec.codeAssertions ?? [],
         verificationChecklist: ctx.cachedSpec.verificationChecklist ?? [],
         verificationCriteria: ctx.cachedSpec.verificationCriteria ?? [],
+        expectedBodyCount: ctx.cachedSpec.expectedBodyCount,
         disambiguationNeeded: false,
         disambiguationQuestions: [],
         // Use the full resolver instead of deriveComplexity — the legacy helper

@@ -21,9 +21,10 @@ import {
   type LlmModelConfig,
 } from "./llm-config.service.js";
 import { createLogger } from "../utils/logger.js";
-import { parseRequirementAtoms, screenAtoms, type AtomsFailureReason } from "./requirement-atoms.js";
+import { screenAtoms, type AtomsFailureReason } from "./requirement-atoms.js";
 import { SPEC_SYSTEM_PROMPT } from "../prompts/spec-generation-system-prompt.js";
-import { type EvalPlan, parseEvalPlan } from "../utils/eval-plan.js";
+import type { EvalPlan } from "../utils/eval-plan.js";
+import { parseSpecResponse, EMPTY_SPEC, type ParsedSpec } from "./spec-response-parse.js";
 import type { ComplexityTriggerReason } from "@chat3d/shared";
 
 const logger = createLogger("spec-gen");
@@ -45,11 +46,20 @@ export interface CodeAssertion {
   description: string;
 }
 
+/**
+ * An atom's role (#136, ADR 0001's 2026-10-05 amendment): "structural" = the
+ * count and separation of named parts, their connections and the overall
+ * shape; "feature" = everything else. The Gate cascades on it.
+ */
+export type AtomRole = "structural" | "feature";
+
 /** Verification criterion with visibility annotation for eval routing. */
 export interface AnnotatedCriterion {
   text: string;
   /** "visual" = clearly visible at standard resolution, "code" = too small/internal, "both" = borderline */
   visibility: "visual" | "code" | "both";
+  /** Always set by the generator since #136; absent on criteria stored before it. */
+  role?: AtomRole;
 }
 
 export interface SpecResult {
@@ -67,6 +77,8 @@ export interface SpecResult {
   constructionSpec: string;
   /** Objective structural checks with visibility annotations for eval routing. */
   verificationCriteria: AnnotatedCriterion[];
+  /** Separate solid bodies the request implies (#136); null on a refused, failed or pre-#136 spec. */
+  expectedBodyCount: number | null;
   /** Spec LLM's verdict — true means route to multi-agent codegen. */
   requiresDecomposition: boolean;
   /** One-sentence rationale for the requiresDecomposition decision. */
@@ -89,141 +101,8 @@ export interface SpecResult {
 
 // The system prompt lives in prompts/spec-generation-system-prompt.ts (#106).
 
-// ── Response parsing ─────────────────────────────────────────────────
-
-interface ParsedSpec {
-  interpretation: string;
-  verificationChecklist: string[];
-  codeAssertions: CodeAssertion[];
-  disambiguationNeeded: boolean;
-  disambiguationQuestions: string[];
-  semanticContext: string;
-  constructionSpec: string;
-  verificationCriteria: AnnotatedCriterion[];
-  requiresDecomposition: boolean;
-  decompositionReasoning: string;
-  evalPlan: EvalPlan | null;
-  parseLevel: "json" | "regex" | "none";
-  /** The contract's verdict on this reply's criteria; absent when they were atoms. */
-  criteriaRefused?: { reason: AtomsFailureReason; offending: unknown };
-}
-
-const EMPTY_SPEC: ParsedSpec = {
-  interpretation: "",
-  verificationChecklist: [],
-  codeAssertions: [],
-  disambiguationNeeded: false,
-  disambiguationQuestions: [],
-  semanticContext: "",
-  constructionSpec: "",
-  verificationCriteria: [],
-  requiresDecomposition: false,
-  decompositionReasoning: "",
-  evalPlan: null,
-  parseLevel: "none",
-};
-
-function parseCodeAssertions(raw: unknown): CodeAssertion[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((a): a is Record<string, unknown> => typeof a === "object" && a !== null)
-    .filter((a) => typeof a.parameter === "string" && typeof a.value === "number")
-    .map((a) => ({
-      parameter: a.parameter as string,
-      aliases: Array.isArray(a.aliases) ? (a.aliases as unknown[]).filter((s): s is string => typeof s === "string") : [],
-      operator: (["==", ">=", "<=", "approx"].includes(a.operator as string) ? a.operator : "==") as CodeAssertion["operator"],
-      value: a.value as number,
-      description: typeof a.description === "string" ? a.description : `${a.parameter} should be ${a.value}`,
-    }));
-}
-
-
-function buildSpecFromParsed(raw: Partial<ParsedSpec>): ParsedSpec {
-  // The contract (ADR 0002): atoms or nothing. A bare-string list, a missing
-  // visibility or a bundled atom leaves the criteria empty with the reason
-  // beside them; the caller retries once and then surfaces it. The plain
-  // checklist is never lifted into criteria — that silent "both" is #33.
-  const contract = parseRequirementAtoms((raw as Record<string, unknown>).verificationCriteria);
-  const verificationCriteria = contract.ok ? contract.atoms : [];
-  const criteriaRefused = contract.ok ? undefined : { reason: contract.reason, offending: contract.offending };
-  const verificationChecklist = Array.isArray(raw.verificationChecklist)
-    ? raw.verificationChecklist.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-    : [];
-
-  // Derive the legacy checklist from criteria text if no explicit checklist
-  const effectiveChecklist = verificationChecklist.length > 0 ? verificationChecklist : verificationCriteria.map(c => c.text);
-
-  const rawRecord = raw as Record<string, unknown>;
-  const requiresDecomposition = typeof rawRecord.requiresDecomposition === "boolean"
-    ? rawRecord.requiresDecomposition
-    : false;
-  const decompositionReasoning = typeof rawRecord.decompositionReasoning === "string"
-    ? rawRecord.decompositionReasoning.trim()
-    : "";
-  const evalPlan = parseEvalPlan((raw as Record<string, unknown>).evalPlan);
-
-  return {
-    interpretation: typeof raw.interpretation === "string" ? raw.interpretation : "",
-    verificationChecklist: effectiveChecklist,
-    codeAssertions: parseCodeAssertions(rawRecord.codeAssertions),
-    disambiguationNeeded: raw.disambiguationNeeded === true,
-    disambiguationQuestions: Array.isArray(raw.disambiguationQuestions)
-      ? raw.disambiguationQuestions.filter((q): q is string => typeof q === "string" && q.trim().length > 0)
-      : [],
-    semanticContext: typeof raw.semanticContext === "string" ? raw.semanticContext : "",
-    constructionSpec: typeof raw.constructionSpec === "string" ? raw.constructionSpec : "",
-    verificationCriteria,
-    requiresDecomposition,
-    decompositionReasoning,
-    evalPlan,
-    parseLevel: "json",
-    ...(criteriaRefused ? { criteriaRefused } : {}),
-  };
-}
-
-export function parseSpecResponse(content: string): ParsedSpec {
-  if (!content || typeof content !== "string") {
-    return EMPTY_SPEC; // fail-open
-  }
-
-  // Level 1: Extract JSON from code fence
-  let jsonStr = content;
-  const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenceMatch) {
-    jsonStr = fenceMatch[1].trim();
-  }
-
-  // Level 2: Direct JSON.parse
-  try {
-    const parsed = JSON.parse(jsonStr) as Partial<ParsedSpec>;
-    return buildSpecFromParsed(parsed);
-  } catch {
-    // fall through
-  }
-
-  // Level 3: Regex extraction
-  const interpretationMatch = content.match(/["']?interpretation["']?\s*[:=]\s*"([^"]+)"/i);
-  const disambiguationMatch = content.match(/["']?disambiguationNeeded["']?\s*[:=]\s*(true|false)/i);
-
-  if (interpretationMatch || disambiguationMatch) {
-    return {
-      interpretation: interpretationMatch?.[1] ?? "",
-      verificationChecklist: [],
-      codeAssertions: [],
-      disambiguationNeeded: disambiguationMatch?.[1]?.toLowerCase() === "true",
-      disambiguationQuestions: [],
-      semanticContext: "",
-      constructionSpec: "",
-      verificationCriteria: [],
-      requiresDecomposition: false,
-      decompositionReasoning: "",
-      evalPlan: null,
-      parseLevel: "regex",
-    };
-  }
-
-  return EMPTY_SPEC; // fail-open
-}
+// Response parsing lives in spec-response-parse.ts (split for #136).
+export { parseSpecResponse } from "./spec-response-parse.js";
 
 // ── Model resolution ────────────────────────────────────────────────
 
@@ -433,14 +312,16 @@ function specRetryMessage(reason: AtomsFailureReason, truncated: boolean): strin
     return "Your previous reply was cut off or was not valid JSON. Return the complete JSON object only — keep constructionSpec to the essential steps so the whole object fits.";
   }
   const why: Partial<Record<AtomsFailureReason, string>> = {
-    "bare-string": 'an entry in verificationCriteria was a bare string; every entry must be {"text", "visibility"}',
+    "bare-string": 'an entry in verificationCriteria was a bare string; every entry must be {"text", "visibility", "role"}',
     "missing-visibility": 'an entry in verificationCriteria had no valid visibility; use "visual", "code" or "both"',
+    "missing-role": 'an entry in verificationCriteria had no valid role; use "structural" or "feature"',
+    "missing-body-count": "expectedBodyCount was missing or not an integer of at least 1; state how many separate solid bodies the model consists of (1 when the request names no separate parts)",
     "bundled": 'a "visual" or "both" entry in verificationCriteria contained a measurement; split it — the fact stays visual, the number becomes its own "code" entry',
     "empty": "verificationCriteria was empty; list 3-8 requirement atoms",
     "empty-text": "an entry in verificationCriteria had no text",
     "not-an-array": "verificationCriteria was not a list",
   };
-  return `Your previous reply did not meet the criteria contract: ${why[reason] ?? reason}. Return the same JSON again with verificationCriteria as requirement atoms only.`;
+  return `Your previous reply did not meet the criteria contract: ${why[reason] ?? reason}. Return the same JSON again with verificationCriteria as requirement atoms only and expectedBodyCount set.`;
 }
 
 /** One streamed call; reasoning goes to a separate channel, so only text deltas are the reply. */

@@ -87,8 +87,12 @@ A property of an example that the prompt states or necessarily implies ("four st
 _Avoid_: detail, feature, spec
 
 **Requirement atom**:
-The unit spec generation and enrichment emit for a Requirement: `{text, visibility}`, one requirement per entry, the visibility saying which evaluator can answer it (`visual` for what a render shows — shape, openings, and the count, presence, openness and placement the prompt states; `code` for every measurement; `both` only without a number). A bare string, an entry without a visibility, or a bundled entry (a visual fact carrying a millimetre figure) is a refused reply, retried once and then surfaced — never an atom by default (ADR 0002).
+The unit spec generation and enrichment emit for a Requirement: `{text, visibility, role}`, one requirement per entry, the visibility saying which evaluator can answer it (`visual` for what a render shows — shape, openings, and the count, presence, openness and placement the prompt states; `code` for every measurement; `both` only without a number), the role saying whether it becomes a Structural item (`structural`) or a feature item (`feature`). A bare string, an entry without a visibility or a role, or a bundled entry (a visual fact carrying a millimetre figure) is a refused reply, retried once and then surfaced — never an atom by default (ADR 0002, #136). Atoms stored before #136 carry no role.
 _Avoid_: criterion string, check, annotated criterion
+
+**Expected body count**:
+The number of separate solid bodies the spec says the finished model consists of: the parts the request names separately, 1 when it names none. Stated by spec generation beside the atoms and stored on the prompt; the measured solid count is checked against it. A spec reply without a valid count (an integer ≥ 1) is refused like a reply of bare strings (#136).
+_Avoid_: part count, number of parts (ambiguous with features)
 
 **Assumption**:
 A choice the spec made where the prompt was silent. Never gates. Becomes a Requirement only once a clarification pass writes it into the prompt.

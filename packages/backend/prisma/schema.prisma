@@ -429,6 +429,8 @@ model WorkbenchExamplePrompt {
   verificationCriteriaPrevious Json?                      @map("verification_criteria_previous") @db.JsonB
   /// When the criteria were last regenerated as requirement atoms; NULL = never.
   criteriaRegeneratedAt    DateTime?                      @map("criteria_regenerated_at") @db.Timestamptz(6)
+  /// Separate solid bodies the spec expects (issue #136); NULL = spec written before it.
+  expectedBodyCount        Int?                           @map("expected_body_count")
   specRawResponse          String?                        @map("spec_raw_response") @db.Text
   specSystemPrompt         String?                        @map("spec_system_prompt") @db.Text
   enrichmentRawResponse    String?                        @map("enrichment_raw_response") @db.Text

@@ -137,6 +137,7 @@ async function runBatchBackfillSpecs(
               codeAssertions: specResult.codeAssertions as unknown as undefined,
               verificationChecklist: specResult.verificationChecklist,
               verificationCriteria: specResult.verificationCriteria as unknown as undefined,
+              expectedBodyCount: specResult.expectedBodyCount,
               specRawResponse: specResult.rawResponse ?? null,
               specSystemPrompt: specResult.systemPrompt ?? null,
               requiresDecomposition: specResult.requiresDecomposition,

@@ -52,6 +52,7 @@ export async function persistSpecToPrompt({
         codeAssertions: specResult.codeAssertions as unknown as undefined,
         verificationChecklist: specResult.verificationChecklist,
         verificationCriteria: specResult.verificationCriteria as unknown as undefined,
+        expectedBodyCount: specResult.expectedBodyCount,
         constructionSpec: specResult.constructionSpec || null,
         specRawResponse: specResult.rawResponse ?? null,
         specSystemPrompt: specResult.systemPrompt ?? null,
