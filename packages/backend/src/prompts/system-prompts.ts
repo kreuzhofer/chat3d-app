@@ -103,7 +103,7 @@ Used inside \`BuildSketch()\`:
 - \`Circle(radius)\` — circle
 - \`Rectangle(width, height)\` — rectangle
 - \`RegularPolygon(radius, side_count)\` — regular polygon
-- \`Polygon(*points)\` — polygon from point list, e.g. \`Polygon((0,0), (10,0), (5,10))\`
+- \`Polygon(*points)\` — polygon from point list, placed at the given coordinates (default \`align=Align.NONE\`, not centered), e.g. \`Polygon((0,0), (10,0), (5,10))\`
 - \`Text(text, font_size)\` — text outline
 - \`SlotOverall(width, height)\` — slot (stadium shape)
 - \`SlotArc(arc, height)\` — arc slot
@@ -147,14 +147,14 @@ with BuildPart() as part:
 
 export const CODEGEN_SECTION_POSITIONING = `### Positioning and Orientation
 
-- \`Pos(x, y, z)\` — translation. Use as a location context: \`with Locations(Pos(x, y, z)):\` or \`with BuildPart() as part: ... add(obj, Pos(x, y, z))\`
+- \`Pos(x, y, z)\` — translation. Use as a location context: \`with Locations(Pos(x, y, z)):\` or \`with BuildPart() as part: ... insert(Pos(x, y, z) * obj)\`
 - \`Rot(rx, ry, rz)\` — rotation in degrees around X, Y, Z axes
 - \`Plane.XY\`, \`Plane.XZ\`, \`Plane.YZ\` — standard planes
 - \`Plane(origin, x_dir, z_dir)\` — custom plane
 - \`Axis.X\`, \`Axis.Y\`, \`Axis.Z\` — standard axes
 - \`Vector(x, y, z)\` — 3D vector
 
-**IMPORTANT**: The \`@\` operator retrieves a position along an edge/wire (e.g. \`edge @ 0.5\` for the midpoint). Do NOT use it to place objects — use \`Locations()\` or \`add()\` instead.`;
+**IMPORTANT**: The \`@\` operator retrieves a position along an edge/wire (e.g. \`edge @ 0.5\` for the midpoint). Do NOT use it to place objects — use \`Locations()\` or \`insert()\` instead.`;
 
 export const CODEGEN_SECTION_EDGE_FACE = `### Edge and Face Selection
 
@@ -296,7 +296,7 @@ Just assign your final solid to \`root_part\`.`;
 export const CODEGEN_SECTION_COMMON_MISTAKES = `## Common Mistakes to Avoid
 
 1. **Box has no \`centered\` parameter** — it is always centered at the origin by default.
-2. **\`@\` is NOT for positioning** — it retrieves position along an edge. Use \`Locations()\` or \`add()\` with position tuples.
+2. **\`@\` is NOT for positioning** — it retrieves position along an edge. Use \`Locations()\` with position tuples, or \`insert(Pos(x, y, z) * obj)\`.
 3. **There is no \`Shell()\` class** — use \`offset(amount=-thickness, openings=faces)\` to hollow out a solid.
 4. **\`Locations()\` takes tuples** like \`(x, y)\` or \`(x, y, z)\`, NOT bare integers.
 5. **Always assign \`root_part\`** — e.g. \`root_part = part.part\` from a \`BuildPart\` context.
@@ -337,7 +337,7 @@ BuildLine creates wire paths for custom 2D profiles, sweep paths, and complex sh
 - \`ThreePointArc((x1,y1), (x2,y2), (x3,y3))\` — circular arc through three points (start, mid, end)
 - \`RadiusArc((x1,y1), (x2,y2), radius)\` — arc between two points with given radius. Positive radius = shorter arc, negative = longer arc.
 - \`CenterArc(center, radius, start_angle, arc_size)\` — arc defined by center point, radius, start angle (degrees), and sweep angle (degrees)
-- \`EllipticalCenterArc(center, x_radius, y_radius, start_angle, end_angle)\` — elliptical arc
+- \`EllipticalCenterArc(center, x_radius, y_radius, start_angle, arc_size=90)\` — elliptical arc; \`arc_size\` (keyword only) is the sweep angle in degrees
 
 **Chaining segments with \`@\` operator**: \`line @ 0\` = start point, \`line @ 1\` = endpoint. Use this to chain connected segments:
 
@@ -477,19 +477,9 @@ export const CODEGEN_SECTION_BD_WAREHOUSE = `## bd_warehouse — Parametric Mech
 
 The template pre-imports \`bd_warehouse\` classes. Use them instead of building threads, fasteners, bearings, gears, or pipes from scratch.
 
-### CRITICAL — combining bd_warehouse objects with other geometry
+### Combining bd_warehouse objects with other geometry
 
-bd_warehouse threads, fasteners, bearings, gears, and pipes are **pre-built shapes**. They CANNOT be used with \`add()\` inside \`BuildPart()\` — this produces empty geometry.
-
-\`\`\`python
-# WRONG — produces empty STL:
-with BuildPart() as part:
-    Cylinder(thread.root_radius, 20)
-    add(thread)   # ← NEVER do this with bd_warehouse objects
-root_part = part.part
-\`\`\`
-
-**Correct approaches:**
+bd_warehouse threads, fasteners, bearings, gears, and pipes are **pre-built shapes**. Create them outside a builder and combine them with the algebra operators or \`Compound\`:
 \`\`\`python
 # Option 1: fuse / + operator (external threads with core cylinder)
 thread = IsoThread(major_diameter=6, pitch=1, length=20, external=True, end_finishes=("fade", "chamfer"))

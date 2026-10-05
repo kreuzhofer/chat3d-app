@@ -10,6 +10,11 @@ import type { RenderedFile } from "../services/rendering.service.js";
  * Code template that wraps LLM-generated modeling code.
  * The LLM produces only the Build123d modeling code ending with `root_part = ...`.
  * This template adds the import and all export calls around it.
+ *
+ * The Mesher gets root_part's solids, one 3MF object each: since build123d
+ * 0.12 a labelled Compound (every bd_warehouse thread) would otherwise be one
+ * non-manifold mesh that lib3mf rejects (#135). A root_part without solids
+ * fails up front instead of writing an empty mesh.
  */
 export const CODE_TEMPLATE = `from build123d import *
 import math
@@ -34,9 +39,11 @@ from gridfinity_build123d import (
     TopCorners, TopMiddle, BottomCorners, BottomMiddle, BottomSides,
 )
 ###CODE###
+if not root_part.solids():
+    raise ValueError("root_part has no solids: assign a 3D part, not a sketch, face or curve")
 export_step(root_part, "###FILENAME###.step")
 exporter = Mesher()
-exporter.add_shape(root_part)
+exporter.add_shape(root_part.solids())
 exporter.write("###FILENAME###.3mf")
 exporter.write("###FILENAME###.stl")
 `;

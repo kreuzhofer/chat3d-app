@@ -1,20 +1,19 @@
 fastapi[standard]==0.129.0
 pydantic==2.12.5
-# build123d from dev branch has native aarch64 (ARM) Linux support:
-# - uses cadquery-ocp-novtk>=7.9 (has aarch64 wheels)
-# - uses py-lib3mf on aarch64 (has aarch64 wheels)
-# - uses ocpsvg>=0.6 and ocp_gordon>=0.2 (compatible with OCP 7.9.x)
-# See: https://github.com/gumyr/build123d/pull/1236
-# Pinned to the last verified dev commit: later dev HEAD removed ShapePredicate,
-# which gridfinity_build123d still imports. Bump both pins together after
-# verifying the pairing (SpurGear + gridfinity imports + a render).
-build123d @ git+https://github.com/gumyr/build123d.git@e8cae0660
+# build123d 0.13 runs on OCP 8 (cadquery-ocp-novtk 8.0, aarch64 wheels),
+# ocpsvg 0.7, ocp_gordon 0.3 and py-lib3mf on linux-aarch64, all resolved
+# from build123d's own released pins. Bump build123d, bd_warehouse and the
+# gridfinity_build123d pin (Dockerfile) together, after the service tests and
+# a corpus re-render (#135).
+build123d==0.13.0
 # bd_warehouse: parametric mechanical components (threads, fasteners, bearings, gears, pipes)
-# Pin to 0.2.0 — fixes TreeError with anytree 2.13 and ShapeList.wrapped API change
-bd_warehouse>=0.2.0
+# Pinned to the commit that ports it to build123d 0.13 / OCP 8 (0.3.1.dev):
+# released 0.3.0 fails every SpurGear on 0.13 ("Edges are disconnected").
+# Move to the 0.3.1 release once it is on PyPI.
+bd_warehouse @ git+https://github.com/gumyr/bd_warehouse.git@eed2da118da99007ad2d3904466ac0b24964f84d
 # gridfinity_build123d is installed in the Dockerfile with --no-deps: its
 # pyproject pins bd_warehouse to a git commit, which pip cannot reconcile
-# with bd_warehouse>=0.2.0 above (ResolutionImpossible).
+# with the bd_warehouse pin above (ResolutionImpossible).
 # typing_extensions backports typing.override for Python <3.12
 typing_extensions>=4.0
 # pyrender-based screenshot rendering (EGL offscreen)

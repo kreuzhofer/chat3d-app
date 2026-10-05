@@ -17,7 +17,7 @@ The template pre-imports \`gridfinity_build123d\` classes. Use them to build Gri
 
 ### CRITICAL — Gridfinity objects are BasePartObjects
 
-Unlike bd_warehouse (which requires \`fuse()\` or \`Compound\`), gridfinity objects like \`Bin\`, \`Base\`, and \`BasePlate\` are \`BasePartObject\` instances. **Assign them directly to \`root_part\`** — no \`add()\`, \`fuse()\`, or \`BuildPart()\` needed.
+Unlike bd_warehouse (which requires \`fuse()\` or \`Compound\`), gridfinity objects like \`Bin\`, \`Base\`, and \`BasePlate\` are \`BasePartObject\` instances. **Assign them directly to \`root_part\`** — no \`insert()\`, \`fuse()\`, or \`BuildPart()\` needed.
 
 \`\`\`python
 # CORRECT — assign directly:
@@ -25,7 +25,7 @@ root_part = Bin(...)
 
 # WRONG — do NOT wrap in BuildPart or fuse:
 with BuildPart() as part:
-    add(Bin(...))  # ← NEVER do this
+    insert(Bin(...))  # ← NEVER do this
 \`\`\`
 
 ### Bins

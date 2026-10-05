@@ -159,3 +159,22 @@ curl -X POST "http://localhost:30222/render/" \
 ## Development
 
 The service runs on Python with FastAPI and build123d. See `requirements.txt` for dependencies.
+
+## Library versions and upgrades
+
+The service runs released build123d 0.13 (OCP 8) with bd_warehouse and
+gridfinity_build123d pinned to commits (see `requirements.txt` and the
+`Dockerfile`). Neither library runs cleanly on build123d 0.13 as published;
+`patches/patch_libraries.py` patches them at image build and fails the build
+if upstream drifted. Bump all three together, then:
+
+```bash
+# Service tests inside the image (pytest is not part of the image)
+tar cf - app | docker run --rm -i --entrypoint sh chat3d-build123d:local \
+  -c "pip install -q pytest; rm -rf /code/app; tar xf - -C /code; cd /code && python -m pytest -q app"
+
+# Re-render regression: a seeded, stratified sample of approved corpus code on
+# the old and the new image, compared by render success, solid count, volume
+# and bounding box (see the script's docstring)
+python3 scripts/rerender_regression.py --help
+```

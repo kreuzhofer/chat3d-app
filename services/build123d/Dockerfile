@@ -3,7 +3,8 @@ FROM python:3.11
 WORKDIR /code
 
 # Install system dependencies for cadquery-ocp (OpenGL, X11 libraries)
-# and git for installing build123d from dev branch.
+# and git for installing gridfinity_build123d (no release on PyPI) and the
+# bd_warehouse commit pin.
 RUN apt-get update && apt-get install -y \
     libgl1-mesa-dev \
     libglu1-mesa \
@@ -35,6 +36,12 @@ RUN if pip --help | grep -q -- "--resume-retries"; then \
 # skip its dependency resolution entirely.
 RUN pip install --no-cache-dir --retries 50 --timeout 120 --no-deps \
       "gridfinity_build123d @ git+https://github.com/Ruudjhuu/gridfinity_build123d.git@fc29ac6b9ad5b110c582abef78bf0f1153bec6b3"
+
+# Neither gridfinity_build123d (fc29ac6, upstream's latest) nor the
+# bd_warehouse pin runs cleanly on build123d 0.13 / OCCT 8: patch them in
+# place; the script fails the build if upstream drifted.
+COPY ./patches /code/patches
+RUN python /code/patches/patch_libraries.py
 
 # Backport typing.override for Python <3.12 (needed by gridfinity_build123d)
 RUN python -c "import typing; typing.override" 2>/dev/null || \
