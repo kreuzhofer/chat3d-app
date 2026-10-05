@@ -10,6 +10,7 @@ import { GATE_VERSION } from "./approval-gate.service.js";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import { toAnnotatedCriteria } from "../utils/verification-criteria.js";
+import { toOrientationDeclaration } from "./orientation-declaration.js";
 import { runFullEvaluation, type FullEvalResult } from "./eval-orchestrator.service.js";
 import { runWithUsageContext } from "./usage-tracking.service.js";
 import { readStorageFile, storageFileExists } from "./file-storage.service.js";
@@ -76,6 +77,7 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
           codeAssertions: true,
           verificationChecklist: true,
           verificationCriteria: true,
+          orientationDeclaration: true,
           evalPlan: true,
           category: { select: { name: true, complexity: true } },
         },
@@ -116,6 +118,7 @@ export async function reEvaluateExample(exampleId: string): Promise<ReEvalResult
       // Validated, not asserted — this is the path a backfill will use, and
       // legacy rows here hold bare strings (issue #33).
       annotatedCriteria: toAnnotatedCriteria(example.promptRef.verificationCriteria),
+      orientation: toOrientationDeclaration(example.promptRef.orientationDeclaration),
       evalPlan: parseEvalPlan(example.promptRef.evalPlan ?? null), // composite weight only (ADR 0003)
     }),
     );

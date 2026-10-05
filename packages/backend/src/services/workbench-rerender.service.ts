@@ -27,6 +27,7 @@ import { wrapInTemplate, findFileByExtension } from "../utils/workbench-code-uti
 import { flattenStoredCode } from "../utils/code-flatten.js";
 import type { GenerateResult, ProgressCallback } from "./workbench-codegen.service.js";
 import { parseEvalPlan } from "../utils/eval-plan.js";
+import { toOrientationDeclaration } from "./orientation-declaration.js";
 
 const logger = createLogger("workbench-rerender");
 
@@ -50,6 +51,7 @@ async function loadPromptContext(promptId: string) {
     verificationChecklist: (row.verificationChecklist as string[] | null) ?? undefined,
     verificationCriteria: (row.verificationCriteria as unknown[] | null) ?? undefined,
     evalPlan: parseEvalPlan(row.evalPlan ?? null),
+    orientation: toOrientationDeclaration(row.orientationDeclaration),
   };
 }
 
@@ -154,6 +156,7 @@ export async function reRenderForExample(
         // Validated, not asserted: rows persisted before issue #33 hold bare
         // strings, and an assertion here reproduced the placeholder bug.
         annotatedCriteria: toAnnotatedCriteria(ctx.verificationCriteria),
+        orientation: ctx.orientation,
         evalPlan: ctx.evalPlan,
       });
     }

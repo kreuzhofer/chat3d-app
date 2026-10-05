@@ -24,12 +24,14 @@
  *   Rerunning with the same instant resumes (prompts done since are skipped).
  */
 import { writeFileSync } from "fs";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../src/db/prisma.js";
 import { generateSpec } from "../src/services/spec-generation.service.js";
 import { runResearch } from "../src/services/research-agent.service.js";
 import { enrichSpec } from "../src/services/spec-enrichment.service.js";
 import { judgeAskable } from "../src/services/requirement-atoms.js";
 import type { AnnotatedCriterion } from "../src/services/spec-generation.service.js";
+import type { OrientationDeclaration } from "../src/services/orientation-declaration.js";
 import { HELD_OUT_EXPERIMENT_IDS } from "../src/services/training-export/judge-sft-held-out.js";
 import { detectPromptOperations } from "../src/prompts/system-prompts.js";
 import { createLogger } from "../src/utils/logger.js";
@@ -59,6 +61,8 @@ interface Outcome {
   previousCount: number; atoms: number; askable: number; attempts: number;
   /** #136: what a dry run would write, for review. */
   expectedBodyCount?: number | null; criteria?: AnnotatedCriterion[];
+  /** #138: the declaration a dry run would write. */
+  orientation?: OrientationDeclaration | null;
   prompt?: string;
 }
 
@@ -129,14 +133,14 @@ async function main() {
       await prisma.$transaction([
         prisma.workbenchExamplePrompt.update({
           where: { id: p.id },
-          data: { verificationCriteriaPrevious: (p.verificationCriteria ?? null) as never, verificationCriteria: atoms as never, expectedBodyCount: spec.expectedBodyCount, criteriaRegeneratedAt: new Date() },
+          data: { verificationCriteriaPrevious: (p.verificationCriteria ?? null) as never, verificationCriteria: atoms as never, expectedBodyCount: spec.expectedBodyCount, orientationDeclaration: spec.orientation ?? Prisma.DbNull, criteriaRegeneratedAt: new Date() },
         }),
         prisma.workbenchExample.updateMany({ where: { promptId: p.id, visualScore: { not: null } }, data: { ratingItemsStale: true } }),
       ]);
     }
     return {
       ...base, status: "regenerated", source, atoms: atoms.length, askable: judgeAskable(atoms).length, attempts,
-      expectedBodyCount: spec.expectedBodyCount, criteria: atoms, prompt: p.prompt.slice(0, 300),
+      expectedBodyCount: spec.expectedBodyCount, orientation: spec.orientation, criteria: atoms, prompt: p.prompt.slice(0, 300),
     };
   }
   async function worker(): Promise<void> {
@@ -166,6 +170,7 @@ async function main() {
     previousPerPrompt: n ? done.reduce((a, o) => a + o.previousCount, 0) / n : 0,
     examplesMarkedStale: done.reduce((a, o) => a + o.rated, 0),
     bodyCounts: done.reduce<Record<string, number>>((acc, o) => { const k = String(o.expectedBodyCount ?? "null"); acc[k] = (acc[k] ?? 0) + 1; return acc; }, {}),
+    noFront: done.filter((o) => o.orientation && o.orientation.front === null).length,
     structuralPerPrompt: n ? done.reduce((a, o) => a + (o.criteria ?? []).filter((c) => c.role === "structural").length, 0) / n : 0,
     approvalBefore,
   };

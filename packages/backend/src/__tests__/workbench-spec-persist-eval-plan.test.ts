@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { prisma } from "../db/prisma.js";
 import { deleteTestCategory } from "./support/workbench-category-fixture.js";
 import { persistSpecToPrompt } from "../services/workbench-spec-persist.service.js";
+import { loadPromptContext } from "../services/workbench-pipeline-helpers.service.js";
 import type { SpecResult } from "../services/spec-generation.service.js";
 import type { EvalPlan } from "../utils/eval-plan.js";
 
@@ -45,6 +46,7 @@ describe("persistSpecToPrompt evalPlan", () => {
       completionTokens: 0,
       evalPlan: plan,
       expectedBodyCount: null,
+      orientation: null,
     };
   }
 
@@ -61,6 +63,24 @@ describe("persistSpecToPrompt evalPlan", () => {
     const row = await prisma.workbenchExamplePrompt.findUnique({ where: { id: promptId } });
     expect(row?.expectedBodyCount).toBe(2);
     expect(row?.verificationCriteria).toEqual(criteria);
+  });
+
+  it("persists the Orientation declaration, and loads it back for codegen and review (#138)", async () => {
+    await persistSpecToPrompt({
+      promptId,
+      specResult: { ...makeSpec(null), orientation: { up: "the open top", front: "the USB-C port" } },
+      specCameFromNullDecompositionCache: false,
+    });
+    const row = await prisma.workbenchExamplePrompt.findUnique({ where: { id: promptId } });
+    expect(row?.orientationDeclaration).toEqual({ up: "the open top", front: "the USB-C port" });
+    expect((await loadPromptContext(promptId)).cachedSpec.orientation).toEqual({ up: "the open top", front: "the USB-C port" });
+
+    await persistSpecToPrompt({
+      promptId,
+      specResult: { ...makeSpec(null), orientation: { up: "one flat face", front: null } },
+      specCameFromNullDecompositionCache: false,
+    });
+    expect((await loadPromptContext(promptId)).cachedSpec.orientation).toEqual({ up: "one flat face", front: null });
   });
 
   it("persists evalPlan as JSONB when present", async () => {

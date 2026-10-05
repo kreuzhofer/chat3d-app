@@ -431,6 +431,8 @@ model WorkbenchExamplePrompt {
   criteriaRegeneratedAt    DateTime?                      @map("criteria_regenerated_at") @db.Timestamptz(6)
   /// Separate solid bodies the spec expects (issue #136); NULL = spec written before it.
   expectedBodyCount        Int?                           @map("expected_body_count")
+  /// The Orientation declaration {up, front} (issue #138, ADR 0007); front null = no front; NULL = spec written before it.
+  orientationDeclaration   Json?                          @map("orientation_declaration") @db.JsonB
   specRawResponse          String?                        @map("spec_raw_response") @db.Text
   specSystemPrompt         String?                        @map("spec_system_prompt") @db.Text
   enrichmentRawResponse    String?                        @map("enrichment_raw_response") @db.Text

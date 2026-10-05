@@ -28,6 +28,7 @@ import { evaluateCode, type CodeReviewResult } from "./code-eval.service.js";
 import { withLlmRetry } from "../utils/llm-retry.js";
 import { filterResearchForComponent, type ResearchPackage } from "./research-agent.service.js";
 import { formatResearchSection } from "./research-format.service.js";
+import { modelFrameSection } from "./orientation-declaration.js";
 import {
   type SubAgentVerificationSnapshot,
   type ChecklistItemResult,
@@ -418,6 +419,8 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     decomposition.assemblyNotes,
     componentSummary,
   );
+  // The assembly places the parts, so it is the agent that builds in the Model frame (#138).
+  assemblyPrompt += "\n\n" + modelFrameSection(input.orientation);
 
   // Inject research package into assembly prompt (it uses systemPromptOverride,
   // so the agent-codegen pre-retrieval path is skipped)

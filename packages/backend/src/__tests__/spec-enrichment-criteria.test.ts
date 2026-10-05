@@ -136,4 +136,15 @@ describe("enrichSpec emits atoms by contract", () => {
     expect(result.verificationCriteria).toEqual(roughSpec.verificationCriteria);
     expect(result.criteriaFailure).toEqual({ attempts: 2, reasons: ["empty", "empty"] });
   });
+
+  it("shows the rough spec's declaration and screens sides under its \"no front\" (#138)", async () => {
+    const withSide = [...ATOMS, { text: "A slot on the front face", visibility: "visual", role: "feature" }];
+    respondInOrder(JSON.stringify({ constructionSpec: "- exact dims", verificationCriteria: withSide }));
+
+    const result = await enrichSpec({ ...roughSpec, orientation: { up: "the top edge", front: null } } as never, RESEARCH, "a bookend with a slot on the front face");
+
+    const call = streamTextMock.mock.calls[0][0] as { messages: Array<{ content: string }> };
+    expect(call.messages[0].content).toMatch(/## Orientation Declaration\n\nup is the top edge; this object has no front/);
+    expect(result.verificationCriteria).toEqual(ATOMS);
+  });
 });

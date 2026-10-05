@@ -55,6 +55,7 @@ function makeCtx(overrides: Partial<PromptContext> = {}): PromptContext {
       verificationChecklist: null,
       verificationCriteria: null,
       expectedBodyCount: null,
+      orientation: null,
       specRawResponse: null,
       specSystemPrompt: null,
       requiresDecomposition: null,

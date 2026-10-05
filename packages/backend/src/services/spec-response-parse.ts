@@ -3,11 +3,13 @@
  * for #136). The criteria contract is ADR 0002's — atoms or nothing — and,
  * since #136, the reply must also state the expected body count: a reply
  * without a valid count is refused like a reply of bare strings, so the
- * caller retries it once and then surfaces it.
+ * caller retries it once and then surfaces it. Since #138 the same holds for
+ * the Orientation declaration (ADR 0007): no declaration, no criteria.
  */
 import { parseRequirementAtoms, parseExpectedBodyCount, type AtomsFailureReason } from "./requirement-atoms.js";
 import { type EvalPlan, parseEvalPlan } from "../utils/eval-plan.js";
 import type { AnnotatedCriterion, CodeAssertion } from "./spec-generation.service.js";
+import { parseOrientationDeclaration, type OrientationDeclaration } from "./orientation-declaration.js";
 
 export interface ParsedSpec {
   interpretation: string;
@@ -20,6 +22,8 @@ export interface ParsedSpec {
   verificationCriteria: AnnotatedCriterion[];
   /** Separate solid bodies the model should have (#136); null when the reply was refused or not read. */
   expectedBodyCount: number | null;
+  /** What is up and which feature faces −Y (#138); null when the reply was refused or not read. */
+  orientation: OrientationDeclaration | null;
   requiresDecomposition: boolean;
   decompositionReasoning: string;
   evalPlan: EvalPlan | null;
@@ -38,6 +42,7 @@ export const EMPTY_SPEC: ParsedSpec = {
   constructionSpec: "",
   verificationCriteria: [],
   expectedBodyCount: null,
+  orientation: null,
   requiresDecomposition: false,
   decompositionReasoning: "",
   evalPlan: null,
@@ -64,15 +69,19 @@ function buildSpecFromParsed(raw: Partial<ParsedSpec>): ParsedSpec {
   // beside them; the caller retries once and then surfaces it. The plain
   // checklist is never lifted into criteria — that silent "both" is #33.
   // The body count belongs to the same contract (#136): without it the reply
-  // is refused whole, atoms included, so no count is ever defaulted.
+  // is refused whole, atoms included, so no count is ever defaulted; and so
+  // is a missing or malformed Orientation declaration (#138).
   const rawRecord = raw as Record<string, unknown>;
   const contract = parseRequirementAtoms(rawRecord.verificationCriteria);
   const bodyCount = parseExpectedBodyCount(rawRecord.expectedBodyCount);
+  const declaration = parseOrientationDeclaration(rawRecord.orientation);
   const criteriaRefused = !contract.ok
     ? { reason: contract.reason, offending: contract.offending }
-    : bodyCount === null ? { reason: "missing-body-count" as const, offending: rawRecord.expectedBodyCount } : undefined;
+    : bodyCount === null ? { reason: "missing-body-count" as const, offending: rawRecord.expectedBodyCount }
+    : declaration === null ? { reason: "missing-orientation" as const, offending: rawRecord.orientation } : undefined;
   const verificationCriteria = contract.ok && !criteriaRefused ? contract.atoms : [];
   const expectedBodyCount = criteriaRefused ? null : bodyCount;
+  const orientation = criteriaRefused ? null : declaration;
   const verificationChecklist = Array.isArray(raw.verificationChecklist)
     ? raw.verificationChecklist.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
     : [];
@@ -100,6 +109,7 @@ function buildSpecFromParsed(raw: Partial<ParsedSpec>): ParsedSpec {
     constructionSpec: typeof raw.constructionSpec === "string" ? raw.constructionSpec : "",
     verificationCriteria,
     expectedBodyCount,
+    orientation,
     requiresDecomposition,
     decompositionReasoning,
     evalPlan,
@@ -143,6 +153,7 @@ export function parseSpecResponse(content: string): ParsedSpec {
       constructionSpec: "",
       verificationCriteria: [],
       expectedBodyCount: null,
+      orientation: null,
       requiresDecomposition: false,
       decompositionReasoning: "",
       evalPlan: null,

@@ -11,6 +11,7 @@
  * the post-insertExample persistence block.
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import type { SpecResult } from "./spec-generation.service.js";
@@ -53,6 +54,7 @@ export async function persistSpecToPrompt({
         verificationChecklist: specResult.verificationChecklist,
         verificationCriteria: specResult.verificationCriteria as unknown as undefined,
         expectedBodyCount: specResult.expectedBodyCount,
+        orientationDeclaration: specResult.orientation ?? Prisma.DbNull,
         constructionSpec: specResult.constructionSpec || null,
         specRawResponse: specResult.rawResponse ?? null,
         specSystemPrompt: specResult.systemPrompt ?? null,

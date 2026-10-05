@@ -14,11 +14,16 @@
  * against. A missing or invalid role or count is refused the same way: a
  * silent default would decide the cascade for the model.
  *
+ * Since #138 (ADR 0007) the spec also carries an Orientation declaration
+ * (`orientation-declaration.ts`); the screen drops sides under "no front" and
+ * routes the sides the request states to the code reviewer.
+ *
  * Pure: input is whatever the model returned, output is atoms or a reason.
  */
 import { ChecklistVisibilityEnum } from "../utils/component-checklist.js";
 import { namesAMeasurement, parseAtomRole } from "../utils/verification-criteria.js";
 import type { AnnotatedCriterion } from "./spec-generation.service.js";
+import type { OrientationDeclaration } from "./orientation-declaration.js";
 
 export type AtomsFailureReason =
   | "unparseable"
@@ -28,6 +33,7 @@ export type AtomsFailureReason =
   | "missing-visibility"
   | "missing-role"
   | "missing-body-count"
+  | "missing-orientation"
   | "empty-text"
   | "bundled";
 
@@ -43,7 +49,7 @@ export const REQUIREMENT_ATOMS_RULES = `- "verificationCriteria" is a list of RE
 - Where a measurement has a visible proportion (a wall clearly thin, a hole clearly near an edge), add a separate "visual" entry stating the proportion, without the number.
 - "visibility": "both" only for medium-size structural features the render confirms AND code verifies, with no number in the text.
 - Requirements come from the request and the reference material it names. Do not invent checks for choices the request left open, and never place a feature somewhere other than where the request puts it ("near each end" is never "in the middle").
-- ORIENTATION: the render's front/back/left/right are the camera's, not the part's — a part turned 180° swaps them. Use those words ONLY when the request itself uses them for that feature (top/bottom are fine: the render's up is the part's up); otherwise locate features by the part's own geometry ("on one short end face", "on the face opposite the opening", "on the curved outer surface"). Never ask how a part lies on the build plate (upside down, face down, on the XY plane) unless the request demands it.
+- ORIENTATION: criteria name features, not directions ("the ports are all on one short wall", "on the face opposite the opening", "on the curved outer surface"). Use front/back/left/right ONLY when the request itself uses them for that feature; they then mean the Model frame's sides (front = −Y, right = +X) and are checked from the code. With no declared front, never use them. Top/bottom are fine: up is the object's up in use. Never ask how a part lies on the build plate (upside down, face down, on the XY plane) unless the request demands it.
 - No colour or material checks: renders carry no colour.
 - A comparison of two sizes ("thicker than", "larger than") or a fine edge feature (chamfer, fillet, thread form, angle, taper, tangency) is "code", never "visual" — a render cannot settle it.
 - "role": "structural" for whether this is the right object at all — the count and separation of the parts the request names separately ("the lid is a separate part", "two halves"), the connections between parts ("the arm is joined to the base"), and the recognisable overall shape ("an open-top rectangular box", "an L-shaped bracket"). "role": "feature" for everything else — holes, slots, standoffs, vents, ribs, text, edge treatments and every measurement. When unsure, it is a feature: a failed structural item voids every feature item.
@@ -71,38 +77,53 @@ function usable(value: unknown): string | null {
  * top and bottom views do fix them (the sample of 2026-09-25 dropped 20
  * sound "top/bottom face is flat" atoms before this narrowing).
  */
-const FRAME_WORDS = /\b(front|back|rear|left|right|upside[- ]down|face[- ]?(?:up|down)|xy[- ]plane)\b/gi;
+const FRAME_WORDS = /\b(front|back|rear|left|right(?![- ]?angle)|upside[- ]down|face[- ]?(?:up|down)|xy[- ]plane)\b/gi;
 const COLOUR_WORDS = /\b(colou?r(?:ed)?|translucent|transparent|red|blue|green|yellow|black|white|grey|gray)\b/i;
 const COMPARATIVE = /\b(thicker|thinner|larger|smaller|wider|narrower|taller|shorter|deeper|shallower)\b[^.]*\bthan\b/i;
 const FINE_FEATURE = /\b(chamfer(?:ed)?|fillet(?:ed)?|thread (?:form|profile)|trapezoidal|acme|included angle|taper(?:ed)?|tangen(?:t|cy)|cusp|fade-?in|ogee|draft angle)\b/i;
 
-export type ScreenReason = "orientation-not-in-request" | "colour";
+/** The sides a declared front gives meaning to (#138); top/bottom are fixed by up alone. */
+const SIDE_WORDS = /\b(front|back|rear|left|right(?![- ]?angle))\b/gi;
+
+export type ScreenReason = "orientation-not-in-request" | "colour" | "no-front";
 export interface AtomScreen {
   kept: AnnotatedCriterion[];
   dropped: Array<{ atom: AnnotatedCriterion; reason: ScreenReason; word?: string }>;
-  /** Visual atoms moved to code: comparisons and fine features a render cannot settle. */
+  /** Atoms moved to code: comparisons and fine features a render cannot settle, and request-stated sides (#138). */
   routed: AnnotatedCriterion[];
 }
+
+const wordsIn = (text: string, pattern: RegExp) => [...text.matchAll(pattern)].map((m) => m[1].toLowerCase());
 
 /**
  * Screen well-formed atoms for the wrong-question classes Daniel's sittings
  * measured (#113): orientation words the request does not use, colour, and
  * comparisons or fine features asked of the visual judge. Orientation and
  * colour atoms are dropped (logged by the caller); comparisons and fine
- * features are routed to code. Pure.
+ * features are routed to code.
+ *
+ * Under the Orientation declaration (ADR 0007, #138): with "no front", any
+ * atom using front/back/left/right is dropped — code atoms too, since the
+ * sides then mean nothing to anyone. A side the request itself states is a
+ * requirement checked from coordinates: routed to code for the reviewer. Pure.
  */
-export function screenAtoms(atoms: readonly AnnotatedCriterion[], requestText?: string): AtomScreen {
+export function screenAtoms(atoms: readonly AnnotatedCriterion[], requestText?: string, orientation?: OrientationDeclaration | null): AtomScreen {
   const request = (requestText ?? "").toLowerCase();
   const out: AtomScreen = { kept: [], dropped: [], routed: [] };
   for (const atom of atoms) {
+    if (orientation && orientation.front === null) {
+      const side = wordsIn(atom.text, SIDE_WORDS)[0];
+      if (side) { out.dropped.push({ atom, reason: "no-front", word: side }); continue; }
+    }
     if (atom.visibility !== "code") {
       if (COLOUR_WORDS.test(atom.text)) { out.dropped.push({ atom, reason: "colour" }); continue; }
       if (requestText) {
-        const words = [...atom.text.matchAll(FRAME_WORDS)].map((m) => m[1].toLowerCase());
-        const alien = words.find((w) => !request.includes(w.replace(/[- ]/g, " ").split(" ")[0]));
+        const alien = wordsIn(atom.text, FRAME_WORDS).find((w) => !request.includes(w.replace(/[- ]/g, " ").split(" ")[0]));
         if (alien) { out.dropped.push({ atom, reason: "orientation-not-in-request", word: alien }); continue; }
       }
-      if (COMPARATIVE.test(atom.text) || FINE_FEATURE.test(atom.text)) {
+      // Any side still here is one the request states: the check above dropped the rest.
+      const statedSide = Boolean(requestText) && wordsIn(atom.text, SIDE_WORDS).length > 0;
+      if (statedSide || COMPARATIVE.test(atom.text) || FINE_FEATURE.test(atom.text)) {
         const moved = { ...atom, visibility: "code" as const };
         out.routed.push(moved); out.kept.push(moved); continue;
       }

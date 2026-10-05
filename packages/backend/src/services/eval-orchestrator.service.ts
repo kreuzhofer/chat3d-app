@@ -49,6 +49,8 @@ export interface FullEvalInput {
   constructionSpec?: string;
   /** Annotated verification criteria with visibility routing (visual/code/both). */
   annotatedCriteria?: import("./spec-generation.service.js").AnnotatedCriterion[];
+  /** The spec's Orientation declaration (#138): the code reviewer checks stated directions against it. */
+  orientation?: import("./orientation-declaration.js").OrientationDeclaration | null;
   /** Pre-filled VLM score from agent eval — skip VLM call if provided. */
   agentVlmScore?: {
     score: number; issues: string[]; suggestions: string[]; vlmModel: string;
@@ -282,6 +284,7 @@ export async function runFullEvaluation(input: FullEvalInput): Promise<FullEvalR
       codegenSystemPrompt: input.codegenSystemPrompt,
       constructionSpec: input.constructionSpec,
       annotatedCriteria,
+      orientation: input.orientation,
     };
 
     logger.info("phase 2: running code review LLM");

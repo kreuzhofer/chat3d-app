@@ -9,7 +9,9 @@
  * The criteria, though, are a contract (ADR 0002, issue #104): atoms in
  * `{ text, visibility }`, one requirement per entry; a reply of bare strings
  * or bundled atoms is retried once and then surfaced on the result, with the
- * rough spec's atoms kept — never normalised to `both`.
+ * rough spec's atoms kept — never normalised to `both`. The rough spec's
+ * Orientation declaration (#138) is shown to the model and screens its atoms;
+ * enrichment never restates it.
  */
 
 import { trackedStreamText } from "./tracked-llm.service.js";
@@ -28,6 +30,7 @@ import type { SpecResult } from "./spec-generation.service.js";
 import { createLogger } from "../utils/logger.js";
 import type { AnnotatedCriterion } from "./spec-generation.service.js";
 import { REQUIREMENT_ATOMS_RULES, parseRequirementAtoms, screenAtoms, type AtomsFailureReason } from "./requirement-atoms.js";
+import { describeDeclaration } from "./orientation-declaration.js";
 
 const logger = createLogger("spec-enrich");
 
@@ -101,8 +104,9 @@ function retryMessage(reason: AtomsFailureReason, offending: unknown): string {
     "bare-string": `an entry was a bare string (${shown}); every entry must be {"text", "visibility", "role"}`,
     "missing-visibility": `an entry had no valid visibility (${shown}); use "visual", "code" or "both"`,
     "missing-role": `an entry had no valid role (${shown}); use "structural" or "feature"`,
-    // Enrichment is never asked for a body count; listed because the reasons are shared.
+    // Enrichment is never asked for a body count or a declaration; listed because the reasons are shared.
     "missing-body-count": "expectedBodyCount was missing",
+    "missing-orientation": "orientation was missing",
     "empty-text": `an entry had no text (${shown})`,
     "bundled": `a "visual"/"both" entry contained a measurement (${shown}); split it — the fact stays visual, the number becomes its own "code" entry`,
   };
@@ -147,6 +151,7 @@ export async function enrichSpec(
     "",
     roughSpec.constructionSpec,
     "",
+    ...(roughSpec.orientation ? ["## Orientation Declaration", "", describeDeclaration(roughSpec.orientation), ""] : []),
     "## Original Request",
     "",
     roughSpec.semanticContext || roughSpec.interpretation,
@@ -194,7 +199,7 @@ export async function enrichSpec(
     }
 
     if (atoms) {
-      const screen = screenAtoms(atoms, requestText);
+      const screen = screenAtoms(atoms, requestText, roughSpec.orientation);
       if (screen.dropped.length > 0 || screen.routed.length > 0) {
         logger.info({ dropped: screen.dropped.map((d) => ({ reason: d.reason, word: d.word, text: d.atom.text.slice(0, 80) })), routed: screen.routed.length }, "enriched atoms screened");
       }

@@ -12,6 +12,7 @@ import { WorkbenchCatalogError } from "./workbench-catalog.service.js";
 import type { GenerateResult } from "./workbench-codegen.service.js";
 import type { CodeAssertion, AnnotatedCriterion } from "./spec-generation.service.js";
 import { toAnnotatedCriteria } from "../utils/verification-criteria.js";
+import { toOrientationDeclaration, type OrientationDeclaration } from "./orientation-declaration.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -23,6 +24,8 @@ export interface CachedSpec {
   verificationCriteria: AnnotatedCriterion[] | null;
   /** Carried through the cache so a re-generation writes it back, not NULL (#136). */
   expectedBodyCount: number | null;
+  /** Carried through the cache like the body count (#138); null on a pre-#138 spec. */
+  orientation: OrientationDeclaration | null;
   // Training-data fields preserved through the cached-spec reuse path so the
   // codegen persist step doesn't overwrite them with NULL on re-generation.
   specRawResponse: string | null;
@@ -72,6 +75,7 @@ export async function loadPromptContext(promptId: string): Promise<PromptContext
       // Validated, not asserted — see issue #33.
       verificationCriteria: toAnnotatedCriteria(row.verificationCriteria),
       expectedBodyCount: row.expectedBodyCount,
+      orientation: toOrientationDeclaration(row.orientationDeclaration),
       specRawResponse: row.specRawResponse,
       specSystemPrompt: row.specSystemPrompt,
       requiresDecomposition: row.requiresDecomposition ?? null,

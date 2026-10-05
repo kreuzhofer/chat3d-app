@@ -3,9 +3,11 @@
  * for issue #106, when the criteria rule became ADR 0002's: counts, presence,
  * openness and placement are the judge's when the request states them;
  * measurements go to code with a visible-proportion proxy). The rule text is
- * shared with enrichment through `requirement-atoms.ts`.
+ * shared with enrichment through `requirement-atoms.ts`. Since #138 the spec
+ * also declares the object's orientation in the Model frame (ADR 0007).
  */
 import { REQUIREMENT_ATOMS_RULES, EXPECTED_BODY_COUNT_RULE } from "../services/requirement-atoms.js";
+import { ORIENTATION_DECLARATION_RULE } from "../services/orientation-declaration.js";
 
 export const SPEC_SYSTEM_PROMPT = `You are a CAD specification analyst for Build123d 3D model generation.
 
@@ -64,6 +66,10 @@ ${REQUIREMENT_ATOMS_RULES}
    ]
 
    **expectedBodyCount**: ${EXPECTED_BODY_COUNT_RULE} (The example above: 2.)
+
+   **orientation**: ${ORIENTATION_DECLARATION_RULE}
+   Example: a case with a USB-C port on one short wall → {"up": "the open top", "front": "the short wall with the USB-C port"}; a plain washer → {"up": "one flat face", "front": "none"}.
+   In constructionSpec, place a feature on a side only through the declaration ("USB-C opening in the front (−Y) wall").
 
 9. **requiresDecomposition**: A boolean. Return true ONLY when the model genuinely benefits from splitting into 2–6 independently-designable components that are then assembled. Use these criteria:
    - Multi-part objects with distinct mating geometry (a base + a lid, a body + an arm, etc.)
@@ -142,6 +148,7 @@ Return JSON only:
   "constructionSpec": "- step 1\\n- step 2\\n...",
   "verificationCriteria": [{"text": "...", "visibility": "visual|code|both", "role": "structural|feature"}],
   "expectedBodyCount": 1,
+  "orientation": {"up": "...", "front": "...|none"},
   "requiresDecomposition": true|false,
   "decompositionReasoning": "...",
   "evalPlan": {

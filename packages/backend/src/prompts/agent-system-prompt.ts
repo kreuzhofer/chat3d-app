@@ -10,6 +10,7 @@ import {
   buildTieredSystemPrompt,
   CODEGEN_SYSTEM_PROMPT,
 } from "./system-prompts.js";
+import { modelFrameSection, type OrientationDeclaration } from "../services/orientation-declaration.js";
 
 const AGENT_PREAMBLE = `You are a Build123d CAD modeling agent. You create and edit Python code to generate 3D models using the Build123d library. You have access to a project directory where you can create and edit files, plus specialized tools for validating and rendering Build123d code.
 
@@ -130,6 +131,8 @@ export function buildAgentSystemPrompt(options: {
   promptText: string;
   interpretation?: string;
   isModification: boolean;
+  /** The spec's Orientation declaration (#138); the Model frame is stated either way. */
+  orientation?: OrientationDeclaration | null;
 }): string {
   // Get the tiered API reference (operation-aware)
   const apiReference = buildTieredSystemPrompt({
@@ -144,6 +147,8 @@ export function buildAgentSystemPrompt(options: {
     parts.push(AGENT_MODIFICATION_CONTEXT);
   }
 
+  parts.push(modelFrameSection(options.orientation) + "\n");
+
   // Append the Build123d API reference (from the tiered prompt)
   parts.push("## Build123d API Reference\n\n" + apiReference);
 
@@ -156,12 +161,15 @@ export function buildAgentSystemPrompt(options: {
  */
 export function buildFullAgentSystemPrompt(options: {
   isModification: boolean;
+  orientation?: OrientationDeclaration | null;
 }): string {
   const parts = [AGENT_PREAMBLE];
 
   if (options.isModification) {
     parts.push(AGENT_MODIFICATION_CONTEXT);
   }
+
+  parts.push(modelFrameSection(options.orientation) + "\n");
 
   parts.push("## Build123d API Reference\n\n" + CODEGEN_SYSTEM_PROMPT);
 

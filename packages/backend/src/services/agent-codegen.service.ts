@@ -89,6 +89,8 @@ export interface AgentCodegenInput {
   verificationChecklist?: string[];
   /** Annotated criteria with visibility routing (for full eval in submit_result). */
   annotatedCriteria?: import("./spec-generation.service.js").AnnotatedCriterion[];
+  /** The spec's Orientation declaration (#138): stated in the system prompt, passed to the code reviewer. */
+  orientation?: import("./orientation-declaration.js").OrientationDeclaration | null;
   /** Per-prompt eval directive — narrows VLM angles + drives dynamic VLM prompt in submit_result. */
   evalPlan?: import("../utils/eval-plan.js").EvalPlan | null;
   /** Category name (for eval context). */
@@ -196,8 +198,8 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
   // Build system prompt
   let systemPrompt = systemPromptOverride
     ?? (complexity === "complex"
-      ? buildFullAgentSystemPrompt({ isModification })
-      : buildAgentSystemPrompt({ promptText, interpretation, isModification }));
+      ? buildFullAgentSystemPrompt({ isModification, orientation: input.orientation })
+      : buildAgentSystemPrompt({ promptText, interpretation, isModification, orientation: input.orientation }));
 
   // Inject research package or fall back to legacy pre-retrieval
   if (!systemPromptOverride) {
@@ -289,6 +291,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       constructionSpec: input.constructionSpec,
       verificationChecklist: input.verificationChecklist,
       annotatedCriteria: input.annotatedCriteria,
+      orientation: input.orientation,
       evalPlan: input.evalPlan ?? null,
       categoryName: input.categoryName,
       complexity: input.promptComplexity,

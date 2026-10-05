@@ -6,6 +6,7 @@
  * missing it. Uses the existing job queue infrastructure for progress tracking.
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
 import { createLogger } from "../utils/logger.js";
 import { generateSpec } from "./spec-generation.service.js";
@@ -138,6 +139,7 @@ async function runBatchBackfillSpecs(
               verificationChecklist: specResult.verificationChecklist,
               verificationCriteria: specResult.verificationCriteria as unknown as undefined,
               expectedBodyCount: specResult.expectedBodyCount,
+              orientationDeclaration: specResult.orientation ?? Prisma.DbNull,
               specRawResponse: specResult.rawResponse ?? null,
               specSystemPrompt: specResult.systemPrompt ?? null,
               requiresDecomposition: specResult.requiresDecomposition,

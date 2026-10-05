@@ -38,13 +38,15 @@ const ATOMS = [
   { text: "Exactly four standoff posts inside the box", visibility: "visual", role: "feature" },
   { text: "Wall thickness is 2mm", visibility: "code", role: "feature" },
 ];
-/** A reply; `MISSING` leaves expectedBodyCount out of the JSON entirely. */
+/** A reply; `MISSING` leaves expectedBodyCount (or the orientation) out of the JSON entirely. */
 const MISSING = Symbol("missing");
-const spec = (criteria: unknown, expectedBodyCount: unknown = 1) => JSON.stringify({
+const ORIENTATION = { up: "the open top", front: "the USB-C port" };
+const spec = (criteria: unknown, expectedBodyCount: unknown = 1, orientation: unknown = ORIENTATION) => JSON.stringify({
   interpretation: "An open box with standoffs.", verificationChecklist: ["Is the top open?"],
   codeAssertions: [], disambiguationNeeded: false, disambiguationQuestions: [],
   semanticContext: "box", constructionSpec: "- box 90x62x30mm, open top", verificationCriteria: criteria,
   ...(expectedBodyCount === MISSING ? {} : { expectedBodyCount }),
+  ...(orientation === MISSING ? {} : { orientation }),
 });
 
 describe("parseSpecResponse applies the atoms contract", () => {
@@ -68,6 +70,20 @@ describe("parseSpecResponse applies the atoms contract", () => {
       expect(r.criteriaRefused, String(bad)).toMatchObject({ reason: "missing-body-count" });
       expect(r.verificationCriteria).toEqual([]);
       expect(r.expectedBodyCount).toBeNull();
+    }
+  });
+
+  it("reads the Orientation declaration beside the atoms (#138)", () => {
+    expect(parseSpecResponse(spec(ATOMS)).orientation).toEqual(ORIENTATION);
+    expect(parseSpecResponse(spec(ATOMS, 1, { up: "the top face", front: "none" })).orientation).toEqual({ up: "the top face", front: null });
+  });
+
+  it("refuses a reply whose declaration is missing or malformed, atoms included", () => {
+    for (const bad of [MISSING, null, "front", { up: "the top" }, { up: "the top", front: "" }]) {
+      const r = parseSpecResponse(spec(ATOMS, 1, bad));
+      expect(r.criteriaRefused, JSON.stringify(bad ?? "missing")).toMatchObject({ reason: "missing-orientation" });
+      expect(r.verificationCriteria).toEqual([]);
+      expect(r.orientation).toBeNull();
     }
   });
 
@@ -103,6 +119,29 @@ describe("generateSpec retries a refused reply once, then surfaces it", () => {
     const second = streamTextMock.mock.calls[1][0] as { messages: Array<{ content: string }> };
     expect(second.messages[2].content).toMatch(/expectedBodyCount/);
     expect(result.expectedBodyCount).toBe(2);
+  });
+
+  it("retries a missing declaration with the defect named", async () => {
+    respondInOrder({ text: spec(ATOMS, 1, MISSING) }, { text: spec(ATOMS) });
+    const result = await generateSpec("an open-top box with a USB-C port");
+    expect(streamTextMock).toHaveBeenCalledTimes(2);
+    const second = streamTextMock.mock.calls[1][0] as { messages: Array<{ content: string }> };
+    expect(second.messages[2].content).toMatch(/"orientation"/);
+    expect(result.orientation).toEqual(ORIENTATION);
+  });
+
+  it("screens front/back/left/right out of the criteria when the declaration says no front", async () => {
+    const atoms = [...ATOMS, { text: "A hole on the front face", visibility: "visual", role: "feature" }];
+    respondInOrder({ text: spec(atoms, 1, { up: "the open top", front: "none" }) });
+    const result = await generateSpec("an open-top box with a hole on the front face");
+    expect(result.verificationCriteria).toEqual(ATOMS);
+  });
+
+  it("routes a direction the request states to the code reviewer", async () => {
+    const atoms = [...ATOMS, { text: "The USB-C opening is on the front face", visibility: "visual", role: "feature" }];
+    respondInOrder({ text: spec(atoms) });
+    const result = await generateSpec("an open-top box with a USB-C opening on the front");
+    expect(result.verificationCriteria.at(-1)).toEqual({ text: "The USB-C opening is on the front face", visibility: "code", role: "feature" });
   });
 
   it("retries an atom without a role with the defect named", async () => {

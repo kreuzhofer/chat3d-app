@@ -29,6 +29,50 @@ describe("screenAtoms", () => {
   });
 });
 
+describe("screenAtoms under the Orientation declaration (#138)", () => {
+  const c = (text: string) => ({ text, visibility: "code" as const });
+  const noFront = { up: "the flat top face", front: null };
+  const front = { up: "the open top", front: "the USB-C port" };
+
+  it("drops front/back/left/right from every atom when the declaration says no front — code atoms too", () => {
+    const r = screenAtoms(
+      [v("Hole on the front face"), c("Left wall is 2mm"), v("Rear edge is rounded"), v("Four holes near the corners")],
+      "a washer plate, holes on the front face, left wall 2mm, rounded rear edge",
+      noFront,
+    );
+    expect(r.dropped.map((d) => [d.reason, d.word])).toEqual([["no-front", "front"], ["no-front", "left"], ["no-front", "rear"]]);
+    expect(r.kept.map((a) => a.text)).toEqual(["Four holes near the corners"]);
+  });
+
+  it("never reads \"right angle\" as a side", () => {
+    const atoms = [v("The bracket is bent at a right angle"), v("Two right-angled plates")];
+    expect(screenAtoms(atoms, "an L bracket", noFront)).toMatchObject({ dropped: [], routed: [] });
+    expect(screenAtoms(atoms, "an L bracket with a hole on the front", front)).toMatchObject({ dropped: [], routed: [] });
+  });
+
+  it("keeps top/bottom under no front", () => {
+    const r = screenAtoms([v("The top face is flat")], "a plain plate", noFront);
+    expect(r.dropped).toEqual([]);
+  });
+
+  it("routes a direction the request itself states to code, for the reviewer", () => {
+    const r = screenAtoms([v("The USB-C opening is on the front face"), v("Exactly four standoffs")], "a case with a USB-C opening on the front", front);
+    expect(r.routed.map((a) => a.text)).toEqual(["The USB-C opening is on the front face"]);
+    expect(r.kept.map((a) => a.visibility)).toEqual(["code", "visual"]);
+  });
+
+  it("still drops a direction the request does not use, under a declared front", () => {
+    const r = screenAtoms([v("The vents are on the left side")], "a case with a USB-C opening on the front", front);
+    expect(r.dropped).toMatchObject([{ reason: "orientation-not-in-request", word: "left" }]);
+  });
+
+  it("does not route top/bottom: the judge reads them off the renders", () => {
+    const r = screenAtoms([v("The bottom face is flat")], "a box with a flat bottom", front);
+    expect(r.routed).toEqual([]);
+    expect(r.kept[0].visibility).toBe("visual");
+  });
+});
+
 describe("screenAtoms keeps top/bottom", () => {
   it("does not drop top/bottom — the render's up axis is the part's", () => {
     const r = screenAtoms([v("The top and bottom faces of the tube are flat annular rings")], "a tube 20mm outer diameter");

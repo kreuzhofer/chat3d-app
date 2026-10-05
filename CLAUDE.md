@@ -175,6 +175,7 @@ PostgreSQL tables:
 - `workbench_examples.rating_items_stale` — true when the prompt's criteria were regenerated after this rating (#89): Stale by items, taken by the re-rating batch beside Stale-by-instrument rows, cleared by the re-rating
 - `workbench_example_prompts.verification_criteria_previous` / `criteria_regenerated_at` — the criteria before the last regeneration as requirement atoms and when it happened (#89, `scripts/regenerate-criteria-atoms.ts`, held-out prompts never touched)
 - `workbench_example_prompts.expected_body_count` — the separate solid bodies the spec expects (#136); NULL = spec written before it. The atoms in `verification_criteria` carry `role: structural | feature` beside `text` and `visibility` since #136 (absent on older rows)
+- `workbench_example_prompts.orientation_declaration` — the spec's Orientation declaration `{up, front}` (#138, ADR 0007), `front` null = no front; NULL = spec written before it. Codegen and the code reviewer are told it beside the Model frame (`orientation-declaration.ts`)
 - `curation_candidates` — id (UUID), chat_context_id (FK→chat_contexts, unique), status, reviewed_at, notes, distilled_prompt, original_prompt, timestamps
 - `tags` — id (UUID), name (unique), created_at
 - `curation_candidate_tags` — candidate_id (FK→curation_candidates), tag_id (FK→tags), suggested_by, composite PK

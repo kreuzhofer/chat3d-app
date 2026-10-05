@@ -26,6 +26,7 @@ import { SPEC_SYSTEM_PROMPT } from "../prompts/spec-generation-system-prompt.js"
 import type { EvalPlan } from "../utils/eval-plan.js";
 import { parseSpecResponse, EMPTY_SPEC, type ParsedSpec } from "./spec-response-parse.js";
 import type { ComplexityTriggerReason } from "@chat3d/shared";
+import type { OrientationDeclaration } from "./orientation-declaration.js";
 
 const logger = createLogger("spec-gen");
 
@@ -79,6 +80,8 @@ export interface SpecResult {
   verificationCriteria: AnnotatedCriterion[];
   /** Separate solid bodies the request implies (#136); null on a refused, failed or pre-#136 spec. */
   expectedBodyCount: number | null;
+  /** What is up and which feature faces −Y, or no front (#138, ADR 0007); null on a refused, failed or pre-#138 spec. */
+  orientation: OrientationDeclaration | null;
   /** Spec LLM's verdict — true means route to multi-agent codegen. */
   requiresDecomposition: boolean;
   /** One-sentence rationale for the requiresDecomposition decision. */
@@ -222,8 +225,9 @@ export async function generateSpec(promptText: string): Promise<SpecResult> {
     }
     // #113: drop orientation/colour atoms the request does not support, route
     // comparisons and fine features to code — the wrong-question classes.
+    // #138: under "no front" sides are dropped; request-stated sides go to code.
     if (parsed.verificationCriteria.length > 0) {
-      const screen = screenAtoms(parsed.verificationCriteria, promptText);
+      const screen = screenAtoms(parsed.verificationCriteria, promptText, parsed.orientation);
       if (screen.dropped.length > 0 || screen.routed.length > 0) {
         logger.info({ dropped: screen.dropped.map((d) => ({ reason: d.reason, word: d.word, text: d.atom.text.slice(0, 80) })), routed: screen.routed.length }, "spec atoms screened");
       }
@@ -316,12 +320,13 @@ function specRetryMessage(reason: AtomsFailureReason, truncated: boolean): strin
     "missing-visibility": 'an entry in verificationCriteria had no valid visibility; use "visual", "code" or "both"',
     "missing-role": 'an entry in verificationCriteria had no valid role; use "structural" or "feature"',
     "missing-body-count": "expectedBodyCount was missing or not an integer of at least 1; state how many separate solid bodies the model consists of (1 when the request names no separate parts)",
+    "missing-orientation": '"orientation" was missing or malformed; state {"up": "<what is up in use>", "front": "<the feature facing -Y>" or "none"}',
     "bundled": 'a "visual" or "both" entry in verificationCriteria contained a measurement; split it — the fact stays visual, the number becomes its own "code" entry',
     "empty": "verificationCriteria was empty; list 3-8 requirement atoms",
     "empty-text": "an entry in verificationCriteria had no text",
     "not-an-array": "verificationCriteria was not a list",
   };
-  return `Your previous reply did not meet the criteria contract: ${why[reason] ?? reason}. Return the same JSON again with verificationCriteria as requirement atoms only and expectedBodyCount set.`;
+  return `Your previous reply did not meet the criteria contract: ${why[reason] ?? reason}. Return the same JSON again with verificationCriteria as requirement atoms only, expectedBodyCount and orientation set.`;
 }
 
 /** One streamed call; reasoning goes to a separate channel, so only text deltas are the reply. */

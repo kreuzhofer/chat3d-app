@@ -1355,6 +1355,7 @@ async function executeQueryPipelineInner(input: {
     let epSpecComplexity: "simple" | "medium" | "complex" | undefined;
     let epConstructionSpec: string | undefined;
     let epEvalPlan: import("../utils/eval-plan.js").EvalPlan | null = null;
+    let epOrientation: import("./orientation-declaration.js").OrientationDeclaration | null = null;
     const specEnabled = await isSpecGenerationEnabled("chat");
     if (specEnabled) {
       await persistPhase("Analyzing request...");
@@ -1422,6 +1423,7 @@ async function executeQueryPipelineInner(input: {
       epSpecComplexity = specResult.complexity;
       epConstructionSpec = specResult.constructionSpec || undefined;
       epEvalPlan = specResult.evalPlan;
+      epOrientation = specResult.orientation;
 
       queryLogger.info({ interpretation: specResult.interpretation.slice(0, 100), checklistCount: epVerificationChecklist.length, complexity: specResult.complexity }, "spec generated");
     }
@@ -1528,6 +1530,7 @@ async function executeQueryPipelineInner(input: {
         codeAssertions: epCodeAssertions,
         specInterpretation: epSpecInterpretation,
         constructionSpec: epConstructionSpec,
+        orientation: epOrientation,
         evalPlan: epEvalPlan,
       };
 
@@ -1644,6 +1647,7 @@ async function executeQueryPipelineInner(input: {
             stlBase64: stlFile?.contentBase64,
             modelFormat: "stl",
             codeEvalWeight: chatCodeEvalWeight,
+            orientation: epOrientation,
             evalPlan: epEvalPlan,
           });
 

@@ -146,6 +146,8 @@ export interface AgentToolDeps {
   verificationChecklist?: string[];
   /** Annotated criteria with visibility routing (for eval routing) */
   annotatedCriteria?: import("./spec-generation.service.js").AnnotatedCriterion[];
+  /** The spec's Orientation declaration (#138), for the code reviewer. */
+  orientation?: import("./orientation-declaration.js").OrientationDeclaration | null;
   /** Per-prompt eval directive — narrows VLM angles + drives dynamic VLM prompt. */
   evalPlan?: import("../utils/eval-plan.js").EvalPlan | null;
   /** Category name (for VLM context — avoids hardcoded "User Generated") */
@@ -515,6 +517,7 @@ export function buildAgentTools(
             verificationChecklist: deps.verificationChecklist,
             constructionSpec: deps.constructionSpec,
             annotatedCriteria: deps.annotatedCriteria,
+            orientation: deps.orientation,
             stlBase64: stlFile?.contentBase64,
             modelFormat: "stl",
             codeEvalWeight: deps.codeEvalWeight ?? 0.5,
