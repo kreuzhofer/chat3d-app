@@ -120,7 +120,7 @@ export interface AgentToolDeps {
   baseFileName: string;
   signal?: AbortSignal;
   onProgress?: (state: string, detail: string) => void;
-  onRenderSuccess: (files: RenderedFile[]) => void;
+  onRenderSuccess: (files: RenderedFile[], geometry: import("./render-geometry.js").RenderGeometry | null) => void;
   onSubmit: () => void;
   /** Getter for the most recently rendered files (for evaluate_model / submit_result) */
   getLastRenderedFiles: () => RenderedFile[];
@@ -845,7 +845,7 @@ Always view a file before editing it to see the current line numbers and content
         onProgress?.("rendering", "Rendering 3D model...");
         const result = await doRender(wrapProjectFiles(), baseFileName, signal);
         if (result.success) {
-          onRenderSuccess(result.files);
+          onRenderSuccess(result.files, result.geometry);
           await takeRenderScreenshots(result.files, deps);
         }
         return result.success
@@ -935,7 +935,7 @@ Always view a file before editing it to see the current line numbers and content
         onProgress?.("rendering", "Validation passed. Rendering 3D model...");
         const renderResult = await doRender(projectFiles, baseFileName, signal);
         if (renderResult.success) {
-          onRenderSuccess(renderResult.files);
+          onRenderSuccess(renderResult.files, renderResult.geometry);
           await takeRenderScreenshots(renderResult.files, deps);
           return `Validation PASSED.\n${renderResult.text}\n\nYou can now call submit_result if you're satisfied, or make further edits.`;
         }

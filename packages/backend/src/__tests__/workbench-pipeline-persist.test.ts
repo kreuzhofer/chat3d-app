@@ -70,6 +70,7 @@ function makeAgResult(overrides: Partial<AgentCodegenResult> = {}): AgentCodegen
     code: "",
     files: [{ path: "main.py", content: "" }],
     renderedFiles: [],
+    renderGeometry: null,
     renderSuccess: false,
     usage: {
       promptTokens: 0,

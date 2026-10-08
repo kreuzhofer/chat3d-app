@@ -80,11 +80,13 @@ export async function reRenderForExample(
   const executableCode = wrapInTemplate(code, baseFileName);
 
   let renderedFiles: RenderedFile[] = [];
+  let measuredSolidCount: number | null = null;
   let renderError: string | null = null;
 
   try {
     const renderResult = await renderBuild123d({ code: executableCode, baseFileName });
     renderedFiles = renderResult.files;
+    measuredSolidCount = renderResult.geometry?.solidCount ?? null;
     logger.info({ fileCount: renderedFiles.length }, "Build123d re-render success");
   } catch (error) {
     renderError = error instanceof Error ? error.message : String(error);
@@ -203,6 +205,7 @@ export async function reRenderForExample(
     evalSuggestions: evalResult?.vlmSuggestions ?? null,
     evalChecklistResults: evalResult?.checklistResults ?? null,
     codeChecklistResults: evalResult?.codeItemResults ?? null,
+    measuredSolidCount,
     approvalStatus: approved ? "auto_approved" : "pending",
       gateVersion: GATE_VERSION,
     llmModel: existingExample.llmModel ?? "unknown", vlmModel: evalResult?.vlmModel ?? null,

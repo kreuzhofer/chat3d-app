@@ -102,9 +102,20 @@ Executes custom build123d code and returns the generated STEP file in the respon
 ### Expected Response
 
 **Success Response (200 OK):**
-- Content-Type: `application/octet-stream`
-- Content-Disposition: `attachment; filename=custom_box.step`
-- Body: Binary STEP file content
+```json
+{
+  "success": true,
+  "files": [{ "filename": "custom_box.step", "content": "<base64>" }],
+  "message": "Successfully generated 1 file(s)",
+  "geometry": { "solid_count": 1, "bbox": { "min": [-10, -15, -20], "max": [10, 15, 20] } }
+}
+```
+
+`geometry` (also on `POST /render-project/`) is measured on `root_part`, the
+model the execution template exports: `solid_count` is its number of separate
+solids (fused parts count once), `bbox` its axis-aligned bounding box in mm.
+It is `null` when the code assigns no `root_part` or the measurement fails;
+a measurement failure never fails the render (#137).
 
 **Error Responses:**
 

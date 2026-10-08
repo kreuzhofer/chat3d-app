@@ -494,6 +494,8 @@ model WorkbenchExample {
   gateVersion           String?  @map("gate_version") @db.VarChar(32)
   /// The code reviewer's pass/fail per code-routed criterion (ADR 0001, #105): the gate counts these beside the visual judge's items. Kept apart from eval_checklist_results so the judge's list, the screen's pairing and the adjudications' item positions are untouched.
   codeChecklistResults  Json?    @map("code_checklist_results") @db.JsonB
+  /// The separate solids the Build123d service counted on the exported model at this row's render (#137). NULL = rendered before #137, or nothing measured.
+  measuredSolidCount    Int?     @map("measured_solid_count")
   /// The instrument the visual judge answered under, `<name>@<hash12>` of
   /// the whole procedure (ADR 0003). NULL = pre-versioning or not rated. A
   /// rating whose id is not the current one is Stale.

@@ -1,6 +1,7 @@
 import { config } from "../config.js";
 import { createLogger } from "../utils/logger.js";
 import { build123dSemaphore } from "../utils/resource-limits.js";
+import { parseRenderGeometry, type RenderGeometry } from "./render-geometry.js";
 
 const logger = createLogger("render");
 
@@ -27,6 +28,8 @@ export interface RenderedFile {
 export interface Build123dRenderResult {
   files: RenderedFile[];
   renderer: "mock" | "build123d";
+  /** What the service measured on the exported model (#137); null when nothing was measured. */
+  geometry: RenderGeometry | null;
 }
 
 export class RenderingServiceError extends Error {
@@ -116,6 +119,7 @@ export async function renderBuild123d(
     return {
       files: mockRenderedFiles(input.baseFileName),
       renderer: "mock",
+      geometry: null,
     };
   }
 
@@ -226,6 +230,7 @@ async function _renderBuild123dInner(input: {
   return {
     files: mappedFiles,
     renderer: "build123d",
+    geometry: parseRenderGeometry((body as { geometry?: unknown }).geometry),
   };
 }
 
@@ -245,6 +250,7 @@ export async function renderBuild123dProject(
     return {
       files: mockRenderedFiles(input.baseFileName),
       renderer: "mock",
+      geometry: null,
     };
   }
 
@@ -360,6 +366,7 @@ async function _renderBuild123dProjectInner(
   return {
     files: mappedFiles,
     renderer: "build123d",
+    geometry: parseRenderGeometry((body as { geometry?: unknown }).geometry),
   };
 }
 

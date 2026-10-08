@@ -125,10 +125,21 @@ class FileData(BaseModel):
     filename: str
     content: str  # base64 encoded binary content
 
+class BoundingBox(BaseModel):
+    min: List[float]  # [x, y, z]
+    max: List[float]
+
+class Geometry(BaseModel):
+    """What the service measured on root_part, the exported model (#137)."""
+    solid_count: int  # separate solids; fused parts are one solid
+    bbox: BoundingBox
+
 class RenderResponse(BaseModel):
     success: bool
     files: List[FileData] = []
     message: str = ""
+    # None when the code assigned no root_part or the measurement failed.
+    geometry: Optional[Geometry] = None
 
 class ExtractParamsRequest(BaseModel):
     code: str
@@ -155,6 +166,27 @@ class ValidateProjectResponse(BaseModel):
     errors: List[str] = []
     warnings: List[LintWarning] = []
     file_errors: dict = {}   # { "components/gear.py": ["error msg"] }
+
+def measure_geometry(namespace: dict) -> Optional[Geometry]:
+    """The geometry block for root_part, the compound the execution template
+    writes to STEP/STL (#137). None when there is nothing to measure; a
+    measurement error is logged and never fails the render."""
+    root_part = namespace.get("root_part")
+    if root_part is None:
+        logger.info("No root_part in the executed code: no geometry block")
+        return None
+    try:
+        bb = root_part.bounding_box()
+        return Geometry(
+            solid_count=len(root_part.solids()),
+            bbox=BoundingBox(
+                min=[bb.min.X, bb.min.Y, bb.min.Z],
+                max=[bb.max.X, bb.max.Y, bb.max.Z],
+            ),
+        )
+    except Exception as e:
+        logger.warning("Geometry measurement failed: %s", e)
+        return None
 
 # ── Lint rules ────────────────────────────────────────────────────────
 
@@ -456,7 +488,8 @@ def render_post(request: RenderRequest):
         logger.info(f"Starting render_post for file: {request.filename}")
         # Execute the provided code
         logger.info(f"Executing code: {request.code}")
-        exec(request.code, {})
+        namespace: dict = {}
+        exec(request.code, namespace)
 
         # Extract base filename without extension
         base_filename = os.path.splitext(request.filename)[0]
@@ -489,7 +522,8 @@ def render_post(request: RenderRequest):
         response = RenderResponse(
             success=True,
             files=files_data,
-            message=f"Successfully generated {len(files_data)} file(s)"
+            message=f"Successfully generated {len(files_data)} file(s)",
+            geometry=measure_geometry(namespace),
         )
         return JSONResponse(
             content=response.dict(),
@@ -572,7 +606,8 @@ def render_project(request: RenderProjectRequest):
 
         # Execute main.py content directly (same pattern as /render/)
         logger.info("Executing project main.py from tmpdir: %s", tmpdir)
-        exec(main_file.content, {})
+        namespace: dict = {}
+        exec(main_file.content, namespace)
 
         # Glob for output files (same pattern as /render/)
         base_filename = os.path.splitext(request.filename)[0]
@@ -603,6 +638,7 @@ def render_project(request: RenderProjectRequest):
             success=True,
             files=files_data,
             message=f"Successfully generated {len(files_data)} file(s)",
+            geometry=measure_geometry(namespace),
         )
         return JSONResponse(
             content=response.dict(),

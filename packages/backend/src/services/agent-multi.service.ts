@@ -377,6 +377,7 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
       code: "",
       files: [],
       renderedFiles: [],
+      renderGeometry: null,
       renderSuccess: false,
       usage: {
         promptTokens: totalPromptTokens,
@@ -517,6 +518,7 @@ export async function runMultiAgentCodegen(input: AgentCodegenInput): Promise<Ag
     code: assemblyResult.code,
     files: allFiles,
     renderedFiles: assemblyResult.renderedFiles,
+    renderGeometry: assemblyResult.renderGeometry,
     renderSuccess: assemblyResult.renderSuccess,
     usage: {
       promptTokens: totalPromptTokens,

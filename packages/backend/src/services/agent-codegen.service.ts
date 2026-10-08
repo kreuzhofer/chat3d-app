@@ -17,6 +17,7 @@ import { createLogger } from "../utils/logger.js";
 import { AgentFilesystem } from "./agent-filesystem.service.js";
 import { preRetrieveReferenceKnowledge, formatReferenceSection } from "./knowledge-search.service.js";
 import type { RenderedFile, ProjectFile } from "./rendering.service.js";
+import type { RenderGeometry } from "./render-geometry.js";
 import {
   createProviderModel,
   buildGenerateOptions,
@@ -126,6 +127,8 @@ export interface AgentCodegenResult {
   files: Array<{ path: string; content: string }>;
   /** Rendered output files (STEP, STL, 3MF) */
   renderedFiles: RenderedFile[];
+  /** The service's measurement of the last rendered model (#137); null when none was made. */
+  renderGeometry: RenderGeometry | null;
   /** Whether render succeeded */
   renderSuccess: boolean;
   /** Token usage */
@@ -232,6 +235,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
   // Track state
   let submitted = false;
   let lastRenderedFiles: RenderedFile[] = [];
+  let lastRenderGeometry: RenderGeometry | null = null;
   let renderSuccess = false;
   let evalResult: AgentEvalResult | null = null;
   let lastScreenshots: import("./stl-rendering-client.service.js").RenderedScreenshot[] = [];
@@ -274,8 +278,9 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       baseFileName,
       signal,
       onProgress,
-      onRenderSuccess: (files) => {
+      onRenderSuccess: (files, geometry) => {
         lastRenderedFiles = files;
+        lastRenderGeometry = geometry;
         renderSuccess = true;
       },
       onScreenshotsReady: (screenshots) => { lastScreenshots = screenshots; },
@@ -564,7 +569,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
     }
 
     return {
-      code: finalCode, files: allFiles, renderedFiles: lastRenderedFiles, renderSuccess,
+      code: finalCode, files: allFiles, renderedFiles: lastRenderedFiles, renderGeometry: lastRenderGeometry, renderSuccess,
       usage: {
         promptTokens: totalPromptTokens, completionTokens: totalCompletionTokens,
         reasoningTokens: totalReasoningTokens,
@@ -595,7 +600,7 @@ export async function runAgentCodegen(input: AgentCodegenInput): Promise<AgentCo
       logger.info("agent codegen aborted by signal");
       return {
         code: fs.getMainCode() ?? "", files: fs.getFiles(),
-        renderedFiles: lastRenderedFiles, renderSuccess,
+        renderedFiles: lastRenderedFiles, renderGeometry: lastRenderGeometry, renderSuccess,
         usage: {
           promptTokens: totalPromptTokens, completionTokens: totalCompletionTokens,
           reasoningTokens: totalReasoningTokens,

@@ -94,6 +94,10 @@ _Avoid_: criterion string, check, annotated criterion
 The number of separate solid bodies the spec says the finished model consists of: the parts the request names separately, 1 when it names none. Stated by spec generation beside the atoms and stored on the prompt; the measured solid count is checked against it. A spec reply without a valid count (an integer ≥ 1) is refused like a reply of bare strings (#136).
 _Avoid_: part count, number of parts (ambiguous with features)
 
+**Measured solid count**:
+The number of separate solids in the exported model (root_part, the compound written to STEP/STL), counted by the Build123d service at render time and returned in the render response's geometry block beside the bounding box; fused parts are one solid. Stored with every evaluated example. Never estimated: no block means no count (#137).
+_Avoid_: body count (that is the spec's expectation), parts inventory
+
 **Assumption**:
 A choice the spec made where the prompt was silent. Never gates. Becomes a Requirement only once a clarification pass writes it into the prompt.
 _Avoid_: default, interpretation

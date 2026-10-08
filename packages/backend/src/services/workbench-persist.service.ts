@@ -41,6 +41,8 @@ export async function insertExample(data: {
   evalChecklistResults: Array<{ question: string; pass: boolean; detail: string }> | null;
   /** The code reviewer's answers to the code-routed items (ADR 0001, #105). */
   codeChecklistResults?: Array<{ question: string; pass: boolean | null; detail: string }> | null;
+  /** The solid count the render service measured (#137); undefined leaves a stored value alone. */
+  measuredSolidCount?: number | null;
   approvalStatus: string;
   /** The gate rule that derived approvalStatus (ADR 0001); null when a human or an early exit set it. */
   gateVersion?: string | null;
@@ -98,6 +100,7 @@ export async function insertExample(data: {
       evalSuggestions: data.evalSuggestions ?? undefined,
       evalChecklistResults: data.evalChecklistResults ?? undefined,
       codeChecklistResults: data.codeChecklistResults ?? undefined,
+      measuredSolidCount: data.measuredSolidCount,
       approvalStatus: data.approvalStatus,
       gateVersion: data.gateVersion ?? null,
       rejectionNote: data.rejectionNote ?? null,
@@ -150,6 +153,7 @@ export async function insertExample(data: {
       evalSuggestions: data.evalSuggestions ?? undefined,
       evalChecklistResults: data.evalChecklistResults ?? undefined,
       codeChecklistResults: data.codeChecklistResults ?? undefined,
+      measuredSolidCount: data.measuredSolidCount,
       approvalStatus: data.approvalStatus,
       gateVersion: data.gateVersion ?? null,
       rejectionNote: data.rejectionNote ?? null,

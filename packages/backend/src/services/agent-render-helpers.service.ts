@@ -11,6 +11,7 @@ import {
   type RenderedFile,
   RenderingServiceError,
 } from "./rendering.service.js";
+import type { RenderGeometry } from "./render-geometry.js";
 import { renderModelScreenshots } from "./stl-rendering-client.service.js";
 import { evaluateModel } from "./visual-eval.service.js";
 import { selectStandardViews } from "./visual-eval-views.js";
@@ -72,6 +73,8 @@ export interface RenderResult {
   success: boolean;
   text: string;
   files: RenderedFile[];
+  /** The service's measurement of the exported model (#137); null on failure or when none was made. */
+  geometry: RenderGeometry | null;
 }
 
 export async function doRender(
@@ -89,6 +92,7 @@ export async function doRender(
       success: true,
       text: `Render SUCCEEDED. Generated ${result.files.length} file(s): ${fileList}`,
       files: result.files,
+      geometry: result.geometry,
     };
   } catch (err) {
     if (err instanceof RenderingServiceError) {
@@ -98,6 +102,7 @@ export async function doRender(
           success: false,
           text: `Render FAILED (infrastructure error — not a code issue): ${err.message}\n\nThis is a service issue, not a problem with your code. You may try again.`,
           files: [],
+          geometry: null,
         };
       }
       const isMeshError = err.message.includes("mesh is invalid") || err.message.includes("mesh is not valid");
@@ -108,6 +113,7 @@ export async function doRender(
         success: false,
         text: `Render FAILED.\n\nError: ${err.message}${meshHint}\n\nPlease fix the code and validate again before re-rendering.`,
         files: [],
+        geometry: null,
       };
     }
     const msg = err instanceof Error ? err.message : String(err);
@@ -116,6 +122,7 @@ export async function doRender(
       success: false,
       text: `Render FAILED with unexpected error: ${msg}`,
       files: [],
+      geometry: null,
     };
   }
 }
